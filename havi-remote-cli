@@ -42,8 +42,8 @@ def fire(conn, msg):
 
 def mouse_msg(event, x, y):
     last_pos[0], last_pos[1] = x, y
-    return {event: {"button_raw_bits": 1, "x": float(x), "y": float(y), "time": 0.0,
-                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}}
+    return {event: [{"button_raw_bits": 1, "x": float(x), "y": float(y), "time": 0.0,
+                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}]}
 
 KEY_MAP = {
     "enter": "ReturnKey", "tab": "Tab", "escape": "Escape", "backspace": "Backspace",
@@ -54,8 +54,8 @@ KEY_MAP = {
 
 def key_msg(event, name):
     key = KEY_MAP.get(name.lower(), name)
-    return {event: {"key_code": key, "is_repeat": False,
-                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}}
+    return {event: [{"key_code": key, "is_repeat": False, "time": 0.0,
+                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}]}
 
 STEP_RE = re.compile(r'^(\w+)\((.*)\)$')
 
@@ -87,8 +87,8 @@ def run_step(conn, step):
         fire(conn, mouse_msg("MouseUp", x, y))
     elif cmd == 'type':
         text = args_str  # preserve commas in text
-        fire(conn, {"TextInput": {"input": text, "replace_last": False,
-                                        "was_paste": False}})
+        fire(conn, {"TextInput": [{"input": text, "replace_last": False,
+                                        "was_paste": False}]})
     elif cmd == 'key':
         name = args[0]
         fire(conn, key_msg("KeyDown", name))
