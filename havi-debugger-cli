@@ -1,0 +1,559 @@
+#!/usr/bin/env -S uv --quiet run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "geckordp",
+# ]
+# ///
+"""HAVI debugger CLI - control a running HAVI browser via devtools protocol.
+
+Subcommands:
+    tabs                List open tabs
+    eval <js>           Evaluate JavaScript (auto-awaits Promises)
+    navigate <url>      Navigate and wait for load
+    wait-for <expr>     Poll expression until truthy
+    events              Stream browser events as JSONL
+    repl                Interactive eval session (stdin line-by-line)
+    screenshot [file]   Capture viewport screenshot as PNG
+
+Global options:
+    --port N, -p N      Devtools port (default: $HAVI_DEBUG_PORT or 6000)
+    --timeout N         Timeout in seconds (default: 10)
+    --text              Human-readable output instead of JSON
+
+Environment:
+    HAVI_DEBUG_PORT     Devtools port (preferred)
+    SERVO_DEBUG_PORT    Devtools port (fallback)
+    DEBUG               Show debug output if set
+"""
+
+import argparse
+import base64
+import json
+import logging
+import os
+import sys
+import threading
+import time
+
+from geckordp.rdp_client import RDPClient
+from geckordp.actors.root import RootActor
+from geckordp.actors.descriptors.tab import TabActor
+from geckordp.actors.web_console import WebConsoleActor
+from geckordp.actors.events import Events
+
+EXIT_OK = 0
+EXIT_USAGE = 2
+EXIT_CONNECTION = 3
+EXIT_TIMEOUT = 4
+EXIT_JS_EXCEPTION = 5
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def debug(msg):
+    if os.environ.get("DEBUG"):
+        print(f"[debug] {msg}", file=sys.stderr)
+
+
+def port_from_env():
+    return int(os.environ.get("HAVI_DEBUG_PORT") or os.environ.get("SERVO_DEBUG_PORT") or "6000")
+
+
+def output_ok(text_mode, value):
+    if text_mode:
+        if isinstance(value, (dict, list)):
+            print(json.dumps(value, indent=2))
+        elif value is None:
+            pass
+        else:
+            print(value)
+    else:
+        print(json.dumps({"ok": True, "value": value}))
+
+
+def output_error(text_mode, code, error, message):
+    if text_mode:
+        print(f"ERROR: {message}", file=sys.stderr)
+    else:
+        print(json.dumps({"ok": False, "error": error, "message": message}))
+    raise SystemExit(code)
+
+
+# ---------------------------------------------------------------------------
+# Connection
+# ---------------------------------------------------------------------------
+
+def connect(port, text_mode=False):
+    """Connect to Servo devtools. Returns (client, target_actor_id, console_actor_id, console)."""
+    client = RDPClient()
+    try:
+        client.connect("localhost", port)
+    except Exception as e:
+        output_error(text_mode, EXIT_CONNECTION, "connection", f"failed to connect localhost:{port}: {e}")
+
+    root = RootActor(client)
+    tabs = root.list_tabs()
+    if not tabs:
+        client.disconnect()
+        output_error(text_mode, EXIT_CONNECTION, "connection", "no tabs open")
+
+    tab_actor = TabActor(client, tabs[0]["actor"])
+    target = tab_actor.get_target()
+
+    target_actor_id = target.get("actor")
+    if not target_actor_id:
+        client.disconnect()
+        output_error(text_mode, EXIT_CONNECTION, "connection", "no target actor")
+
+    console_actor_id = target.get("consoleActor") or target.get("console")
+    if not console_actor_id:
+        client.disconnect()
+        output_error(text_mode, EXIT_CONNECTION, "connection", "no console actor")
+
+    console = WebConsoleActor(client, console_actor_id)
+
+    # Servo doesn't support start_listeners - suppress geckordp error logging
+    geckordp_logger = logging.getLogger("geckordp")
+    old_level = geckordp_logger.level
+    geckordp_logger.setLevel(logging.CRITICAL)
+    try:
+        console.start_listeners([
+            WebConsoleActor.Listeners.PAGE_ERROR,
+            WebConsoleActor.Listeners.CONSOLE_API,
+        ])
+    except Exception:
+        pass
+    finally:
+        geckordp_logger.setLevel(old_level)
+
+    return client, target_actor_id, console_actor_id, console
+
+
+# ---------------------------------------------------------------------------
+# Eval core (reused from original - threading-based async result capture)
+# ---------------------------------------------------------------------------
+
+def evaluate_js(client, console, console_actor_id, js, timeout=10.0):
+    """Evaluate JS and wait for result. Returns raw result dict or None on timeout."""
+    result_event = threading.Event()
+    eval_result = {}
+
+    def on_result(data):
+        if "result" in data or "exception" in data or "exceptionMessage" in data:
+            eval_result.update(data)
+            result_event.set()
+
+    client.add_event_listener(
+        console_actor_id,
+        Events.WebConsole.EVALUATION_RESULT,
+        on_result,
+    )
+
+    debug(f"Evaluating: {js}")
+    console.evaluate_js_async(js)
+
+    if not result_event.wait(timeout=timeout):
+        return None
+
+    return eval_result
+
+
+def extract_value(result):
+    """Extract value from eval result dict. Raises RuntimeError on JS exception."""
+    if result is None:
+        return None
+
+    if result.get("exception") or result.get("exceptionMessage"):
+        msg = result.get("exceptionMessage") or str(result.get("exception", "Unknown error"))
+        raise RuntimeError(msg)
+
+    value = result.get("result", result)
+    if isinstance(value, dict):
+        if "value" in value:
+            return value["value"]
+        if value.get("type") == "undefined":
+            return None
+        return value
+    return value
+
+
+def eval_and_extract(client, console, console_actor_id, js, timeout=10.0):
+    """Evaluate JS, extract value. Raises RuntimeError on exception, returns None on timeout."""
+    result = evaluate_js(client, console, console_actor_id, js, timeout)
+    if result is None:
+        return None
+    return extract_value(result)
+
+
+def is_promise_result(result):
+    """Check if an eval result is a pending Promise object."""
+    if result is None:
+        return False
+    value = result.get("result", {})
+    return isinstance(value, dict) and value.get("class") == "Promise"
+
+
+def evaluate_js_await(client, console, console_actor_id, js, timeout=10.0):
+    """Evaluate JS, awaiting Promise results.
+
+    Settled Promises are unwrapped by debugger.js automatically.
+    For pending Promises (async operations), uses a two-eval pattern:
+    1. Store result on a temp global via .then()
+    2. Read the stored value in a follow-up eval (microtasks and timers
+       run between evals, so the Promise will have resolved)
+
+    Returns raw result dict (same shape as evaluate_js).
+    """
+    result = evaluate_js(client, console, console_actor_id, js, timeout)
+    if result is None or not is_promise_result(result):
+        return result
+
+    # Pending Promise — use two-eval resolve pattern.
+    import random
+    key = f"_dbg_{random.randint(0, 2**48):012x}"
+    wrapper = (
+        f"window['{key}'] = undefined; "
+        f"Promise.resolve(({js})).then("
+        f"  function(v) {{ window['{key}'] = {{v: v}}; }},"
+        f"  function(e) {{ window['{key}'] = {{e: String(e)}}; }}"
+        f"); '{key}'"
+    )
+    debug(f"Pending promise, storing via: {wrapper}")
+    evaluate_js(client, console, console_actor_id, wrapper, timeout)
+
+    # Read the stored value. The script thread processes its event loop
+    # between devtools evals, allowing macrotasks (timers, I/O callbacks)
+    # to run and resolve the Promise. We retry the read eval to give the
+    # event loop time to settle.
+    read_js = (
+        f"(function() {{"
+        f"  var r = window['{key}'];"
+        f"  if (r === undefined) return void 0;"
+        f"  delete window['{key}'];"
+        f"  if (r.e !== undefined) throw new Error(r.e);"
+        f"  return r.v;"
+        f"}})()"
+    )
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = evaluate_js(client, console, console_actor_id, read_js, timeout=2.0)
+        if result is not None:
+            value = result.get("result", {})
+            if not (isinstance(value, dict) and value.get("type") == "undefined"):
+                return result
+        time.sleep(0.05)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Event listeners
+# ---------------------------------------------------------------------------
+
+def format_page_error(data):
+    error = data.get("pageError", data)
+    return {
+        "message": error.get("errorMessage", ""),
+        "sourceURL": error.get("sourceName", ""),
+        "lineNumber": error.get("lineNumber"),
+        "category": error.get("category", ""),
+        "isWarning": error.get("warning", False),
+    }
+
+
+def format_console_message(data):
+    msg = data.get("message", data)
+    return {
+        "level": msg.get("level", "log"),
+        "arguments": msg.get("arguments", []),
+        "sourceURL": msg.get("filename") or msg.get("sourceName", ""),
+        "lineNumber": msg.get("lineNumber") or msg.get("line_number"),
+    }
+
+
+def setup_streaming_listeners(client, target_actor_id, console_actor_id):
+    """Set up event listeners that print JSONL to stdout."""
+
+    def emit(event_type, data):
+        obj = {"event": event_type}
+        obj.update(data)
+        print(json.dumps(obj), flush=True)
+
+    def on_navigate(data):
+        emit("tabNavigated", {
+            "url": data.get("url", ""),
+            "title": data.get("title"),
+            "state": data.get("state", ""),
+        })
+
+    def on_page_error(data):
+        emit("pageError", format_page_error(data))
+
+    def on_console_api_call(data):
+        emit("consoleAPICall", format_console_message(data))
+
+    client.add_event_listener(target_actor_id, Events.Browser.TAB_NAVIGATED, on_navigate)
+    client.add_event_listener(console_actor_id, Events.WebConsole.PAGE_ERROR, on_page_error)
+    client.add_event_listener(console_actor_id, Events.WebConsole.CONSOLE_API_CALL, on_console_api_call)
+
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_tabs(args):
+    client = RDPClient()
+    try:
+        client.connect("localhost", args.port)
+    except Exception as e:
+        output_error(args.text, EXIT_CONNECTION, "connection", f"failed to connect localhost:{args.port}: {e}")
+
+    root = RootActor(client)
+    tabs = root.list_tabs()
+    value = [{"index": i, "url": t.get("url", ""), "title": t.get("title", "")} for i, t in enumerate(tabs)]
+    client.disconnect()
+    output_ok(args.text, value)
+
+
+def cmd_eval(args):
+    js = args.js
+    if js is None and not sys.stdin.isatty():
+        js = sys.stdin.read().strip()
+    if not js:
+        output_error(args.text, EXIT_USAGE, "usage", "no javascript provided")
+
+    client, target_actor_id, console_actor_id, console = connect(args.port, args.text)
+    try:
+        eval_fn = evaluate_js_await if getattr(args, 'await_promise', False) else evaluate_js
+        result = eval_fn(client, console, console_actor_id, js, timeout=args.timeout)
+        if result is None:
+            output_error(args.text, EXIT_TIMEOUT, "timeout", f"eval timeout after {args.timeout}s")
+        try:
+            value = extract_value(result)
+        except RuntimeError as e:
+            output_error(args.text, EXIT_JS_EXCEPTION, "js_exception", str(e))
+        output_ok(args.text, value)
+    finally:
+        client.disconnect()
+
+
+def cmd_navigate(args):
+    client, target_actor_id, console_actor_id, console = connect(args.port, args.text)
+
+    # Listen for navigation events
+    nav_events = []
+
+    def on_navigate(data):
+        nav_events.append(data)
+
+    client.add_event_listener(target_actor_id, Events.Browser.TAB_NAVIGATED, on_navigate)
+
+    deadline = time.time() + args.timeout
+    try:
+        # Trigger navigation
+        eval_and_extract(client, console, console_actor_id,
+                         f"window.address.href = {json.dumps(args.url)}", timeout=5.0)
+
+        # Wait for stop event or readyState complete
+        while time.time() < deadline:
+            # Check for tabNavigated stop event
+            for ev in nav_events:
+                if ev.get("state") == "stop":
+                    url = ev.get("url", args.url)
+                    output_ok(args.text, url)
+                    return
+
+            # Fallback: check readyState
+            try:
+                ready = eval_and_extract(client, console, console_actor_id,
+                                         "document.readyState", timeout=2.0)
+                if ready == "complete":
+                    try:
+                        url = eval_and_extract(client, console, console_actor_id,
+                                               "window.address.href", timeout=2.0)
+                    except Exception:
+                        url = args.url
+                    output_ok(args.text, url or args.url)
+                    return
+            except Exception:
+                pass
+
+            time.sleep(0.1)
+
+        output_error(args.text, EXIT_TIMEOUT, "timeout", f"navigation timeout after {args.timeout}s")
+    finally:
+        client.disconnect()
+
+
+def cmd_wait_for(args):
+    client, target_actor_id, console_actor_id, console = connect(args.port, args.text)
+    deadline = time.time() + args.timeout
+    interval = max(1, args.interval) / 1000.0
+
+    try:
+        while time.time() < deadline:
+            try:
+                value = eval_and_extract(client, console, console_actor_id, args.expr, timeout=5.0)
+                if value:
+                    output_ok(args.text, value)
+                    return
+            except (RuntimeError, Exception):
+                pass
+            time.sleep(interval)
+
+        output_error(args.text, EXIT_TIMEOUT, "timeout", f"condition not met within {args.timeout}s")
+    finally:
+        client.disconnect()
+
+
+def cmd_screenshot(args):
+    client = RDPClient()
+    try:
+        client.connect("localhost", args.port)
+    except Exception as e:
+        output_error(args.text, EXIT_CONNECTION, "connection", f"failed to connect localhost:{args.port}: {e}")
+
+    # Get screenshot actor name from root
+    root_reply = client.send_receive({"to": "root", "type": "getRoot"})
+    screenshot_actor = root_reply.get("screenshotActor") if root_reply else None
+    if not screenshot_actor:
+        client.disconnect()
+        output_error(args.text, EXIT_CONNECTION, "connection", "no screenshot actor available")
+
+    # Capture
+    reply = client.send_receive({"to": screenshot_actor, "type": "capture"})
+    client.disconnect()
+
+    if not reply:
+        output_error(args.text, EXIT_TIMEOUT, "timeout", "screenshot capture timed out")
+
+    if "error" in reply:
+        output_error(args.text, EXIT_CONNECTION, "screenshot", reply["error"])
+
+    png_data = base64.b64decode(reply["data"])
+
+    if args.file:
+        with open(args.file, "wb") as f:
+            f.write(png_data)
+        if args.text:
+            print(f"Wrote {len(png_data)} bytes to {args.file}")
+        else:
+            output_ok(args.text, {"file": args.file, "size": len(png_data),
+                                  "width": reply.get("width"), "height": reply.get("height")})
+    else:
+        sys.stdout.buffer.write(png_data)
+
+
+def cmd_events(args):
+    client, target_actor_id, console_actor_id, console = connect(args.port, args.text)
+    setup_streaming_listeners(client, target_actor_id, console_actor_id)
+    print(json.dumps({"event": "ready"}), flush=True)
+
+    try:
+        # Block until interrupted
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        client.disconnect()
+
+
+def cmd_repl(args):
+    client, target_actor_id, console_actor_id, console = connect(args.port, args.text)
+    setup_streaming_listeners(client, target_actor_id, console_actor_id)
+    print(json.dumps({"event": "ready"}), flush=True)
+
+    try:
+        for line in sys.stdin:
+            js = line.strip()
+            if not js:
+                continue
+
+            result = evaluate_js(client, console, console_actor_id, js, timeout=args.timeout)
+            if result is None:
+                print(json.dumps({"event": "error", "error": "timeout", "message": "eval timeout"}), flush=True)
+                continue
+
+            try:
+                value = extract_value(result)
+                print(json.dumps({"event": "evalResult", "value": value}), flush=True)
+            except RuntimeError as e:
+                print(json.dumps({"event": "error", "error": "js_exception", "message": str(e)}), flush=True)
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="havi-debugger-cli",
+        description="Control a running HAVI browser via devtools protocol",
+    )
+    p.add_argument("--port", "-p", type=int, default=port_from_env(),
+                   help="Devtools port (default: $HAVI_DEBUG_PORT or 6000)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Timeout in seconds (default: 10)")
+    p.add_argument("--text", action="store_true",
+                   help="Human-readable output instead of JSON")
+
+    sub = p.add_subparsers(dest="cmd")
+
+    sub.add_parser("tabs", help="List open tabs")
+
+    pe = sub.add_parser("eval", help="Evaluate JavaScript")
+    pe.add_argument("js", nargs="?", help="JavaScript to evaluate (reads stdin if omitted)")
+    pe.add_argument("--await", dest="await_promise", action="store_true",
+                    help="Await Promise results before returning")
+
+    pn = sub.add_parser("navigate", help="Navigate to URL and wait for load")
+    pn.add_argument("url", help="URL to navigate to")
+
+    pw = sub.add_parser("wait-for", help="Poll expression until truthy")
+    pw.add_argument("expr", help="JavaScript expression to poll")
+    pw.add_argument("--interval", type=int, default=100,
+                    help="Poll interval in ms (default: 100)")
+
+    sub.add_parser("events", help="Stream browser events as JSONL")
+
+    sub.add_parser("repl", help="Interactive eval session (stdin line-by-line)")
+
+
+    ps = sub.add_parser("screenshot", help="Capture viewport screenshot as PNG")
+    ps.add_argument("file", nargs="?", help="Output file (default: stdout)")
+    return p
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    dispatch = {
+        "tabs": cmd_tabs,
+        "eval": cmd_eval,
+        "navigate": cmd_navigate,
+        "wait-for": cmd_wait_for,
+        "events": cmd_events,
+        "repl": cmd_repl,
+        "screenshot": cmd_screenshot,
+    }
+
+    if not args.cmd:
+        parser.print_help(sys.stderr)
+        raise SystemExit(EXIT_USAGE)
+
+    dispatch[args.cmd](args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except BrokenPipeError:
+        pass

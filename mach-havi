@@ -1,0 +1,28 @@
+#!/bin/sh
+# shellcheck shell=sh disable=all
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# Polyglot shell/python launcher for the havishell port of havi.
+# Mirrors servo's ./mach pattern: the shell preamble re-executes via
+# uv run, then Python imports the real logic from ports/havishell/.
+''':' && {
+    MACH_HAVI_DIR=$(dirname "$0")
+    exec uv run --frozen --project "$MACH_HAVI_DIR" python "$MACH_HAVI_DIR/mach-havi" "$@"
+}
+'''
+
+import os
+import sys
+
+def main():
+    topdir = os.path.abspath(os.path.dirname(__file__))
+    sys.path.insert(0, os.path.join(topdir, "python"))
+    sys.path.insert(0, topdir)
+    sys.path.insert(0, os.path.join(topdir, "ports", "havishell"))
+    import mach_havi_main
+    sys.exit(mach_havi_main.run(topdir))
+
+if __name__ == '__main__':
+    main()

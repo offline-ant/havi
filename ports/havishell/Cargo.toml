@@ -1,0 +1,41 @@
+[package]
+name = "havishell"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "havishell"
+path = "src/lib.rs"
+
+[[bin]]
+name = "havi"
+path = "src/main.rs"
+
+[features]
+default = ["js_jit", "max_log_level"]
+crown = ["libservo/crown"]
+debugmozjs = ["libservo/debugmozjs"]
+jitspew = ["libservo/jitspew"]
+js_backtrace = ["libservo/js_backtrace"]
+js_jit = ["libservo/js_jit"]
+max_log_level = ["log/release_max_level_info"]
+media-gstreamer = ["libservo/media-gstreamer"]
+native-bluetooth = ["libservo/native-bluetooth"]
+profilemozjs = ["libservo/profilemozjs"]
+refcell_backtrace = ["libservo/refcell_backtrace"]
+webgl_backtrace = ["libservo/webgl_backtrace"]
+webgpu = ["libservo/webgpu"]
+
+[dependencies]
+makepad-widgets = { path = "../../../makepad/widgets" }
+libservo = { path = "../../components/servo", features = ["background_hang_monitor"], default-features = false }
+url = "2"
+log = "0.4"
+keyboard-types = "0.8"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+dpi = "0.1"
+euclid = "0.22"
+havi-protocols = { path = "../../havi-protocols" }
+hppr-client = { workspace = true }
