@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use background_hang_monitor::HangMonitorRegister;
-use base::generic_channel::{GenericCallback, GenericSender, RoutedReceiver};
+use base::generic_channel::{GenericCallback, RoutedReceiver};
+#[cfg(feature = "bluetooth")]
+use base::generic_channel::GenericSender;
 pub use base::id::WebViewId;
 use base::id::{PipelineNamespace, PipelineNamespaceId};
 #[cfg(feature = "bluetooth")]

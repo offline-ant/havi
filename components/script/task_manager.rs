@@ -141,9 +141,8 @@ impl TaskManager {
     task_source_functions!(self, dom_manipulation_task_source, DOMManipulation);
     task_source_functions!(self, file_reading_task_source, FileReading);
     task_source_functions!(self, font_loading_task_source, FontLoading);
+    #[cfg(feature = "gamepad")]
     task_source_functions!(self, gamepad_task_source, Gamepad);
-    // FIXME(arihant2math): uncomment when geolocation is implemented.
-    // task_source_functions!(self, geolocation_task_source, Geolocation);
     task_source_functions!(self, media_element_task_source, MediaElement);
     task_source_functions!(self, networking_task_source, Networking);
     task_source_functions!(self, performance_timeline_task_source, PerformanceTimeline);
@@ -157,5 +156,6 @@ impl TaskManager {
         intersection_observer_task_source,
         IntersectionObserver
     );
+    #[cfg(feature = "webgpu")]
     task_source_functions!(self, webgpu_task_source, WebGPU);
 }

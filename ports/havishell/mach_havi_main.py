@@ -636,6 +636,17 @@ def _build_desktop(args: argparse.Namespace) -> int:
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """Run cargo check with the same environment as build."""
+    env = setup_desktop_env()
+    cmd = ["cargo", "check", "--manifest-path", str(HAVISHELL_DIR / "Cargo.toml")]
+    if args.extra:
+        cmd.extend(args.extra)
+
+    _log("desktop check", env=env, cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if args.emulator:
         return _run_emulator(args)
@@ -727,6 +738,7 @@ def run(topdir: str) -> int:
 
     for name, handler, verb in [
         ("build", cmd_build, "Build"),
+        ("check", cmd_check, "Check"),
         ("run", cmd_run, "Run"),
     ]:
         p = sub.add_parser(name, help=f"{verb} havishell")

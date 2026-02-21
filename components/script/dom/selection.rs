@@ -17,7 +17,7 @@ use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::document::Document;
 use crate::dom::eventtarget::EventTarget;
-use crate::dom::node::{Node, NodeTraits};
+use crate::dom::node::{Node, NodeDamage, NodeTraits};
 use crate::dom::range::Range;
 use crate::script_runtime::CanGc;
 
@@ -68,6 +68,10 @@ impl Selection {
         self.range.set(Some(range));
         range.associate_selection(self);
         self.queue_selectionchange_task();
+        // Dirty the document to trigger reflow with updated selection data.
+        self.document
+            .upcast::<Node>()
+            .dirty(NodeDamage::Other);
     }
 
     fn clear_range(&self) {
@@ -77,6 +81,9 @@ impl Selection {
             range.disassociate_selection(self);
             self.range.set(None);
             self.queue_selectionchange_task();
+            self.document
+                .upcast::<Node>()
+                .dirty(NodeDamage::Other);
         }
     }
 
