@@ -54,6 +54,8 @@ KEY_MAP = {
     "delete": "Delete", "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft",
     "right": "ArrowRight", "home": "Home", "end": "End", "pageup": "PageUp",
     "pagedown": "PageDown", "space": "Space",
+    **{c: f"Key{c.upper()}" for c in "abcdefghijklmnopqrstuvwxyz"},
+    **{d: f"Key{d}" for d in "0123456789"},
 }
 
 def key_msg(event, name):
@@ -101,6 +103,12 @@ def run_step(conn, step):
     elif cmd == 'key':
         name = args[0]
         fire(conn, key_msg("KeyDown", name))
+        # For printable character keys, also send TextInput since remote
+        # control KeyDown doesn't go through the OS IME layer.
+        char = name if len(name) == 1 else {"space": " ", "enter": "\n"}.get(name.lower())
+        if char:
+            fire(conn, {"TextInput": [{"input": char, "replace_last": False,
+                                       "was_paste": False}]})
         fire(conn, key_msg("KeyUp", name))
     elif cmd == 'screenshot':
         path = args[0]

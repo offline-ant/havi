@@ -768,9 +768,16 @@ impl App {
 
         // Print eval-compatible environment summary
         {
-            let target = hppr_client::repo_target();
-            println!("HAVI_REPO={}", havi_protocols::config::repo_dir().display());
-            println!("HAVI_BIND={}", target);
+            let repo_dir = havi_protocols::config::repo_dir();
+            println!("HPPRD_REPO={}", repo_dir.display());
+            if let Some(ref h) = self._embedded_hpprd {
+                let port = h.port();
+                println!("HPPRD_BIND=127.0.0.1:{}", port);
+                println!("HPPRD_BIND_WS=127.0.0.1:{}", port + 1);
+                println!("HPPRD_BIND_QUIB=127.0.0.1:{}", port.saturating_sub(1));
+                println!("HPPRD_BIND_UDP=127.0.0.1:{}", port);
+                println!("HPPRD_SOCK={}", repo_dir.join("hppr.sock").display());
+            }
             println!("HAVI_URL={}", start_url_str);
         }
 
@@ -1512,14 +1519,30 @@ impl MatchEvent for App {
                         }
                     }
 
-                    // ----- IME / soft-keyboard text input -----
-                    // Suppressed: Makepad fires both KeyDown and TextInput for
-                    // every character key.  KeyDown with Key::Character already
-                    // inserts text in Servo, so forwarding TextInput as an IME
-                    // composition causes double insertion.  When real IME
-                    // support is added, this path should be re-enabled with
-                    // deduplication against KeyDown.
-                    ServoWebViewAction::TextInput { .. } => {}
+                    // ----- IME / text input -----
+                    ServoWebViewAction::TextInput { input } => {
+                        if !input.is_empty() {
+                            self.send_input_event(servo::InputEvent::Keyboard(
+                                KeyboardEvent::from_state_and_key(
+                                    KeyState::Down,
+                                    Key::Named(NamedKey::Process),
+                                ),
+                            ));
+                            self.send_input_event(servo::InputEvent::Ime(
+                                ImeEvent::Composition(CompositionEvent {
+                                    state: CompositionState::End,
+                                    data: input.clone(),
+                                }),
+                            ));
+                            self.send_input_event(servo::InputEvent::Keyboard(
+                                KeyboardEvent::from_state_and_key(
+                                    KeyState::Up,
+                                    Key::Named(NamedKey::Process),
+                                ),
+                            ));
+                            handled_input = true;
+                        }
+                    }
                 }
             }
         }

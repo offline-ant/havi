@@ -174,6 +174,17 @@ pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<servo::InputE
         keyboard_types::KeyState::Up
     };
 
+    // Strip Key::Character from keyboard events.  Makepad fires both KeyDown
+    // and TextInput for every character key.  If we send Key::Character here,
+    // Servo inserts text from the keypress event AND from the IME composition
+    // (TextInput path), causing double input.  By using Unidentified, Servo
+    // still dispatches keydown/keyup DOM events (for shortcuts, tab, etc.)
+    // but does not treat the keydown as a text-inserting keypress.
+    let key = match key {
+        Key::Character(_) => Key::Named(NamedKey::Unidentified),
+        other => other,
+    };
+
     Some(servo::InputEvent::Keyboard(
         servo::KeyboardEvent::new(keyboard_types::KeyboardEvent {
             state,
