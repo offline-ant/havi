@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test: &lt;x&gt; Cross-Origin Access Restriction</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Cross-Origin Restriction Test</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <h2>Cross-Origin Element (same group, different app)</h2>
+  <x id="cross-origin" src="//test/other/embed.html" width="400" height="150"></x>
+
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_xelement_cross_origin() {
+        const x = document.getElementById('cross-origin');
+
+        log('--- Load event test ---');
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Load timeout after 5s'));
+            }, 5000);
+
+            x.addEventListener('load', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            x.addEventListener('error', (e) => {
+                clearTimeout(timeout);
+                reject(new Error('Error event: ' + (e.message || 'unknown')));
+            });
+        });
+        log('PASS: Load event fires');
+
+        log('--- Cross-origin access restriction tests ---');
+        assertEqual(x.contentDocument, null, 'contentDocument is null for cross-origin embed');
+
+        let contentWindowValue;
+        try {
+            contentWindowValue = x.contentWindow;
+            assert(contentWindowValue !== null, 'contentWindow is exposed for cross-origin embed');
+            assert(typeof contentWindowValue === 'object', 'contentWindow is a WindowProxy object');
+        } catch (e) {
+            assert(false, 'contentWindow access threw (got exception: ' + e.name + ': ' + e.message + ')');
+            return;
+        }
+
+        let threwSecurity = false;
+        let errorName = '';
+        try {
+            // Cross-origin window property access must be blocked by WindowProxy.
+            // eslint-disable-next-line no-unused-expressions
+            contentWindowValue.document;
+        } catch (e) {
+            threwSecurity = true;
+            errorName = e.name || '';
+        }
+        assert(threwSecurity, 'cross-origin contentWindow property access throws');
+        assertEqual(errorName, 'SecurityError', 'cross-origin error is SecurityError');
+    }
+
+    (async function() {
+        const summary = await window.runTests(suite_xelement_cross_origin, 'x-element-cross-origin');
+        window.testResults = summary;
+
+        document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+        document.getElementById('status').textContent = summary.failed === 0
+            ? 'All tests passed!'
+            : 'Some tests failed';
+        document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

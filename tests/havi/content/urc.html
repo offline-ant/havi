@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>URC/Address Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>URC/Address Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_urc() {
+        // --- URC constructor tests ---
+        log('--- URC constructor tests ---');
+        const urc1 = new URC('//chess/game/board.html');
+        assert(urc1 !== null, 'URC constructor works');
+        assertEqual(urc1.href, '//chess/game/board.html', 'URC.href returns input');
+
+        // --- URC accessor tests ---
+        log('--- URC accessor tests ---');
+        assertEqual(urc1.group, 'chess', 'URC.group returns group');
+        assertEqual(urc1.app, 'game', 'URC.app returns app');
+        assertEqual(urc1.location, 'board.html', 'URC.location returns location');
+        assertEqual(urc1.method, 'index', 'URC.method is index for coordinate');
+        assertEqual(urc1.isListing, false, 'URC.isListing false for file');
+
+        // --- URC with trailing slash ---
+        log('--- URC listing tests ---');
+        const listing = new URC('//chess/game/');
+        assertEqual(listing.isListing, true, 'URC.isListing true for directory');
+        assertEqual(listing.location, null, 'URC.location null for app root');
+
+        // --- URC coordinate tests ---
+        log('--- URC coordinate tests ---');
+        const coord = urc1.coordinate;
+        assertEqual(coord, '//chess/game/board.html', 'URC.coordinate returns full path');
+
+        const listingCoord = listing.coordinate;
+        assertEqual(listingCoord, '//chess/game/', 'listing coordinate ends with /');
+
+        // --- URC join tests ---
+        log('--- URC join tests ---');
+        const joined = urc1.join('../lobby/');
+        assertEqual(joined.href, '//chess/game/lobby/', 'URC.join() resolves ../');
+        assertEqual(joined.group, 'chess', 'joined URC preserves group');
+        assertEqual(joined.app, 'game', 'joined URC preserves app');
+        assertEqual(joined.isListing, true, 'joined URC detects listing');
+
+        const joined2 = listing.join('moves/1');
+        assertEqual(joined2.href, '//chess/game/moves/1', 'join relative to listing');
+
+        const absolute = urc1.join('//other/app/file');
+        assertEqual(absolute.href, '//other/app/file', 'join with absolute coordinate');
+
+        // --- URC setListing tests ---
+        log('--- URC setListing tests ---');
+        const asListing = urc1.setListing(true);
+        assertEqual(asListing.href, '//chess/game/board.html/', 'setListing(true) adds /');
+        assertEqual(asListing.isListing, true, 'setListing(true) changes isListing');
+
+        const asFile = listing.setListing(false);
+        assertEqual(asFile.isListing, false, 'setListing(false) removes /');
+
+        // --- URC error handling ---
+        log('--- URC error handling tests ---');
+        let error = null;
+        try { new URC('invalid'); } catch (e) { error = e; }
+        assert(error !== null, 'URC throws on invalid input');
+        assertEqual(error.name, 'SyntaxError', 'URC throws SyntaxError');
+
+        // JSONqa: curly braces are valid metadata suffix
+        const withJsonqa = new URC('//group/app/page{#:section,lang:en}');
+        assert(withJsonqa !== null, 'URC accepts JSONqa suffix');
+        assertEqual(withJsonqa.group, 'group', 'JSONqa URC has correct group');
+        assertEqual(withJsonqa.app, 'app', 'JSONqa URC has correct app');
+        assertEqual(withJsonqa.location, 'page', 'JSONqa URC location excludes suffix');
+
+        // --- URC selector tests (if available) ---
+        log('--- URC selector tests ---');
+        const plainSelector = urc1.getSelector();
+        assertEqual(plainSelector, null, 'plain URC has no selector');
+
+        // --- Address constructor tests ---
+        log('--- Address constructor tests ---');
+        const addr1 = new Address('hppr://chess/game/board.html');
+        assert(addr1 !== null, 'Address constructor works');
+        assertEqual(addr1.href, 'hppr://chess/game/board.html', 'Address.href returns input');
+
+        // --- Address scheme tests ---
+        log('--- Address scheme tests ---');
+        assertEqual(addr1.scheme, 'hppr', 'Address.scheme is hppr');
+        assertEqual(addr1.endpoint, null, 'Address.endpoint null for routed URL');
+        assertEqual(addr1.hasDirectEndpoint, false, 'hasDirectEndpoint false for routed');
+
+        const repo = new Address('hppr://chess/game/{via:repo}');
+        assertEqual(repo.scheme, 'hppr', 'hppr scheme with via=repo');
+        assertEqual(repo.endpoint, 'repo', 'via=repo returns raw endpoint value');
+
+        // --- Address with endpoint ---
+        log('--- Address endpoint tests ---');
+        const direct = new Address('hppr://chess/game/{via:192.168.1.5}');
+        assertEqual(direct.scheme, 'hppr', 'direct scheme is hppr');
+        assertEqual(direct.endpoint, '192.168.1.5:4777', 'endpoint with default port');
+        assertEqual(direct.hasDirectEndpoint, true, 'hasDirectEndpoint true for direct');
+
+        const withPort = new Address('hppr://chess/game/{via:192.168.1.5:4778}');
+        assertEqual(withPort.endpoint, '192.168.1.5:4778', 'endpoint with explicit port');
+
+        // --- Address convenience accessors ---
+        log('--- Address convenience accessor tests ---');
+        assertEqual(addr1.group, 'chess', 'Address.group works');
+        assertEqual(addr1.app, 'game', 'Address.app works');
+        assertEqual(addr1.location, 'board.html', 'Address.location works');
+        assertEqual(addr1.isListing, false, 'Address.isListing works');
+
+        // --- Address.urc [SameObject] ---
+        log('--- Address.urc SameObject tests ---');
+        const urcObj1 = addr1.urc;
+        const urcObj2 = addr1.urc;
+        assert(urcObj1 === urcObj2, 'Address.urc returns same object');
+        assertEqual(urcObj1.app, 'game', 'Address.urc.app works');
+
+        // --- Address scheme variants ---
+        log('--- Address scheme variant tests ---');
+        const addrSetup = new Address('hppr-setup://chess/game/{via:192.168.1.5}');
+        assertEqual(addrSetup.scheme, 'hppr-setup', 'hppr-setup scheme detected');
+        assertEqual(addrSetup.endpoint, '192.168.1.5:4777', 'hppr-setup has required endpoint');
+
+        const sandbox = new Address('hppr-sandbox://group/app/{via:10.0.0.5:4778}');
+        assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme detected');
+
+        const browse = new Address('hppr-browse://chess/game/assets/');
+        assertEqual(browse.scheme, 'hppr-browse', 'hppr-browse scheme detected');
+
+        // --- Address error handling ---
+        log('--- Address error handling tests ---');
+        let addrError = null;
+        try { new Address('http://example.com'); } catch (e) { addrError = e; }
+        assert(addrError !== null, 'Address throws on unknown scheme');
+        assertEqual(addrError.name, 'SyntaxError', 'Address throws SyntaxError');
+
+        let addrError2 = null;
+        try { new Address('hppr-setup://chess/game/'); } catch (e) { addrError2 = e; }
+        assert(addrError2 !== null, 'hppr-setup requires endpoint');
+
+        let addrError3 = null;
+        try { new Address('hppr-editor://chess/game/{via:127.0.0.1}'); } catch (e) { addrError3 = e; }
+        assert(addrError3 !== null, 'hppr-editor forbids endpoint');
+
+        // --- window.location disabled ---
+        log('--- window.location disabled tests ---');
+        let locErr = null;
+        try { void window.location; } catch (e) { locErr = e; }
+        assert(locErr instanceof TypeError, 'window.location throws TypeError');
+        assertContains(locErr.message, 'window.address', 'window.location error mentions window.address');
+
+        // --- window.address available ---
+        log('--- window.address tests ---');
+        assert(window.address !== null, 'window.address exists');
+        assert(window.address !== undefined, 'window.address is defined');
+        assertEqual(window.address.scheme, 'hppr', 'window.address.scheme is hppr');
+        assertEqual(window.address.group, 'urctest', 'window.address.group matches test group');
+        assertEqual(window.address.app, 'testapp', 'window.address.app matches test app');
+        assertEqual(window.address.location, 'urc.html', 'window.address.location matches file');
+        assertContains(window.address.href, 'hppr://', 'window.address.href contains scheme');
+        assertContains(window.address.href, 'urctest', 'window.address.href contains group');
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_urc, 'urc');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

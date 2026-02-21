@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI Chunk Seek Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI Chunk Seek Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <script src="test-utils.js"></script>
+
+  <script>
+    async function suite_chunk_seek() {
+        const ring1 = window.home;
+        const group = document.packet.group;
+        const app = document.packet.app;
+
+        // --- Full reassembly of flat chunked content ---
+        log('--- flat chunk reassembly ---');
+        const fullPacket = await ring1.get('//' + group + '/' + app + '/chunked/data.txt');
+        assert(fullPacket !== null, 'flat chunked packet retrieved');
+        const fullText = fullPacket.text();
+        assert(fullText.length > 5000, 'flat chunked data length (got ' + fullText.length + ')');
+
+        const lines = fullText.split('\n').filter(l => l.length > 0);
+        assert(lines.length >= 100, 'flat chunk has >= 100 lines (got ' + lines.length + ')');
+        assert(lines[0].startsWith('LINE_000:'), 'first line starts with LINE_000:');
+        assert(lines[99].startsWith('LINE_099:'), 'last line starts with LINE_099:');
+
+        // --- Multi-chunk manifest reassembly ---
+        // Manually constructed flat manifest: blob1="AAAAAAAAAA" + blob2="BBBBBBBBBB" + blob3="CCCCCCCCCC"
+        log('--- multi-chunk manifest reassembly ---');
+        const nestedPacket = await ring1.get('//' + group + '/' + app + '/chunked/nested.bin');
+        assert(nestedPacket !== null, 'multi-chunk packet retrieved');
+        const nestedText = nestedPacket.text();
+        assertEqual(nestedText.length, 30, 'multi-chunk data is 30 chars (got ' + nestedText.length + ')');
+
+        // Verify reassembled content is correct
+        assertEqual(nestedText, 'AAAAAAAAAABBBBBBBBBBCCCCCCCCCC',
+            'multi-chunk content matches expected (got ' + nestedText + ')');
+
+        // --- document.packet on this page (chunk manifest) ---
+        log('--- document.packet manifest metadata ---');
+        assert(document.packet !== null, 'document.packet exists');
+
+        // This test page is also chunked (1024-byte chunks, page is >1KB)
+        // If it loaded correctly via chunk manifest, document.packet should have Chunk+Link
+        const chunkLinks = document.packet.getHeaders('Chunk+Link');
+        if (chunkLinks.length > 0) {
+            log('PASS: document.packet has Chunk+Link headers (manifest page, count: ' + chunkLinks.length + ')');
+            const totalLen = document.packet.getHeader('Content-Total-Length');
+            assert(totalLen !== null, 'manifest has Content-Total-Length');
+        } else {
+            // Page might be small enough to not be chunked - that's ok
+            log('PASS: document.packet loaded (non-chunked page, skipping manifest checks)');
+        }
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_chunk_seek, 'chunk-seek');
+      window.testResults = summary;
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

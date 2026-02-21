@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Disabled APIs Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_disabled_apis() {
+        log('--- disabled APIs throw TypeError ---');
+
+        function assertDisabledGetter(obj, prop, hint) {
+            try { void obj[prop]; assert(false, prop + ' should throw'); }
+            catch (e) {
+                assert(e instanceof TypeError, prop + ' throws TypeError');
+                assertContains(e.message, hint, prop + ' message mentions ' + hint);
+            }
+        }
+
+        function assertDisabledCall(obj, method, hint) {
+            try { obj[method](); assert(false, method + '() should throw'); }
+            catch (e) {
+                assert(e instanceof TypeError, method + '() throws TypeError');
+                assertContains(e.message, hint, method + '() message mentions ' + hint);
+            }
+        }
+
+        // window.location -> use window.address
+        assertDisabledGetter(window, 'location', 'window.address');
+
+        // document.location -> use window.address
+        assertDisabledGetter(document, 'location', 'window.address');
+
+        // document.write family
+        assertDisabledCall(document, 'write', 'HAVI');
+        assertDisabledCall(document, 'writeln', 'HAVI');
+        assertDisabledCall(document, 'open', 'HAVI');
+        assertDisabledCall(document, 'close', 'HAVI');
+
+        // WebSocket, XMLHttpRequest, EventSource
+        assertDisabledGetter(window, 'WebSocket', 'HAVI');
+        assertDisabledGetter(window, 'XMLHttpRequest', 'HAVI');
+        assertDisabledGetter(window, 'EventSource', 'HAVI');
+
+        // window.address should still work
+        assert(window.address !== undefined, 'window.address available');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_disabled_apis, 'disabled-apis');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

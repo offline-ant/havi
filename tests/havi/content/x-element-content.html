@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test: &lt;x&gt; Content Access</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Content Access Test</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <h2>Same-Origin Test</h2>
+  <x id="same-origin" src="//test/app/embed.html" width="400" height="150"></x>
+
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_xelement_content() {
+        const x = document.getElementById('same-origin');
+
+        log('--- Load event test ---');
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Load timeout after 5s'));
+            }, 5000);
+
+            x.addEventListener('load', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            x.addEventListener('error', (e) => {
+                clearTimeout(timeout);
+                reject(new Error('Error event: ' + (e.message || 'unknown')));
+            });
+        });
+        log('PASS: Load event fires');
+
+        log('--- contentWindow tests ---');
+        let contentWindow = null;
+        try {
+            contentWindow = x.contentWindow;
+            assert(contentWindow !== null && contentWindow !== undefined, 'contentWindow exists');
+        } catch (e) {
+            log('FAIL: contentWindow access error: ' + e.message);
+        }
+
+        log('--- contentDocument tests ---');
+        let contentDocument = null;
+        try {
+            contentDocument = x.contentDocument;
+            assert(contentDocument !== null && contentDocument !== undefined, 'contentDocument exists');
+        } catch (e) {
+            log('FAIL: contentDocument access error: ' + e.message);
+        }
+
+        log('--- Cross-frame access tests ---');
+        if (contentWindow) {
+            try {
+                const value = contentWindow.embeddedValue;
+                assertEqual(value, 42, 'Can access embeddedValue');
+            } catch (e) {
+                log('FAIL: embeddedValue access error: ' + e.message);
+            }
+        }
+
+        if (contentDocument) {
+            try {
+                const h1 = contentDocument.querySelector('h1');
+                assert(h1 !== null, 'Can query contentDocument');
+                assertContains(h1.textContent, 'embedded', 'h1 contains expected text');
+            } catch (e) {
+                log('FAIL: contentDocument query error: ' + e.message);
+            }
+        }
+
+        log('--- Document reference tests ---');
+        if (contentWindow && contentDocument) {
+            try {
+                assertEqual(contentWindow.document, contentDocument, 'contentWindow.document === contentDocument');
+            } catch (e) {
+                log('FAIL: Document comparison error: ' + e.message);
+            }
+        }
+    }
+
+    (async function() {
+        const summary = await window.runTests(suite_xelement_content, 'x-element-content');
+        window.testResults = summary;
+
+        document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+        document.getElementById('status').textContent = summary.failed === 0
+            ? 'All tests passed!'
+            : 'Some tests failed';
+        document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

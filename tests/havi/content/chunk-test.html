@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI Chunk Transparency Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI Chunk Transparency Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <script src="test-utils.js"></script>
+
+  <script>
+    async function suite_chunk() {
+        const ring1 = window.home;
+        const group = document.packet.group;
+        const app = document.packet.app;
+
+        // --- JS API chunk get ---
+        log('--- JS API chunk get ---');
+        // The chunked coordinate was stored by the bash setup script
+        const chunkCoord = '//' + group + '/' + app + '/chunked/data.txt';
+        const chunkPacket = await ring1.get(chunkCoord);
+        assert(chunkPacket !== null, 'chunked packet retrieved via JS API');
+
+        const chunkText = chunkPacket.text();
+        assert(typeof chunkText === 'string', 'chunk text() returns string');
+
+        // Verify content length (100 lines of 100 chars each = 10100 bytes with newlines)
+        assert(chunkText.length > 5000, 'reassembled data has expected length (got ' + chunkText.length + ')');
+
+        // Verify content pattern: each line is "LINE_NNN:ABCDEFGHIJ..." repeated
+        const lines = chunkText.split('\n').filter(l => l.length > 0);
+        assert(lines.length >= 100, 'reassembled data has >= 100 lines (got ' + lines.length + ')');
+        assert(lines[0].startsWith('LINE_000:'), 'first line starts with LINE_000:');
+        assert(lines[99].startsWith('LINE_099:'), 'line 100 starts with LINE_099:');
+
+        // Verify synthetic packet metadata
+        assertEqual(chunkPacket.type, 'Plex', 'JS API returns synthetic Plex for chunked content');
+        assertEqual(chunkPacket.group, group, 'chunk packet group matches');
+        assertEqual(chunkPacket.app, app, 'chunk packet app matches');
+        assertContains(chunkPacket.location, 'chunked/data.txt', 'chunk packet location matches');
+
+        // Chunk+Link headers should NOT be on the synthetic plex
+        const chunkLinks = chunkPacket.getHeaders('Chunk+Link');
+        assertEqual(chunkLinks.length, 0, 'synthetic plex has no Chunk+Link headers');
+
+        // --- Non-chunked still works ---
+        log('--- non-chunked regression ---');
+        const smallCoord = '//' + group + '/' + app + '/small/test.txt';
+        const smallPacket = await ring1.get(smallCoord);
+        assert(smallPacket !== null, 'small non-chunked packet retrieved');
+        const smallText = smallPacket.text();
+        assertEqual(smallText, 'hello non-chunked world', 'small packet has correct content');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_chunk, 'chunk');
+      window.testResults = summary;
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

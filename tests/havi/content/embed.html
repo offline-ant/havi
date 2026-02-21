@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Embedded Content</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    h1 {
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hello from embedded!</h1>
+  <p>This content is loaded via the &lt;x&gt; element.</p>
+  <script>
+    // Value that can be accessed from parent via contentWindow
+    window.embeddedValue = 42;
+
+    // Log that we loaded
+    console.log('[EMBED] Embedded content loaded');
+    console.log('[EMBED] embeddedValue =', window.embeddedValue);
+  </script>
+</body>
+</html>

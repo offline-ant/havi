@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI Browse Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI Browse Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_browse() {
+        log('--- Page structure tests ---');
+        assertContains(document.title, 'Browse', 'Page title contains Browse');
+
+        const h1 = document.querySelector('h1');
+        assert(h1 !== null, 'h1 element exists');
+        assertContains(h1.textContent, '//', 'H1 shows URC path');
+
+        log('--- Breadcrumb tests ---');
+        const breadcrumb = document.querySelector('.breadcrumb');
+        assert(breadcrumb !== null, 'breadcrumb exists');
+
+        log('--- Entry tests ---');
+        const entryCount = document.querySelectorAll('.entry-name').length;
+        assert(entryCount >= 1, 'at least 1 entry exists');
+
+        const openCount = document.querySelectorAll('.open-hppr').length;
+        assertEqual(entryCount, openCount, 'each entry has an open link');
+
+        const openHref = document.querySelector('.open-hppr')?.href;
+        assertContains(openHref, 'hppr:', 'open link uses hppr: protocol');
+
+        const entryHref = document.querySelector('.entry-name')?.href;
+        assert(entryHref?.endsWith('/'), 'entry link has trailing slash for LIST mode');
+
+        log('--- CSS tests ---');
+        const style = document.querySelector('style');
+        assert(style?.textContent.includes('.empty'), 'page has .empty CSS class');
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_browse, 'browse');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI window.packet Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI window.packet Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_window_packet() {
+        log('--- window.packet existence tests ---');
+        assert(window.packet !== undefined, 'window.packet is defined');
+
+        log('--- window.route.packet removal tests ---');
+        if (window.route !== null) {
+            assertEqual(window.route.packet, undefined, 'window.route.packet is undefined (removed from API)');
+        } else {
+            log('PASS: window.route is null (no route configured, .packet removal check skipped)');
+        }
+
+        log('--- window.packet content tests ---');
+        if (window.packet !== null) {
+            assert(window.packet.hash !== undefined, 'window.packet has hash property');
+            assert(window.packet.type !== undefined, 'window.packet has type property');
+            assertEqual(typeof window.packet.hash, 'string', 'window.packet.hash is a string');
+            assertEqual(typeof window.packet.type, 'string', 'window.packet.type is a string');
+            log('window.packet.hash: ' + window.packet.hash);
+            log('window.packet.type: ' + window.packet.type);
+
+            if (window.packet.group) {
+                log('window.packet.group: ' + window.packet.group);
+                assertEqual(typeof window.packet.group, 'string', 'window.packet.group is a string');
+            }
+            if (window.packet.app) {
+                log('window.packet.app: ' + window.packet.app);
+                assertEqual(typeof window.packet.app, 'string', 'window.packet.app is a string');
+            }
+        } else {
+            log('window.packet is null (no route for this navigation)');
+        }
+
+        log('--- document.packet vs window.packet tests ---');
+        assert(document.packet !== undefined, 'document.packet is defined');
+        if (document.packet !== null) {
+            assertEqual(typeof document.packet.hash, 'string', 'document.packet.hash is a string');
+            log('document.packet.hash: ' + document.packet.hash);
+            log('document.packet.type: ' + document.packet.type);
+
+            // Note: window.packet and document.packet are different in general
+            // window.packet = route packet (navigation metadata)
+            // document.packet = content packet (current document)
+            // They may be the same in simple cases, but conceptually different
+        }
+
+        log('--- window.packet null scenarios ---');
+        // window.packet can be null when:
+        // - No stored route exists (localhost-only access)
+        // - hppr:// scheme with route lookup (or explicit {via:repo})
+        // - Inline route override (hppr://...{via:endpoint}) without stored route
+        log('Current window.packet state: ' + (window.packet ? 'non-null (route exists)' : 'null (no route)'));
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_window_packet, 'window-packet');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

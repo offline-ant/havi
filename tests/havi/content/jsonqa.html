@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>JSONqa Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>JSONqa Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_jsonqa() {
+        // --- Parse simple metadata ---
+        log('--- Parse simple metadata ---');
+        const urc1 = new URC('//g/a/p{page:5}');
+        assert(urc1 !== null, 'URC with simple metadata constructs');
+        assert(urc1.qa !== null, 'urc.qa is not null');
+        assertEqual(urc1.qa.page, '5', 'urc.qa.page is "5"');
+
+        // --- Parse fragment ---
+        log('--- Parse fragment ---');
+        const urc2 = new URC('//g/a/p{#:section}');
+        assertEqual(urc2.fragment, 'section', 'urc.fragment returns "section"');
+        assertEqual(urc2.qa['#'], 'section', 'urc.qa["#"] returns "section"');
+
+        // --- Parse arrays ---
+        log('--- Parse arrays ---');
+        const urc3 = new URC('//g/a/p{tags:[a,b,c]}');
+        assert(Array.isArray(urc3.qa.tags), 'urc.qa.tags is array');
+        assertEqual(urc3.qa.tags.length, 3, 'urc.qa.tags has 3 elements');
+        assertEqual(urc3.qa.tags[0], 'a', 'urc.qa.tags[0] is "a"');
+        assertEqual(urc3.qa.tags[1], 'b', 'urc.qa.tags[1] is "b"');
+        assertEqual(urc3.qa.tags[2], 'c', 'urc.qa.tags[2] is "c"');
+
+        // --- Parse nested objects ---
+        log('--- Parse nested objects ---');
+        const urc4 = new URC('//g/a/p{opts:{dark:1}}');
+        assert(urc4.qa.opts !== null, 'urc.qa.opts is not null');
+        assertEqual(typeof urc4.qa.opts, 'object', 'urc.qa.opts is object');
+        assertEqual(urc4.qa.opts.dark, '1', 'urc.qa.opts.dark is "1"');
+
+        // --- Parse key-only (bare keys) ---
+        log('--- Parse key-only ---');
+        const urc5 = new URC('//g/a/p{draft,preview}');
+        assertEqual(urc5.qa.draft, '', 'urc.qa.draft is empty string');
+        assertEqual(urc5.qa.preview, '', 'urc.qa.preview is empty string');
+
+        // --- Setter works ---
+        log('--- Setter works ---');
+        const urc6 = new URC('//g/a/p');
+        assert(urc6.qa === null, 'urc.qa is null before setting');
+        urc6.qa = { a: '2', b: '3' };
+        assert(urc6.qa !== null, 'urc.qa is not null after setting');
+        assertEqual(urc6.qa.a, '2', 'urc.qa.a is "2" after setting');
+        assertEqual(urc6.qa.b, '3', 'urc.qa.b is "3" after setting');
+
+        // --- Setter with fragment ---
+        log('--- Setter with fragment ---');
+        const urc7 = new URC('//g/a/p');
+        urc7.qa = { '#': 'newfrag', key: 'val' };
+        assertEqual(urc7.fragment, 'newfrag', 'urc.fragment is "newfrag" after setting');
+        assertEqual(urc7.qa.key, 'val', 'urc.qa.key is "val" after setting');
+
+        // --- Address delegation ---
+        log('--- Address delegation ---');
+        const addr1 = new Address('hppr://g/a/p{#:x}');
+        assert(addr1.qa !== null, 'addr.qa is not null');
+        assertEqual(addr1.qa['#'], 'x', 'addr.qa["#"] is "x"');
+        assertEqual(addr1.fragment, 'x', 'addr.fragment returns "x"');
+
+        // --- Address with complex metadata ---
+        log('--- Address with complex metadata ---');
+        const addr2 = new Address('hppr://g/a/p{via:repo,page:10,sort:desc}');
+        assertEqual(addr2.qa.page, '10', 'addr.qa.page is "10"');
+        assertEqual(addr2.qa.sort, 'desc', 'addr.qa.sort is "desc"');
+
+        // --- Address urc property shares qa ---
+        log('--- Address.urc shares qa ---');
+        const addr3 = new Address('hppr://g/a/p{k:v}');
+        assertEqual(addr3.urc.qa.k, 'v', 'addr.urc.qa.k is "v"');
+        assertEqual(addr3.qa.k, 'v', 'addr.qa.k matches addr.urc.qa.k');
+
+        // --- Coordinate unchanged by metadata ---
+        log('--- Coordinate unchanged ---');
+        const urc8 = new URC('//g/a/p{k:v}');
+        assertEqual(urc8.coordinate, '//g/a/p', 'urc.coordinate excludes metadata');
+        assertEqual(urc8.group, 'g', 'urc.group is "g"');
+        assertEqual(urc8.app, 'a', 'urc.app is "a"');
+        assertEqual(urc8.location, 'p', 'urc.location is "p"');
+
+        // --- href includes metadata ---
+        log('--- href includes metadata ---');
+        const urc9 = new URC('//g/a/p{x:y}');
+        assertContains(urc9.href, '//g/a/p', 'href contains coordinate');
+        assertContains(urc9.href, '{', 'href contains metadata opening brace');
+        assertContains(urc9.href, 'x', 'href contains key');
+        assertContains(urc9.href, 'y', 'href contains value');
+
+        // --- No metadata returns null qa ---
+        log('--- No metadata returns null qa ---');
+        const urc10 = new URC('//g/a/p');
+        assertEqual(urc10.qa, null, 'urc.qa is null when no metadata');
+        assertEqual(urc10.fragment, null, 'urc.fragment is null when no metadata');
+
+        // --- Multiple values ---
+        log('--- Multiple values ---');
+        const urc11 = new URC('//g/a/p{a:1,b:2,c:3}');
+        assertEqual(urc11.qa.a, '1', 'first value correct');
+        assertEqual(urc11.qa.b, '2', 'second value correct');
+        assertEqual(urc11.qa.c, '3', 'third value correct');
+
+        // --- Nested array in object ---
+        log('--- Nested array in object ---');
+        const urc12 = new URC('//g/a/p{data:{items:[x,y]}}');
+        assert(Array.isArray(urc12.qa.data.items), 'nested items is array');
+        assertEqual(urc12.qa.data.items.length, 2, 'nested items has 2 elements');
+        assertEqual(urc12.qa.data.items[0], 'x', 'nested items[0] is "x"');
+
+        // --- Setter overwrites existing qa ---
+        log('--- Setter overwrites existing qa ---');
+        const urc13 = new URC('//g/a/p{old:val}');
+        assertEqual(urc13.qa.old, 'val', 'initial qa.old is "val"');
+        urc13.qa = { new: 'data' };
+        assertEqual(urc13.qa.new, 'data', 'qa.new is "data" after overwrite');
+        assertEqual(urc13.qa.old, undefined, 'qa.old is undefined after overwrite');
+
+        // --- Address setter works ---
+        log('--- Address setter works ---');
+        const addr4 = new Address('hppr://g/a/p');
+        assert(addr4.qa === null, 'addr.qa is null initially');
+        addr4.qa = { test: 'value' };
+        assertEqual(addr4.qa.test, 'value', 'addr.qa.test is "value" after setting');
+
+        // --- Join clears qa ---
+        log('--- Join clears qa ---');
+        const urc14 = new URC('//g/a/p{k:v}');
+        const joined = urc14.join('other');
+        assertEqual(joined.qa, null, 'joined URC has null qa');
+        assertEqual(joined.coordinate, '//g/a/p/other', 'joined coordinate is correct');
+
+        // --- setListing preserves qa ---
+        log('--- setListing preserves qa ---');
+        const urc15 = new URC('//g/a/p{k:v}');
+        const listing = urc15.setListing(true);
+        assertEqual(listing.qa.k, 'v', 'setListing preserves qa.k');
+        assertEqual(listing.isListing, true, 'setListing sets isListing');
+
+        // --- Empty string values ---
+        log('--- Empty string values ---');
+        const urc16 = new URC('//g/a/p{empty:""}');
+        assertEqual(urc16.qa.empty, '', 'empty string value preserved');
+
+        // --- Quoted keys ---
+        log('--- Quoted keys ---');
+        const urc17 = new URC('//g/a/p{"special:key":"val"}');
+        assertEqual(urc17.qa['special:key'], 'val', 'quoted key with colon works');
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_jsonqa, 'jsonqa');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

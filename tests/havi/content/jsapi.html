@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI JS API Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI JS API Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_jsapi() {
+        // Use the home repo client directly.
+        const ring1 = window.home;
+        // --- document.packet tests ---
+        log('--- document.packet tests ---');
+        assert(document.packet !== null, 'document.packet exists');
+        assertEqual(document.packet.type, 'Seal', 'document.packet.type is Seal');
+        assertContains(document.packet.hash, 'S.', 'document.packet.hash starts with S.');
+        assert(document.packet.coordinate !== null, 'document.packet.coordinate exists');
+        assert(document.packet.sealBy !== null, 'document.packet.sealBy exists');
+        assert(document.packet.group !== null, 'document.packet.group exists');
+        assert(document.packet.app !== null, 'document.packet.app exists');
+        assert(document.packet.location !== null, 'document.packet.location exists');
+        assert(typeof document.packet.dataLength === 'number', 'document.packet.dataLength is number');
+
+        // --- packet.json() tests ---
+        log('--- packet.json() tests ---');
+        const group = document.packet.group;
+        const app = document.packet.app;
+
+        const testObj = { test: 'value', number: 42, nested: { a: 1 } };
+        await ring1.add({
+            headers: ['Location: user/json-test.json', 'Content-Type: application/json'],
+            data: JSON.stringify(testObj),
+        });
+
+        const jsonPacket = await ring1.get('//' + group + '/' + app + '/user/json-test.json');
+        assert(jsonPacket !== null, 'json test packet exists');
+        const parsed = await jsonPacket.json();
+        assertEqual(typeof parsed, 'object', 'json() returns object type');
+        assertEqual(parsed.test, 'value', 'json() parsed string field');
+        assertEqual(parsed.number, 42, 'json() parsed number field');
+        assertEqual(parsed.nested.a, 1, 'json() parsed nested field');
+
+        await ring1.add({ headers: ['Location: user/invalid-json.txt'], data: 'not valid json {' });
+        const badPacket = await ring1.get('//' + group + '/' + app + '/user/invalid-json.txt');
+        let jsonError = null;
+        try { await badPacket.json(); } catch (e) { jsonError = e; }
+        assert(jsonError !== null, 'json() rejects invalid JSON');
+
+        // --- packet.raw() tests ---
+        log('--- packet.raw() tests ---');
+        const rawTestData = 'raw test data';
+        await ring1.add({ headers: ['Location: user/raw-test'], data: rawTestData });
+        const rawPacket = await ring1.get('//' + group + '/' + app + '/user/raw-test');
+        assert(rawPacket !== null, 'raw test packet exists');
+        const raw = rawPacket.raw();
+        assert(raw instanceof ArrayBuffer, 'raw() returns ArrayBuffer');
+        assert(raw.byteLength > 0, 'raw() ArrayBuffer has content');
+        const dataBytes = new TextEncoder().encode(rawTestData);
+        assert(raw.byteLength > dataBytes.length, 'raw() includes more than just data');
+        const view = new Uint8Array(raw);
+        const startsWithMark = view[0] === 0xF0 && view[1] === 0x9F && view[2] === 0x96 && view[3] === 0xA7;
+        assert(startsWithMark, 'raw() starts with packet markline');
+
+        // --- window.home tests ---
+        log('--- window.home tests ---');
+        assert(window.home !== null, 'window.home exists');
+        assert(window.home.ring1Name !== null, 'window.home.ring1Name exists');
+        assertEqual(window.ring0, null, 'window.ring0 is null on non-havi page');
+
+        // --- tips() tests ---
+        log('--- tips() tests ---');
+        const coordinate = document.packet.coordinate;
+        const tips = await ring1.tips(coordinate);
+        assert(Array.isArray(tips), 'tips() returns array');
+        assert(tips.length >= 0, 'tips() returns valid array');
+        if (tips.length > 0) {
+            assertEqual(typeof tips[0], 'string', 'tips() elements are strings');
+            assertContains(tips[0], '//', 'tips() returns versioned coordinates');
+        }
+
+        // --- add() and get() tests ---
+        log('--- add() and get() tests ---');
+        const testData = 'test data ' + Date.now();
+        const hashes = await ring1.add({ headers: ['Location: user/test-item'], data: testData });
+        assert(Array.isArray(hashes), 'add() returns array of hashes');
+        assert(hashes.length > 0, 'add() returns at least one hash');
+        assert(hashes[0].match(/^[SBP]\./), 'add() hash starts with type prefix');
+        const packet = await ring1.get('//' + group + '/' + app + '/user/test-item');
+        assert(packet !== null, 'get() returns packet');
+        const body = (await packet.text()).trim();
+        assertEqual(body, testData, 'get() returns correct data');
+
+        // --- EnvelopeHpprClient tests ---
+        log('--- EnvelopeHpprClient tests ---');
+        const env = ring1.envelope();
+        assertEqual(env.endpoint, ring1.endpoint, 'env.endpoint matches ring1.endpoint');
+        const envGet = await env.get('//' + group + '/' + app + '/user/test-item');
+        assert(envGet.value !== null, 'env.get() returns HpprResult with value');
+        assert(envGet.requestEnvelope !== null, 'env.get() has requestEnvelope');
+        assert(envGet.responseEnvelope === null, 'env.get() has no responseEnvelope');
+        const envList = await env.list('//' + group + '/' + app + '/user/');
+        assert(Array.isArray(envList.value), 'env.list() value is array');
+
+        // --- store() tests ---
+        log('--- store() tests ---');
+        // First get a packet to store
+        const packetToStore = await ring1.get('//' + group + '/' + app + '/user/test-item');
+        assert(packetToStore !== null, 'have packet to store');
+        const storeHashes = await ring1.store(packetToStore);
+        assert(Array.isArray(storeHashes), 'store() returns array of hashes');
+        assert(storeHashes.length > 0, 'store() returns at least one hash');
+        assert(storeHashes[0].match(/^[SBP]\./), 'store() hash starts with type prefix');
+
+        // --- list() tests ---
+        log('--- list() tests ---');
+        await ring1.add({ headers: ['Location: user/list-test'], data: 'for listing' });
+        const entries = await ring1.list('//' + group + '/' + app + '/user/');
+        assert(Array.isArray(entries), 'list() returns array');
+        assert(entries.length > 0, 'list() returns entries');
+
+        // --- headers() tests ---
+        log('--- headers() tests ---');
+        const headerLines = await ring1.headers(coordinate);
+        assert(Array.isArray(headerLines), 'headers() returns array');
+        assert(headerLines.length > 0, 'headers() returns header lines');
+        assertContains(headerLines[0], '🖧:', 'headers() first line is markline');
+
+        // --- detach() tests ---
+        log('--- detach() tests ---');
+        const detachHashes = await ring1.add({ headers: ['Location: user/detach-test'], data: 'to be detached' });
+        // Hash format: "P.xxx.H3" or "S.xxx.H3"
+        const detachHash = detachHashes[0];
+        const before = await ring1.get('//' + group + '/' + app + '/user/detach-test');
+        assert(before !== null, 'packet exists before detach');
+        let detachError = null;
+        try { await ring1.detach(detachHash); } catch (e) { detachError = e; }
+        assert(detachError !== null, 'detach() requires admin (sandbox denied)');
+
+        // --- watch() WatchSocket tests ---
+        log('--- watch() WatchSocket tests ---');
+        const watchPrefix = '//' + group + '/' + app + '/user/watch-test/';
+        const events = [];
+        let opened = false, closed = false;
+
+        const ws = ring1.watch(watchPrefix);
+        assert(ws !== null, 'watch() returns WatchSocket');
+        assertEqual(ws.readyState, 0, 'initial readyState is CONNECTING (0)');
+        assertEqual(ws.urc, watchPrefix, 'urc property matches');
+
+        ws.onopen = () => { opened = true; };
+        ws.onmessage = (e) => { events.push(e.data); };
+        ws.onclose = () => { closed = true; };
+
+        await new Promise(r => setTimeout(r, 300));
+        assert(opened, 'onopen fired');
+        assertEqual(ws.readyState, 1, 'readyState is OPEN (1) after connect');
+
+        await ring1.add({ headers: ['Location: user/watch-test/item1'], data: 'watched data 1' });
+        await new Promise(r => setTimeout(r, 500));
+        assert(events.length > 0, 'onmessage received event');
+        if (events.length > 0) {
+            assertContains(events[0], 'watch-test/item1', 'watch event contains coordinate');
+            assertContains(events[0], '+', 'watch add event starts with +');
+        }
+
+        const eventsBefore = events.length;
+        await ring1.add({ headers: ['Location: user/watch-test/item2'], data: 'watched data 2' });
+        await new Promise(r => setTimeout(r, 500));
+        assert(events.length > eventsBefore, 'watch receives additional events');
+
+        ws.close();
+        await new Promise(r => setTimeout(r, 300));
+        assert(closed, 'onclose fired after close()');
+        assertEqual(ws.readyState, 3, 'readyState is CLOSED (3) after close');
+
+        const eventsAfterClose = events.length;
+        await ring1.add({ headers: ['Location: user/watch-test/item3'], data: 'after close' });
+        await new Promise(r => setTimeout(r, 500));
+        assertEqual(events.length, eventsAfterClose, 'close() stops events');
+
+        // --- multiple watch() tests ---
+        log('--- multiple watch() tests ---');
+        const events1 = [], events2 = [];
+        const ws1 = ring1.watch('//' + group + '/' + app + '/user/multi1/');
+        const ws2 = ring1.watch('//' + group + '/' + app + '/user/multi2/');
+        assert(ws1 !== ws2, 'different watches return different WatchSocket instances');
+
+        ws1.onmessage = (e) => events1.push(e.data);
+        ws2.onmessage = (e) => events2.push(e.data);
+        await new Promise(r => setTimeout(r, 300));
+
+        await ring1.add({ headers: ['Location: user/multi1/data'], data: 'for watch 1' });
+        await new Promise(r => setTimeout(r, 500));
+        assert(events1.length > 0, 'first watch receives its events');
+        assertEqual(events2.length, 0, 'second watch does not receive first prefix events');
+
+        await ring1.add({ headers: ['Location: user/multi2/data'], data: 'for watch 2' });
+        await new Promise(r => setTimeout(r, 500));
+        assert(events2.length > 0, 'second watch receives its events');
+
+        ws1.close();
+        ws2.close();
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_jsapi, 'jsapi');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

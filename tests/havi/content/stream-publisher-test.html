@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI StreamIn Publisher Mode Test</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI StreamIn Publisher Mode Test</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <script src="test-utils.js"></script>
+
+  <script>
+    async function suite_stream_publisher() {
+        const homeRepo = window.home;
+        const group = document.packet.group;
+        const app = document.packet.app;
+
+        // Fetch the signing key stored by the test harness
+        const keyPacket = await homeRepo.get('//' + group + '/' + app + '/testkey');
+        const key = keyPacket.text();
+        assert(key.startsWith('&.'), 'Signing key loaded: ' + key.substring(0, 10) + '...');
+
+        // --- StreamIn publisher mode creation ---
+        log('--- StreamIn publisher mode ---');
+        const prefix = '//' + group + '/' + app + '/user/pub/test';
+        const sin = homeRepo.streamIn(prefix, { key: key });
+        assert(sin !== null && sin !== undefined, 'streamIn with key returns object');
+        assertEqual(sin.prefix, prefix, 'StreamIn prefix matches');
+        assert(typeof sin.onpacket !== 'undefined', 'StreamIn has onpacket attribute');
+        assert(typeof sin.finishSegment === 'function', 'StreamIn has finishSegment method');
+
+        // --- Wait for open ---
+        log('--- Wait for open ---');
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('StreamIn publisher onopen timeout')), 10000);
+            if (sin.readyState === 1) {
+                clearTimeout(timeout);
+                resolve();
+            } else {
+                sin.onopen = () => { clearTimeout(timeout); resolve(); };
+                sin.onerror = () => { clearTimeout(timeout); reject(new Error('StreamIn publisher error')); };
+            }
+        });
+        assertEqual(sin.readyState, 1, 'StreamIn publisher readyState is OPEN');
+
+        // --- Write data and finish segment ---
+        log('--- Write and finishSegment ---');
+        await sin.write(new TextEncoder().encode('hello publisher'));
+        log('PASS: write resolved');
+
+        // Set up onpacket listener before finishing segment
+        const packetPromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('onpacket timeout')), 10000);
+            sin.addEventListener('message', (e) => {
+                clearTimeout(timeout);
+                resolve(e);
+            });
+        });
+
+        sin.finishSegment();
+        log('PASS: finishSegment called');
+
+        // --- Verify onpacket fires ---
+        log('--- onpacket event ---');
+        const event = await packetPromise;
+        assert(event !== null, 'onpacket event received');
+        assert(event.data instanceof ArrayBuffer, 'event.data is ArrayBuffer');
+        const hash = new TextDecoder().decode(event.data);
+        assert(hash.length > 10, 'packet hash has content: ' + hash.substring(0, 20) + '...');
+
+        sin.close();
+        log('PASS: StreamIn publisher closed');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_stream_publisher, 'stream-publisher');
+      window.testResults = summary;
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

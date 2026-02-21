@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI HpprError Test Suite</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>HAVI HpprError Test Suite</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <!-- Load shared utilities -->
+  <script src="test-utils.js"></script>
+
+  <!-- Inline test suite -->
+  <script>
+    async function suite_hppr_error() {
+        const ring1 = window.home;
+        const group = document.packet.group;
+        const app = document.packet.app;
+
+        // --- HpprError constructor tests ---
+        log('--- HpprError constructor tests ---');
+
+        // Basic constructor with type and detail
+        const e1 = new HpprError('TEST', 'test detail');
+        assert(e1 instanceof HpprError, 'e1 instanceof HpprError');
+        assert(e1 instanceof DOMException, 'e1 instanceof DOMException');
+        assertEqual(e1.type, 'TEST', 'e1.type is TEST');
+        assertEqual(e1.detail, 'test detail', 'e1.detail is test detail');
+        assertEqual(e1.fatal, false, 'e1.fatal defaults to false');
+
+        // Constructor with default detail (empty string)
+        const e2 = new HpprError('CUSTOM');
+        assertEqual(e2.type, 'CUSTOM', 'e2.type is CUSTOM');
+        assertEqual(e2.detail, '', 'e2.detail defaults to empty string');
+        assertEqual(e2.fatal, false, 'e2.fatal defaults to false');
+
+        // DOMException properties are accessible
+        assert(typeof e1.name === 'string', 'e1.name is string');
+        assert(typeof e1.message === 'string', 'e1.message is string');
+
+        // --- NOT_FOUND error from real operation ---
+        log('--- NOT_FOUND error test ---');
+
+        let notFoundError = null;
+        try {
+            await ring1.get('//' + group + '/' + app + '/nonexistent/path/that/does/not/exist');
+        } catch (e) {
+            notFoundError = e;
+        }
+
+        assert(notFoundError !== null, 'get() nonexistent throws error');
+        assert(notFoundError instanceof HpprError, 'NOT_FOUND error is HpprError');
+        assert(notFoundError instanceof DOMException, 'NOT_FOUND error is DOMException');
+        assertEqual(notFoundError.type, 'NOT_FOUND', 'error type is NOT_FOUND');
+        assertEqual(notFoundError.fatal, false, 'NOT_FOUND is not fatal');
+        assertEqual(notFoundError.name, 'NotFoundError', 'NOT_FOUND maps to NotFoundError');
+
+        // --- Error type mapping tests ---
+        log('--- Error type mapping tests ---');
+
+        // NOT_FOUND -> NotFoundError
+        const notFound = new HpprError('NOT_FOUND', 'resource missing');
+        assertEqual(notFound.name, 'NotFoundError', 'NOT_FOUND maps to NotFoundError');
+        assertEqual(notFound.type, 'NOT_FOUND', 'NOT_FOUND type preserved');
+
+        // FORBIDDEN -> SecurityError
+        const forbidden = new HpprError('FORBIDDEN', 'access denied');
+        assertEqual(forbidden.name, 'SecurityError', 'FORBIDDEN maps to SecurityError');
+        assertEqual(forbidden.type, 'FORBIDDEN', 'FORBIDDEN type preserved');
+
+        // NOT_ALLOWED -> SecurityError (alias for FORBIDDEN)
+        const notAllowed = new HpprError('NOT_ALLOWED', 'not allowed');
+        assertEqual(notAllowed.name, 'SecurityError', 'NOT_ALLOWED maps to SecurityError');
+
+        // UNAUTHORIZED -> SecurityError
+        const unauthorized = new HpprError('UNAUTHORIZED', 'auth failed');
+        assertEqual(unauthorized.name, 'SecurityError', 'UNAUTHORIZED maps to SecurityError');
+
+        // INVALID -> SyntaxError
+        const invalid = new HpprError('INVALID', 'bad syntax');
+        assertEqual(invalid.name, 'SyntaxError', 'INVALID maps to SyntaxError');
+
+        // CONNECTION -> NetworkError
+        const connection = new HpprError('CONNECTION', 'network issue');
+        assertEqual(connection.name, 'NetworkError', 'CONNECTION maps to NetworkError');
+
+        // TIMEOUT -> NetworkError
+        const timeout = new HpprError('TIMEOUT', 'timed out');
+        assertEqual(timeout.name, 'NetworkError', 'TIMEOUT maps to NetworkError');
+
+        // PACKET -> DataError
+        const packet = new HpprError('PACKET', 'parse error');
+        assertEqual(packet.name, 'DataError', 'PACKET maps to DataError');
+
+        // TOO_LARGE -> QuotaExceededError
+        const tooLarge = new HpprError('TOO_LARGE', 'size exceeded');
+        assertEqual(tooLarge.name, 'QuotaExceededError', 'TOO_LARGE maps to QuotaExceededError');
+
+        // EXPIRED -> TimeoutError
+        const expired = new HpprError('EXPIRED', 'expired');
+        assertEqual(expired.name, 'TimeoutError', 'EXPIRED maps to TimeoutError');
+
+        // HELLO_REQUIRED -> InvalidStateError
+        const helloRequired = new HpprError('HELLO_REQUIRED', 'need hello first');
+        assertEqual(helloRequired.name, 'InvalidStateError', 'HELLO_REQUIRED maps to InvalidStateError');
+
+        // INTERNAL -> OperationError
+        const internal = new HpprError('INTERNAL', 'server error');
+        assertEqual(internal.name, 'OperationError', 'INTERNAL maps to OperationError');
+
+        // Unknown type -> OperationError (fallback)
+        const unknown = new HpprError('UNKNOWN_TYPE', 'unknown');
+        assertEqual(unknown.name, 'OperationError', 'Unknown type maps to OperationError');
+
+        // --- Error properties are read-only ---
+        log('--- Error properties behavior ---');
+
+        const readOnlyTest = new HpprError('TEST', 'original');
+        assertEqual(readOnlyTest.type, 'TEST', 'type before modification attempt');
+        assertEqual(readOnlyTest.detail, 'original', 'detail before modification attempt');
+        assertEqual(readOnlyTest.fatal, false, 'fatal before modification attempt');
+
+        // Verify message contains the detail
+        assertContains(readOnlyTest.message, 'original', 'message contains detail');
+    }
+
+    // Auto-run suite
+    (async function() {
+      const summary = await window.runTests(suite_hppr_error, 'hppr-error');
+
+      window.testResults = summary;
+
+      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+      document.getElementById('status').textContent = summary.failed === 0
+        ? 'All tests passed!'
+        : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

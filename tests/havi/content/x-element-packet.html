@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test: &lt;x&gt; Packet Property</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Packet Property Test</h1>
+  <div id="status">Loading...</div>
+  <pre id="results"></pre>
+
+  <h2>Test Element</h2>
+  <x id="test-x" src="//test/app/embed.html" width="400" height="200"></x>
+
+  <h2>Packet Data</h2>
+  <pre id="packet-data">Loading...</pre>
+
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_xelement_packet() {
+        const x = document.getElementById('test-x');
+        const packetDisplay = document.getElementById('packet-data');
+
+        log('--- Load event test ---');
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Load timeout after 5s'));
+            }, 5000);
+
+            x.addEventListener('load', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            x.addEventListener('error', (e) => {
+                clearTimeout(timeout);
+                reject(new Error('Error event: ' + (e.message || 'unknown')));
+            });
+        });
+        log('PASS: Load event fires');
+
+        log('--- Packet property tests ---');
+        const packet = x.packet;
+        assert(packet !== null && packet !== undefined, 'x.packet exists');
+
+        if (!packet) {
+            log('FAIL: No packet to inspect, skipping remaining tests');
+            return;
+        }
+
+        // Display packet data
+        try {
+            packetDisplay.textContent = JSON.stringify(packet, null, 2);
+        } catch (e) {
+            packetDisplay.textContent = 'Unable to stringify: ' + e.message;
+        }
+
+        log('--- Packet hash test ---');
+        assert(typeof packet.hash === 'string' && packet.hash.length > 0, 'packet.hash is non-empty string');
+
+        log('--- Packet type test ---');
+        assert(typeof packet.type === 'string', 'packet.type exists');
+
+        log('--- Packet coordinate test ---');
+        assert(typeof packet.coordinate === 'string', 'packet.coordinate exists');
+        assertEqual(packet.coordinate, '//test/app/embed.html', 'packet.coordinate correct');
+
+        log('--- Packet size test ---');
+        if (typeof packet.size === 'number') {
+            assert(packet.size > 0, 'packet.size is positive number');
+        } else if (typeof packet.dataLength === 'number') {
+            assert(packet.dataLength > 0, 'packet.dataLength is positive number');
+        } else {
+            log('INFO: packet.size/dataLength not available');
+        }
+
+        log('--- HpprPacket class test ---');
+        // Duck-type check: cross-realm packets (from <x> frames) fail instanceof
+        // because the prototype chains come from different JS realms.
+        assert(typeof packet.hash === 'string', 'packet has hash (duck-type HpprPacket)');
+        assert(typeof packet.type === 'string', 'packet has type (duck-type HpprPacket)');
+        assert(typeof packet.coordinate === 'string', 'packet has coordinate (duck-type HpprPacket)');
+    }
+
+    (async function() {
+        const summary = await window.runTests(suite_xelement_packet, 'x-element-packet');
+        window.testResults = summary;
+
+        document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
+        document.getElementById('status').textContent = summary.failed === 0
+            ? 'All tests passed!'
+            : 'Some tests failed';
+        document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

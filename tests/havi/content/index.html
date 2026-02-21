@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI Test Suites</title>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    h1 { color: #333; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 10px 0; }
+    a { color: #0066cc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .description { color: #666; font-size: 0.9em; margin-left: 20px; }
+  </style>
+</head>
+<body>
+  <h1>HAVI Test Suites</h1>
+  <p>Select a test suite to run:</p>
+  <ul>
+    <li>
+      <a href="jsapi.html">JS API Suite</a>
+      <div class="description">Full JS API test suite (single server, write access)</div>
+    </li>
+    <li>
+      <a href="ring2.html">Ring2 Suite</a>
+      <div class="description">Remote server routing with identity (dual server)</div>
+    </li>
+    <li>
+      <a href="ring0.html">Ring0 Suite</a>
+      <div class="description">Tests from havi:// origin with ring0 access</div>
+    </li>
+    <li>
+      <a href="direct.html">Direct Connection Suite</a>
+      <div class="description">Direct hppr:host:port// connection tests</div>
+    </li>
+    <li>
+      <a href="browse.html">Browse Suite</a>
+      <div class="description">Directory browsing with trailing slash (LIST mode)</div>
+    </li>
+    <li>
+      <a href="urc.html">URC/HostURC Suite</a>
+      <div class="description">URC and HostURC DOM object tests</div>
+    </li>
+    <li>
+      <a href="jsonqa.html">JSONqa Suite</a>
+      <div class="description">URC metadata syntax {key:value} parsing and manipulation</div>
+    </li>
+  </ul>
+</body>
+</html>
