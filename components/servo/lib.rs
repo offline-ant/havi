@@ -29,7 +29,7 @@ mod webview_delegate;
 // These are Servo's public exports. Everything (apart from a couple exceptions below)
 // should be exported at the root. See <https://github.com/servo/servo/issues/18475>.
 pub use accesskit;
-pub use base::generic_channel::GenericSender;
+pub use base::generic_channel::{GenericCallback, GenericSender};
 pub use base::id::WebViewId;
 pub use embedder_traits::user_contents::UserScript;
 pub use embedder_traits::*;
@@ -44,8 +44,10 @@ pub use media::{
 // fleshed out public domains API if we want to expose it.
 pub use net_traits::pub_domains::is_reg_domain;
 pub use paint::WebRenderDebugOption;
+pub use paint_api::rendering_context;
 pub use paint_api::rendering_context::{
-    OffscreenRenderingContext, RenderingContext, SoftwareRenderingContext, WindowRenderingContext,
+    MakepadRenderingContext, OffscreenRenderingContext, RenderingContext, SoftwareRenderingContext,
+    WindowRenderingContext,
 };
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
@@ -57,6 +59,7 @@ pub use servo_geometry::{
     DeviceIndependentIntRect, DeviceIndependentPixel, convert_rect_to_css_pixel,
 };
 pub use servo_url::ServoUrl;
+pub use servo_url::hppr::{HAVIAddress, via_url};
 pub use style::Zero;
 pub use style_traits::CSSPixel;
 pub use webrender_api::units::{
@@ -75,9 +78,9 @@ pub use crate::user_content_manager::UserContentManager;
 pub use crate::webview::{WebView, WebViewBuilder};
 pub use crate::webview_delegate::{
     AlertDialog, AllowOrDenyRequest, AuthenticationRequest, ColorPicker, ConfirmDialog,
-    ContextMenu, CreateNewWebViewRequest, EmbedderControl, FilePicker, InputMethodControl,
-    NavigationRequest, PermissionRequest, PromptDialog, SelectElement, SimpleDialog,
-    WebResourceLoad, WebViewDelegate,
+    ControlOperationRequest, ContextMenu, CreateNewWebViewRequest, EmbedderControl, FilePicker,
+    InputMethodControl, NavigationRequest, PermissionRequest, PromptDialog, SelectElement,
+    SimpleDialog, WebResourceLoad, WebViewDelegate,
 };
 
 #[cfg(feature = "webxr")]
@@ -93,8 +96,10 @@ pub mod webxr {
 
 // TODO: The protocol handler interface needs to be cleaned and simplified.
 pub mod protocol_handler {
-    pub use net::fetch::methods::{DoneChannel, FetchContext};
+    pub use net::fetch::methods::{Data, DoneChannel, FetchContext};
     pub use net::filemanager_thread::FILE_CHUNK_SIZE;
+    pub use net::hppr_chunks::{batch_reassemble_chunks, fetch_chunk_blobs, parse_exchange_into_blobs};
+    pub use net::hppr_pool::HpprAsyncState;
     pub use net::protocols::{ProtocolHandler, ProtocolRegistry};
     pub use net_traits::filemanager_thread::RelativePos;
     pub use net_traits::http_status::HttpStatus;

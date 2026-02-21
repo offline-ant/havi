@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use base::generic_channel::GenericSender;
+use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::PipelineId;
 use constellation_traits::EmbedderToConstellationMessage;
 #[cfg(feature = "gamepad")]
@@ -13,11 +13,11 @@ use embedder_traits::GamepadHapticEffectType;
 use embedder_traits::{
     AlertResponse, AllowOrDeny, AuthenticationResponse, ConfirmResponse, ConsoleLogLevel,
     ContextMenuAction, ContextMenuElementInformation, ContextMenuItem, Cursor, EmbedderControlId,
-    EmbedderControlResponse, FilePickerRequest, FilterPattern, InputEventId, InputEventResult,
-    InputMethodType, LoadStatus, MediaSessionEvent, NewWebViewDetails, Notification,
-    PermissionFeature, PromptResponse, RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup,
-    SimpleDialogRequest, TraversalId, WebResourceRequest, WebResourceResponse,
-    WebResourceResponseMsg,
+    EmbedderControlResponse, FilePickerRequest, FilterPattern, HpprControlRequest,
+    HpprControlResponse, InputEventId, InputEventResult, InputMethodType, LoadStatus,
+    MediaSessionEvent, NewWebViewDetails, Notification, PermissionFeature, PromptResponse,
+    RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup, SimpleDialogRequest, TraversalId,
+    WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
 };
 use paint_api::rendering_context::RenderingContext;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
@@ -809,6 +809,63 @@ impl CreateNewWebViewRequest {
     }
 }
 
+/// Request for a control operation (local filesystem only, no network).
+///
+/// Control operations (identities, repo info) are handled directly by the embedder
+/// without going through the network layer.
+pub struct ControlOperationRequest {
+    /// The origin URL of the requesting page
+    pub origin_url: String,
+    /// The control operation to perform
+    pub request: HpprControlRequest,
+    /// Callback to send the response back to the script thread
+    callback: GenericCallback<HpprControlResponse>,
+}
+
+impl ControlOperationRequest {
+    pub(crate) fn new(
+        origin_url: String,
+        request: HpprControlRequest,
+        callback: GenericCallback<HpprControlResponse>,
+    ) -> Self {
+        Self {
+            origin_url,
+            request,
+            callback,
+        }
+    }
+
+    /// Get origin URL of the requesting page
+    pub fn origin(&self) -> &str {
+        &self.origin_url
+    }
+
+    /// Get operation description for display
+    pub fn operation_name(&self) -> &'static str {
+        match &self.request {
+            HpprControlRequest::RepoPort => "REPO_PORT",
+            HpprControlRequest::RepoPathQuery => "REPO_PATH",
+            HpprControlRequest::RepoStatus => "REPO_STATUS",
+            HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
+        }
+    }
+
+    /// Is this a read-only operation?
+    pub fn is_read_only(&self) -> bool {
+        matches!(
+            self.request,
+            HpprControlRequest::RepoPort |
+                HpprControlRequest::RepoPathQuery |
+                HpprControlRequest::RepoStatus
+        )
+    }
+
+    /// Respond with the operation result.
+    pub fn respond(self, response: HpprControlResponse) {
+        let _ = self.callback.send(response);
+    }
+}
+
 pub trait WebViewDelegate {
     /// Get the [`ScreenGeometry`] for this [`WebView`]. If this is unimplemented or returns `None`
     /// the screen will have the size of the [`WebView`]'s `RenderingContext` and `WebView` will be
@@ -990,6 +1047,16 @@ pub trait WebViewDelegate {
         _webview: WebView,
         _tree_update: accesskit::TreeUpdate,
     ) {
+    }
+
+    /// Handle a control operation (local filesystem only, no network).
+    ///
+    /// Control operations (identities, repo info) are handled directly by the embedder.
+    /// The embedder should execute the operation and respond via request.respond().
+    fn handle_control_operation(&self, _webview: WebView, request: ControlOperationRequest) {
+        request.respond(HpprControlResponse::Error(
+            "Control operations not supported by this embedder".to_string(),
+        ));
     }
 }
 

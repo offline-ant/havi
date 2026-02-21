@@ -84,8 +84,9 @@ use crate::servo_delegate::{DefaultServoDelegate, ServoDelegate, ServoError};
 use crate::site_data_manager::SiteDataManager;
 use crate::webview::{MINIMUM_WEBVIEW_SIZE, WebView, WebViewInner};
 use crate::webview_delegate::{
-    AllowOrDenyRequest, AuthenticationRequest, EmbedderControl, FilePicker, NavigationRequest,
-    PermissionRequest, ProtocolHandlerRegistration, WebResourceLoad,
+    AllowOrDenyRequest, AuthenticationRequest, ControlOperationRequest, EmbedderControl,
+    FilePicker, NavigationRequest, PermissionRequest, ProtocolHandlerRegistration,
+    WebResourceLoad,
 };
 
 #[cfg(feature = "media-gstreamer")]
@@ -694,6 +695,28 @@ impl ServoInner {
                         .notify_accessibility_tree_update(webview, tree_update);
                 }
             },
+            EmbedderMsg::HpprControlOperation(webview_id, origin_url, ctrl_request, callback) => {
+                if let Some(webview) = self.get_webview_handle(webview_id) {
+                    let request =
+                        ControlOperationRequest::new(origin_url, ctrl_request, callback);
+                    webview
+                        .delegate()
+                        .handle_control_operation(webview, request);
+                }
+            },
+            EmbedderMsg::TakeScreenshot(webview_id, sender) => {
+                if let Some(webview) = self.get_webview_handle(webview_id) {
+                    webview.take_screenshot(None, move |result| {
+                        if let Err(error) = sender.send(result) {
+                            warn!("Failed to send response to TakeScreenshot: {error}");
+                        }
+                    });
+                } else if let Err(error) =
+                    sender.send(Err(ScreenshotCaptureError::WebViewDoesNotExist))
+                {
+                    warn!("Failed to send response to TakeScreenshot: {error}");
+                }
+            },
         }
     }
 }
@@ -891,6 +914,7 @@ impl Servo {
 
     pub fn setup_logging(&self) {
         let constellation_chan = self.0.constellation_proxy.sender();
+        apply_hppr_log_env();
         let env = env_logger::Env::default();
         let env_logger = EnvLoggerBuilder::from_env(env).build();
         let con_logger = FromEmbedderLogger::new(constellation_chan);
@@ -1105,8 +1129,34 @@ where
     }
 }
 
+/// Expand HPPR_LOG into per-module RUST_LOG directives.
+/// Call before building env_logger. Merges with existing RUST_LOG if set.
+fn apply_hppr_log_env() {
+    let hppr_level = match std::env::var("HPPR_LOG") {
+        Ok(v) => v,
+        Err(_) => "info".to_string(),
+    };
+    let modules = [
+        "hppr_packet", "hpprd", "hppr_client", "hsb3",
+        "servoshell::protocols::hppr", "servoshell::hpprd_client", "servoshell::embedded_hpprd",
+        "net::watch_loader", "net::hppr_pool", "net::hppr_async_state",
+    ];
+    let hppr_directives: String = modules
+        .iter()
+        .map(|m| format!("{}={}", m, hppr_level))
+        .collect::<Vec<_>>()
+        .join(",");
+    let merged = match std::env::var("RUST_LOG") {
+        Ok(existing) => format!("{},{}", existing, hppr_directives),
+        Err(_) => hppr_directives,
+    };
+    // SAFETY: Called once at startup before env_logger init, single-threaded at this point.
+    unsafe { std::env::set_var("RUST_LOG", merged) };
+}
+
 fn set_logger(script_to_constellation_sender: ScriptToConstellationSender) {
     let con_logger = FromScriptLogger::new(script_to_constellation_sender);
+    apply_hppr_log_env();
     let env = env_logger::Env::default();
     let env_logger = EnvLoggerBuilder::from_env(env).build();
 
