@@ -1,0 +1,20 @@
+[package]
+name = "havi-protocols"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+publish = false
+
+[dependencies]
+dirs = "6.0"
+hppr-client = { workspace = true }
+hppr-packet = { workspace = true }
+hpprd = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+pulldown-cmark = "0.13.0"
+percent-encoding = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }

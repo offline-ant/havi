@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "checkJs": true,
+    "allowJs": true
+  },
+  "include": ["havi.d.ts"]
+}
