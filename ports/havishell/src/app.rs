@@ -262,6 +262,7 @@ struct HaviServoDelegate;
 
 impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
+        println!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
         log!("DEVTOOLS_BIND=127.0.0.1:{} # havi-webview-remote-cli -p {}", port, port);
     }
 
@@ -764,6 +765,14 @@ impl App {
         self.idle_frames = 0;
 
         makepad_widgets::remote_control::start_remote_listener();
+
+        // Print eval-compatible environment summary
+        {
+            let target = hppr_client::repo_target();
+            println!("HAVI_REPO={}", havi_protocols::config::repo_dir().display());
+            println!("HAVI_BIND={}", target);
+            println!("HAVI_URL={}", start_url_str);
+        }
 
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
@@ -1504,29 +1513,13 @@ impl MatchEvent for App {
                     }
 
                     // ----- IME / soft-keyboard text input -----
-                    ServoWebViewAction::TextInput { input } => {
-                        if !input.is_empty() {
-                            self.send_input_event(servo::InputEvent::Keyboard(
-                                KeyboardEvent::from_state_and_key(
-                                    KeyState::Down,
-                                    Key::Named(NamedKey::Process),
-                                ),
-                            ));
-                            self.send_input_event(servo::InputEvent::Ime(
-                                ImeEvent::Composition(CompositionEvent {
-                                    state: CompositionState::End,
-                                    data: input.clone(),
-                                }),
-                            ));
-                            self.send_input_event(servo::InputEvent::Keyboard(
-                                KeyboardEvent::from_state_and_key(
-                                    KeyState::Up,
-                                    Key::Named(NamedKey::Process),
-                                ),
-                            ));
-                            handled_input = true;
-                        }
-                    }
+                    // Suppressed: Makepad fires both KeyDown and TextInput for
+                    // every character key.  KeyDown with Key::Character already
+                    // inserts text in Servo, so forwarding TextInput as an IME
+                    // composition causes double insertion.  When real IME
+                    // support is added, this path should be re-enabled with
+                    // deduplication against KeyDown.
+                    ServoWebViewAction::TextInput { .. } => {}
                 }
             }
         }
