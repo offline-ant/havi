@@ -12,7 +12,7 @@ start_servo "havi:///home-repo"
 log "Waiting for page to load..."
 sleep 2
 
-debugtool="$HAVI_ROOT/havi-debugger-cli"
+debugtool="$HAVI_ROOT/havi-webview-remote-cli"
 
 # Run tests: check that hello() returns greeting, and page elements exist
 output=$(printf '%s\n' \

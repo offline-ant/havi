@@ -1,0 +1,162 @@
+#!/usr/bin/env -S uv --quiet run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+# chmod +x havi-remote-cli
+
+import socket, json, sys, time, re, argparse, os, subprocess
+
+last_pos = [0.0, 0.0]
+
+def connect(port=None, sock_path=None):
+    if sock_path:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(sock_path)
+    else:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(('127.0.0.1', int(port)))
+    return s
+
+def send_recv(conn, msg):
+    data = json.dumps(msg) + '\n'
+    conn.sendall(data.encode())
+    buf = b''
+    while b'\n' not in buf:
+        chunk = conn.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    return json.loads(buf.decode().strip()) if buf.strip() else None
+
+def fire(conn, msg):
+    """Send message and drain the response (don't print it)."""
+    data = json.dumps(msg) + '\n'
+    conn.sendall(data.encode())
+    buf = b''
+    while b'\n' not in buf:
+        chunk = conn.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+
+def mouse_msg(event, x, y):
+    last_pos[0], last_pos[1] = x, y
+    return {event: {"button_raw_bits": 1, "x": float(x), "y": float(y), "time": 0.0,
+                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}}
+
+KEY_MAP = {
+    "enter": "ReturnKey", "tab": "Tab", "escape": "Escape", "backspace": "Backspace",
+    "delete": "Delete", "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft",
+    "right": "ArrowRight", "home": "Home", "end": "End", "pageup": "PageUp",
+    "pagedown": "PageDown", "space": "Space",
+}
+
+def key_msg(event, name):
+    key = KEY_MAP.get(name.lower(), name)
+    return {event: {"key_code": key, "is_repeat": False,
+                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}}
+
+STEP_RE = re.compile(r'^(\w+)\((.*)\)$')
+
+def run_step(conn, step):
+    m = STEP_RE.match(step)
+    if not m:
+        print(f"error: invalid step: {step}", file=sys.stderr)
+        return
+    cmd, args_str = m.group(1), m.group(2).strip()
+    args = [a.strip() for a in args_str.split(',')] if args_str else []
+
+    if cmd == 'mousedown':
+        x, y = float(args[0]), float(args[1])
+        fire(conn, mouse_msg("MouseDown", x, y))
+    elif cmd == 'mousemove':
+        x, y = float(args[0]), float(args[1])
+        fire(conn, mouse_msg("MouseMove", x, y))
+    elif cmd == 'mouseup':
+        x, y = (float(args[0]), float(args[1])) if len(args) >= 2 else (last_pos[0], last_pos[1])
+        fire(conn, mouse_msg("MouseUp", x, y))
+    elif cmd == 'touch':
+        tid, ttype, x, y = int(args[0]), args[1].lower(), float(args[2]), float(args[3])
+        etype = {"down": 0, "move": 1, "up": 2, "cancel": 3}[ttype]
+        fire(conn, {"Touch": {"touch_id": tid, "event_type": etype, "x": x, "y": y, "time": 0.0}})
+    elif cmd == 'click':
+        x, y = float(args[0]), float(args[1])
+        fire(conn, mouse_msg("MouseDown", x, y))
+        time.sleep(0.05)
+        fire(conn, mouse_msg("MouseUp", x, y))
+    elif cmd == 'type':
+        text = args_str  # preserve commas in text
+        fire(conn, {"TextInput": {"input": text, "replace_last": False,
+                                        "was_paste": False}})
+    elif cmd == 'key':
+        name = args[0]
+        fire(conn, key_msg("KeyDown", name))
+        fire(conn, key_msg("KeyUp", name))
+    elif cmd == 'screenshot':
+        path = args[0]
+        resp = send_recv(conn, {"cmd": "screenshot", "path": path})
+        if resp and resp.get("ok"):
+            # Re-compress: makepad's PNG encoder uses uncompressed deflate.
+            # If magick is available, re-encode for ~100x smaller files.
+            try:
+                subprocess.run(["magick", path, path], check=True,
+                               capture_output=True, timeout=10)
+            except (FileNotFoundError, subprocess.SubprocessError):
+                pass
+        print(json.dumps(resp))
+        return
+    elif cmd == 'sleep':
+        time.sleep(int(args[0]) / 1000.0)
+        return
+    else:
+        print(f"error: unknown step: {cmd}", file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(prog="havi-remote-cli",
+        description="Drive any Makepad app via MAKEPAD_REMOTE socket. "
+        "Sends mouse, keyboard, and touch input events plus screenshot. "
+        "For HAVI webview JS eval, use havi-webview-remote-cli.")
+    parser.add_argument('--port', type=int, default=None, help="TCP port (default: MAKEPAD_REMOTE env)")
+    parser.add_argument('--socket', type=str, default=None, help="Unix socket path")
+    sub = parser.add_subparsers(dest='command', required=True)
+
+    p_step = sub.add_parser('step', help="Execute step commands")
+    p_step.add_argument('steps', nargs='+', help="Step commands e.g. click(400,300) type(hello)")
+
+    sub.add_parser('interactive', help="Interactive mode — read steps from stdin")
+    sub.add_parser('send', help="Send raw JSON from stdin")
+
+    args = parser.parse_args()
+
+    port = args.port or (int(os.environ['MAKEPAD_REMOTE']) if 'MAKEPAD_REMOTE' in os.environ and not args.socket else None)
+    if not port and not args.socket:
+        parser.error("Must specify --port, --socket, or set MAKEPAD_REMOTE env var")
+
+    conn = connect(port=port, sock_path=args.socket)
+
+    try:
+        if args.command == 'step':
+            for i, step in enumerate(args.steps):
+                run_step(conn, step)
+                if i < len(args.steps) - 1:
+                    time.sleep(0.02)
+        elif args.command == 'interactive':
+            try:
+                for line in sys.stdin:
+                    line = line.strip()
+                    if line:
+                        run_step(conn, line)
+                        time.sleep(0.02)
+            except (EOFError, KeyboardInterrupt):
+                pass
+        elif args.command == 'send':
+            raw = sys.stdin.read().strip()
+            msg = json.loads(raw)
+            resp = send_recv(conn, msg)
+            print(json.dumps(resp))
+    finally:
+        conn.close()
+
+if __name__ == '__main__':
+    main()

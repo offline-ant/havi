@@ -9,7 +9,7 @@ It can run with an embedded home repo or connect to an external `hpprd`.
 Reference docs for command-line tools live in `docs/reference/<tool>.md`. SDK
 docs live in `docs/sdk/<lang>/`.
 
-- `docs/reference/` — command references (`havi`, `havi-debugger-cli`, HPPR tools)
+- `docs/reference/` — command references (`havi`, `havi-webview-remote-cli`, HPPR tools)
 - `docs/sdk/` — JS and Python client docs
 
 In packaged artifacts, specs are under `docs/spec/havi/` and `docs/spec/hppr/`.
@@ -17,7 +17,7 @@ In packaged artifacts, specs are under `docs/spec/havi/` and `docs/spec/hppr/`.
 ## Core tools
 
 - `havi` — browser runtime
-- `havi-debugger-cli` — DevTools protocol client
+- `havi-webview-remote-cli` — DevTools protocol client
 - `hppr`, `hpprd`, `mkpac`, `ckpac`, `dir-pac`, `pac-dir` — HPPR tooling
 
 ## Start

@@ -25,7 +25,7 @@ content/test-utils.js  Shared JS assertion helpers
 Each shell runner sources `test-prelude.bash`, sets up a server + content, opens
 one HTML page in Servo, and calls `run_js_tests` which polls
 `window.testResults`
-via havi-debugger-cli.
+via havi-webview-remote-cli.
 
 ## Adding a test
 

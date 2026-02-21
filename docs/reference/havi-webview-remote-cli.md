@@ -1,9 +1,9 @@
-# havi-debugger-cli Reference
+# havi-webview-remote-cli Reference
 
 ## Synopsis
 
 ```bash
-havi-debugger-cli [--port N] [--timeout SEC] [--text] <command> [args]
+havi-webview-remote-cli [--port N] [--timeout SEC] [--text] <command> [args]
 ```
 
 Connects to a running HAVI instance through the DevTools protocol.
@@ -48,9 +48,9 @@ Default target: `localhost:${HAVI_DEBUG_PORT:-${SERVO_DEBUG_PORT:-6000}}`.
 
 ```bash
 ./bin/havi --devtools 6000 hppr://u/showcase/index.html
-./bin/havi-debugger-cli -p 6000 eval 'document.title'
-./bin/havi-debugger-cli -p 6000 eval --await \
+./bin/havi-webview-remote-cli -p 6000 eval 'document.title'
+./bin/havi-webview-remote-cli -p 6000 eval --await \
   'window.home.get("//u/demo/msg.txt").then(p => p.text())'
-./bin/havi-debugger-cli -p 6000 navigate 'hppr://u/showcase/index.html'
-./bin/havi-debugger-cli -p 6000 screenshot /tmp/havi.png
+./bin/havi-webview-remote-cli -p 6000 navigate 'hppr://u/showcase/index.html'
+./bin/havi-webview-remote-cli -p 6000 screenshot /tmp/havi.png
 ```

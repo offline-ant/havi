@@ -17,7 +17,7 @@ import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 start_servo "hppr-editor://$TEST_GROUP/$TEST_APP/user/simple.html"
 
 log "Testing editor save..."
-debugtool="$HAVI_ROOT/havi-debugger-cli"
+debugtool="$HAVI_ROOT/havi-webview-remote-cli"
 
 # Verify editor page via DOM (location.href is unreliable in devtools)
 

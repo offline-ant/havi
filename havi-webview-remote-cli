@@ -494,8 +494,11 @@ def cmd_repl(args):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="havi-debugger-cli",
-        description="Control a running HAVI browser via devtools protocol",
+        prog="havi-webview-remote-cli",
+        description="Control HAVI webview via DevTools protocol. "
+        "Evaluate JavaScript, navigate, take screenshots, and stream events. "
+        "Operates at the Servo webview level. "
+        "For UI-level input injection (mouse, keyboard, touch), use havi-remote-cli.",
     )
     p.add_argument("--port", "-p", type=int, default=port_from_env(),
                    help="Devtools port (default: $HAVI_DEBUG_PORT or 6000)")

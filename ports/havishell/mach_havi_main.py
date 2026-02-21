@@ -702,6 +702,9 @@ def _run_emulator(args: argparse.Namespace) -> int:
 def _run_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
     profile = "release" if args.release else "debug"
+    # Auto-enable remote control in debug builds.
+    if profile == "debug" and "MAKEPAD_REMOTE" not in env:
+        env["MAKEPAD_REMOTE"] = "0"
     binary = HAVI_ROOT / "target" / profile / "havi"
 
     if not binary.exists():
