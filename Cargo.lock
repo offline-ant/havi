@@ -3974,8 +3974,10 @@ version = "0.1.0"
 dependencies = [
  "dpi",
  "euclid",
+ "gleam",
  "havi-protocols",
  "hppr-client",
+ "image",
  "keyboard-types",
  "libservo",
  "log",

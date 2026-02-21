@@ -16,6 +16,8 @@ use std::sync::Arc;
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};
 
+use crate::remote_control::{RemoteAction, RemoteCommand};
+
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.ServoWebView
@@ -710,6 +712,9 @@ impl App {
         self.needs_paint = true;
         self.idle_frames = 0;
 
+        // Start remote control listener if HAVI_REMOTE is set
+        crate::remote_control::start_remote_listener();
+
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
     }
@@ -1108,6 +1113,137 @@ impl App {
     fn tab_index_for_webview(&self, webview_id: WebViewId) -> Option<usize> {
         self.tabs.iter().position(|t| t.webview_id == webview_id)
     }
+
+    fn handle_remote_input(&mut self, cx: &mut Cx, msg: &makepad_widgets::cx_stdin::HostToStdin) {
+        use makepad_widgets::cx_stdin::HostToStdin;
+        match msg {
+            HostToStdin::MouseDown(md) => {
+                let pt = servo::DevicePoint::new(md.x as f32, md.y as f32);
+                self.send_input_event(servo::InputEvent::MouseButton(
+                    servo::MouseButtonEvent::new(
+                        servo::MouseButtonAction::Down,
+                        servo::MouseButton::Left,
+                        pt.into(),
+                    ),
+                ));
+            }
+            HostToStdin::MouseUp(mu) => {
+                let pt = servo::DevicePoint::new(mu.x as f32, mu.y as f32);
+                self.send_input_event(servo::InputEvent::MouseButton(
+                    servo::MouseButtonEvent::new(
+                        servo::MouseButtonAction::Up,
+                        servo::MouseButton::Left,
+                        pt.into(),
+                    ),
+                ));
+            }
+            HostToStdin::MouseMove(mm) => {
+                let pt = servo::DevicePoint::new(mm.x as f32, mm.y as f32);
+                self.send_input_event(servo::InputEvent::MouseMove(
+                    servo::MouseMoveEvent::new(pt.into()),
+                ));
+            }
+            HostToStdin::KeyDown(ke) => {
+                if let Some(event) = crate::input::translate_key_event(ke, true) {
+                    self.send_input_event(event);
+                }
+            }
+            HostToStdin::KeyUp(ke) => {
+                if let Some(event) = crate::input::translate_key_event(ke, false) {
+                    self.send_input_event(event);
+                }
+            }
+            HostToStdin::TextInput(ti) => {
+                if !ti.input.is_empty() {
+                    self.send_input_event(servo::InputEvent::Keyboard(
+                        KeyboardEvent::from_state_and_key(KeyState::Down, Key::Named(NamedKey::Process)),
+                    ));
+                    self.send_input_event(servo::InputEvent::Ime(
+                        ImeEvent::Composition(CompositionEvent {
+                            state: CompositionState::End,
+                            data: ti.input.clone(),
+                        }),
+                    ));
+                    self.send_input_event(servo::InputEvent::Keyboard(
+                        KeyboardEvent::from_state_and_key(KeyState::Up, Key::Named(NamedKey::Process)),
+                    ));
+                }
+            }
+            HostToStdin::Scroll(sc) => {
+                let pt = servo::DevicePoint::new(sc.x as f32, sc.y as f32);
+                let delta = servo::WheelDelta {
+                    x: sc.sx * self.dpi_factor,
+                    y: sc.sy * self.dpi_factor,
+                    z: 0.0,
+                    mode: servo::WheelMode::DeltaPixel,
+                };
+                self.send_input_event(servo::InputEvent::Wheel(
+                    servo::WheelEvent::new(delta, pt.into()),
+                ));
+            }
+
+            _ => {}
+        }
+        self.needs_paint = true;
+        self.idle_frames = 0;
+        self.next_frame = cx.new_next_frame();
+        cx.redraw_all();
+    }
+
+    fn handle_remote_command(&self, _cx: &mut Cx, cmd: &RemoteCommand) -> String {
+        match cmd {
+            RemoteCommand::Navigate { url } => {
+                self.navigate(url);
+                r#"{"ok":true}"#.to_string()
+            }
+            RemoteCommand::Back => {
+                self.go_back();
+                r#"{"ok":true}"#.to_string()
+            }
+            RemoteCommand::Forward => {
+                self.go_forward();
+                r#"{"ok":true}"#.to_string()
+            }
+            RemoteCommand::Reload => {
+                self.reload();
+                r#"{"ok":true}"#.to_string()
+            }
+            RemoteCommand::Tabs => {
+                let tabs_json: Vec<String> = self.tabs.iter().enumerate().map(|(i, t)| {
+                    format!(r#"{{"index":{},"title":"{}","url":"{}","active":{}}}"#,
+                        i, t.title.replace('"', r#"\""#), t.url.replace('"', r#"\""#), i == self.active_tab_idx)
+                }).collect();
+                format!(r#"{{"ok":true,"tabs":[{}]}}"#, tabs_json.join(","))
+            }
+            RemoteCommand::Screenshot { path } => {
+                if let Some(rc) = &self.rendering_context {
+                    let (w, h) = self.content_size;
+                    let _ = rc.make_current();
+                    let gl = rc.gleam_gl_api();
+                    // Bind the framebuffer used by the rendering context
+                    rc.prepare_for_rendering();
+                    let mut pixels = gl.read_pixels(
+                        0, 0, w as i32, h as i32,
+                        gleam::gl::RGBA, gleam::gl::UNSIGNED_BYTE,
+                    );
+                    // GL returns bottom-up rows; flip vertically
+                    let stride = w * 4;
+                    let orig = pixels.clone();
+                    for y in 0..h {
+                        let dst = y * stride;
+                        let src = (h - 1 - y) * stride;
+                        pixels[dst..dst + stride].copy_from_slice(&orig[src..src + stride]);
+                    }
+                    match ::image::save_buffer(path, &pixels, w as u32, h as u32, ::image::ColorType::Rgba8) {
+                        Ok(()) => format!(r#"{{"ok":true,"path":"{}","width":{},"height":{}}}"#, path.replace('"', r#"\""#), w, h),
+                        Err(e) => format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                    }
+                } else {
+                    r#"{"ok":false,"error":"no rendering context"}"#.to_string()
+                }
+            }
+        }
+    }
 }
 
 impl MatchEvent for App {
@@ -1225,6 +1361,21 @@ impl MatchEvent for App {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // Handle remote control actions
+        for action in actions {
+            if let Some(remote) = action.downcast_ref::<RemoteAction>() {
+                match remote {
+                    RemoteAction::Input(host_msg) => {
+                        self.handle_remote_input(cx, host_msg);
+                    }
+                    RemoteAction::Command { cmd, respond } => {
+                        let response = self.handle_remote_command(cx, cmd);
+                        let _ = respond.send(response);
+                    }
+                }
             }
         }
 
