@@ -1,8 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+    "components/jsonqa",
     "components/media/examples",
     "components/xpath",
+    "havi-protocols",
+    "ports/havishell",
     "ports/servoshell",
     "tests/unit/*",
 ]
@@ -99,6 +102,12 @@ harfbuzz-sys = "0.6.1"
 headers = "0.4"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"] }
 hkdf = "0.12"
+jsonqa = { path = "components/jsonqa" }
+hppr-client = { path = "../hppr/client", features = ["tokio"] }
+hppr-packet = { path = "../hppr/packet" }
+hppr-segment = { path = "../hppr/segment", default-features = false }
+hpprd = { path = "../hppr/hpprd" }
+hsb3 = { path = "../hppr/hsb3", features = ["rand"] }
 html5ever = "0.38"
 http = "1.4"
 http-body-util = "0.1"
@@ -155,6 +164,7 @@ pkcs8 = { version = "0.10", features = ["rand_core"] }
 postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
 proc-macro2 = "1"
 profile_traits = { path = "components/shared/profile" }
+pulldown-cmark = "0.13"
 quote = "1"
 rand = "0.9"
 raw-window-handle = "0.6"
@@ -254,6 +264,18 @@ opt-level = 3
 # More details: <https://github.com/tikv/jemallocator/issues/108>
 [profile.dev.package.tikv-jemalloc-sys]
 opt-level = 1
+
+[profile.dev.package.hppr-packet]
+opt-level = 3
+
+[profile.dev.package.hsb3]
+opt-level = 3
+
+[profile.dev.package.k256]
+opt-level = 3
+
+[profile.dev.package.rust-argon2]
+opt-level = 3
 
 [profile.release]
 opt-level = 3
