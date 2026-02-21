@@ -68,10 +68,12 @@ impl Selection {
         self.range.set(Some(range));
         range.associate_selection(self);
         self.queue_selectionchange_task();
-        // Dirty the document to trigger reflow with updated selection data.
-        self.document
-            .upcast::<Node>()
-            .dirty(NodeDamage::Other);
+        // Dirty the document element to trigger reflow with updated selection
+        // data.  Node::dirty() is a no-op on Document nodes (falls through to
+        // `_ => {}`), so we target the document element instead.
+        if let Some(el) = self.document.upcast::<Node>().child_elements().next() {
+            el.upcast::<Node>().dirty(NodeDamage::Other);
+        }
     }
 
     fn clear_range(&self) {

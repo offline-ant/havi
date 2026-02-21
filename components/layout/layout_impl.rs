@@ -207,6 +207,12 @@ pub struct LayoutThread {
     /// If this changed, then we need to create a new display list.
     previously_highlighted_dom_node: Cell<Option<OpaqueNode>>,
 
+    /// Tracks the document selection fingerprint from the last display list build.
+    /// (start_node, start_offset, end_node, end_offset) — if this changes, we
+    /// need a new display list.
+    previous_selection_key:
+        Cell<Option<(OpaqueNode, u32, OpaqueNode, u32)>>,
+
     /// Handler for all Paint Timings
     paint_timing_handler: RefCell<Option<PaintTimingHandler>>,
 
@@ -787,6 +793,7 @@ impl LayoutThread {
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
             previously_highlighted_dom_node: Cell::new(None),
+            previous_selection_key: Cell::new(None),
             paint_timing_handler: Default::default(),
             user_stylesheets: config.user_stylesheets,
             accessibility_active: Cell::new(config.accessibility_active),
@@ -1073,6 +1080,13 @@ impl LayoutThread {
         if self.previously_highlighted_dom_node.get() != reflow_request.highlighted_dom_node {
             // Need to manually force layout to build a new display list regardless of whether the box tree
             // changed or not.
+            self.need_new_display_list.set(true);
+        }
+
+        let new_selection_key = reflow_request.selection.as_ref().map(|s| {
+            (s.start.0, s.start.1, s.end.0, s.end.1)
+        });
+        if self.previous_selection_key.get() != new_selection_key {
             self.need_new_display_list.set(true);
         }
 
@@ -1373,6 +1387,11 @@ impl LayoutThread {
         self.need_new_display_list.set(false);
         self.previously_highlighted_dom_node
             .set(reflow_request.highlighted_dom_node);
+        self.previous_selection_key.set(
+            reflow_request.selection.as_ref().map(|s| {
+                (s.start.0, s.start.1, s.end.0, s.end.1)
+            }),
+        );
         true
     }
 

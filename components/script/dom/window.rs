@@ -3170,12 +3170,22 @@ impl Window {
         node: &Node,
         point_in_viewport: Point2D<f32, CSSPixel>,
     ) -> Option<(DomRoot<Node>, usize)> {
+        // Text nodes don't have their own layout box — their text fragments
+        // live under the parent element's box. Use the parent element for the
+        // layout query so fragments_for_pseudo finds the text fragments.
+        let query_node = if node.is::<crate::dom::text::Text>() {
+            use script_bindings::codegen::GenericBindings::NodeBinding::NodeMethods;
+            node.GetParentNode()?
+        } else {
+            DomRoot::from_ref(node)
+        };
+
         let point = point_in_viewport.map(Au::from_f32_px);
         self.layout_reflow(QueryMsg::TextIndexQuery);
         let (opaque, offset) = self
             .layout
             .borrow()
-            .query_text_node_at_point(node.to_trusted_node_address(), point)?;
+            .query_text_node_at_point(query_node.to_trusted_node_address(), point)?;
 
         // Walk descendant text nodes to find the one matching the OpaqueNode
         // returned by layout. This avoids unsafe pointer-to-Node conversion.
@@ -3192,7 +3202,7 @@ impl Window {
             None
         }
 
-        let text_node = find_text_node(node, opaque)?;
+        let text_node = find_text_node(&query_node, opaque)?;
         Some((text_node, offset))
     }
 
