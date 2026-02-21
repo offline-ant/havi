@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HAVI Demo Page</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🖧</text></svg>">
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; color: #222; }
+    h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+    h2 { color: #444; }
+    section { margin-bottom: 24px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    pre { background: #f5f5f5; padding: 12px; overflow-x: auto; }
+    code { background: #f0f0f0; padding: 2px 4px; }
+    blockquote { border-left: 4px solid #999; margin-left: 0; padding-left: 16px; color: #555; }
+    details { margin: 8px 0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    img { max-width: 100%; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; margin-bottom: 4px; font-weight: bold; }
+    nav a { margin-right: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>HAVI Demo Page</h1>
+  <nav>
+    <a href="#text">Text</a>
+    <a href="#lists">Lists</a>
+    <a href="#table">Table</a>
+    <a href="#form">Form</a>
+    <a href="#media">Media</a>
+    <a href="#misc">Misc</a>
+  </nav>
+</header>
+
+<main>
+
+<section id="text">
+  <h2>Headings &amp; Text</h2>
+  <h3>Third-level heading</h3>
+  <h4>Fourth-level heading</h4>
+  <p>A paragraph with <strong>bold</strong>, <em>italic</em>, <mark>highlighted</mark>, <small>small</small>, <s>strikethrough</s>, and <code>inline code</code> text.</p>
+  <p>A <a href="test.html">link to another page</a> and an <abbr title="Abbreviation">abbr</abbr> element.</p>
+  <blockquote>A blockquote: the network is the computer.</blockquote>
+  <pre><code>fn main() {
+    println!("Hello from HAVI");
+}</code></pre>
+</section>
+
+<hr>
+
+<section id="lists">
+  <h2>Lists</h2>
+  <h3>Unordered</h3>
+  <ul>
+    <li>Blob: raw bytes identified by hash</li>
+    <li>Plex: metadata wrapping a blob</li>
+    <li>Seal: signature wrapping a plex</li>
+  </ul>
+  <h3>Ordered</h3>
+  <ol>
+    <li>Connect to repository</li>
+    <li>Send HELLO</li>
+    <li>Authenticate</li>
+    <li>Issue commands</li>
+  </ol>
+  <h3>Description</h3>
+  <dl>
+    <dt>URC</dt>
+    <dd>Unified Resource Coordinate</dd>
+    <dt>B64A</dt>
+    <dd>ASCII-ordered base64</dd>
+  </dl>
+</section>
+
+<hr>
+
+<section id="table">
+  <h2>Table</h2>
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Operation</th><th>ACL</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>GET</td><td>Fetch packet</td><td>read</td></tr>
+      <tr><td>LIST</td><td>Enumerate children</td><td>list</td></tr>
+      <tr><td>STORE</td><td>Store packet</td><td>write</td></tr>
+      <tr><td>ADD</td><td>Create packet</td><td>write</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<hr>
+
+<section id="form">
+  <h2>Form Elements</h2>
+  <form onsubmit="return false;">
+    <div class="form-group">
+      <label for="text-input">Text Input</label>
+      <input type="text" id="text-input" placeholder="Type here...">
+    </div>
+    <div class="form-group">
+      <label for="password-input">Password</label>
+      <input type="password" id="password-input" placeholder="Secret">
+    </div>
+    <div class="form-group">
+      <label for="number-input">Number</label>
+      <input type="number" id="number-input" value="42" min="0" max="100">
+    </div>
+    <div class="form-group">
+      <label for="range-input">Range</label>
+      <input type="range" id="range-input" min="0" max="100" value="50">
+    </div>
+    <div class="form-group">
+      <label for="date-input">Date</label>
+      <input type="date" id="date-input">
+    </div>
+    <div class="form-group">
+      <label for="color-input">Color</label>
+      <input type="color" id="color-input" value="#3366cc">
+    </div>
+    <div class="form-group">
+      <label for="select-input">Select</label>
+      <select id="select-input">
+        <option>Blob</option>
+        <option>Plex</option>
+        <option>Seal</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Checkboxes</label>
+      <label><input type="checkbox" checked> Read</label>
+      <label><input type="checkbox"> Write</label>
+      <label><input type="checkbox"> List</label>
+    </div>
+    <div class="form-group">
+      <label>Radio</label>
+      <label><input type="radio" name="ring" checked> Ring1</label>
+      <label><input type="radio" name="ring"> Ring2</label>
+    </div>
+    <div class="form-group">
+      <label for="textarea-input">Textarea</label>
+      <textarea id="textarea-input" rows="4" cols="50" placeholder="Multi-line text..."></textarea>
+    </div>
+    <div class="form-group">
+      <button type="submit">Submit</button>
+      <button type="reset">Reset</button>
+      <button type="button" disabled>Disabled</button>
+    </div>
+  </form>
+</section>
+
+<hr>
+
+<section id="media">
+  <h2>Media &amp; Embedded</h2>
+  <figure>
+    <img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='%233366cc'/><text x='100' y='55' text-anchor='middle' fill='white' font-size='16'>SVG Image</text></svg>" alt="Demo SVG" width="200" height="100">
+    <figcaption>A figure with a caption</figcaption>
+  </figure>
+  <audio controls>
+    <source src="about:blank" type="audio/mpeg">
+    Audio not supported.
+  </audio>
+  <br>
+  <video controls width="320" height="180">
+    <source src="about:blank" type="video/mp4">
+    Video not supported.
+  </video>
+  <canvas id="demo-canvas" width="200" height="100" style="border:1px solid #ccc;"></canvas>
+  <script>
+    var c = document.getElementById('demo-canvas');
+    if (c && c.getContext) {
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#3366cc';
+      ctx.fillRect(10, 10, 80, 80);
+      ctx.fillStyle = '#cc6633';
+      ctx.beginPath();
+      ctx.arc(150, 50, 40, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  </script>
+</section>
+
+<hr>
+
+<section id="misc">
+  <h2>Miscellaneous</h2>
+  <details>
+    <summary>Click to expand details</summary>
+    <p>Hidden content inside a details/summary element.</p>
+  </details>
+  <progress value="70" max="100"></progress>
+  <br>
+  <meter value="0.7" min="0" max="1">70%</meter>
+  <dialog id="demo-dialog">
+    <p>A dialog element.</p>
+    <button onclick="this.parentElement.close()">Close</button>
+  </dialog>
+  <button onclick="document.getElementById('demo-dialog').showModal()">Open Dialog</button>
+</section>
+
+</main>
+
+<footer>
+  <hr>
+  <p><small>HAVI Demo Page &mdash; served via HPPR</small></p>
+</footer>
+
+</body>
+</html>
