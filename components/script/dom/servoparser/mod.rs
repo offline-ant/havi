@@ -1341,6 +1341,7 @@ impl FetchResponseListener for ParserContext {
                     page.replace("${details}", &details)
                 },
                 NetworkError::UnsupportedScheme |
+                NetworkError::HttpDisabled |
                 NetworkError::CorsGeneral |
                 NetworkError::CrossOriginResponse |
                 NetworkError::CorsCredentials |

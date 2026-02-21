@@ -143,6 +143,7 @@ use crate::dom::execcommand::execcommands::ExecCommandsSupport;
 use crate::dom::focusevent::FocusEvent;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hashchangeevent::HashChangeEvent;
+use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::html::htmlanchorelement::HTMLAnchorElement;
 use crate::dom::html::htmlareaelement::HTMLAreaElement;
 use crate::dom::html::htmlbaseelement::HTMLBaseElement;
@@ -153,6 +154,7 @@ use crate::dom::html::htmlformelement::{FormControl, FormControlElementHelpers, 
 use crate::dom::html::htmlheadelement::HTMLHeadElement;
 use crate::dom::html::htmlhtmlelement::HTMLHtmlElement;
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
+use crate::frame_kind::FrameKind;
 use crate::dom::html::htmlimageelement::HTMLImageElement;
 use crate::dom::html::htmlscriptelement::{HTMLScriptElement, ScriptResult};
 use crate::dom::html::htmltitleelement::HTMLTitleElement;
@@ -187,6 +189,7 @@ use crate::dom::types::{HTMLCanvasElement, HTMLDialogElement, VisibilityStateEnt
 use crate::dom::uievent::UIEvent;
 use crate::dom::virtualmethods::vtable_for;
 use crate::dom::websocket::WebSocket;
+use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::dom::windowproxy::WindowProxy;
 use crate::dom::xpathevaluator::XPathEvaluator;
@@ -625,6 +628,21 @@ pub(crate) struct Document {
 
     /// Reflect the value of that preferences to prevent paying the cost of a RwLock access.
     layout_animations_test_enabled: bool,
+
+    /// HPPR: pre-fetched site ring1 credentials (ring1_name, signing_key)
+    hppr_site_credentials: DomRefCell<Option<(String, String)>>,
+    /// HPPR: admin ring1 credentials (ring1_name, token) for window.ring0
+    hppr_admin_credentials: DomRefCell<Option<(String, String)>>,
+    /// HPPR: endpoint extracted from the document URL
+    hppr_endpoint: DomRefCell<Option<String>>,
+    /// HPPR: pre-built signer for ring2 auth (window.route).
+    #[ignore_malloc_size_of = "hppr_client::Signer"]
+    #[no_trace]
+    hppr_signer: DomRefCell<Option<hppr_client::Signer>>,
+    /// HPPR: the packet that was used to load this document (route navigation)
+    hppr_packet: MutNullableDom<HpprPacket>,
+    /// HPPR: shared WatchSocket pool for <x watch>, keyed by watch prefix
+    watch_pool: DomRefCell<HashMapTracedValues<String, (Dom<WatchSocket>, usize)>>,
 }
 
 impl Document {
@@ -2268,10 +2286,10 @@ impl Document {
         if !recursive_flag {
             // `check_if_unloading_is_cancelled` might cause futher modifications to the DOM so collecting here prevents
             // a double borrow if the `IFrameCollection` needs to be validated again.
-            let iframes: Vec<_> = self.iframes().iter().collect();
-            for iframe in &iframes {
+            let frames: Vec<FrameKind> = self.iframes().iter().map(|f| f.element.clone()).collect();
+            for frame in &frames {
                 // TODO: handle the case of cross origin iframes.
-                let document = iframe.owner_document();
+                let document = frame.owner_document();
                 can_unload = document.check_if_unloading_is_cancelled(true, can_gc);
                 if !document.salvageable() {
                     self.salvageable.set(false);
@@ -2338,10 +2356,10 @@ impl Document {
         if !recursive_flag {
             // `unload` might cause futher modifications to the DOM so collecting here prevents
             // a double borrow if the `IFrameCollection` needs to be validated again.
-            let iframes: Vec<_> = self.iframes().iter().collect();
-            for iframe in &iframes {
+            let frames: Vec<FrameKind> = self.iframes().iter().map(|f| f.element.clone()).collect();
+            for frame in &frames {
                 // TODO: handle the case of cross origin iframes.
-                let document = iframe.owner_document();
+                let document = frame.owner_document();
                 document.unload(true, can_gc);
                 if !document.salvageable() {
                     self.salvageable.set(false);
@@ -3585,6 +3603,82 @@ impl Document {
             |details_name_groups| details_name_groups.get_or_insert_default(),
         )
     }
+
+    // --- HPPR credential and metadata accessors ---
+
+    pub(crate) fn site_credentials(&self) -> Option<(String, String)> {
+        self.hppr_site_credentials.borrow().clone()
+    }
+
+    pub(crate) fn set_site_credentials(&self, ring1_name: String, signing_key: String) {
+        *self.hppr_site_credentials.borrow_mut() = Some((ring1_name, signing_key));
+    }
+
+    pub(crate) fn admin_credentials(&self) -> Option<(String, String)> {
+        self.hppr_admin_credentials.borrow().clone()
+    }
+
+    pub(crate) fn set_admin_credentials(&self, ring1_name: String, signing_key: String) {
+        *self.hppr_admin_credentials.borrow_mut() = Some((ring1_name, signing_key));
+    }
+
+    pub(crate) fn hppr_endpoint(&self) -> Option<String> {
+        self.hppr_endpoint.borrow().clone()
+    }
+
+    pub(crate) fn set_hppr_endpoint(&self, endpoint: String) {
+        *self.hppr_endpoint.borrow_mut() = Some(endpoint);
+    }
+
+    pub(crate) fn hppr_signer(&self) -> Option<hppr_client::Signer> {
+        self.hppr_signer.borrow().clone()
+    }
+
+    pub(crate) fn set_hppr_signer(&self, signer: hppr_client::Signer) {
+        *self.hppr_signer.borrow_mut() = Some(signer);
+    }
+
+
+
+
+    pub(crate) fn hppr_packet(&self) -> Option<DomRoot<HpprPacket>> {
+        self.hppr_packet.get()
+    }
+
+    pub(crate) fn set_hppr_packet(&self, packet: &HpprPacket) {
+        self.hppr_packet.set(Some(packet));
+    }
+
+    /// Acquire a shared WatchSocket for the given watch prefix.
+    /// Creates a new WatchSocket if none exists for this prefix.
+    pub(crate) fn acquire_watch(&self, prefix: &str, can_gc: CanGc) -> Option<DomRoot<WatchSocket>> {
+        let mut pool = self.watch_pool.borrow_mut();
+        if let Some((ws, count)) = pool.get_mut(prefix) {
+            *count += 1;
+            return Some(DomRoot::from_ref(&**ws));
+        }
+        let endpoint = self.hppr_endpoint.borrow().clone()?;
+        let signer = self.hppr_signer.borrow().clone()?;
+        drop(pool);
+        let global = self.window().as_global_scope();
+        let ws = WatchSocket::new(global, &endpoint, signer, prefix.to_string(), can_gc);
+        let mut pool = self.watch_pool.borrow_mut();
+        pool.insert(prefix.to_string(), (Dom::from_ref(&*ws), 1));
+        Some(ws)
+    }
+
+    /// Release a shared WatchSocket for the given watch prefix.
+    /// Closes the WatchSocket when refcount reaches zero.
+    pub(crate) fn release_watch(&self, prefix: &str) {
+        let mut pool = self.watch_pool.borrow_mut();
+        if let Some((ws, count)) = pool.get_mut(prefix) {
+            *count -= 1;
+            if *count == 0 {
+                ws.close();
+                pool.remove(prefix);
+            }
+        }
+    }
 }
 
 #[derive(MallocSizeOf, PartialEq)]
@@ -3913,6 +4007,12 @@ impl Document {
             details_name_groups: Default::default(),
             protocol_handler_automation_mode: Default::default(),
             layout_animations_test_enabled: pref!(layout_animations_test_enabled),
+            hppr_site_credentials: DomRefCell::new(None),
+            hppr_admin_credentials: DomRefCell::new(None),
+            hppr_endpoint: DomRefCell::new(None),
+            hppr_signer: DomRefCell::new(None),
+            hppr_packet: Default::default(),
+            watch_pool: DomRefCell::new(HashMapTracedValues::new()),
         }
     }
 
@@ -6516,6 +6616,11 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
         }
     }
 
+    /// HPPR: the packet that loaded this document.
+    fn GetPacket(&self) -> Option<DomRoot<HpprPacket>> {
+        self.hppr_packet.get()
+    }
+
     /// <https://w3c.github.io/selection-api/#dom-document-getselection>
     fn GetSelection(&self, can_gc: CanGc) -> Option<DomRoot<Selection>> {
         if self.has_browsing_context {
@@ -6812,24 +6917,24 @@ impl Iterator for SameoriginAncestorNavigablesIterator {
 /// <https://html.spec.whatwg.org/multipage/#descendant-navigables>
 // TODO: Find a way for something equivalent for cross origin document.
 pub(crate) struct SameOriginDescendantNavigablesIterator {
-    stack: Vec<Box<dyn Iterator<Item = DomRoot<HTMLIFrameElement>>>>,
+    stack: Vec<std::vec::IntoIter<FrameKind>>,
 }
 
 impl SameOriginDescendantNavigablesIterator {
     pub(crate) fn new(document: DomRoot<Document>) -> Self {
-        let iframes: Vec<DomRoot<HTMLIFrameElement>> = document.iframes().iter().collect();
+        let frames: Vec<FrameKind> = document.iframes().iter().map(|f| f.element.clone()).collect();
         Self {
-            stack: vec![Box::new(iframes.into_iter())],
+            stack: vec![frames.into_iter()],
         }
     }
 
-    fn get_next_iframe(&mut self) -> Option<DomRoot<HTMLIFrameElement>> {
-        let mut cur_iframe = self.stack.last_mut()?.next();
-        while cur_iframe.is_none() {
+    fn get_next_frame(&mut self) -> Option<FrameKind> {
+        let mut cur = self.stack.last_mut()?.next();
+        while cur.is_none() {
             self.stack.pop();
-            cur_iframe = self.stack.last_mut()?.next();
+            cur = self.stack.last_mut()?.next();
         }
-        cur_iframe
+        cur
     }
 }
 
@@ -6837,15 +6942,15 @@ impl Iterator for SameOriginDescendantNavigablesIterator {
     type Item = DomRoot<Document>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(iframe) = self.get_next_iframe() {
-            let Some(pipeline_id) = iframe.pipeline_id() else {
+        while let Some(frame) = self.get_next_frame() {
+            let Some(pipeline_id) = frame.pipeline_id() else {
                 continue;
             };
 
             if let Some(document) = ScriptThread::find_document(pipeline_id) {
-                let child_iframes: Vec<DomRoot<HTMLIFrameElement>> =
-                    document.iframes().iter().collect();
-                self.stack.push(Box::new(child_iframes.into_iter()));
+                let child_frames: Vec<FrameKind> =
+                    document.iframes().iter().map(|f| f.element.clone()).collect();
+                self.stack.push(child_frames.into_iter());
                 return Some(document);
             } else {
                 continue;

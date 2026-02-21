@@ -154,7 +154,10 @@ use crate::dom::event::{Event, EventBubbles, EventCancelable};
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::fetchlaterresult::FetchLaterResult;
 use crate::dom::globalscope::GlobalScope;
+use crate::dom::address::Address;
 use crate::dom::history::History;
+use crate::dom::hpprclient::HpprClient;
+use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::html::htmlcollection::{CollectionFilter, HTMLCollection};
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
 use crate::dom::idbfactory::IDBFactory;
@@ -199,7 +202,12 @@ use crate::task_source::SendableTaskSource;
 use crate::timers::{IsInterval, TimerCallback};
 use crate::unminify::unminified_path;
 use crate::webdriver_handlers::{find_node_by_unique_id_in_document, jsval_to_webdriver};
+use hppr_client::Signer;
 use crate::{fetch, window_named_properties};
+
+fn default_hppr_endpoint() -> String {
+    hppr_client::repo_endpoint().to_string()
+}
 
 /// A callback to call when a response comes back from the `ImageCache`.
 ///
@@ -482,6 +490,15 @@ pub(crate) struct Window {
     /// <https://html.spec.whatwg.org/multipage/#last-activation-timestamp>
     #[no_trace]
     last_activation_timestamp: Cell<UserActivationTimestamp>,
+
+    /// HPPR: cached Address DOM object for this window
+    address: MutNullableDom<Address>,
+    /// HPPR: cached home repo HpprClient for `window.home`
+    hppr_home: MutNullableDom<HpprClient>,
+    /// HPPR: cached route repo HpprClient (Ring2 from document credentials)
+    hppr_route: MutNullableDom<HpprClient>,
+    /// HPPR: cached Ring0 admin HpprClient
+    ring0: MutNullableDom<HpprClient>,
 }
 
 impl Window {
@@ -1454,6 +1471,92 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
             .or_init(|| Storage::new(self, WebStorageType::Local, CanGc::note()))
     }
 
+    /// Current page's Address (replaces window.location).
+    fn Address(&self) -> DomRoot<Address> {
+        self.address.or_init(|| {
+            let url = self.Document().url().to_string();
+            Address::new_from_url(self.upcast::<GlobalScope>(), &url, CanGc::note())
+        })
+    }
+
+    /// HPPR home repo client (ring1 sandbox account).
+    fn Home(&self) -> DomRoot<HpprClient> {
+        self.hppr_home.or_init(|| {
+            let endpoint = default_hppr_endpoint();
+
+            // Use pre-fetched home repo credentials from document (non-blocking)
+            // Site credentials use keypair-based seal auth via Ring1 Member list
+            match self.Document().site_credentials() {
+                Some((ring1_name, signing_key)) => {
+                    let signer = Signer::ring1(&ring1_name, &signing_key);
+                    HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note())
+                }
+                None => {
+                    log::warn!("window.home unavailable: missing site ring1 credentials");
+                    HpprClient::new_with_signer(
+                        self.upcast::<GlobalScope>(),
+                        Signer::anyone(), endpoint,
+                        Some("window.home unavailable: missing site ring1 credentials (non-HPPR page or prefetch failed)".into()),
+                        CanGc::note())
+                },
+            }
+
+        })
+    }
+
+    /// HPPR route client (remote repo access: ring2 seal auth).
+    /// Returns None unless both signing key and target group are available.
+    fn GetRoute(&self) -> Option<DomRoot<HpprClient>> {
+        // Return cached client if exists
+        if let Some(client) = self.hppr_route.get() {
+            return Some(client);
+        }
+
+        // Require endpoint and signer for ring2
+        let document = self.Document();
+        let endpoint = document.hppr_endpoint()?.to_string();
+        let signer = document.hppr_signer()?;
+
+        let client = HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note());
+        self.hppr_route.set(Some(&client));
+        Some(client)
+    }
+
+    /// HPPR route packet - the stored route packet for this navigation.
+    /// Returns None if page was not loaded through a route.
+    fn GetPacket(&self) -> Option<DomRoot<HpprPacket>> {
+        self.Document().hppr_packet()
+    }
+
+    /// HPPR ring0 admin client (havi://, hppr-setup://, and hppr-editor:// pages only).
+    /// Returns null for other pages.
+    fn GetRing0(&self) -> Option<DomRoot<HpprClient>> {
+        let url = self.upcast::<GlobalScope>().get_url();
+        if !matches!(url.scheme(), "havi" | "hppr-setup" | "hppr-editor") {
+            return None;
+        }
+
+        Some(self.ring0.or_init(|| {
+            let endpoint = default_hppr_endpoint();
+
+
+            // Read admin credentials (ring1_name, token) for window.ring0
+            match self.Document().admin_credentials() {
+                Some((ring1_name, token)) => {
+                    let signer = Signer::ring1_adhoc(&ring1_name, &token);
+                    HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note())
+                },
+                None => {
+                    log::warn!("window.ring0 on havi:// but admin credentials missing");
+                    HpprClient::new_with_signer(
+                        self.upcast::<GlobalScope>(), Signer::anyone(), endpoint,
+                        Some("window.ring0 unavailable: admin credentials not pre-fetched".into()),
+                        CanGc::note())
+                },
+            }
+        }))
+    }
+
     /// <https://cookiestore.spec.whatwg.org/#Window>
     fn CookieStore(&self, can_gc: CanGc) -> DomRoot<CookieStore> {
         self.global().cookie_store(can_gc)
@@ -2185,7 +2288,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
         let document = self.Document();
 
         // https://html.spec.whatwg.org/multipage/#document-tree-child-browsing-context-name-property-set
-        let iframes: Vec<_> = document
+        let iframes: Vec<DomRoot<Element>> = document
             .iframes()
             .iter()
             .filter(|iframe| {
@@ -2194,9 +2297,10 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
                 }
                 false
             })
+            .map(|iframe| iframe.upcast_element())
             .collect();
 
-        let iframe_iter = iframes.iter().map(|iframe| iframe.upcast::<Element>());
+        let iframe_iter = iframes.iter().map(|e| &**e);
 
         let name = Atom::from(name);
 
@@ -3831,6 +3935,10 @@ impl Window {
             weak_script_thread,
             has_changed_visual_viewport_dimension: Default::default(),
             last_activation_timestamp: Cell::new(UserActivationTimestamp::PositiveInfinity),
+            address: Default::default(),
+            hppr_home: Default::default(),
+            hppr_route: Default::default(),
+            ring0: Default::default(),
         });
 
         WindowBinding::Wrap::<crate::DomTypeHolder>(&mut cx, win)

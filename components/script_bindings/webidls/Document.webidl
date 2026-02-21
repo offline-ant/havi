@@ -96,7 +96,7 @@ partial /*sealed*/ interface Document {
   static Document parseHTMLUnsafe((TrustedHTML or DOMString) html);
 
   // resource metadata management
-  [PutForwards=href, LegacyUnforgeable]
+  [PutForwards=href, LegacyUnforgeable, Pref="dom_location_enabled"]
   readonly attribute Location? location;
   [SetterThrows] attribute DOMString domain;
   readonly attribute DOMString referrer;
@@ -129,16 +129,16 @@ partial /*sealed*/ interface Document {
   NodeList getElementsByName(DOMString elementName);
   readonly attribute HTMLScriptElement? currentScript;
 
-  // dynamic markup insertion
-  [CEReactions, Throws]
+  // dynamic markup insertion (HPPR: disabled by default)
+  [CEReactions, Throws, Pref="dom_document_write_enabled"]
   Document open(optional DOMString unused1, optional DOMString unused2);
-  [CEReactions, Throws]
+  [CEReactions, Throws, Pref="dom_document_write_enabled"]
   WindowProxy? open(USVString url, DOMString name, DOMString features);
-  [CEReactions, Throws]
+  [CEReactions, Throws, Pref="dom_document_write_enabled"]
   undefined close();
-  [CEReactions, Throws]
+  [CEReactions, Throws, Pref="dom_document_write_enabled"]
   undefined write((TrustedHTML or DOMString)... text);
-  [CEReactions, Throws]
+  [CEReactions, Throws, Pref="dom_document_write_enabled"]
   undefined writeln((TrustedHTML or DOMString)... text);
 
   // user interaction
@@ -230,6 +230,12 @@ partial interface Document {
 partial interface Document {
   [Throws]
   ShadowRoot servoGetMediaControls(DOMString id);
+};
+
+// HPPR protocol support.
+partial interface Document {
+  [Pref="dom_hppr_enabled"]
+  readonly attribute HpprPacket? packet;
 };
 
 // https://html.spec.whatwg.org/multipage/#dom-document-nameditem-filter

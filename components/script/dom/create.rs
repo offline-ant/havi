@@ -84,6 +84,7 @@ use crate::dom::html::htmltrackelement::HTMLTrackElement;
 use crate::dom::html::htmlulistelement::HTMLUListElement;
 use crate::dom::html::htmlunknownelement::HTMLUnknownElement;
 use crate::dom::html::htmlvideoelement::HTMLVideoElement;
+use crate::dom::html::htmlxframe::HTMLXFrame;
 use crate::dom::svg::svgelement::SVGElement;
 use crate::dom::svg::svgimageelement::SVGImageElement;
 use crate::dom::svg::svgsvgelement::SVGSVGElement;
@@ -433,6 +434,7 @@ pub(crate) fn create_native_html_element(
         local_name!("video") => make!(HTMLVideoElement),
         local_name!("wbr") => make!(HTMLElement),
         local_name!("xmp") => make!(HTMLPreElement),
+        _ if &*name.local == "x" => make!(HTMLXFrame),
         _ if is_valid_custom_element_name(&name.local) => make!(HTMLElement),
         _ => make!(HTMLUnknownElement),
     }

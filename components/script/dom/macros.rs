@@ -787,6 +787,54 @@ macro_rules! impl_performance_entry_struct(
     );
 );
 
+/// Generate an HPPR client dispatch method.
+///
+/// Creates a method that: creates a Promise, rejects if invalid, sets up a callback,
+/// dispatches via the envelope's do_* method, and returns the promise.
+///
+/// `$envelope` is a path relative to `self` (e.g., `.inner` or empty) used to reach
+/// the EnvelopeHpprClient for `reject_if_invalid` and `do_*` calls.
+///
+/// Variants:
+///   hppr_dispatch!(Method, can_gc, (.inner), do_get, &urc.to_string(); urc: USVString)
+///   hppr_dispatch!(Method, (.inner), do_hello,)
+///   hppr_dispatch!(Method, (.inner), do_members, &urc.to_string(); urc: USVString)
+macro_rules! hppr_dispatch {
+    // With extra args and can_gc in signature
+    (@body $self_:ident, $can_gc:ident, ($($env:tt)*), $do_method:ident, $($do_arg:expr),* ) => {{
+        use $crate::dom::bindings::reflector::DomGlobal;
+        use net_traits::HpprProtocolResponse;
+        let global = $self_.global();
+        let promise = $crate::dom::promise::Promise::new(&global, $can_gc);
+        if $self_ $($env)* .reject_if_invalid(&promise, $can_gc) { return promise; }
+        let cb = $crate::routed_promise::callback_promise::<HpprProtocolResponse, _>(
+            &promise, $self_, global.task_manager().dom_manipulation_task_source(),
+        );
+        $self_ $($env)* .$do_method($($do_arg,)* cb);
+        promise
+    }};
+    // can_gc in signature, with extra args
+    ($method:ident, can_gc, ($($env:tt)*), $do_method:ident, $($do_arg:expr),* ; $($arg:ident : $argty:ty),+) => {
+        fn $method(&self, $($arg : $argty,)+ can_gc: CanGc) -> ::std::rc::Rc<$crate::dom::promise::Promise> {
+            hppr_dispatch!(@body self, can_gc, ($($env)*), $do_method, $($do_arg),*)
+        }
+    };
+    // can_gc from note(), with extra args
+    ($method:ident, ($($env:tt)*), $do_method:ident, $($do_arg:expr),* ; $($arg:ident : $argty:ty),+) => {
+        fn $method(&self, $($arg : $argty),+) -> ::std::rc::Rc<$crate::dom::promise::Promise> {
+            let can_gc = CanGc::note();
+            hppr_dispatch!(@body self, can_gc, ($($env)*), $do_method, $($do_arg),*)
+        }
+    };
+    // can_gc from note(), no extra args
+    ($method:ident, ($($env:tt)*), $do_method:ident $(,)?) => {
+        fn $method(&self) -> ::std::rc::Rc<$crate::dom::promise::Promise> {
+            let can_gc = CanGc::note();
+            hppr_dispatch!(@body self, can_gc, ($($env)*), $do_method,)
+        }
+    };
+}
+
 macro_rules! handle_potential_webgl_error {
     ($context:expr, $call:expr, $return_on_error:expr) => {
         match $call {

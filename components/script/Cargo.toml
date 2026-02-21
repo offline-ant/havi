@@ -78,11 +78,15 @@ fonts_traits = { workspace = true }
 glow = { workspace = true }
 headers = { workspace = true }
 hkdf = { workspace = true }
+hppr-client = { workspace = true }
+hsb3 = { workspace = true }
+hppr-packet = { workspace = true }
 html5ever = { workspace = true }
 http = { workspace = true }
 hyper_serde = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
+jsonqa = { workspace = true }
 ipc-channel = { workspace = true }
 itertools = { workspace = true }
 js = { workspace = true }

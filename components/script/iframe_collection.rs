@@ -14,23 +14,53 @@ use script_bindings::script_runtime::CanGc;
 
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::{Dom, DomRoot};
+use crate::dom::document::Document;
+use crate::dom::element::Element;
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
+use crate::dom::html::htmlxframe::HTMLXFrame;
 use crate::dom::node::{Node, ShadowIncluding};
-use crate::dom::types::{Document, Window};
+use crate::dom::types::Window;
+use crate::dom::windowproxy::WindowProxy;
+use crate::frame_kind::FrameKind;
 use crate::script_thread::with_script_thread;
 
 #[derive(JSTraceable, MallocSizeOf)]
 #[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
 pub(crate) struct IFrame {
-    pub(crate) element: Dom<HTMLIFrameElement>,
+    pub(crate) element: FrameKind,
     #[no_trace]
     pub(crate) size: Option<ViewportDetails>,
+}
+
+impl IFrame {
+    /// Delegate navigable-frame methods through to the underlying element.
+    pub fn browsing_context_id(&self) -> Option<BrowsingContextId> {
+        self.element.browsing_context_id()
+    }
+
+    pub fn destroy_document_and_its_descendants(&self, can_gc: CanGc) {
+        self.element.destroy_document_and_its_descendants(can_gc)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn GetContentDocument(&self) -> Option<DomRoot<Document>> {
+        self.element.get_content_document()
+    }
+
+    #[allow(non_snake_case)]
+    pub fn GetContentWindow(&self) -> Option<DomRoot<WindowProxy>> {
+        self.element.get_content_window()
+    }
+
+    pub fn upcast_element(&self) -> DomRoot<Element> {
+        self.element.upcast_element()
+    }
 }
 
 #[derive(Default, JSTraceable, MallocSizeOf)]
 #[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
 pub(crate) struct IFrameCollection {
-    /// The `<iframe>`s in the collection.
+    /// The navigable frame elements (`<iframe>` and `<x>`) in the collection.
     iframes: Vec<IFrame>,
     /// When true, the collection will need to be rebuilt.
     invalid: bool,
@@ -56,7 +86,7 @@ impl IFrameCollection {
         }
         let document_node = DomRoot::from_ref(document.upcast::<Node>());
 
-        // Preserve any old sizes, but only for `<iframe>`s that already have a
+        // Preserve any old sizes, but only for frames that already have a
         // BrowsingContextId and a set size.
         let mut old_sizes: FxHashMap<_, _> = self
             .iframes
@@ -71,15 +101,20 @@ impl IFrameCollection {
 
         self.iframes = document_node
             .traverse_preorder(ShadowIncluding::Yes)
-            .filter_map(DomRoot::downcast::<HTMLIFrameElement>)
+            .filter_map(|node| {
+                if let Some(iframe) = node.downcast::<HTMLIFrameElement>() {
+                    Some(FrameKind::IFrame(Dom::from_ref(iframe)))
+                } else if let Some(xframe) = node.downcast::<HTMLXFrame>() {
+                    Some(FrameKind::XFrame(Dom::from_ref(xframe)))
+                } else {
+                    None
+                }
+            })
             .map(|element| {
                 let size = element
                     .browsing_context_id()
                     .and_then(|browsing_context_id| old_sizes.remove(&browsing_context_id));
-                IFrame {
-                    element: element.as_traced(),
-                    size,
-                }
+                IFrame { element, size }
             })
             .collect();
         self.invalid = false;
@@ -176,7 +211,7 @@ impl IFrameCollection {
         }
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = DomRoot<HTMLIFrameElement>> + use<'_> {
-        self.iframes.iter().map(|iframe| iframe.element.as_rooted())
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &IFrame> + use<'_> {
+        self.iframes.iter()
     }
 }

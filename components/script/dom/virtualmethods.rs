@@ -32,6 +32,7 @@ use crate::dom::html::htmlheadelement::HTMLHeadElement;
 use crate::dom::html::htmlhrelement::HTMLHRElement;
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
 use crate::dom::html::htmlimageelement::HTMLImageElement;
+use crate::dom::html::htmlxframe::HTMLXFrame;
 use crate::dom::html::htmlinputelement::HTMLInputElement;
 use crate::dom::html::htmllabelelement::HTMLLabelElement;
 use crate::dom::html::htmllielement::HTMLLIElement;
@@ -214,6 +215,9 @@ pub(crate) fn vtable_for(node: &Node) -> &dyn VirtualMethods {
         },
         NodeTypeId::Element(ElementTypeId::HTMLElement(HTMLElementTypeId::HTMLIFrameElement)) => {
             node.downcast::<HTMLIFrameElement>().unwrap() as &dyn VirtualMethods
+        },
+        NodeTypeId::Element(ElementTypeId::HTMLElement(HTMLElementTypeId::HTMLXFrame)) => {
+            node.downcast::<HTMLXFrame>().unwrap() as &dyn VirtualMethods
         },
         NodeTypeId::Element(ElementTypeId::HTMLElement(HTMLElementTypeId::HTMLInputElement)) => {
             node.downcast::<HTMLInputElement>().unwrap() as &dyn VirtualMethods

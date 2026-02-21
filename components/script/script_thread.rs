@@ -137,6 +137,7 @@ use crate::dom::document::{
 };
 use crate::dom::element::Element;
 use crate::dom::globalscope::GlobalScope;
+use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::html::htmliframeelement::{HTMLIFrameElement, IframeContext};
 use crate::dom::node::NodeTraits;
 use crate::dom::servoparser::{ParserContext, ServoParser};
@@ -2732,12 +2733,12 @@ impl ScriptThread {
         browsing_context_id: BrowsingContextId,
         throttled: bool,
     ) {
-        let iframe = self
+        let frame = self
             .documents
             .borrow()
-            .find_iframe(parent_pipeline_id, browsing_context_id);
-        if let Some(iframe) = iframe {
-            iframe.set_throttled(throttled);
+            .find_frame(parent_pipeline_id, browsing_context_id);
+        if let Some(frame) = frame {
+            frame.set_throttled(throttled);
         }
     }
 
@@ -2824,7 +2825,7 @@ impl ScriptThread {
             let iframes = document.iframes();
             iframes
                 .get(browsing_context_id)
-                .map(|iframe| DomRoot::from_ref(iframe.element.upcast()))
+                .map(|iframe| iframe.upcast_element())
         }) else {
             return;
         };
@@ -2962,12 +2963,12 @@ impl ScriptThread {
         reason: UpdatePipelineIdReason,
         can_gc: CanGc,
     ) {
-        let frame_element = self
+        let frame = self
             .documents
             .borrow()
-            .find_iframe(parent_pipeline_id, browsing_context_id);
-        if let Some(frame_element) = frame_element {
-            frame_element.update_pipeline_id(new_pipeline_id, reason, can_gc);
+            .find_frame(parent_pipeline_id, browsing_context_id);
+        if let Some(frame) = frame {
+            frame.update_pipeline_id(new_pipeline_id, reason, can_gc);
         }
 
         if let Some(window) = self.documents.borrow().find_window(new_pipeline_id) {
@@ -3253,12 +3254,12 @@ impl ScriptThread {
         child_id: PipelineId,
         can_gc: CanGc,
     ) {
-        let iframe = self
+        let frame = self
             .documents
             .borrow()
-            .find_iframe(parent_id, browsing_context_id);
-        match iframe {
-            Some(iframe) => iframe.iframe_load_event_steps(child_id, can_gc),
+            .find_frame(parent_id, browsing_context_id);
+        match frame {
+            Some(frame) => frame.iframe_load_event_steps(child_id, can_gc),
             None => warn!("Message sent to closed pipeline {}.", parent_id),
         }
     }
@@ -3556,7 +3557,44 @@ impl ScriptThread {
         );
 
         document.set_https_state(metadata.https_state);
+
+        // HPPR: propagate credentials and packet data from protocol handler response
+        if let Some((ring1_name, signing_key)) = metadata.site_credentials {
+            document.set_site_credentials(ring1_name, signing_key);
+        }
+        if let Some((ring1_name, signing_key)) = metadata.admin_credentials {
+            document.set_admin_credentials(ring1_name, signing_key);
+        }
+        if let Some(endpoint) = metadata.hppr_endpoint {
+            document.set_hppr_endpoint(endpoint);
+        }
+        if let Some(signer) = metadata.hppr_signer {
+            document.set_hppr_signer(signer);
+        }
+        if let Some(pkt) = metadata.hppr_packet {
+            if let Ok(packet) = HpprPacket::new(
+                window.upcast::<GlobalScope>(),
+                pkt,
+                can_gc,
+            ) {
+                document.set_hppr_packet(&packet);
+            }
+        }
+
         document.set_navigation_start(incomplete.navigation_start);
+
+        // HAVI: install disabled-API stubs on hppr* schemes before parsing.
+        if final_url.scheme().starts_with("hppr") {
+            let cx = window.get_cx();
+            rooted!(in(*cx) let mut rval = UndefinedValue());
+            let _ = window.as_global_scope().evaluate_js_on_global(
+                include_str!("dom/havi_disabled_apis.js").into(),
+                "[havi:internal]",
+                None,
+                rval.handle_mut(),
+                can_gc,
+            );
+        }
 
         if is_html_document == IsHTMLDocument::NonHTMLDocument {
             ServoParser::parse_xml_document(
@@ -3669,12 +3707,12 @@ impl ScriptThread {
         history_handling: NavigationHistoryBehavior,
         can_gc: CanGc,
     ) {
-        let iframe = self
+        let frame = self
             .documents
             .borrow()
-            .find_iframe(parent_pipeline_id, browsing_context_id);
-        if let Some(iframe) = iframe {
-            iframe.navigate_or_reload_child_browsing_context(load_data, history_handling, can_gc);
+            .find_frame(parent_pipeline_id, browsing_context_id);
+        if let Some(frame) = frame {
+            frame.navigate_or_reload_child_browsing_context(load_data, history_handling, can_gc);
         }
     }
 

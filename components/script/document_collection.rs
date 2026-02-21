@@ -14,6 +14,7 @@ use crate::dom::document::Document;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
 use crate::dom::window::Window;
+use crate::frame_kind::FrameKind;
 
 /// The collection of all [`Document`]s managed by the [`crate::script_thread::ScriptThread`].
 /// This is stored as a mapping of [`PipelineId`] to [`Document`], but for updating the
@@ -60,7 +61,23 @@ impl DocumentCollection {
             document
                 .iframes()
                 .get(browsing_context_id)
-                .map(|iframe| iframe.element.as_rooted())
+                .and_then(|iframe| iframe.element.as_iframe())
+        })
+    }
+
+    /// Find a navigable frame element (iframe or x) by browsing context ID.
+    /// Returns a cloned FrameKind for calling navigable methods without
+    /// borrowing the collection.
+    pub(crate) fn find_frame(
+        &self,
+        pipeline_id: PipelineId,
+        browsing_context_id: BrowsingContextId,
+    ) -> Option<FrameKind> {
+        self.find_document(pipeline_id).and_then(|document| {
+            document
+                .iframes()
+                .get(browsing_context_id)
+                .map(|iframe| iframe.element.clone())
         })
     }
 
@@ -142,7 +159,7 @@ impl DocumentTree {
             let children: Vec<PipelineId> = document
                 .iframes()
                 .iter()
-                .filter_map(|iframe| iframe.pipeline_id())
+                .filter_map(|iframe| iframe.element.pipeline_id())
                 .filter(|iframe_pipeline_id| documents.find_document(*iframe_pipeline_id).is_some())
                 .collect();
             for child in &children {
