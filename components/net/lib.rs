@@ -12,6 +12,8 @@ mod decoder;
 pub mod embedder;
 pub mod filemanager_thread;
 mod hosts;
+pub mod hppr_chunks;
+pub mod hppr_pool;
 pub mod hsts;
 pub mod http_cache;
 pub mod http_loader;
@@ -23,6 +25,9 @@ pub mod resource_thread;
 pub mod subresource_integrity;
 #[cfg(feature = "test-util")]
 pub mod test_util;
+mod stream_in_loader;
+mod stream_out_loader;
+mod watch_loader;
 mod websocket_loader;
 
 /// An implementation of the [Fetch specification](https://fetch.spec.whatwg.org/)

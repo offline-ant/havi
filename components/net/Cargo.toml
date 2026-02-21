@@ -18,6 +18,7 @@ doctest = false
 test-util = ["hyper-util/server-graceful"]
 
 [dependencies]
+anyhow = "1"
 async-compression = { version = "0.4.12", default-features = false, features = ["brotli", "gzip", "tokio", "zlib", "zstd"] }
 async-recursion = "1.1"
 async-tungstenite = { workspace = true }
@@ -79,6 +80,11 @@ url = { workspace = true }
 uuid = { workspace = true }
 webpki-roots = { workspace = true }
 webrender_api = { workspace = true }
+
+# HPPR connection pool
+hppr-client = { workspace = true }
+hppr-packet = { workspace = true }
+hppr-segment = { workspace = true }
 
 [dev-dependencies]
 embedder_traits = { workspace = true, features = ["baked-default-resources"] }

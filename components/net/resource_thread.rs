@@ -29,8 +29,8 @@ use net_traits::response::{Response, ResponseInit};
 use net_traits::{
     AsyncRuntime, CookieAsyncResponse, CookieData, CookieSource, CoreResourceMsg,
     CoreResourceThread, CustomResponseMediator, DiscardFetch, FetchChannels, FetchTaskTarget,
-    ResourceFetchTiming, ResourceThreads, ResourceTimingType, WebSocketDomAction,
-    WebSocketNetworkEvent,
+    HpprProtocolError, HpprViaSpec, ResourceFetchTiming, ResourceThreads, ResourceTimingType,
+    WebSocketDomAction, WebSocketNetworkEvent,
 };
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{
@@ -587,6 +587,101 @@ impl ResourceChannelManager {
             },
             // Ignore this message as we handle it only in the reporter chan
             CoreResourceMsg::CollectMemoryReport(_) => {},
+            CoreResourceMsg::HpprOperation {
+                endpoint,
+                signer,
+                request,
+                callback,
+            } => {
+                let hppr_state = self.resource_manager.hppr_state.clone();
+                let is_get = matches!(request, hppr_client::HpprRequest::Get { .. });
+                spawn_task(async move {
+                    match hppr_state.get_pooled(&endpoint, signer).await {
+                        Ok(pooled_conn) => {
+                            let conn = pooled_conn.connection();
+                            let response = conn.send(request).await;
+                            let response = response.map_err(|e| HpprProtocolError::from_hppr_error(&e));
+
+                            // Auto-cache: STORE remote GET results to home repo
+                            if is_get && endpoint != hppr_state.default_target {
+                                if let Ok(ref resp) = response {
+                                    if let hppr_client::ResponseKind::Packet(ref pkt) = resp.kind {
+                                        let state = Arc::clone(&hppr_state);
+                                        let cache_bytes = pkt.as_bytes().to_vec();
+                                        tokio::spawn(async move {
+                                            if let Ok(p) = state.get_pooled(&state.default_target, hppr_client::Signer::anyone()).await {
+                                                let _ = p.connection().send(
+                                                    hppr_client::HpprRequest::Store { packet: cache_bytes },
+                                                ).await;
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Chunk transparency: reassemble if GET returned a chunk manifest
+                            let response = match response {
+                                Ok(resp) if is_get => {
+                                    hppr_chunk_reassemble(&hppr_state, &endpoint, resp).await
+                                }
+                                other => other,
+                            };
+
+                            let _ = callback.send(response);
+                        },
+                        Err(e) => {
+                            let _ = callback.send(Err(HpprProtocolError::from_hppr_error(&e)));
+                        }
+                    };
+                });
+            },
+            CoreResourceMsg::HpprWatch {
+                endpoint,
+                signer,
+                urc,
+                event_sender,
+                action_receiver,
+            } => {
+                let hppr_state = self.resource_manager.hppr_state.clone();
+                spawn_task(async move {
+                    crate::watch_loader::start_watch(
+                        &hppr_state, &endpoint, signer, &urc,
+                        event_sender, action_receiver
+                    ).await;
+                });
+            },
+            CoreResourceMsg::HpprStreamIn {
+                endpoint,
+                signer,
+                prefix,
+                publisher_params,
+                event_sender,
+                action_receiver,
+            } => {
+                let hppr_state = self.resource_manager.hppr_state.clone();
+                spawn_task(async move {
+                    crate::stream_in_loader::start_stream_in(
+                        &hppr_state, &endpoint, signer, &prefix,
+                        publisher_params,
+                        event_sender, action_receiver,
+                    ).await;
+                });
+            },
+            CoreResourceMsg::HpprStreamOut {
+                endpoint,
+                signer,
+                prefix,
+                event_sender,
+                action_receiver,
+            } => {
+                let hppr_state = self.resource_manager.hppr_state.clone();
+                spawn_task(async move {
+                    crate::stream_out_loader::start_stream_out(
+                        &hppr_state, &endpoint, signer, &prefix,
+                        event_sender, action_receiver,
+                    ).await;
+                });
+            },
         }
         true
     }
@@ -623,6 +718,7 @@ pub struct CoreResourceManager {
     preloaded_resources: SharedPreloadedResources,
     /// <https://fetch.spec.whatwg.org/#concept-fetch-record>
     in_flight_keep_alive_records: SharedInflightKeepAliveRecords,
+    hppr_state: Arc<crate::hppr_pool::HpprAsyncState>,
 }
 
 impl CoreResourceManager {
@@ -642,6 +738,7 @@ impl CoreResourceManager {
             ignore_certificate_errors,
             preloaded_resources: Default::default(),
             in_flight_keep_alive_records: Default::default(),
+            hppr_state: Arc::new(crate::hppr_pool::HpprAsyncState::from_env()),
         }
     }
 
@@ -716,6 +813,7 @@ impl CoreResourceManager {
         let ca_certificates = self.ca_certificates.clone();
         let ignore_certificate_errors = self.ignore_certificate_errors;
         let in_flight_keep_alive_records = self.in_flight_keep_alive_records.clone();
+        let hppr_state = self.hppr_state.clone();
         let preloaded_resources = self.preloaded_resources.clone();
         if let Some(ref preload_id) = request.preload_id {
             let mut preloaded_resources = self.preloaded_resources.lock().unwrap();
@@ -743,6 +841,7 @@ impl CoreResourceManager {
                 ignore_certificate_errors,
                 preloaded_resources,
                 in_flight_keep_alive_records,
+                hppr_state,
             };
 
             match res_init_ {
@@ -793,6 +892,7 @@ impl CoreResourceManager {
         let ca_certificates = self.ca_certificates.clone();
         let ignore_certificate_errors = self.ignore_certificate_errors;
         let in_flight_keep_alive_records = self.in_flight_keep_alive_records.clone();
+        let hppr_state = self.hppr_state.clone();
         let preloaded_resources = self.preloaded_resources.clone();
 
         spawn_task(async move {
@@ -832,6 +932,7 @@ impl CoreResourceManager {
                         ignore_certificate_errors,
                         preloaded_resources,
                         in_flight_keep_alive_records,
+                        hppr_state,
                     };
                     fetch(request, &mut event_sender, &context).await;
                 },
@@ -843,3 +944,87 @@ impl CoreResourceManager {
         });
     }
 }
+
+// --- Chunk manifest reassembly for JS API ---
+
+use hppr_packet::chunk::{ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
+
+use crate::hppr_pool::HpprAsyncState;
+
+/// If the response is a chunk manifest, reassemble and return a synthetic packet.
+/// Otherwise return the response unchanged.
+async fn hppr_chunk_reassemble(
+    hppr_state: &Arc<HpprAsyncState>,
+    endpoint: &HpprViaSpec,
+    response: hppr_client::HpprResponse,
+) -> Result<hppr_client::HpprResponse, HpprProtocolError> {
+    use hppr_client::ResponseKind;
+
+    let ResponseKind::Packet(ref packet) = response.kind else {
+        return Ok(response);
+    };
+
+    let headers: Vec<(String, String)> = packet.headers()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    if !is_chunk_manifest(&headers) {
+        return Ok(response);
+    }
+
+    let manifest = parse_chunk_manifest(&headers)
+        .map_err(|e| HpprProtocolError {
+            error_type: "CHUNK".to_string(),
+            detail: format!("invalid chunk manifest: {e}"),
+            fatal: false,
+        })?;
+
+    let is_repo = *endpoint == hppr_state.default_target;
+    let reassembled = crate::hppr_chunks::batch_reassemble_chunks(hppr_state, endpoint, is_repo, &manifest)
+        .await
+        .map_err(|e| HpprProtocolError {
+            error_type: "CHUNK".to_string(),
+            detail: e,
+            fatal: false,
+        })?;
+
+    let synthetic = build_reassembled_packet(packet, &manifest, &reassembled)
+        .map_err(|e| HpprProtocolError {
+            error_type: "CHUNK".to_string(),
+            detail: format!("synthetic packet: {e}"),
+            fatal: false,
+        })?;
+
+    Ok(hppr_client::HpprResponse::packet(synthetic))
+}
+
+/// Build a synthetic Packet with reassembled data, preserving the original
+/// coordinate headers and using the manifest's Content-Type.
+fn build_reassembled_packet(
+    original: &hppr_packet::Packet,
+    manifest: &ChunkManifest,
+    data: &[u8],
+) -> Result<hppr_packet::Packet, String> {
+    use hppr_packet::writer::PacketWriter;
+
+    let u = original.as_pkt_ref().unpack();
+    let group = u.group.unwrap_or("");
+    let app = u.app.unwrap_or("");
+    let location = u.location.unwrap_or("");
+    let tai = u.tai.map(|t| t.as_str()).unwrap_or("0000000100:000000000");
+
+    let mut extra: Vec<(&str, &str)> = Vec::new();
+    let ct_owned;
+    if let Some(ref ct) = manifest.content_type {
+        ct_owned = ct.clone();
+        extra.push(("Content-Type", &ct_owned));
+    }
+
+    let mut writer = PacketWriter::plex_with_headers(group, app, location, tai, &extra)
+        .map_err(|e| e.to_string())?;
+    writer.write_data(data).map_err(|e| e.to_string())?;
+    let (bytes, _hash) = writer.finish().map_err(|e| e.to_string())?;
+    hppr_packet::Packet::parse(bytes.into_boxed_slice())
+        .map_err(|e| e.to_string())
+}
+

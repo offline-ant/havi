@@ -148,6 +148,7 @@ fn new_fetch_context(
         ignore_certificate_errors: false,
         preloaded_resources: Default::default(),
         in_flight_keep_alive_records: Default::default(),
+        hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
     }
 }
 impl FetchTaskTarget for FetchResponseCollector {

@@ -156,6 +156,7 @@ impl TlsHandshakeInfo {
             .unwrap_or_default();
         let alpn_protocol = conn
             .alpn_protocol()
+            // UTF-8 Lossy: ALPN identifiers are ASCII protocol names (e.g. h2, http/1.1)
             .map(|proto| String::from_utf8_lossy(proto).into_owned());
         let used_ech = matches!(conn.ech_status(), EchStatus::Accepted);
 

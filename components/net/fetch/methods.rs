@@ -109,6 +109,7 @@ pub struct FetchContext {
     pub ignore_certificate_errors: bool,
     pub preloaded_resources: SharedPreloadedResources,
     pub in_flight_keep_alive_records: SharedInflightKeepAliveRecords,
+    pub hppr_state: Arc<crate::hppr_pool::HpprAsyncState>,
 }
 
 #[derive(Default)]
@@ -977,8 +978,8 @@ fn handle_allowcert_request(request: &mut Request, context: &FetchContext) -> io
 /// [Scheme fetch](https://fetch.spec.whatwg.org#scheme-fetch)
 async fn scheme_fetch(
     fetch_params: &mut FetchParams,
-    cache: &mut CorsCache,
-    target: Target<'_>,
+    _cache: &mut CorsCache,
+    _target: Target<'_>,
     done_chan: &mut DoneChannel,
     context: &FetchContext,
 ) -> Response {
@@ -1000,19 +1001,10 @@ async fn scheme_fetch(
             create_blank_reply(url, request.timing_type())
         },
 
-        "http" | "https" => {
-            http_fetch(
-                fetch_params,
-                cache,
-                false,
-                false,
-                false,
-                target,
-                done_chan,
-                context,
-            )
-            .await
-        },
+        // HAVI disables HTTP/HTTPS. All content loads through hppr:// protocol handlers.
+        // This blocks fetch(), XHR, subresource loads, and all other HTTP traffic.
+        // Removing this line re-enables full HTTP browsing, breaking the security model.
+        "http" | "https" => Response::network_error(NetworkError::HttpDisabled),
 
         _ => match context.protocols.get(scheme) {
             Some(handler) => handler.load(request, done_chan, context).await,
