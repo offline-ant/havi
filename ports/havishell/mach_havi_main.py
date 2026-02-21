@@ -707,11 +707,9 @@ def _run_desktop(args: argparse.Namespace) -> int:
         env["MAKEPAD_REMOTE"] = "0"
     binary = HAVI_ROOT / "target" / profile / "havi"
 
-    if not binary.exists():
-        print(f"[mach-havi] binary not found at {binary}, building first...")
-        ret = _build_desktop(args)
-        if ret != 0:
-            return ret
+    ret = _build_desktop(args)
+    if ret != 0:
+        return ret
 
     cmd = [str(binary)]
     if args.extra:

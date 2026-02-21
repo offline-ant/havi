@@ -78,7 +78,8 @@ def run_step(conn, step):
         fire(conn, mouse_msg("MouseUp", x, y))
     elif cmd == 'touch':
         tid, ttype, x, y = int(args[0]), args[1].lower(), float(args[2]), float(args[3])
-        state = {"start": 0, "down": 0, "stop": 1, "up": 1, "move": 2, "stable": 3}[ttype]
+        state_name = {"start": "Start", "down": "Start", "stop": "Stop", "up": "Stop", "move": "Move", "stable": "Stable"}[ttype]
+        state = {state_name: []}
         t = time.time()
         fire(conn, {"TouchUpdate": [{"touches": [{"uid": tid, "state": state,
             "x": x, "y": y, "time": t, "rotation_angle": 0.0, "force": 1.0,
