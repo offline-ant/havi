@@ -141,6 +141,13 @@ impl ImmutableOrigin {
                 }
             }
         }
+        // HPPR schemes are trustworthy — signatures provide stronger
+        // authenticity than TLS certificates.
+        if let ImmutableOrigin::Tuple(scheme, _, _) = self {
+            if scheme.starts_with("hppr") {
+                return true;
+            }
+        }
         // 9. Return "Not Trustworthy".
         false
     }

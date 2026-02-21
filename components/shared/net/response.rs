@@ -139,6 +139,19 @@ pub struct Response {
 
     /// <https://fetch.spec.whatwg.org/#concept-response-range-requested-flag>
     pub range_requested: bool,
+
+    /// HPPR: parsed packet for document.packet / window.packet.
+    #[ignore_malloc_size_of = "hppr_packet::Packet"]
+    pub hppr_packet: Option<hppr_packet::Packet>,
+    /// HPPR: endpoint address used to fetch this content.
+    pub hppr_endpoint: Option<String>,
+    /// HPPR: pre-built signer for ring2 auth (window.route).
+    #[ignore_malloc_size_of = "hppr_client::Signer"]
+    pub hppr_signer: Option<crate::HpprSigner>,
+    /// HPPR: site credentials (ring1_name, signing_key) for the home repo (`window.home`).
+    pub site_credentials: Option<(String, String)>,
+    /// HPPR: admin credentials (account, token) for `window.ring0`.
+    pub admin_credentials: Option<(String, String)>,
 }
 
 impl Response {
@@ -164,6 +177,11 @@ impl Response {
             resource_timing: Arc::new(Mutex::new(resource_timing)),
             range_requested: false,
             redirect_taint: Default::default(),
+            hppr_packet: None,
+            hppr_endpoint: None,
+            hppr_signer: None,
+            site_credentials: None,
+            admin_credentials: None,
         }
     }
 
@@ -200,6 +218,11 @@ impl Response {
             ))),
             range_requested: false,
             redirect_taint: Default::default(),
+            hppr_packet: None,
+            hppr_endpoint: None,
+            hppr_signer: None,
+            site_credentials: None,
+            admin_credentials: None,
         }
     }
 
@@ -331,6 +354,17 @@ impl Response {
             metadata
                 .tls_security_info
                 .clone_from(&response.tls_security_info);
+            metadata.hppr_packet.clone_from(&response.hppr_packet);
+            metadata.hppr_endpoint.clone_from(&response.hppr_endpoint);
+            metadata
+                .site_credentials
+                .clone_from(&response.site_credentials);
+            metadata
+                .hppr_signer
+                .clone_from(&response.hppr_signer);
+            metadata
+                .admin_credentials
+                .clone_from(&response.admin_credentials);
             metadata
         }
 

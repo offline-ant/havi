@@ -580,6 +580,7 @@ struct Framebuffer {
     framebuffer_id: gl::GLuint,
     renderbuffer_id: gl::GLuint,
     texture_id: gl::GLuint,
+    owns_texture: bool,
 }
 
 impl Framebuffer {
@@ -593,7 +594,9 @@ impl Framebuffer {
 impl Drop for Framebuffer {
     fn drop(&mut self) {
         self.gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        self.gl.delete_textures(&[self.texture_id]);
+        if self.owns_texture {
+            self.gl.delete_textures(&[self.texture_id]);
+        }
         self.gl.delete_renderbuffers(&[self.renderbuffer_id]);
         self.gl.delete_framebuffers(&[self.framebuffer_id]);
     }
@@ -663,7 +666,78 @@ impl Framebuffer {
                 .first()
                 .expect("Guaranteed by GL operations"),
             texture_id: *texture_ids.first().expect("Guaranteed by GL operations"),
+            owns_texture: true,
         }
+    }
+
+    /// Create an FBO that renders into an externally-owned texture.
+    /// The caller is responsible for the texture's lifecycle.
+    fn new_with_external_texture(
+        gl: Rc<dyn Gl>,
+        size: PhysicalSize<u32>,
+        texture_id: gl::GLuint,
+    ) -> Self {
+        let framebuffer_ids = gl.gen_framebuffers(1);
+        gl.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_ids[0]);
+
+        gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            gl::TEXTURE_2D,
+            texture_id,
+            0,
+        );
+
+        let renderbuffer_ids = gl.gen_renderbuffers(1);
+        let depth_rb = renderbuffer_ids[0];
+        gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
+        gl.renderbuffer_storage(
+            gl::RENDERBUFFER,
+            gl::DEPTH_COMPONENT24,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+        );
+        gl.framebuffer_renderbuffer(
+            gl::FRAMEBUFFER,
+            gl::DEPTH_ATTACHMENT,
+            gl::RENDERBUFFER,
+            depth_rb,
+        );
+
+        Self {
+            gl,
+            framebuffer_id: *framebuffer_ids
+                .first()
+                .expect("Guaranteed by GL operations"),
+            renderbuffer_id: *renderbuffer_ids
+                .first()
+                .expect("Guaranteed by GL operations"),
+            texture_id,
+            owns_texture: false,
+        }
+    }
+
+    /// Reattach this FBO to a different external texture (e.g., after resize).
+    fn set_external_texture(&mut self, new_texture_id: gl::GLuint, size: PhysicalSize<u32>) {
+        self.gl
+            .bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
+        self.gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            gl::TEXTURE_2D,
+            new_texture_id,
+            0,
+        );
+        self.gl
+            .bind_renderbuffer(gl::RENDERBUFFER, self.renderbuffer_id);
+        self.gl.renderbuffer_storage(
+            gl::RENDERBUFFER,
+            gl::DEPTH_COMPONENT24,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+        );
+        self.gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        self.texture_id = new_texture_id;
     }
 
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
@@ -878,6 +952,356 @@ impl RenderingContext for OffscreenRenderingContext {
 
     fn refresh_driver(&self) -> Option<Rc<dyn RefreshDriver>> {
         self.parent_context().refresh_driver()
+    }
+}
+
+/// A [`RenderingContext`] designed for embedding Servo within a Makepad application.
+///
+/// On Linux, this context creates a separate GL context (via surfman) that shares
+/// texture namespaces with Makepad's EGL context, enabling zero-copy texture sharing.
+///
+/// On Android, this context uses Makepad's own GL context directly, avoiding the
+/// creation of a second EGL context. This is necessary because the Android emulator's
+/// GLES encoder (`libGLESv2_enc.so`) corrupts its internal state when a second shared
+/// EGL context is created, causing SIGSEGV in `glDrawElementsInstanced`.
+///
+/// In both cases, Servo renders to an FBO whose color attachment is a texture owned
+/// by Makepad, enabling zero-copy display without any GPU→CPU→GPU roundtrip.
+///
+/// # Safety
+/// The caller must ensure that:
+/// - The provided EGL handles are valid and remain alive for the lifetime of this context
+/// - The EGL context is current on the calling thread when this context is created
+/// - All rendering calls happen on the same thread
+pub struct MakepadRenderingContext {
+    size: Cell<PhysicalSize<u32>>,
+    gleam_gl: Rc<dyn Gl>,
+    glow_gl: Arc<glow::Context>,
+    framebuffer: RefCell<Framebuffer>,
+    /// Surfman context for managing a separate shared GL context.
+    /// Only used on Linux where we create a dedicated EGL context that shares
+    /// texture namespaces with Makepad's context. On other platforms (Android),
+    /// Servo renders directly within the host's GL context.
+    #[cfg(target_os = "linux")]
+    surfman: SurfmanRenderingContext,
+}
+
+impl MakepadRenderingContext {
+    /// Create a new MakepadRenderingContext that shares textures with Makepad's EGL context.
+    ///
+    /// # Arguments
+    /// * `egl_display` - Makepad's EGLDisplay handle
+    /// * `egl_context` - Makepad's EGLContext handle
+    /// * `egl_platform` - EGL platform enum (e.g. EGL_PLATFORM_WAYLAND_KHR or EGL_PLATFORM_X11_EXT)
+    /// * `platform_display` - Native platform display (wl_display* for Wayland, X11 Display* for X11)
+    /// * `size` - Initial rendering size in physical pixels
+    ///
+    /// # Safety
+    /// The EGL handles must be valid and the EGL context must be current.
+    #[cfg(target_os = "linux")]
+    #[expect(unsafe_code)]
+    pub unsafe fn new(
+        egl_display: *mut std::ffi::c_void,
+        egl_context: *mut std::ffi::c_void,
+        egl_platform: u32,
+        platform_display: *mut std::ffi::c_void,
+        size: PhysicalSize<u32>,
+    ) -> Result<Self, Error> {
+        // Wrap Makepad's actual EGL display via `from_native_connection` so that
+        // surfman uses the same EGL display and GPU as Makepad.
+        const EGL_PLATFORM_WAYLAND_KHR: u32 = 0x31D8;
+        const EGL_PLATFORM_X11_EXT: u32 = 0x31D5;
+
+        use surfman::platform::generic::multi::connection::Connection as MultiConnection;
+
+        debug!("MakepadRenderingContext: egl_platform=0x{:04x}, size={:?}", egl_platform, size);
+
+        let connection: Connection = match egl_platform {
+            EGL_PLATFORM_WAYLAND_KHR => {
+                let native = surfman::platform::unix::wayland::connection::NativeConnection(
+                    egl_display,
+                );
+                let wayland_conn = unsafe {
+                    surfman::platform::unix::wayland::connection::Connection::from_native_connection(native)?
+                };
+                // Outer: Default = HW, Inner: Default = Wayland
+                MultiConnection::Default(MultiConnection::Default(wayland_conn))
+            },
+            EGL_PLATFORM_X11_EXT => {
+                let native = surfman::platform::unix::x11::connection::NativeConnection {
+                    egl_display,
+                    x11_display: platform_display as *mut _,
+                };
+                let x11_conn = unsafe {
+                    surfman::platform::unix::x11::connection::Connection::from_native_connection(native)?
+                };
+                // Outer: Default = HW, Inner: Alternate = X11
+                MultiConnection::Default(MultiConnection::Alternate(x11_conn))
+            },
+            _ => {
+                return Err(Error::ConnectionFailed);
+            },
+        };
+        let adapter = connection.create_hardware_adapter()?;
+        let device = connection.create_device(&adapter)?;
+
+        // Wrap Makepad's EGL context into a surfman NativeContext so we can
+        // use it as the share_with parameter for context creation.
+        //
+        // We need to construct the multi-level NativeContext wrapper that surfman
+        // uses on Linux. The structure depends on the runtime backend (Wayland vs X11).
+        // Both backends use the same underlying EGL NativeContext struct, but the
+        // multi-device enum wrapper must match the active backend variant.
+        // Both wayland and x11 re-export the same EGL NativeContext type.
+        let egl_native_ctx = surfman::platform::unix::wayland::context::NativeContext {
+            egl_context,
+            egl_read_surface: std::ptr::null_mut(),
+            egl_draw_surface: std::ptr::null_mut(),
+        };
+
+        // Wrap through the multi-device layers:
+        // Inner: MultiDevice<WaylandDevice, X11Device> → Default for Wayland, Alternate for X11
+        // Outer: MultiDevice<HWDevice, SWDevice> → Default for HW
+        use surfman::platform::generic::multi::context::NativeContext as MultiNativeContext;
+        use surfman::platform::generic::multi::device::Device as MultiDevice;
+        type HWDevice = MultiDevice<
+            surfman::platform::unix::wayland::device::Device,
+            surfman::platform::unix::x11::device::Device,
+        >;
+        type SWDevice = surfman::platform::unix::generic::device::Device;
+
+        // Detect whether the runtime backend is Wayland or X11 by matching on the
+        // device enum, and wrap the EGL native context in the matching variant.
+        let hw_native_ctx: MultiNativeContext<
+            surfman::platform::unix::wayland::device::Device,
+            surfman::platform::unix::x11::device::Device,
+        > = match &device {
+            MultiDevice::Default(inner) => match inner {
+                MultiDevice::Default(_) => MultiNativeContext::Default(egl_native_ctx),
+                MultiDevice::Alternate(_) => MultiNativeContext::Alternate(egl_native_ctx),
+            },
+            MultiDevice::Alternate(_) => {
+                return Err(Error::IncompatibleNativeContext);
+            },
+        };
+
+        let top_native_ctx: MultiNativeContext<HWDevice, SWDevice> =
+            MultiNativeContext::Default(hw_native_ctx);
+
+        // SAFETY: The caller guarantees the EGL context handle is valid and current.
+        // create_context_from_native_context wraps it without taking ownership.
+        let mut makepad_ctx = unsafe {
+            device.create_context_from_native_context(top_native_ctx)?
+        };
+
+        // Create a new GL context that shares texture names with Makepad's context.
+        let flags = ContextAttributeFlags::ALPHA
+            | ContextAttributeFlags::DEPTH
+            | ContextAttributeFlags::STENCIL;
+        let gl_api = connection.gl_api();
+        let version = match &gl_api {
+            GLApi::GLES => surfman::GLVersion { major: 3, minor: 0 },
+            GLApi::GL => surfman::GLVersion { major: 3, minor: 2 },
+        };
+        let context_descriptor =
+            device.create_context_descriptor(&ContextAttributes { flags, version })?;
+        let context = device.create_context(&context_descriptor, Some(&makepad_ctx))?;
+
+        // Destroy the surfman wrapper around Makepad's context.
+        // Since context_is_owned is false, this won't destroy the actual EGL context.
+        device.destroy_context(&mut makepad_ctx)?;
+
+        // Make the shared context current before loading GL function pointers.
+        // glow::Context::from_loader_function queries GL_VERSION, which requires
+        // a current context.
+        device.make_context_current(&context)?;
+
+        // Load GL function pointers from the new shared context.
+        // SAFETY: Loading GL function pointers from a valid context is safe.
+        let gleam_gl = unsafe {
+            match gl_api {
+                GLApi::GL => {
+                    gl::GlFns::load_with(|func_name| device.get_proc_address(&context, func_name))
+                },
+                GLApi::GLES => {
+                    gl::GlesFns::load_with(|func_name| device.get_proc_address(&context, func_name))
+                },
+            }
+        };
+
+        // SAFETY: Loading GL function pointers from a valid context is safe.
+        let glow_gl = unsafe {
+            glow::Context::from_loader_function(|function_name| {
+                device.get_proc_address(&context, function_name)
+            })
+        };
+
+        let glow_gl = Arc::new(glow_gl);
+
+        let surfman = SurfmanRenderingContext {
+            gleam_gl: gleam_gl.clone(),
+            glow_gl: glow_gl.clone(),
+            device: RefCell::new(device),
+            context: RefCell::new(context),
+            refresh_driver: None,
+        };
+        surfman.make_current()?;
+
+        // Create the FBO + texture for WebRender to render into.
+        let framebuffer = RefCell::new(Framebuffer::new(gleam_gl.clone(), size));
+
+        Ok(MakepadRenderingContext {
+            size: Cell::new(size),
+            gleam_gl,
+            glow_gl,
+            framebuffer,
+            #[cfg(target_os = "linux")]
+            surfman,
+        })
+    }
+
+    /// Create a new MakepadRenderingContext on Android using Makepad's own GL context.
+    /// Instead of creating a second shared EGL context (which crashes the emulator),
+    /// this loads GL function pointers directly from the provided loader function
+    /// and creates an FBO within Makepad's existing context.
+    #[cfg(target_os = "android")]
+    #[expect(unsafe_code)]
+    pub unsafe fn new_android(
+        size: PhysicalSize<u32>,
+        gl_loader: &dyn Fn(&str) -> *const std::ffi::c_void,
+    ) -> Result<Self, Error> {
+        debug!("MakepadRenderingContext (Android, direct context): size={:?}", size);
+
+        // Load GLES function pointers directly from Makepad's EGL context.
+        // No second EGL context is created — we render within Makepad's context.
+        let gleam_gl: Rc<dyn Gl> = unsafe {
+            gl::GlesFns::load_with(|name| gl_loader(name))
+        };
+        let glow_gl = unsafe {
+            Arc::new(glow::Context::from_loader_function(|name| gl_loader(name)))
+        };
+
+        let framebuffer = RefCell::new(Framebuffer::new(gleam_gl.clone(), size));
+
+        Ok(MakepadRenderingContext {
+            size: Cell::new(size),
+            gleam_gl,
+            glow_gl,
+            framebuffer,
+        })
+    }
+
+    /// Switch to using an externally-owned texture as the render target.
+    /// The texture must be valid in a shared EGL context.
+    pub fn set_external_texture(&self, texture_id: gl::GLuint, size: PhysicalSize<u32>) {
+        #[cfg(target_os = "linux")]
+        self.surfman.make_current().ok();
+        let mut fb = self.framebuffer.borrow_mut();
+        if fb.owns_texture {
+            // First time switching: replace entire framebuffer
+            let gl = fb.gl.clone();
+            let new_fb = Framebuffer::new_with_external_texture(gl, size, texture_id);
+            *fb = new_fb; // Old fb dropped here, deleting its owned texture + FBO + RB
+        } else {
+            // Already using external: just reattach
+            fb.set_external_texture(texture_id, size);
+        }
+        drop(fb);
+        self.size.set(size);
+    }
+}
+
+impl RenderingContext for MakepadRenderingContext {
+    fn size(&self) -> PhysicalSize<u32> {
+        self.size.get()
+    }
+
+    fn resize(&self, new_size: PhysicalSize<u32>) {
+        let old_size = self.size.get();
+        if old_size == new_size {
+            return;
+        }
+
+        // If using an external texture, resize is handled by the caller
+        // via set_external_texture() — don't recreate the framebuffer here.
+        if !self.framebuffer.borrow().owns_texture {
+            return;
+        }
+
+        #[cfg(target_os = "linux")]
+        self.surfman.make_current().ok();
+        let new_framebuffer = Framebuffer::new(self.gleam_gl.clone(), new_size);
+        let _ = std::mem::replace(&mut *self.framebuffer.borrow_mut(), new_framebuffer);
+        self.size.set(new_size);
+    }
+
+    fn prepare_for_rendering(&self) {
+        #[cfg(target_os = "linux")]
+        self.surfman.make_current().ok();
+        self.framebuffer.borrow().bind();
+    }
+
+    fn present(&self) {
+        // glFlush ensures all queued GL commands are submitted to the GPU.
+        // Since Servo and Makepad share the same EGL context group on the same
+        // thread, this is sufficient — Makepad's subsequent draw calls are
+        // guaranteed to see the completed FBO contents. No glFinish (full GPU
+        // stall) needed.
+        self.gleam_gl.flush();
+        // Unbind the FBO so Makepad's rendering targets the default framebuffer.
+        // Essential when Servo shares the host's GL context (surfman is None);
+        // harmless when using a separate surfman context.
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    }
+
+    fn make_current(&self) -> Result<(), surfman::Error> {
+        #[cfg(target_os = "linux")]
+        { return self.surfman.make_current(); }
+        #[cfg(not(target_os = "linux"))]
+        { Ok(()) }
+    }
+
+    fn gleam_gl_api(&self) -> Rc<dyn gleam::gl::Gl> {
+        self.gleam_gl.clone()
+    }
+
+    fn glow_gl_api(&self) -> Arc<glow::Context> {
+        self.glow_gl.clone()
+    }
+
+    fn create_texture(
+        &self,
+        #[cfg_attr(not(target_os = "linux"), allow(unused))]
+        surface: Surface,
+    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
+        #[cfg(target_os = "linux")]
+        { return self.surfman.create_texture(surface); }
+        #[cfg(not(target_os = "linux"))]
+        { None }
+    }
+
+    fn destroy_texture(
+        &self,
+        #[cfg_attr(not(target_os = "linux"), allow(unused))]
+        surface_texture: SurfaceTexture,
+    ) -> Option<Surface> {
+        #[cfg(target_os = "linux")]
+        { return self.surfman.destroy_texture(surface_texture); }
+        #[cfg(not(target_os = "linux"))]
+        { None }
+    }
+
+    fn connection(&self) -> Option<Connection> {
+        #[cfg(target_os = "linux")]
+        { return self.surfman.connection(); }
+        #[cfg(not(target_os = "linux"))]
+        { None }
+    }
+
+    fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
+        #[cfg(target_os = "linux")]
+        self.surfman.make_current().ok();
+        self.framebuffer.borrow().read_to_image(source_rectangle)
     }
 }
 

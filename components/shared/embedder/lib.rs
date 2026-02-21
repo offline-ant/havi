@@ -412,6 +412,88 @@ impl From<ConsoleLogLevel> for log::Level {
     }
 }
 
+// Re-export HPPR client types for use in protocol operations.
+pub use hppr_client::{HpprRequest, HpprResponse};
+pub use hppr_client::Signer as HpprSigner;
+pub use hppr_client::env_target::ViaSpec as HpprViaSpec;
+pub use hppr_client::HpprError as HpprClientError;
+
+
+/// Structured HPPR protocol error that can cross thread boundaries.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HpprProtocolError {
+    /// Error type code (NOT_FOUND, FORBIDDEN, CONNECTION, PACKET, etc.)
+    pub error_type: String,
+    /// Human-readable detail message
+    pub detail: String,
+    /// Whether this error closed the connection
+    pub fatal: bool,
+}
+
+impl HpprProtocolError {
+    /// Create from hppr_client::HpprError.
+    pub fn from_hppr_error(e: &HpprClientError) -> Self {
+        match e {
+            HpprClientError::Connection(io_err) => Self {
+                error_type: "CONNECTION".to_string(),
+                detail: io_err.to_string(),
+                fatal: true,
+            },
+            HpprClientError::Response { code, message } => Self {
+                error_type: code.clone(),
+                detail: message.clone(),
+                fatal: false,
+            },
+            HpprClientError::Fatal { code, message } => Self {
+                error_type: code.clone(),
+                detail: message.clone(),
+                fatal: true,
+            },
+            HpprClientError::Packet(msg) => Self {
+                error_type: "PACKET".to_string(),
+                detail: msg.clone(),
+                fatal: false,
+            },
+        }
+    }
+}
+
+pub type HpprProtocolResponse = Result<HpprResponse, HpprProtocolError>;
+
+/// Control operations - local filesystem or embedder-managed state.
+///
+/// These operations are handled by the embedder layer without network I/O.
+/// Only available to admin contexts (havi://).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum HpprControlRequest {
+    /// Get the hpprd home repo daemon port
+    RepoPort,
+    /// Get the hpprd home repo path
+    RepoPathQuery,
+    /// Get the home repo status ("embedded" or "external")
+    RepoStatus,
+    /// Get admin ring0 credentials from embedder store
+    AdminCredential,
+}
+
+/// Control operation responses - returned from local/embedder operations.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum HpprControlResponse {
+    /// Success with no data
+    Ok,
+    /// Port number (for RepoPort)
+    Port(u16),
+    /// Repo path string (for RepoPathQuery)
+    RepoPath(String),
+    /// Home repo status string ("embedded" or "external")
+    RepoStatus(String),
+    /// Admin credential (ring1 name + token)
+    AdminCredential { ring1_name: String, token: String },
+    /// Error message
+    Error(String),
+}
+
+
 /// Messages towards the embedder.
 #[derive(Deserialize, IntoStaticStr, Serialize)]
 pub enum EmbedderMsg {
@@ -518,6 +600,16 @@ pub enum EmbedderMsg {
     InputEventHandled(WebViewId, InputEventId, InputEventResult),
     /// Send the embedder an accessibility tree update.
     AccessibilityTreeUpdate(WebViewId, accesskit::TreeUpdate),
+    /// HPPR control operation (local/embedder state).
+    HpprControlOperation(
+        WebViewId,
+        String,
+        HpprControlRequest,
+        GenericCallback<HpprControlResponse>,
+    ),
+    /// Request a screenshot from the devtools debugger.
+    #[serde(skip)]
+    TakeScreenshot(WebViewId, Sender<Result<image::RgbaImage, ScreenshotCaptureError>>),
 }
 
 impl Debug for EmbedderMsg {

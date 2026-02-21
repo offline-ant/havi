@@ -21,6 +21,7 @@ crossbeam-channel = { workspace = true }
 data-url = { workspace = true }
 embedder_traits = { workspace = true }
 headers = { workspace = true }
+hppr-packet = { workspace = true }
 http = { workspace = true }
 hyper-util = { workspace = true }
 hyper_serde = { workspace = true }

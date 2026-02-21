@@ -7,6 +7,7 @@
 #![crate_type = "rlib"]
 
 pub mod encoding;
+pub mod hppr;
 pub mod origin;
 
 use std::collections::hash_map::DefaultHasher;
@@ -17,13 +18,43 @@ use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 use std::path::Path;
 use std::str::FromStr;
 
+use hppr_packet::urc::URC;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc;
 pub use url::Host;
 use url::{Position, Url};
+use uuid::Uuid;
 
 pub use crate::origin::{ImmutableOrigin, MutableOrigin, OpaqueOrigin, OriginSnapshot};
+pub use hppr::{Endpoint, HAVIAddress, HaviUrl, HpprScheme, HpprUrl, HpprUrlParseError, via_url};
+pub use hppr_packet::CoordinateParts;
+
+/// Compute the origin for a HAVIAddress.
+///
+/// HPPR origins are isolated by group#app, not by host. This means:
+/// - `//alice/photos` and `//alice/blog` are cross-origin (different apps)
+/// - Two different servers hosting `//alice/photos` are same-origin (same group+app)
+///
+/// This prevents a malicious server from accessing another app's data within
+/// the same group. Changing this logic weakens the browser's security boundary.
+fn hppr_origin_for_address(address: &HAVIAddress) -> Option<ImmutableOrigin> {
+    let urc = address.urc();
+    let mut target_parts = urc.target_parts();
+    let group = target_parts.next()?;
+    let app = target_parts.next()?;
+    // works because '#' is invalid in group and app
+    let identity = format!("{group}#{app}");
+
+    let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes());
+    let host = Host::Domain(format!("hppr-{}", uuid.simple()));
+
+    Some(ImmutableOrigin::Tuple(
+        address.scheme().prefix().trim_end_matches(':').to_string(),
+        host,
+        0,
+    ))
+}
 
 const DATA_URL_DISPLAY_LENGTH: usize = 40;
 
@@ -67,6 +98,10 @@ impl ServoUrl {
         &self.0
     }
 
+    pub fn hosturc(&self) -> Option<HAVIAddress> {
+        HAVIAddress::parse(self.as_str()).ok()
+    }
+
     pub fn parse(input: &str) -> Result<Self, url::ParseError> {
         Url::parse(input).map(Self::from_url)
     }
@@ -88,7 +123,13 @@ impl ServoUrl {
     }
 
     pub fn origin(&self) -> ImmutableOrigin {
-        ImmutableOrigin::new(self.0.origin())
+        match HpprUrl::parse(self.as_str()) {
+            Ok(HpprUrl::HAVIAddress(address)) => {
+                hppr_origin_for_address(&address).unwrap_or_else(|| ImmutableOrigin::new_opaque())
+            },
+            Ok(HpprUrl::Havi(_)) => ImmutableOrigin::new_opaque(),
+            Err(_) => ImmutableOrigin::new(self.0.origin()),
+        }
     }
 
     pub fn scheme(&self) -> &str {
@@ -183,7 +224,61 @@ impl ServoUrl {
     }
 
     pub fn join(&self, input: &str) -> Result<ServoUrl, url::ParseError> {
+        if let Ok(HpprUrl::HAVIAddress(address)) = HpprUrl::parse(self.as_str()) {
+            return self.join_hppr(input, &address);
+        }
         self.0.join(input).map(Self::from_url)
+    }
+
+    /// Join relative URL using URC resolution for HPPR coordinates.
+    ///
+    /// Coordinate-relative joins follow HPPR coordinate structure (`//group/app/location`),
+    /// not HTTP path semantics. The base coordinate's "file" segment is stripped before
+    /// resolving, so `//chess/game/board.html` + `style.css` = `//chess/game/style.css`.
+    /// Absolute coordinates (`//other/app/...`) replace the entire coordinate.
+    fn join_hppr(&self, input: &str, address: &HAVIAddress) -> Result<ServoUrl, url::ParseError> {
+        // Absolute URL with scheme - parse directly
+        if let Some(colon) = input.find(':') {
+            if colon > 0 &&
+                !input.starts_with('.') &&
+                !input.starts_with('/') &&
+                input[..colon]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
+            {
+                if let Ok(url) = Url::parse(input) {
+                    return Ok(Self::from_url(url));
+                }
+            }
+        }
+
+        // Absolute coordinate (//group/app/loc)
+        if input.starts_with("//") {
+            return Url::parse(&address.reconstruct(input)).map(Self::from_url);
+        }
+
+        // For web-like resolution: if coordinate doesn't end with '/', strip the "file" segment.
+        // e.g., //chess/game/board.html -> //chess/game/ before joining with style.css
+        let urc_string = address.urc_string();
+        let base_coord = if urc_string.ends_with('/') {
+            urc_string
+        } else {
+            match urc_string.rfind('/') {
+                Some(pos) => format!("{}/", &urc_string[..pos]),
+                None => urc_string,
+            }
+        };
+
+        // Parse base coordinate as URC and use URC::join()
+        let Ok(current) = URC::parse(base_coord) else {
+            return self.0.join(input).map(Self::from_url);
+        };
+
+        let Ok(resolved) = current.join(input) else {
+            return self.0.join(input).map(Self::from_url);
+        };
+
+        Url::parse(&address.reconstruct(&resolved.unwrap())).map(Self::from_url)
     }
 
     pub fn path_segments(&self) -> Option<::std::str::Split<'_, char>> {
@@ -342,5 +437,78 @@ impl FromStr for ServoUrl {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let url = Url::from_str(value)?;
         Ok(url.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hppr_routed_join_relative() {
+        let base = ServoUrl::parse("hppr://chess/game/board.html").unwrap();
+        assert_eq!(
+            base.join("style.css").unwrap().as_str(),
+            "hppr://chess/game/style.css"
+        );
+    }
+
+    #[test]
+    fn hppr_via_join_relative() {
+        // Relative join does NOT preserve {via:...}
+        let base = ServoUrl::parse("hppr://chess/game/board.html%7Bvia:192.168.1.10:4777%7D").unwrap();
+        assert_eq!(
+            base.join("style.css").unwrap().as_str(),
+            "hppr://chess/game/style.css"
+        );
+    }
+
+    #[test]
+    fn hppr_join_parent() {
+        let base = ServoUrl::parse("hppr://g/a/sub/file.html%7Bvia:10.0.0.1:4777%7D").unwrap();
+        assert_eq!(
+            base.join("../other.html").unwrap().as_str(),
+            "hppr://g/a/other.html"
+        );
+    }
+
+    #[test]
+    fn hppr_join_absolute_coord() {
+        // Absolute coordinate join does NOT preserve {via:...}
+        let base = ServoUrl::parse("hppr://g/a/file.html%7Bvia:10.0.0.1:4777%7D").unwrap();
+        assert_eq!(
+            base.join("//other/app/index.html").unwrap().as_str(),
+            "hppr://other/app/index.html"
+        );
+    }
+
+    #[test]
+    fn hppr_sandbox_join() {
+        // Relative join does NOT preserve {via:...}
+        let base = ServoUrl::parse("hppr-sandbox://g/app/index.html%7Bvia:10.0.0.5:4778%7D").unwrap();
+        assert_eq!(
+            base.join("style.css").unwrap().as_str(),
+            "hppr-sandbox://g/app/style.css"
+        );
+    }
+
+    #[test]
+    fn hppr_origin_isolated_by_app() {
+        let app1 = ServoUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
+        let app2 = ServoUrl::parse("hppr://g1/app2/index.html").unwrap().origin();
+        let app1_other = ServoUrl::parse("hppr://g1/app1/other.html").unwrap().origin();
+
+        assert_ne!(app1, app2);
+        assert_eq!(app1, app1_other);
+    }
+
+    #[test]
+    fn hppr_origin_ignores_endpoint() {
+        let routed = ServoUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
+        let direct = ServoUrl::parse("hppr://g1/app1/index.html%7Bvia:10.0.0.1:4777%7D")
+            .unwrap()
+            .origin();
+
+        assert_eq!(routed, direct);
     }
 }

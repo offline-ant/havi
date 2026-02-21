@@ -9,7 +9,7 @@ use std::sync::{LazyLock, OnceLock};
 use std::thread::{self, JoinHandle};
 
 use base::cross_process_instant::CrossProcessInstant;
-use base::generic_channel::{self, GenericOneshotSender, GenericSend, GenericSender, SendResult};
+use base::generic_channel::{self, GenericCallback, GenericOneshotSender, GenericSend, GenericSender, SendResult};
 use base::id::{CookieStoreId, HistoryStateId, PipelineId};
 use content_security_policy::{self as csp};
 use cookie::Cookie;
@@ -48,6 +48,9 @@ pub mod pub_domains;
 pub mod quality;
 pub mod request;
 pub mod response;
+
+// Re-export HPPR types for use in CoreResourceMsg
+pub use embedder_traits::{ HpprRequest, HpprResponse, HpprSigner, HpprViaSpec, HpprProtocolError, HpprProtocolResponse};
 
 /// <https://fetch.spec.whatwg.org/#document-accept-header-value>
 pub const DOCUMENT_ACCEPT_HEADER_VALUE: HeaderValue =
@@ -593,6 +596,63 @@ pub enum WebSocketNetworkEvent {
     Fail,
 }
 
+/// Actions from DOM to network for HPPR WATCH
+#[derive(Debug, Deserialize, Serialize)]
+pub enum WatchDomAction {
+    Close,
+}
+
+/// Events from network to DOM for HPPR WATCH
+#[derive(Debug, Deserialize, Serialize)]
+pub enum WatchNetworkEvent {
+    ConnectionEstablished,
+    Message(String),  // "+ coord" or "- coord"
+    Close,
+    Fail(HpprProtocolError),  // Structured error
+}
+
+/// Actions from DOM to network for HPPR STREAM_IN
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StreamInDomAction {
+    Write(Vec<u8>),     // Push data to repo (raw or via publisher)
+    FinishSegment,      // Manually close current segment (publisher mode)
+    Close,              // End the stream
+}
+
+/// Events from network to DOM for HPPR STREAM_IN
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StreamInNetworkEvent {
+    Ready,                       // Repo accepted, OK received
+    Packet(Vec<u8>),             // Completed segment (standard-format bytes)
+    Fail(HpprProtocolError),     // Connection or protocol error
+    Close,                       // Repo closed connection
+}
+
+/// Publisher mode parameters for STREAM_IN packet construction.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StreamInPublisherParams {
+    pub key: String,
+    pub headers: Vec<(String, String)>,
+    pub max_segment_size: Option<usize>,
+    pub flush_seq: Option<Vec<u8>>,
+}
+
+/// Events from network to DOM for HPPR STREAM_OUT
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StreamOutNetworkEvent {
+    Ready,                       // HELLO done, request sent
+    Data(Vec<u8>),               // Raw bytes from repo
+    Packet(Vec<u8>),             // Complete packet (normal-format bytes)
+    Fail(HpprProtocolError),     // Connection or protocol error
+    Close,                       // Repo closed (publisher disconnect / EOF)
+}
+
+/// Actions from DOM to network for HPPR STREAM_OUT
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StreamOutDomAction {
+    Close,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 /// IPC channels to communicate with the script thread about network or DOM events.
 pub enum FetchChannels {
@@ -659,6 +719,68 @@ pub enum CoreResourceMsg {
     /// and exit
     Exit(GenericOneshotSender<()>),
     CollectMemoryReport(ReportsChan),
+    /// HPPR protocol operation through the connection pool.
+    ///
+    /// Handles data-plane operations: GET, LIST, TIPS, HEADERS, STORE, ADD, DETACH, HELLO.
+    /// These are network I/O operations that communicate with hpprd repo daemons.
+    HpprOperation {
+        /// Repo endpoint as parsed ViaSpec.
+        endpoint: HpprViaSpec,
+        /// Signer for the request
+        signer: HpprSigner,
+        /// The HPPR protocol request to execute
+        request: HpprRequest,
+        /// Callback to receive the protocol response
+        callback: GenericCallback<HpprProtocolResponse>,
+    },
+    /// HPPR WATCH streaming operation.
+    ///
+    /// Unlike HpprOperation, this spawns a long-lived streaming task.
+    /// Uses WatchSocket pattern with event_sender/action_receiver channels.
+    HpprWatch {
+        /// Repo endpoint as parsed ViaSpec.
+        endpoint: HpprViaSpec,
+        /// Signer for the request
+        signer: HpprSigner,
+        /// Coordinate prefix to watch
+        urc: String,
+        /// Channel to send events back to DOM
+        event_sender: IpcSender<WatchNetworkEvent>,
+        /// Channel to receive actions from DOM (Close)
+        action_receiver: IpcReceiver<WatchDomAction>,
+    },
+    /// HPPR STREAM_IN — publisher streaming.
+    ///
+    /// Opens a dedicated TCP connection for streaming trailer-format data to the repo.
+    HpprStreamIn {
+        /// Repo endpoint as parsed ViaSpec.
+        endpoint: HpprViaSpec,
+        /// Signer for the request
+        signer: HpprSigner,
+        /// Coordinate prefix for the stream
+        prefix: String,
+        /// Publisher mode params (key, headers, max_segment_size). None = raw pipe.
+        publisher_params: Option<StreamInPublisherParams>,
+        /// Channel to send events back to DOM
+        event_sender: IpcSender<StreamInNetworkEvent>,
+        /// Channel to receive actions from DOM (Write, Close)
+        action_receiver: IpcReceiver<StreamInDomAction>,
+    },
+    /// HPPR STREAM_OUT — subscriber streaming.
+    ///
+    /// Opens a dedicated TCP connection for receiving trailer-format data from the repo.
+    HpprStreamOut {
+        /// Repo endpoint as parsed ViaSpec.
+        endpoint: HpprViaSpec,
+        /// Signer for the request
+        signer: HpprSigner,
+        /// Coordinate prefix for the stream
+        prefix: String,
+        /// Channel to send events back to DOM
+        event_sender: IpcSender<StreamOutNetworkEvent>,
+        /// Channel to receive actions from DOM (Close)
+        action_receiver: IpcReceiver<StreamOutDomAction>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1048,6 +1170,19 @@ pub struct Metadata {
     pub redirected: bool,
     /// Detailed TLS metadata associated with the response, if any.
     pub tls_security_info: Option<TlsSecurityInfo>,
+
+    /// HPPR: parsed packet for document.packet / window.packet.
+    #[ignore_malloc_size_of = "hppr_packet::Packet"]
+    pub hppr_packet: Option<hppr_packet::Packet>,
+    /// HPPR: endpoint address used to fetch this content.
+    pub hppr_endpoint: Option<String>,
+    /// HPPR: site ring1 credentials (ring1_name, signing_key) for the home repo (window.home).
+    pub site_credentials: Option<(String, String)>,
+    /// HPPR: pre-built signer for ring2 auth (window.route).
+    #[ignore_malloc_size_of = "hppr_client::Signer"]
+    pub hppr_signer: Option<HpprSigner>,
+    /// HPPR: admin credentials (ring1_name, signing_key) for window.ring0.
+    pub admin_credentials: Option<(String, String)>,
 }
 
 impl Metadata {
@@ -1066,6 +1201,11 @@ impl Metadata {
             timing: None,
             redirected: false,
             tls_security_info: None,
+            hppr_packet: None,
+            hppr_endpoint: None,
+            site_credentials: None,
+            hppr_signer: None,
+            admin_credentials: None,
         }
     }
 
@@ -1165,6 +1305,7 @@ pub enum NetworkError {
     /// Crash error, to be converted to Resource::Crash in the HTML parser.
     Crash(String),
     UnsupportedScheme,
+    HttpDisabled,
     CorsGeneral,
     CrossOriginResponse,
     CorsCredentials,
@@ -1199,6 +1340,7 @@ impl fmt::Debug for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NetworkError::UnsupportedScheme => write!(f, "Unsupported scheme"),
+            NetworkError::HttpDisabled => write!(f, "HTTP/HTTPS is disabled. HAVI uses the HPPR protocol (hppr://) instead of HTTP."),
             NetworkError::CorsGeneral => write!(f, "CORS check failed"),
             NetworkError::CrossOriginResponse => write!(f, "Cross-origin response"),
             NetworkError::CorsCredentials => write!(f, "Cross-origin credentials check failed"),
