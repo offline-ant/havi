@@ -37,6 +37,7 @@ script_mod! {
                         width: Fill height: Fit
                         draw_bg.color: #x1e1e1e
                         show_bg: true
+                        align: Align{y: 1.0}
 
                         tab_bar := View{
                             flow: Right
@@ -56,7 +57,7 @@ script_mod! {
 
                             // Template tab — extracted at init, not displayed directly
                             tab_template := View{
-                                cursor: Hand
+                                cursor: MouseCursor.Hand
                                 flow: Right
                                 width: Fit height: Fit
                                 padding: Inset{left: 12 right: 4 top: 6 bottom: 6}
@@ -82,21 +83,62 @@ script_mod! {
                                     text: "×"
                                     draw_text.color: #x666666
                                     draw_text.text_style.font_size: 13.0
-                                    width: 16 height: 16
+                                    width: 20 height: 20
                                     align: Align{x: 0.5 y: 0.5}
+                                }
+                            }
+
+                            new_tab_btn := Button{
+                                text: "+"
+                                width: 28 height: 28
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                                draw_text.color: #x999999
+                                draw_text.text_style.font_size: 16.0
+                                draw_bg +: {
+                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
                                 }
                             }
                         }
 
-                        new_tab_btn := Button{
-                            text: "+"
-                            width: 28 height: 28
-                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                            margin: Inset{left: 4 right: 4 top: 2 bottom: 2}
-                            draw_text.color: #x999999
-                            draw_text.text_style.font_size: 16.0
-                            draw_bg +: {
-                                pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                        // Window control buttons
+                        window_controls := View{
+                            width: Fit height: 32
+                            flow: Right
+                            align: Align{y: 0.0}
+
+                            win_min := Button{
+                                text: "—"
+                                width: 46 height: 32
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                draw_text.color: #x999999
+                                draw_text.text_style.font_size: 10.0
+                                align: Align{x: 0.5 y: 0.5}
+                                draw_bg +: {
+                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                                }
+                            }
+                            win_max := Button{
+                                text: "□"
+                                width: 46 height: 32
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                draw_text.color: #x999999
+                                draw_text.text_style.font_size: 10.0
+                                align: Align{x: 0.5 y: 0.5}
+                                draw_bg +: {
+                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                                }
+                            }
+                            win_close := Button{
+                                text: "X"
+                                width: 46 height: 32
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                draw_text.color: #x999999
+                                draw_text.text_style.font_size: 11.0
+                                align: Align{x: 0.5 y: 0.5}
+                                draw_bg +: {
+                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                                }
                             }
                         }
                     }
@@ -706,6 +748,9 @@ impl App {
         // Sync tab bar UI
         self.sync_tab_bar(cx);
 
+        // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
+        self.ui.view(cx, ids!(caption_bar)).set_visible(cx, false);
+
         // Signal that we need to paint the first frame
         self.needs_paint = true;
         self.idle_frames = 0;
@@ -968,6 +1013,17 @@ impl App {
             new_children.push((tab.widget_id, widget));
         }
 
+        // Preserve the new_tab_btn widget from the original children
+        {
+            if let Some(tb) = tab_bar_ref.borrow_mut() {
+                if let Some(entry) = tb.children.iter()
+                    .find(|(id, _)| *id == live_id!(new_tab_btn))
+                {
+                    new_children.push(entry.clone());
+                }
+            }
+        }
+
         // Replace children
         {
             let mut tab_bar_borrow = tab_bar_ref.borrow_mut();
@@ -999,10 +1055,10 @@ impl App {
                 let uid = child_widget.widget_uid();
                 if let Some(action) = actions.find_widget_action(uid) {
                     if let ViewAction::FingerDown(fd) = action.cast() {
-                        // Check if click is in the close area (rightmost 20px)
+                        // Check if click is in the close area (rightmost 24px)
                         let tab_rect = child_widget.area().rect(cx);
-                        let close_x = tab_rect.pos.x + tab_rect.size.x - 20.0;
-                        if fd.abs.x >= close_x && self.tabs.len() > 1 {
+                        let close_x = tab_rect.pos.x + tab_rect.size.x - 24.0;
+                        if fd.abs.x >= close_x {
                             closed_tab = Some(tab_idx);
                         } else {
                             clicked_tab = Some(tab_idx);
@@ -1073,9 +1129,13 @@ impl App {
         self.sync_tab_bar(cx);
     }
 
-    /// Close tab at given index.
+    /// Close tab at given index. Quits when the last tab is closed.
     fn close_tab(&mut self, cx: &mut Cx, idx: usize) {
-        if self.tabs.len() <= 1 || idx >= self.tabs.len() {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        if self.tabs.len() <= 1 {
+            cx.quit();
             return;
         }
         // Remove the tab (webview is dropped, Servo cleans it up)
@@ -1156,9 +1216,28 @@ impl MatchEvent for App {
             nav_action = Some(NavCommand::Navigate(url_text));
         }
 
+        // --- Window control buttons ---
+        if self.ui.button(cx, ids!(win_min)).clicked(actions) {
+            cx.push_unique_platform_op(CxOsOp::MinimizeWindow(CxWindowPool::id_zero()));
+        }
+        if self.ui.button(cx, ids!(win_max)).clicked(actions) {
+            let is_fs = cx.windows[CxWindowPool::id_zero()].window_geom.is_fullscreen;
+            if is_fs {
+                cx.push_unique_platform_op(CxOsOp::RestoreWindow(CxWindowPool::id_zero()));
+            } else {
+                cx.push_unique_platform_op(CxOsOp::MaximizeWindow(CxWindowPool::id_zero()));
+            }
+        }
+        if self.ui.button(cx, ids!(win_close)).clicked(actions) {
+            cx.quit();
+        }
+
         // --- Tab bar events ---
         if self.ui.button(cx, ids!(new_tab_btn)).clicked(actions) {
             self.add_tab(cx);
+            // Reset cursor — the button moves when a tab is added, so
+            // the hover-out event may not fire, leaving cursor stuck as Hand.
+            cx.set_cursor(MouseCursor::Default);
         }
 
         // Tab click/close: detect finger-down on dynamic tab children.
@@ -1455,6 +1534,42 @@ impl AppMain for App {
             // Update DPI factor if it changed (e.g., moved to different-DPI monitor)
             if re.new_geom.dpi_factor > 0.0 && re.new_geom.dpi_factor != self.dpi_factor {
                 self.dpi_factor = re.new_geom.dpi_factor;
+            }
+        }
+
+        // Handle window dragging from the tab bar area (replaces hidden caption_bar).
+        // Only treat empty space as caption — exclude tabs, buttons, and controls.
+        if let Event::WindowDragQuery(dq) = event {
+            if dq.window_id == CxWindowPool::id_zero() {
+                let wrap_rect = self.ui.view(cx, ids!(tab_bar_wrap)).area().rect(cx);
+                if dq.abs.y < wrap_rect.pos.y + wrap_rect.size.y {
+                    let mut over_interactive = false;
+                    // Check window controls
+                    let controls_rect = self.ui.view(cx, ids!(window_controls)).area().rect(cx);
+                    if controls_rect.contains(dvec2(dq.abs.x, dq.abs.y)) {
+                        over_interactive = true;
+                    }
+                    // Check new tab button
+                    let btn_rect = self.ui.button(cx, ids!(new_tab_btn)).area().rect(cx);
+                    if btn_rect.contains(dvec2(dq.abs.x, dq.abs.y)) {
+                        over_interactive = true;
+                    }
+                    // Check each tab
+                    if let Some(tab_bar) = self.ui.view(cx, ids!(tab_bar)).borrow() {
+                        for (child_id, child_widget) in tab_bar.children.iter() {
+                            if *child_id == live_id!(tab_template) { continue; }
+                            let r = child_widget.area().rect(cx);
+                            if r.contains(dvec2(dq.abs.x, dq.abs.y)) {
+                                over_interactive = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !over_interactive {
+                        dq.response.set(WindowDragQueryResponse::Caption);
+                        cx.set_cursor(MouseCursor::Default);
+                    }
+                }
             }
         }
 
