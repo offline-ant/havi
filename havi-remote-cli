@@ -78,8 +78,12 @@ def run_step(conn, step):
         fire(conn, mouse_msg("MouseUp", x, y))
     elif cmd == 'touch':
         tid, ttype, x, y = int(args[0]), args[1].lower(), float(args[2]), float(args[3])
-        etype = {"down": 0, "move": 1, "up": 2, "cancel": 3}[ttype]
-        fire(conn, {"Touch": {"touch_id": tid, "event_type": etype, "x": x, "y": y, "time": 0.0}})
+        state = {"start": 0, "down": 0, "stop": 1, "up": 1, "move": 2, "stable": 3}[ttype]
+        t = time.time()
+        fire(conn, {"TouchUpdate": [{"touches": [{"uid": tid, "state": state,
+            "x": x, "y": y, "time": t, "rotation_angle": 0.0, "force": 1.0,
+            "radius_x": 0.0, "radius_y": 0.0}],
+            "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}]})
     elif cmd == 'click':
         x, y = float(args[0]), float(args[1])
         fire(conn, mouse_msg("MouseDown", x, y))
