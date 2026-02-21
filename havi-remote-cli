@@ -42,8 +42,12 @@ def fire(conn, msg):
 
 def mouse_msg(event, x, y):
     last_pos[0], last_pos[1] = x, y
+    mods = {"shift": False, "control": False, "alt": False, "logo": False}
+    if event == "MouseMove":
+        # StdinMouseMove has no button_raw_bits field
+        return {event: [{"x": float(x), "y": float(y), "time": 0.0, "modifiers": mods}]}
     return {event: [{"button_raw_bits": 1, "x": float(x), "y": float(y), "time": 0.0,
-                     "modifiers": {"shift": False, "control": False, "alt": False, "logo": False}}]}
+                     "modifiers": mods}]}
 
 KEY_MAP = {
     "enter": "ReturnKey", "tab": "Tab", "escape": "Escape", "backspace": "Backspace",

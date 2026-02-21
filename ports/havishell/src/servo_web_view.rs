@@ -25,9 +25,9 @@ script_mod! {
 pub enum ServoWebViewAction {
     #[default]
     None,
-    FingerDown { abs: DVec2, digit_id: u64 },
-    FingerUp { abs: DVec2, digit_id: u64 },
-    FingerMove { abs: DVec2, digit_id: u64 },
+    FingerDown { abs: DVec2, digit_id: u64, is_mouse: bool },
+    FingerUp { abs: DVec2, digit_id: u64, is_mouse: bool },
+    FingerMove { abs: DVec2, digit_id: u64, is_mouse: bool },
     HoverIn { abs: DVec2 },
     HoverOver { abs: DVec2 },
     HoverOut,
@@ -79,6 +79,7 @@ impl Widget for ServoWebView {
                     ServoWebViewAction::FingerDown {
                         abs: fd.abs,
                         digit_id: fd.digit_id.0 .0,
+                        is_mouse: matches!(fd.device, DigitDevice::Mouse { .. }),
                     },
                 );
             }
@@ -88,6 +89,7 @@ impl Widget for ServoWebView {
                     ServoWebViewAction::FingerUp {
                         abs: fu.abs,
                         digit_id: fu.digit_id.0 .0,
+                        is_mouse: matches!(fu.device, DigitDevice::Mouse { .. }),
                     },
                 );
             }
@@ -97,6 +99,7 @@ impl Widget for ServoWebView {
                     ServoWebViewAction::FingerMove {
                         abs: fm.abs,
                         digit_id: fm.digit_id.0 .0,
+                        is_mouse: matches!(fm.device, DigitDevice::Mouse { .. }),
                     },
                 );
             }

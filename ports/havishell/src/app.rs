@@ -415,6 +415,14 @@ pub struct App {
     /// sent for the remainder of the gesture.
     #[rust]
     is_touch_scrolling: bool,
+    /// Whether the current gesture originated from a mouse device. Mouse
+    /// drags send MouseDown + MouseMove + MouseUp (for text selection)
+    /// instead of Touch events (for scrolling).
+    #[rust]
+    is_mouse_gesture: bool,
+    /// Whether a mouse drag is in progress (MouseDown sent to Servo).
+    #[rust]
+    is_mouse_dragging: bool,
 
     // --- Tab state ---
     #[rust]
@@ -1333,16 +1341,30 @@ impl MatchEvent for App {
                     //             position, then Touch(Move) for each move,
                     //             and Touch(Up) at the end.
                     //
-                    ServoWebViewAction::FingerDown { abs, digit_id: _ } => {
+                    ServoWebViewAction::FingerDown { abs, digit_id: _, is_mouse } => {
                         self.finger_down_pos = Some(*abs);
                         self.is_touch_scrolling = false;
-                        // Don't send Touch(Down) yet — wait to see if it's a tap or scroll.
+                        self.is_mouse_gesture = *is_mouse;
+                        self.is_mouse_dragging = false;
+                        // Don't send any event yet — wait to see if it's a tap or drag/scroll.
                         handled_input = true;
                     }
-                    ServoWebViewAction::FingerUp { abs, digit_id } => {
+                    ServoWebViewAction::FingerUp { abs, digit_id, is_mouse: _ } => {
                         let pt = self.point_to_device(cx, *abs);
                         let touch_id = TouchId(*digit_id as i32);
-                        if self.is_touch_scrolling {
+                        if self.is_mouse_dragging {
+                            // Complete mouse drag — send final MouseMove + MouseUp
+                            self.send_input_event(servo::InputEvent::MouseMove(
+                                servo::MouseMoveEvent::new(pt.into()),
+                            ));
+                            self.send_input_event(servo::InputEvent::MouseButton(
+                                MouseButtonEvent::new(
+                                    MouseButtonAction::Up,
+                                    MouseButton::Left,
+                                    pt.into(),
+                                ),
+                            ));
+                        } else if self.is_touch_scrolling {
                             // Complete the touch/scroll sequence
                             self.send_input_event(servo::InputEvent::Touch(
                                 servo::TouchEvent::new(
@@ -1375,33 +1397,55 @@ impl MatchEvent for App {
                         // Reset gesture state
                         self.finger_down_pos = None;
                         self.is_touch_scrolling = false;
+                        self.is_mouse_gesture = false;
+                        self.is_mouse_dragging = false;
                         handled_input = true;
                     }
-                    ServoWebViewAction::FingerMove { abs, digit_id } => {
+                    ServoWebViewAction::FingerMove { abs, digit_id, is_mouse: _ } => {
                         let touch_id = TouchId(*digit_id as i32);
 
-                        if !self.is_touch_scrolling {
+                        if !self.is_touch_scrolling && !self.is_mouse_dragging {
                             if let Some(down_pos) = self.finger_down_pos {
                                 let dx = abs.x - down_pos.x;
                                 let dy = abs.y - down_pos.y;
                                 let dist = (dx * dx + dy * dy).sqrt();
                                 if dist > TAP_DISTANCE_THRESHOLD {
-                                    self.is_touch_scrolling = true;
-
-                                    // Retroactively send Touch(Down) at the original position
-                                    let down_pt = self.point_to_device(cx, down_pos);
-                                    self.send_input_event(servo::InputEvent::Touch(
-                                        servo::TouchEvent::new(
-                                            TouchEventType::Down,
-                                            touch_id,
-                                            down_pt.into(),
-                                        ),
-                                    ));
+                                    if self.is_mouse_gesture {
+                                        // Mouse drag — send MouseDown at original position
+                                        self.is_mouse_dragging = true;
+                                        let down_pt = self.point_to_device(cx, down_pos);
+                                        self.send_input_event(servo::InputEvent::MouseMove(
+                                            servo::MouseMoveEvent::new(down_pt.into()),
+                                        ));
+                                        self.send_input_event(servo::InputEvent::MouseButton(
+                                            MouseButtonEvent::new(
+                                                MouseButtonAction::Down,
+                                                MouseButton::Left,
+                                                down_pt.into(),
+                                            ),
+                                        ));
+                                    } else {
+                                        // Touch scroll
+                                        self.is_touch_scrolling = true;
+                                        let down_pt = self.point_to_device(cx, down_pos);
+                                        self.send_input_event(servo::InputEvent::Touch(
+                                            servo::TouchEvent::new(
+                                                TouchEventType::Down,
+                                                touch_id,
+                                                down_pt.into(),
+                                            ),
+                                        ));
+                                    }
                                 }
                             }
                         }
 
-                        if self.is_touch_scrolling {
+                        if self.is_mouse_dragging {
+                            let pt = self.point_to_device(cx, *abs);
+                            self.send_input_event(servo::InputEvent::MouseMove(
+                                servo::MouseMoveEvent::new(pt.into()),
+                            ));
+                        } else if self.is_touch_scrolling {
                             let pt = self.point_to_device(cx, *abs);
                             self.send_input_event(servo::InputEvent::Touch(
                                 servo::TouchEvent::new(
