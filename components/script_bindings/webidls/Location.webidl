@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 // https://html.spec.whatwg.org/multipage/#location
-[Exposed=Window, LegacyUnforgeable] interface Location {
+[Exposed=Window, LegacyUnforgeable, Pref="dom_location_enabled"] interface Location {
   [Throws, CrossOriginWritable]
         stringifier attribute USVString href;
   [Throws] readonly attribute USVString origin;

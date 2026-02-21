@@ -132,6 +132,11 @@ pub struct Preferences {
     pub dom_gamepad_enabled: bool,
     // feature: Geolocation API | #38903 | Web/API/Geolocation_API
     pub dom_geolocation_enabled: bool,
+    pub dom_document_write_enabled: bool,
+    // HPPR: Disable EventSource (HTTP SSE)
+    pub dom_eventsource_enabled: bool,
+    pub dom_hppr_enabled: bool,
+    pub dom_location_enabled: bool,
     // feature: IndexedDB | #6963 | Web/API/IndexedDB_API
     pub dom_indexeddb_enabled: bool,
     // feature: IntersectionObserver | #35767 | Web/API/Intersection_Observer_API
@@ -152,12 +157,19 @@ pub struct Preferences {
     pub dom_permissions_testing_allowed_in_nonsecure_contexts: bool,
     // feature: ResizeObserver | #39790 | Web/API/ResizeObserver
     pub dom_resize_observer_enabled: bool,
+    // HPPR: Disable Request constructor (fetch still works)
+    pub dom_request_enabled: bool,
     pub dom_script_asynch: bool,
+    // HPPR: Disable Navigator.sendBeacon()
+    pub dom_sendbeacon_enabled: bool,
     // feature: ServiceWorker | #36538 | Web/API/Service_Worker_API
     pub dom_serviceworker_enabled: bool,
     pub dom_serviceworker_timeout_seconds: i64,
     pub dom_servo_helpers_enabled: bool,
     pub dom_servoparser_async_html_tokenizer_enabled: bool,
+    // HPPR: Disable StorageEvent.initStorageEvent() (deprecated)
+    pub dom_storageevent_legacy_enabled: bool,
+    pub dom_testable_crash_enabled: bool,
     pub dom_testbinding_enabled: bool,
     pub dom_testbinding_prefcontrolled_enabled: bool,
     pub dom_testbinding_prefcontrolled2_enabled: bool,
@@ -172,6 +184,8 @@ pub struct Preferences {
     pub dom_testperf_enabled: bool,
     // https://testutils.spec.whatwg.org#availability
     pub dom_testutils_enabled: bool,
+    // HPPR: Disable URLPattern API
+    pub dom_urlpattern_enabled: bool,
     /// <https://html.spec.whatwg.org/multipage/#transient-activation-duration>
     pub dom_transient_activation_duration_ms: i64,
     /// Enable WebGL2 APIs.
@@ -179,10 +193,13 @@ pub struct Preferences {
     pub dom_webgl2_enabled: bool,
     // feature: WebRTC | #41396 | Web/API/WebRTC_API
     pub dom_webrtc_enabled: bool,
+    pub dom_media_capture_enabled: bool,
     // feature: WebRTC Transceiver | #41396 | Web/API/RTCRtpTransceiver
     pub dom_webrtc_transceiver_enabled: bool,
     // feature: WebVTT | #22312 | Web/API/WebVTT_API
     pub dom_webvtt_enabled: bool,
+    // HPPR: Disable WebSocket (use HPPR STORE + WATCH instead)
+    pub dom_websocket_enabled: bool,
     pub dom_webxr_enabled: bool,
     pub dom_webxr_test: bool,
     pub dom_webxr_first_person_observer_view: bool,
@@ -204,6 +221,8 @@ pub struct Preferences {
     /// <https://drafts.csswg.org/cssom-view/#the-visualviewport-interface>
     // feature: VisualViewport | #41341 | Web/API/VisualViewport
     pub dom_visual_viewport_enabled: bool,
+    // HPPR: Disable XMLHttpRequest (use window.ring* instead)
+    pub dom_xmlhttprequest_enabled: bool,
     /// True to compile all WebRender shaders when Servo initializes. This is mostly
     /// useful when modifying the shaders, to ensure they all compile after each change is
     /// made.
@@ -367,6 +386,10 @@ impl Preferences {
             dom_fullscreen_test: false,
             dom_gamepad_enabled: true,
             dom_geolocation_enabled: false,
+            dom_document_write_enabled: false,
+            dom_eventsource_enabled: false,
+            dom_hppr_enabled: true,
+            dom_location_enabled: false,
             dom_indexeddb_enabled: false,
             dom_intersection_observer_enabled: false,
             dom_microdata_testing_enabled: false,
@@ -379,11 +402,15 @@ impl Preferences {
             dom_permissions_enabled: false,
             dom_permissions_testing_allowed_in_nonsecure_contexts: false,
             dom_resize_observer_enabled: true,
+            dom_request_enabled: false,
             dom_script_asynch: true,
+            dom_sendbeacon_enabled: false,
             dom_serviceworker_enabled: false,
             dom_serviceworker_timeout_seconds: 60,
             dom_servo_helpers_enabled: false,
             dom_servoparser_async_html_tokenizer_enabled: false,
+            dom_storageevent_legacy_enabled: false,
+            dom_testable_crash_enabled: false,
             dom_testbinding_enabled: false,
             dom_testbinding_prefcontrolled2_enabled: false,
             dom_testbinding_prefcontrolled_enabled: false,
@@ -397,13 +424,16 @@ impl Preferences {
             dom_testing_html_input_element_select_files_enabled: false,
             dom_testperf_enabled: false,
             dom_testutils_enabled: false,
+            dom_urlpattern_enabled: false,
             dom_transient_activation_duration_ms: 5000,
             dom_webgl2_enabled: false,
             dom_webgpu_enabled: false,
             dom_webgpu_wgpu_backend: String::new(),
             dom_webrtc_enabled: false,
+            dom_media_capture_enabled: true,
             dom_webrtc_transceiver_enabled: false,
             dom_webvtt_enabled: false,
+            dom_websocket_enabled: false,
             dom_webxr_enabled: true,
             dom_webxr_first_person_observer_view: false,
             dom_webxr_glwindow_cubemap: false,
@@ -422,6 +452,7 @@ impl Preferences {
             dom_worklet_testing_enabled: false,
             dom_worklet_timeout_ms: 10,
             dom_visual_viewport_enabled: false,
+            dom_xmlhttprequest_enabled: false,
             accessibility_enabled: false,
             fonts_default: String::new(),
             fonts_default_monospace_size: 13,

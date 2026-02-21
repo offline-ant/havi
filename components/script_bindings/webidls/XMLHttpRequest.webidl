@@ -27,7 +27,7 @@ enum XMLHttpRequestResponseType {
   "text",
 };
 
-[Exposed=(Window,Worker)]
+[Exposed=(Window,Worker), Pref="dom_xmlhttprequest_enabled"]
 interface XMLHttpRequest : XMLHttpRequestEventTarget {
   [Throws] constructor();
   // event handler

@@ -80,7 +80,7 @@ partial interface Navigator {
 
 // https://w3c.github.io/beacon/#sendbeacon-method
 partial interface Navigator {
-  [Throws] boolean sendBeacon(USVString url, optional BodyInit? data = null);
+  [Throws, Pref="dom_sendbeacon_enabled"] boolean sendBeacon(USVString url, optional BodyInit? data = null);
 };
 
 // https://html.spec.whatwg.org/multipage/#custom-handlers

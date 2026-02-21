@@ -49,6 +49,7 @@ use crate::actors::inspector::walker::WalkerActor;
 use crate::actors::network_event::NetworkEventActor;
 use crate::actors::pause::PauseActor;
 use crate::actors::root::RootActor;
+use crate::actors::screenshot::ScreenshotActor;
 use crate::actors::source::SourceActor;
 use crate::actors::thread::{ThreadActor, ThreadInterruptedReply, WhyMsg};
 use crate::actors::watcher::WatcherActor;
@@ -78,6 +79,7 @@ mod actors {
     pub mod process;
     pub mod reflow;
     pub mod root;
+    pub mod screenshot;
     pub mod source;
     pub mod stylesheets;
     pub mod tab;
@@ -166,6 +168,8 @@ struct DevtoolsInstance {
     #[conditional_malloc_size_of]
     connections: Arc<Mutex<FxHashMap<StreamId, TcpStream>>>,
     next_resource_id: u64,
+    #[ignore_malloc_size_of = "Mutex"]
+    active_webview: Arc<Mutex<Option<WebViewId>>>,
 }
 
 impl DevtoolsInstance {
@@ -193,10 +197,9 @@ impl DevtoolsInstance {
         });
 
         // A token shared with the embedder to bypass permission prompt.
-        let port = if bound.is_some() {
-            Ok(address.port())
-        } else {
-            Err(())
+        let port = match &bound {
+            Some((_, effective_port)) => Ok(*effective_port),
+            None => Err(()),
         };
         let token = format!("{:X}", rng().next_u32());
         embedder.send(EmbedderMsg::OnDevtoolsStarted(port, token.clone()));
@@ -212,6 +215,21 @@ impl DevtoolsInstance {
         let mut registry = ActorRegistry::default();
         RootActor::register(&mut registry);
 
+        let active_webview: Arc<Mutex<Option<WebViewId>>> = Arc::new(Mutex::new(None));
+        let screenshot_name = registry.new_name::<ScreenshotActor>();
+        let screenshot_actor = ScreenshotActor::new(
+            screenshot_name.clone(),
+            embedder.clone(),
+            active_webview.clone(),
+        );
+        registry.register(screenshot_actor);
+
+        // Store screenshot actor name on the root actor
+        {
+            let root = registry.find::<RootActor>("root");
+            root.global_actors.borrow_mut().screenshot_actor = screenshot_name;
+        }
+
         let instance = Self {
             registry: Arc::new(registry),
             id_map: Arc::new(Mutex::new(IdMap::default())),
@@ -223,6 +241,7 @@ impl DevtoolsInstance {
             actor_workers: FxHashMap::default(),
             connections: Default::default(),
             next_resource_id: 1,
+            active_webview,
         };
 
         thread::Builder::new()
@@ -508,6 +527,10 @@ impl DevtoolsInstance {
                     name
                 });
 
+            // Update the active webview for the screenshot actor
+            if let Ok(mut wv) = self.active_webview.lock() {
+                *wv = Some(webview_id);
+            }
             Root::BrowsingContext(name.clone())
         };
 

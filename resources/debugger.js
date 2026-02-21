@@ -97,8 +97,20 @@ addEventListener("eval", event => {
         // let value = dbg.adoptDebuggeeValue(completionValue.throw);
         resultValue = { completionType: "throw", ...createValueResult(completionValue.throw) };
     } else if ("return" in completionValue) {
-        // let value = dbg.adoptDebuggeeValue(completionValue.return);
-        resultValue = { completionType: "return", ...createValueResult(completionValue.return) };
+        let value = completionValue.return;
+        // Unwrap settled Promises using Debugger.Object introspection.
+        // Pending Promises still return as {class: "Promise"} objects.
+        if (typeof value === "object" && value !== null && value.isPromise) {
+            if (value.promiseState === "fulfilled") {
+                resultValue = { completionType: "return", ...createValueResult(value.promiseValue) };
+            } else if (value.promiseState === "rejected") {
+                resultValue = { completionType: "throw", ...createValueResult(value.promiseReason) };
+            } else {
+                resultValue = { completionType: "return", ...createValueResult(value) };
+            }
+        } else {
+            resultValue = { completionType: "return", ...createValueResult(value) };
+        }
     }
 
     evalResult(event, resultValue);

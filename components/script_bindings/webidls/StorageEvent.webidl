@@ -19,6 +19,7 @@ interface StorageEvent : Event {
   readonly attribute Storage? storageArea;
 
 
+  [Pref="dom_storageevent_legacy_enabled"]
   undefined initStorageEvent(DOMString type, optional boolean bubbles = false,
   optional boolean cancelable = false, optional DOMString? key = null, optional
   DOMString? oldValue = null, optional DOMString? newValue = null, optional

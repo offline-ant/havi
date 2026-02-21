@@ -12,7 +12,7 @@
 
   attribute DOMString name;
 
-  [PutForwards=href, LegacyUnforgeable, CrossOriginReadable, CrossOriginWritable]
+  [PutForwards=href, LegacyUnforgeable, CrossOriginReadable, CrossOriginWritable, Pref="dom_location_enabled"]
     readonly attribute Location location;
   readonly attribute History history;
   readonly attribute CustomElementRegistry customElements;
@@ -187,4 +187,13 @@ dictionary DeferredRequestInit : RequestInit {
 
 partial interface Window {
   [NewObject, SecureContext, Throws] FetchLaterResult fetchLater(RequestInfo input, optional DeferredRequestInit init = {});
+};
+
+// HPPR browser integration
+partial interface Window {
+  [PutForwards=href, Pref="dom_hppr_enabled", SameObject] readonly attribute Address address;
+  [Pref="dom_hppr_enabled", SameObject] readonly attribute HpprClient home;
+  [Pref="dom_hppr_enabled"] readonly attribute HpprClient? route;
+  [Pref="dom_hppr_enabled"] readonly attribute HpprPacket? packet;
+  [Pref="dom_hppr_enabled"] readonly attribute HpprClient? ring0;
 };

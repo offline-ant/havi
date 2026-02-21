@@ -47,15 +47,11 @@ enum AddonMsg {}
 
 #[derive(Clone, Default, Serialize, MallocSizeOf)]
 #[serde(rename_all = "camelCase")]
-struct GlobalActors {
+pub(crate) struct GlobalActors {
     device_actor: String,
     perf_actor: String,
     preference_actor: String,
-    // Not implemented in Servo
-    // addons_actor
-    // heap_snapshot_file_actor
-    // parent_accessibility_actor
-    // screenshot_actor
+    pub(crate) screenshot_actor: String,
 }
 
 #[derive(Serialize)]
@@ -132,7 +128,7 @@ struct GetProcessResponse {
 #[derive(Default, MallocSizeOf)]
 pub(crate) struct RootActor {
     active_tab: AtomicRefCell<Option<String>>,
-    global_actors: GlobalActors,
+    pub global_actors: AtomicRefCell<GlobalActors>,
     process: String,
     pub tabs: AtomicRefCell<Vec<String>>,
     pub workers: AtomicRefCell<Vec<String>>,
@@ -172,7 +168,7 @@ impl Actor for RootActor {
             "getRoot" => {
                 let actor = GetRootReply {
                     from: "root".to_owned(),
-                    global_actors: self.global_actors.clone(),
+                    global_actors: self.global_actors.borrow().clone(),
                 };
                 request.reply_final(&actor)?
             },
@@ -293,11 +289,12 @@ impl RootActor {
 
         // Root actor
         let root = Self {
-            global_actors: GlobalActors {
+            global_actors: AtomicRefCell::new(GlobalActors {
                 device_actor: device.name(),
                 perf_actor: perf.name(),
                 preference_actor: preference.name(),
-            },
+                screenshot_actor: String::new(),
+            }),
             process: process.name(),
             ..Default::default()
         };

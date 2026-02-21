@@ -9,7 +9,7 @@ typedef (Request or USVString) RequestInfo;
 // https://fetch.spec.whatwg.org/#request
 [Exposed=(Window,Worker)]
 interface Request {
-  [Throws] constructor(RequestInfo input, optional RequestInit init = {});
+  [Throws, Pref="dom_request_enabled"] constructor(RequestInfo input, optional RequestInit init = {});
   readonly attribute ByteString method;
   readonly attribute USVString url;
   [SameObject] readonly attribute Headers headers;

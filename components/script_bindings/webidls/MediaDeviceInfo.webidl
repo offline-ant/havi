@@ -5,7 +5,7 @@
  // https://w3c.github.io/mediacapture-main/#device-info
 
 [Exposed=Window,
-SecureContext, Pref="dom_webrtc_enabled"]
+SecureContext, Pref="dom_media_capture_enabled"]
 interface MediaDeviceInfo {
   readonly attribute DOMString deviceId;
   readonly attribute MediaDeviceKind kind;

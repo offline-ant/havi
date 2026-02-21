@@ -5,7 +5,7 @@
 // https://w3c.github.io/mediacapture-main/#dom-mediadevices
 
 [Exposed=Window,
-SecureContext, Pref="dom_webrtc_enabled"]
+SecureContext, Pref="dom_media_capture_enabled"]
 interface MediaDevices : EventTarget {
     //                attribute EventHandler ondevicechange;
     Promise<sequence<MediaDeviceInfo>> enumerateDevices();
@@ -13,7 +13,7 @@ interface MediaDevices : EventTarget {
 
 partial interface Navigator {
     // [SameObject, SecureContext]
-    [Pref="dom_webrtc_enabled"] readonly        attribute MediaDevices mediaDevices;
+    [Pref="dom_media_capture_enabled"] readonly        attribute MediaDevices mediaDevices;
 };
 
 partial interface MediaDevices {

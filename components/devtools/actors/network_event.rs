@@ -581,9 +581,22 @@ impl NetworkEventActor {
         let url = request.request.url.as_url();
         let cookies = get_cookies_from_headers(&request.request.headers, &request.request.url);
 
+        // For HPPR URLs, show group/app instead of just host (group)
+        let remote_address = if url.scheme() == "hppr" || url.scheme().starts_with("hppr-") {
+            let host = url.host_str().unwrap_or("");
+            let app = url.path().trim_start_matches('/').split('/').next().unwrap_or("");
+            if app.is_empty() {
+                Some(host.into())
+            } else {
+                Some(format!("{}/{}", host, app))
+            }
+        } else {
+            url.host_str().map(|a| a.into())
+        };
+
         Some(RequestFields {
             event_timings_available: true,
-            remote_address: url.host_str().map(|a| a.into()),
+            remote_address,
             remote_port: url.port(),
             request_cookies_available: !cookies.is_empty(),
             request_headers_available: !request.request.headers.is_empty(),
@@ -609,7 +622,7 @@ impl NetworkEventActor {
             response_cookies_available: cookies.is_some(),
             response_headers_available: headers.is_some(),
             response_start_available: true,
-            status: status.code().to_string(),
+            status: status.raw_code().to_string(),
             status_text: String::from_utf8_lossy(status.message()).to_string(),
         })
     }
