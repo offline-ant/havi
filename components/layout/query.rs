@@ -1430,6 +1430,78 @@ pub fn find_text_node_and_offset_in_fragment_descendants(
     Some((target_node, chars_before + frag_local_offset))
 }
 
+/// Find the closest text node and character offset to a viewport point by searching
+/// all text fragments in the document. This works even when the hit-test node is a
+/// container element, because it iterates every box fragment in the stacking context
+/// tree rather than being scoped to one DOM node's fragments.
+pub fn find_text_node_at_viewport_point(
+    stacking_context_tree: &StackingContextTree,
+    point_in_viewport: Point2D<Au, CSSPixel>,
+) -> Option<(OpaqueNode, usize)> {
+    type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
+
+    fn collect_text_fragments(
+        fragment: &Fragment,
+        point: Point2D<Au, CSSPixel>,
+        out: &mut Vec<FragEntry>,
+    ) {
+        if let Fragment::Text(text_fragment) = fragment {
+            out.push((text_fragment.clone(), point));
+        }
+        if let Some(children) = fragment.children() {
+            for child in children.iter() {
+                let offset = child
+                    .base()
+                    .map(|base| base.rect.origin)
+                    .unwrap_or_default();
+                collect_text_fragments(child, point - offset.to_vector(), out);
+            }
+        }
+    }
+
+    let mut all_frags: Vec<FragEntry> = Vec::new();
+    stacking_context_tree.for_each_box_at_viewport_point(
+        point_in_viewport,
+        &mut |fragment, point_in_box| {
+            collect_text_fragments(fragment, point_in_box, &mut all_frags);
+        },
+    );
+
+    // Find the closest fragment to the point.
+    let mut closest_idx = None;
+    let mut closest_dist = Au::new(0);
+    for (i, (frag_ref, pt)) in all_frags.iter().enumerate() {
+        let frag = frag_ref.borrow();
+        if let Some(dist) = frag.distance_to_point_for_glyph_offset(*pt) {
+            if closest_idx.is_none() || dist <= closest_dist {
+                closest_idx = Some(i);
+                closest_dist = dist;
+            }
+        }
+    }
+
+    let idx = closest_idx?;
+    let (ref closest_frag_ref, closest_point) = all_frags[idx];
+    let closest_frag = closest_frag_ref.borrow();
+    let target_node = closest_frag.base.tag?.node;
+    let frag_local_offset = closest_frag.glyph_character_offset(closest_point);
+
+    // Sum character counts of preceding fragments with the same node.
+    let mut chars_before = 0usize;
+    for (i, (frag_ref, _)) in all_frags.iter().enumerate() {
+        if i == idx {
+            break;
+        }
+        let frag = frag_ref.borrow();
+        if frag.base.tag.map(|t| t.node) == Some(target_node) {
+            let count: usize = frag.glyphs.iter().map(|gs| gs.total_characters()).sum();
+            chars_before += count;
+        }
+    }
+
+    Some((target_node, chars_before + frag_local_offset))
+}
+
 pub fn process_resolved_font_style_query<'dom, E>(
     context: &SharedStyleContext,
     node: E,
