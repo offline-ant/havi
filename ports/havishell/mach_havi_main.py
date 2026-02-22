@@ -259,11 +259,34 @@ def setup_android_env(target_triple: str) -> dict[str, str]:
     return env
 
 
+def _find_xauthority() -> str | None:
+    """Find the XAUTHORITY file for XWayland sessions."""
+    if "XAUTHORITY" in os.environ:
+        return os.environ["XAUTHORITY"]
+    # KDE Wayland / XWayland writes a temp xauth file; pick the newest one.
+    import glob as _glob
+    home = os.path.expanduser("~")
+    for pattern in [
+        os.path.join(home, ".xauth*"),
+        f"/run/user/{os.getuid()}/xauth_*",
+        f"/tmp/xauth-{os.getuid()}-*",
+    ]:
+        matches = _glob.glob(pattern)
+        if matches:
+            return str(max(matches, key=os.path.getmtime))
+    return None
+
+
 def setup_desktop_env() -> dict[str, str]:
     """Build environment for a desktop (host) build."""
     env = os.environ.copy()
     env.setdefault("CC", "clang")
     env.setdefault("CXX", "clang++")
+    # Ensure XAUTHORITY is set so stdin-loop children can connect to XWayland.
+    if "XAUTHORITY" not in env:
+        xauth = _find_xauthority()
+        if xauth:
+            env["XAUTHORITY"] = xauth
     env.setdefault("RUSTFLAGS", "")
 
     if "LIBCLANG_PATH" not in env:
