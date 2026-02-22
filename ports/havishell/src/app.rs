@@ -764,8 +764,6 @@ impl App {
         self.needs_paint = true;
         self.idle_frames = 0;
 
-        makepad_widgets::remote_control::start_remote_listener();
-
         // Print eval-compatible environment summary
         {
             let repo_dir = havi_protocols::config::repo_dir();

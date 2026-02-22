@@ -26,7 +26,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 from typing import Any
 
 
@@ -702,9 +705,6 @@ def _run_emulator(args: argparse.Namespace) -> int:
 def _run_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
     profile = "release" if args.release else "debug"
-    # Auto-enable remote control in debug builds.
-    if profile == "debug" and "MAKEPAD_REMOTE" not in env:
-        env["MAKEPAD_REMOTE"] = "0"
     binary = HAVI_ROOT / "target" / profile / "havi"
 
     ret = _build_desktop(args)
@@ -715,8 +715,130 @@ def _run_desktop(args: argparse.Namespace) -> int:
     if args.extra:
         cmd.extend(args.extra)
 
+    studio_addr = getattr(args, "studio", None)
+    if getattr(args, "control", False) or studio_addr:
+        return _run_desktop_control(cmd, env, studio_addr)
+
     _log("desktop run", env=env, cmd=cmd)
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+
+
+def _studio_is_ready(host: str, port: int) -> bool:
+    """Check if a Studio instance is listening."""
+    url = f"http://{host}:{port}/$watch"
+    try:
+        resp = urllib.request.urlopen(url, timeout=2)
+        return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _run_desktop_control(
+    cmd: list[str], env: dict[str, str], studio_addr: str | None
+) -> int:
+    """Launch HAVI with Studio bridge for remote control.
+
+    If studio_addr is given (--studio=HOST:PORT), connects to an existing
+    Studio.  Otherwise (--control), auto-starts Studio if none is running
+    and reuses an existing one if found.
+    """
+    import random
+
+    # Parse or default the studio address.
+    if studio_addr:
+        parts = studio_addr.rsplit(":", 1)
+        studio_host = parts[0] if len(parts) == 2 else "127.0.0.1"
+        studio_port = int(parts[-1]) if parts[-1].isdigit() else 8001
+    else:
+        studio_host, studio_port = "127.0.0.1", 8001
+
+    # Probe for an existing Studio.
+    studio_proc = None
+    if _studio_is_ready(studio_host, studio_port):
+        _log(f"reusing Studio at {studio_host}:{studio_port}")
+    elif studio_addr:
+        sys.exit(f"[mach-havi] Studio not reachable at {studio_addr}")
+    else:
+        # Auto-start Studio.
+        studio_bin = MAKEPAD_ROOT / "target" / "release" / "makepad-studio"
+        if not studio_bin.is_file():
+            _log("building makepad-studio")
+            ret = subprocess.call(
+                ["cargo", "build", "-p", "makepad-studio", "--release"],
+                cwd=str(MAKEPAD_ROOT),
+            )
+            if ret != 0:
+                sys.exit(f"[mach-havi] makepad-studio build failed (exit {ret})")
+
+        studio_env = {k: v for k, v in env.items()
+                      if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+                               "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
+                               "HOME", "PATH", "LANG")}
+        _log("starting makepad-studio")
+        studio_proc = subprocess.Popen(
+            [str(studio_bin), f"--root=havi:{HAVI_ROOT}"],
+            env=studio_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if _studio_is_ready(studio_host, studio_port):
+                break
+            time.sleep(0.5)
+        else:
+            studio_proc.kill()
+            sys.exit("[mach-havi] Studio did not become ready within 30s")
+
+    # Generate a unique build ID for this instance.
+    build_id = random.randint(1, 2**53)
+
+    # Set STUDIO env for HAVI.
+    env["STUDIO"] = f"{studio_host}:{studio_port}"
+    env["STUDIO_BUILD_ID"] = str(build_id)
+
+    # Forward Wayland/display env to HAVI.
+    for var in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY"):
+        if var in os.environ and var not in env:
+            env[var] = os.environ[var]
+
+    # Launch HAVI with captured stdout.
+    _log("desktop run (control)", cmd=cmd)
+    havi_proc = subprocess.Popen(
+        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+
+    devtools_addr: list[str] = []
+    found = threading.Event()
+
+    def _read_stdout() -> None:
+        assert havi_proc.stdout is not None
+        for line in havi_proc.stdout:
+            print(line, end="")
+            stripped = line.strip()
+            if stripped.startswith("HAVI_DEVTOOLS=") and not devtools_addr:
+                devtools_addr.append(stripped.split("=", 1)[1])
+                found.set()
+
+    reader = threading.Thread(target=_read_stdout, daemon=True)
+    reader.start()
+
+    found.wait(timeout=30)
+
+    dt = devtools_addr[0] if devtools_addr else "<unknown>"
+    dt_port = dt.rsplit(":", 1)[-1] if devtools_addr else "<port>"
+    print(f"\nHAVI_STUDIO={studio_host}:{studio_port}")
+    print(f"HAVI_BUILD_ID={build_id}")
+    print(f"HAVI_DEVTOOLS={dt}")
+    print(f"# havi-remote-cli --port {studio_port} builds")
+    print(f"# havi-remote-cli --port {studio_port} --build-id {build_id} screenshot /tmp/test.png")
+    print(f"# havi-webview-remote-cli -p {dt_port} eval 'document.title'")
+
+    havi_proc.wait()
+    if studio_proc is not None:
+        studio_proc.kill()
+    return havi_proc.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -755,6 +877,11 @@ def run(topdir: str) -> int:
                         help="Target triple (e.g. aarch64-linux-android, x86_64-linux-android)")
         p.add_argument("--package-name", default=None,
                         help="Android package name (default: dev.makepad.havishell)")
+        if name == "run":
+            p.add_argument("--control", action="store_true",
+                            help="Start Studio bridge for remote control")
+            p.add_argument("--studio", default=None, metavar="HOST:PORT",
+                            help="Connect to existing Studio (e.g. 127.0.0.1:8001)")
         p.add_argument("extra", nargs="*",
                         help="Extra arguments forwarded to cargo")
         p.set_defaults(func=handler)
