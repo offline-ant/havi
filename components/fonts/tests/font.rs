@@ -13,7 +13,7 @@ use fonts::{
     Font, FontData, FontDescriptor, FontIdentifier, FontTemplate, FontTemplateRef,
     PlatformFontMethods, ShapingFlags, ShapingOptions,
 };
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::computed_values::font_optical_sizing::T as FontOpticalSizing;
 use style::properties::longhands::font_variant_caps::computed_value::T as FontVariantCaps;
 use style::values::computed::{FontStretch, FontStyle, FontSynthesis, FontWeight};
@@ -27,7 +27,7 @@ fn make_font(path: PathBuf) -> Font {
         .unwrap();
     let data = FontData::from_bytes(&bytes);
 
-    let identifier = FontIdentifier::Web(ServoUrl::from_file_path(path).unwrap());
+    let identifier = FontIdentifier::Web(BrowserUrl::from_file_path(path).unwrap());
     let platform_font =
         PlatformFont::new_from_data(identifier.clone(), &data, None, &[], false).unwrap();
 

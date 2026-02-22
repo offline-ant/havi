@@ -10,7 +10,7 @@ use dom_struct::dom_struct;
 use js::context::JSContext;
 use js::jsapi::{Heap, JSObject};
 use js::rust::{CustomAutoRooter, CustomAutoRooterGuard, HandleValue};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::abstractworker::SimpleWorkerErrorHandler;
 use crate::dom::bindings::cell::DomRefCell;
@@ -38,7 +38,7 @@ pub(crate) struct ServiceWorker {
     eventtarget: EventTarget,
     script_url: DomRefCell<String>,
     #[no_trace]
-    scope_url: ServoUrl,
+    scope_url: BrowserUrl,
     state: Cell<ServiceWorkerState>,
     #[no_trace]
     worker_id: ServiceWorkerId,
@@ -47,7 +47,7 @@ pub(crate) struct ServiceWorker {
 impl ServiceWorker {
     fn new_inherited(
         script_url: &str,
-        scope_url: ServoUrl,
+        scope_url: BrowserUrl,
         worker_id: ServiceWorkerId,
     ) -> ServiceWorker {
         ServiceWorker {
@@ -61,8 +61,8 @@ impl ServiceWorker {
 
     pub(crate) fn new(
         global: &GlobalScope,
-        script_url: ServoUrl,
-        scope_url: ServoUrl,
+        script_url: BrowserUrl,
+        scope_url: BrowserUrl,
         worker_id: ServiceWorkerId,
         can_gc: CanGc,
     ) -> DomRoot<ServiceWorker> {
@@ -88,8 +88,8 @@ impl ServiceWorker {
             .fire_event(atom!("statechange"), can_gc);
     }
 
-    pub(crate) fn get_script_url(&self) -> ServoUrl {
-        ServoUrl::parse(&self.script_url.borrow().clone()).unwrap()
+    pub(crate) fn get_script_url(&self) -> BrowserUrl {
+        BrowserUrl::parse(&self.script_url.borrow().clone()).unwrap()
     }
 
     /// <https://w3c.github.io/ServiceWorker/#service-worker-postmessage>

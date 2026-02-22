@@ -12,7 +12,7 @@ use devtools_traits::DevtoolScriptControlMsg;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::StreamId;
 use crate::actor::{Actor, ActorError, ActorRegistry, DowncastableActorArc};
@@ -75,7 +75,7 @@ impl SourceManager {
     ) -> Option<DowncastableActorArc<SourceActor>> {
         for name in self.source_actor_names.borrow().iter() {
             let source = registry.find::<SourceActor>(name);
-            if source.url == ServoUrl::from_str(source_url).ok()? {
+            if source.url == BrowserUrl::from_str(source_url).ok()? {
                 return Some(source);
             }
         }
@@ -89,7 +89,7 @@ pub(crate) struct SourceActor {
     name: String,
 
     /// URL of the script, or URL of the page for inline scripts.
-    url: ServoUrl,
+    url: BrowserUrl,
 
     /// The ‘black-boxed’ flag, which tells the debugger to avoid pausing inside this script.
     /// <https://firefox-source-docs.mozilla.org/devtools/backend/protocol.html#black-boxing-sources>
@@ -145,7 +145,7 @@ struct GetBreakpointPositionsRequest {
 impl SourceActor {
     pub fn new(
         name: String,
-        url: ServoUrl,
+        url: BrowserUrl,
         content: Option<String>,
         content_type: Option<String>,
         spidermonkey_id: u32,
@@ -168,7 +168,7 @@ impl SourceActor {
     pub fn new_registered(
         actors: &ActorRegistry,
         pipeline_id: PipelineId,
-        url: ServoUrl,
+        url: BrowserUrl,
         content: Option<String>,
         content_type: Option<String>,
         spidermonkey_id: u32,

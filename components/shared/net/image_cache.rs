@@ -12,7 +12,7 @@ use paint_api::CrossProcessPaintApi;
 use pixels::{CorsStatus, ImageMetadata, RasterImage};
 use profile_traits::mem::Report;
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use webrender_api::ImageKey;
 use webrender_api::units::DeviceIntSize;
 
@@ -68,7 +68,7 @@ impl Image {
 /// Indicating either entire image or just metadata availability
 #[derive(Clone, Debug, MallocSizeOf)]
 pub enum ImageOrMetadataAvailable {
-    ImageAvailable { image: Image, url: ServoUrl },
+    ImageAvailable { image: Image, url: BrowserUrl },
     MetadataAvailable(ImageMetadata, PendingImageId),
 }
 
@@ -115,7 +115,7 @@ impl ImageLoadListener {
 #[derive(Clone, Debug, MallocSizeOf)]
 pub enum ImageResponse {
     /// The requested image was loaded.
-    Loaded(Image, ServoUrl),
+    Loaded(Image, BrowserUrl),
     /// The request image metadata was loaded.
     MetadataLoaded(ImageMetadata),
     /// The requested image failed to load or decode.
@@ -182,14 +182,14 @@ pub trait ImageCache: Sync + Send {
     /// Definitively check whether there is a cached, fully loaded image available.
     fn get_image(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
     ) -> Option<Image>;
 
     fn get_cached_image_status(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
     ) -> ImageCacheResult;
@@ -223,7 +223,7 @@ pub trait ImageCache: Sync + Send {
     /// Removes the completed image from the image_cache, identified by url, origin, and cors
     fn evict_completed_image(
         &self,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         origin: &ImmutableOrigin,
         cors_setting: &Option<CorsSettings>,
     );

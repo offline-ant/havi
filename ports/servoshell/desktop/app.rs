@@ -12,7 +12,7 @@ use std::{env, fs};
 use servo::protocol_handler::ProtocolRegistry;
 use servo::user_contents::UserStyleSheet;
 use servo::{
-    EventLoopWaker, Opts, Preferences, ServoBuilder, ServoUrl, UserContentManager, UserScript,
+    EventLoopWaker, Opts, Preferences, ServoBuilder, BrowserUrl, UserContentManager, UserScript,
 };
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -45,7 +45,7 @@ pub struct App {
     servoshell_preferences: ServoShellPreferences,
     waker: Box<dyn EventLoopWaker>,
     event_loop_proxy: Option<EventLoopProxy<AppEvent>>,
-    initial_url: ServoUrl,
+    initial_url: BrowserUrl,
     t_start: Instant,
     t: Instant,
     state: AppState,
@@ -122,7 +122,7 @@ impl App {
 
         for (contents, url) in &self.opts.user_stylesheets {
             let contents = String::try_from(contents.clone()).unwrap();
-            let user_stylesheet = UserStyleSheet::new(contents, url.clone().into_url());
+            let user_stylesheet = UserStyleSheet::new(contents, url.clone());
             user_content_manager.add_stylesheet(Rc::new(user_stylesheet));
         }
 

@@ -20,7 +20,7 @@ use net_traits::request::{
     CorsSettings, CredentialsMode, Destination, ParserMetadata, RequestBuilder, RequestId,
 };
 use net_traits::{FetchMetadata, Metadata, NetworkError, ResourceFetchTiming};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::str::{HTML_SPACE_CHARACTERS, StaticStringVec};
 use stylo_atoms::Atom;
@@ -203,7 +203,7 @@ pub(crate) enum SourceCode {
 pub(crate) struct ScriptOrigin {
     pub code: SourceCode,
     #[no_trace]
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     external: bool,
     pub fetch_options: ScriptFetchOptions,
     type_: ScriptType,
@@ -214,7 +214,7 @@ pub(crate) struct ScriptOrigin {
 impl ScriptOrigin {
     pub(crate) fn internal(
         text: Rc<DOMString>,
-        url: ServoUrl,
+        url: BrowserUrl,
         fetch_options: ScriptFetchOptions,
         type_: ScriptType,
         unminified_dir: Option<String>,
@@ -233,7 +233,7 @@ impl ScriptOrigin {
 
     pub(crate) fn external(
         text: Rc<DOMString>,
-        url: ServoUrl,
+        url: BrowserUrl,
         fetch_options: ScriptFetchOptions,
         type_: ScriptType,
         unminified_dir: Option<String>,
@@ -261,7 +261,7 @@ impl ScriptOrigin {
 fn finish_fetching_a_classic_script(
     elem: &HTMLScriptElement,
     script_kind: ExternalScriptKind,
-    url: ServoUrl,
+    url: BrowserUrl,
     load: ScriptResult,
     can_gc: CanGc,
 ) {
@@ -316,7 +316,7 @@ struct ClassicContext {
     /// The response metadata received to date.
     metadata: Option<Metadata>,
     /// The initial URL requested.
-    url: ServoUrl,
+    url: BrowserUrl,
     /// Indicates whether the request failed, and why
     status: Result<(), NetworkError>,
     /// The fetch options of the script
@@ -486,7 +486,7 @@ impl FetchResponseListener for ClassicContext {
 }
 
 impl ResourceTimingListener for ClassicContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         let initiator_type = InitiatorType::LocalName(
             self.elem
                 .root()
@@ -507,7 +507,7 @@ impl ResourceTimingListener for ClassicContext {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn script_fetch_request(
     webview_id: WebViewId,
-    url: ServoUrl,
+    url: BrowserUrl,
     cors_setting: Option<CorsSettings>,
     options: ScriptFetchOptions,
 ) -> RequestBuilder {
@@ -531,7 +531,7 @@ pub(crate) fn script_fetch_request(
 fn fetch_a_classic_script(
     script: &HTMLScriptElement,
     kind: ExternalScriptKind,
-    url: ServoUrl,
+    url: BrowserUrl,
     cors_setting: Option<CorsSettings>,
     options: ScriptFetchOptions,
     character_encoding: &'static Encoding,
@@ -1399,13 +1399,13 @@ impl HTMLScriptElementMethods<crate::DomTypeHolder> for HTMLScriptElement {
 pub(crate) fn substitute_with_local_script(
     window: &Window,
     script: &mut Cow<'_, str>,
-    url: ServoUrl,
+    url: BrowserUrl,
 ) {
     if window.local_script_source().is_none() {
         return;
     }
     let mut path = PathBuf::from(window.local_script_source().clone().unwrap());
-    path = path.join(&url[url::Position::BeforeHost..]);
+    path = path.join(url.url_from_before_host());
     debug!("Attempting to read script stored at: {:?}", path);
     match read_to_string(path.clone()) {
         Ok(local_script) => {

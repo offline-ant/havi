@@ -20,7 +20,7 @@ use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, terminated};
 use nom::{IResult, Parser};
 use serde::{Deserialize, Serialize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use time::{Date, Duration, Month, OffsetDateTime, Time};
 
 /// A stored cookie that wraps the definition in cookie-rs. This is used to implement
@@ -43,7 +43,7 @@ pub struct ServoCookie {
 impl ServoCookie {
     pub fn from_cookie_string(
         cookie_str: &str,
-        request: &ServoUrl,
+        request: &BrowserUrl,
         source: CookieSource,
     ) -> Option<ServoCookie> {
         let mut cookie = Cookie::parse(cookie_str.to_owned()).ok()?;
@@ -73,7 +73,7 @@ impl ServoCookie {
     /// Steps 6-22 from <https://www.ietf.org/archive/id/draft-ietf-httpbis-rfc6265bis-15.html#name-storage-model>
     pub fn new_wrapped(
         mut cookie: Cookie<'static>,
-        request: &ServoUrl,
+        request: &BrowserUrl,
         source: CookieSource,
     ) -> Option<ServoCookie> {
         let persistent;
@@ -337,7 +337,7 @@ impl ServoCookie {
     }
 
     /// <http://tools.ietf.org/html/rfc6265#section-5.4> step 1
-    pub fn appropriate_for_url(&self, url: &ServoUrl, source: CookieSource) -> bool {
+    pub fn appropriate_for_url(&self, url: &BrowserUrl, source: CookieSource) -> bool {
         if log_enabled!(Level::Debug) {
             debug!(
                 " === SENT COOKIE : {} {} {:?} {:?}",

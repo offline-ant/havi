@@ -28,7 +28,7 @@ use quick_cache::sync::{Cache, DefaultLifecycle, PlaceholderGuard};
 use quick_cache::{DefaultHashBuilder, UnitWeighter};
 use servo_arc::Arc;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tokio::sync::mpsc::{UnboundedSender as TokioSender, unbounded_channel as unbounded};
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock as TokioRwLock};
 
@@ -37,7 +37,7 @@ use crate::fetch::methods::{Data, DoneChannel};
 /// The key used to differentiate requests in the cache.
 #[derive(Clone, Eq, Hash, MallocSizeOf, PartialEq)]
 pub struct CacheKey {
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl CacheKey {
@@ -49,7 +49,7 @@ impl CacheKey {
     }
 
     /// Create a cache-key from a resolved URL.
-    pub fn from_url(url: ServoUrl) -> CacheKey {
+    pub fn from_url(url: BrowserUrl) -> CacheKey {
         CacheKey { url }
     }
 }
@@ -62,10 +62,10 @@ pub struct CachedResource {
     aborted: Arc<AtomicBool>,
     awaiting_body: Arc<ParkingLotMutex<Vec<TokioSender<Data>>>>,
     metadata: CachedMetadata,
-    location_url: Option<Result<ServoUrl, String>>,
+    location_url: Option<Result<BrowserUrl, String>>,
     https_state: HttpsState,
     status: HttpStatus,
-    url_list: Vec<ServoUrl>,
+    url_list: Vec<BrowserUrl>,
     expires: Duration,
     last_validated: Instant,
 }
@@ -93,7 +93,7 @@ struct CachedMetadata {
     #[ignore_malloc_size_of = "Defined in `http` and has private members"]
     pub headers: Arc<ParkingLotMutex<HeaderMap>>,
     /// Final URL after redirects.
-    pub final_url: ServoUrl,
+    pub final_url: BrowserUrl,
     /// MIME type / subtype.
     pub content_type: Option<String>,
     /// Character set.
@@ -750,7 +750,7 @@ fn resolve_location_url(
     request: &Request,
     response: &Response,
     header_name: header::HeaderName,
-) -> Option<ServoUrl> {
+) -> Option<BrowserUrl> {
     response
         .headers
         .get(header_name)

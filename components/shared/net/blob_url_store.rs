@@ -5,7 +5,7 @@
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use url::Url;
 use uuid::Uuid;
 
@@ -39,7 +39,7 @@ pub struct BlobBuf {
 /// Parse URL as Blob URL scheme's definition
 ///
 /// <https://w3c.github.io/FileAPI/#DefinitionOfScheme>
-pub fn parse_blob_url(url: &ServoUrl) -> Result<(Uuid, ImmutableOrigin), &'static str> {
+pub fn parse_blob_url(url: &BrowserUrl) -> Result<(Uuid, ImmutableOrigin), &'static str> {
     let url_inner = Url::parse(url.path()).map_err(|_| "Failed to parse URL path")?;
     let segs = url_inner
         .path_segments()
@@ -58,5 +58,5 @@ pub fn parse_blob_url(url: &ServoUrl) -> Result<(Uuid, ImmutableOrigin), &'stati
         let id = segs.first().ok_or("URL has no path segments")?;
         Uuid::from_str(id).map_err(|_| "Failed to parse UUID from path segment")?
     };
-    Ok((id, ServoUrl::from_url(url_inner).origin()))
+    Ok((id, BrowserUrl::from_url(url_inner).origin()))
 }

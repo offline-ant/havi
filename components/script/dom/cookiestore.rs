@@ -19,7 +19,7 @@ use net_traits::CookieSource::NonHTTP;
 use net_traits::{CookieAsyncResponse, CookieData, CoreResourceMsg};
 use script_bindings::codegen::GenericBindings::CookieStoreBinding::CookieSameSite;
 use script_bindings::script_runtime::CanGc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use time::OffsetDateTime;
 
 use crate::dom::bindings::cell::DomRefCell;
@@ -259,7 +259,7 @@ impl CookieStoreMethods<crate::DomTypeHolder> for CookieStore {
         // 6. If options["url"] is present, then run these steps:
         if let Some(get_url) = &options.url {
             // 6.1. Let parsed be the result of parsing options["url"] with settings’s API base URL.
-            let parsed_url = ServoUrl::parse_with_base(Some(&global.api_base_url()), get_url);
+            let parsed_url = BrowserUrl::parse_with_base(Some(&global.api_base_url()), get_url);
 
             // 6.2. If this’s relevant global object is a Window object and parsed does not equal url with exclude fragments set to true,
             // then return a promise rejected with a TypeError.
@@ -376,7 +376,7 @@ impl CookieStoreMethods<crate::DomTypeHolder> for CookieStore {
         // 5. If options["url"] is present, then run these steps:
         if let Some(get_url) = &options.url {
             // 5.1. Let parsed be the result of parsing options["url"] with settings’s API base URL.
-            let parsed_url = ServoUrl::parse_with_base(Some(&global.api_base_url()), get_url);
+            let parsed_url = BrowserUrl::parse_with_base(Some(&global.api_base_url()), get_url);
 
             // If this’s relevant global object is a Window object and parsed does not equal url with exclude fragments set to true,
             // then return a promise rejected with a TypeError.
@@ -609,7 +609,7 @@ impl CookieStore {
     }
 
     /// <https://cookiestore.spec.whatwg.org/#set-cookie-algorithm>
-    fn set_a_cookie<'a>(url: &'a ServoUrl, properties: &'a CookieInit) -> Option<Cookie<'a>> {
+    fn set_a_cookie<'a>(url: &'a BrowserUrl, properties: &'a CookieInit) -> Option<Cookie<'a>> {
         // 1. Normalize name.
         let name = CookieStore::normalize(&properties.name);
         // 2. Normalize value.

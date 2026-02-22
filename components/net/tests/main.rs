@@ -46,7 +46,7 @@ use net_traits::{FetchTaskTarget, ResourceFetchTiming, ResourceTimingType};
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::Mutex as TokioMutex;
 
 const DEFAULT_USER_AGENT: &'static str = "Such Browser. Very Layout. Wow.";
@@ -187,5 +187,5 @@ fn fetch_with_cors_cache(request: Request, cache: &mut CorsCache) -> Response {
 }
 
 pub(crate) fn mock_origin() -> ImmutableOrigin {
-    ServoUrl::parse("http://servo.org").unwrap().origin()
+    BrowserUrl::parse("http://servo.org").unwrap().origin()
 }

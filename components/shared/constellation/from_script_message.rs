@@ -35,7 +35,7 @@ use profile_traits::mem::MemoryReportResult;
 use profile_traits::{mem, time as profile_time};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, OriginSnapshot, ServoUrl};
+use servo_url::{ImmutableOrigin, OriginSnapshot, BrowserUrl};
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::WebStorageType;
 use strum::IntoStaticStr;
@@ -87,9 +87,9 @@ pub struct LoadData {
     /// The origin where the load started.
     pub load_origin: LoadOrigin,
     /// The URL.
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     /// <https://html.spec.whatwg.org/multipage/#concept-document-about-base-url>
-    pub about_base_url: Option<ServoUrl>,
+    pub about_base_url: Option<BrowserUrl>,
     /// The creator pipeline id if this is an about:blank load.
     pub creator_pipeline_id: Option<PipelineId>,
     /// The method.
@@ -150,8 +150,8 @@ impl LoadData {
     #[expect(clippy::too_many_arguments)]
     pub fn new(
         load_origin: LoadOrigin,
-        url: ServoUrl,
-        about_base_url: Option<ServoUrl>,
+        url: BrowserUrl,
+        about_base_url: Option<BrowserUrl>,
         creator_pipeline_id: Option<PipelineId>,
         referrer: Referrer,
         referrer_policy: ReferrerPolicy,
@@ -185,7 +185,7 @@ impl LoadData {
 
     /// Create a new [`LoadData`] for a completely new top-level `WebView` that isn't created
     /// via APIs like `window.open`. This is for `WebView`s completely unrelated to others.
-    pub fn new_for_new_unrelated_webview(url: ServoUrl) -> Self {
+    pub fn new_for_new_unrelated_webview(url: BrowserUrl) -> Self {
         Self::new(
             LoadOrigin::Constellation,
             url,
@@ -220,7 +220,7 @@ pub enum NavigationHistoryBehavior {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScopeThings {
     /// script resource url
-    pub script_url: ServoUrl,
+    pub script_url: BrowserUrl,
     /// network load origin of the resource
     pub worker_load_origin: WorkerScriptLoadOrigin,
     /// base resources required to create worker global scopes
@@ -261,9 +261,9 @@ pub struct SWManagerSenders {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ServiceWorkerMsg {
     /// Timeout message sent by active service workers
-    Timeout(ServoUrl),
+    Timeout(BrowserUrl),
     /// Message sent by constellation to forward to a running service worker
-    ForwardDOMMessage(DOMMessage, ServoUrl),
+    ForwardDOMMessage(DOMMessage, BrowserUrl),
     /// <https://w3c.github.io/ServiceWorker/#schedule-job-algorithm>
     ScheduleJob(Job),
     /// Exit the service worker manager
@@ -323,13 +323,13 @@ pub struct Job {
     /// <https://w3c.github.io/ServiceWorker/#dfn-job-type>
     pub job_type: JobType,
     /// <https://w3c.github.io/ServiceWorker/#dfn-job-scope-url>
-    pub scope_url: ServoUrl,
+    pub scope_url: BrowserUrl,
     /// <https://w3c.github.io/ServiceWorker/#dfn-job-script-url>
-    pub script_url: ServoUrl,
+    pub script_url: BrowserUrl,
     /// <https://w3c.github.io/ServiceWorker/#dfn-job-client>
     pub client: GenericCallback<JobResult>,
     /// <https://w3c.github.io/ServiceWorker/#job-referrer>
-    pub referrer: ServoUrl,
+    pub referrer: BrowserUrl,
     /// Various data needed to process job.
     pub scope_things: Option<ScopeThings>,
 }
@@ -338,10 +338,10 @@ impl Job {
     /// <https://w3c.github.io/ServiceWorker/#create-job-algorithm>
     pub fn create_job(
         job_type: JobType,
-        scope_url: ServoUrl,
-        script_url: ServoUrl,
+        scope_url: BrowserUrl,
+        script_url: BrowserUrl,
         client: GenericCallback<JobResult>,
-        referrer: ServoUrl,
+        referrer: BrowserUrl,
         scope_things: Option<ScopeThings>,
     ) -> Job {
         Job {
@@ -492,7 +492,7 @@ pub struct WorkerGlobalScopeInit {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkerScriptLoadOrigin {
     /// referrer url
-    pub referrer_url: Option<ServoUrl>,
+    pub referrer_url: Option<BrowserUrl>,
     /// the referrer policy which is used
     pub referrer_policy: ReferrerPolicy,
     /// the pipeline id of the entity requesting the load
@@ -592,7 +592,7 @@ pub enum ScriptToConstellationMessage {
     /// The strings are key, old value and new value.
     BroadcastStorageEvent(
         WebStorageType,
-        ServoUrl,
+        BrowserUrl,
         Option<String>,
         Option<String>,
         Option<String>,
@@ -657,13 +657,13 @@ pub enum ScriptToConstellationMessage {
         data: StructuredSerializedData,
     },
     /// Inform the constellation that a fragment was navigated to and whether or not it was a replacement navigation.
-    NavigatedToFragment(ServoUrl, NavigationHistoryBehavior),
+    NavigatedToFragment(BrowserUrl, NavigationHistoryBehavior),
     /// HTMLIFrameElement Forward or Back traversal.
     TraverseHistory(TraversalDirection),
     /// Inform the constellation of a pushed history state.
-    PushHistoryState(HistoryStateId, ServoUrl),
+    PushHistoryState(HistoryStateId, BrowserUrl),
     /// Inform the constellation of a replaced history state.
-    ReplaceHistoryState(HistoryStateId, ServoUrl),
+    ReplaceHistoryState(HistoryStateId, BrowserUrl),
     /// Gets the length of the joint session history from the constellation.
     JointSessionHistoryLength(GenericSender<u32>),
     /// Notification that this iframe should be removed.
@@ -682,7 +682,7 @@ pub enum ScriptToConstellationMessage {
     /// Set the document state for a pipeline (used by screenshot / reftests)
     SetDocumentState(DocumentState),
     /// Update the pipeline Url, which can change after redirections.
-    SetFinalUrl(ServoUrl),
+    SetFinalUrl(BrowserUrl),
     /// A log entry, with the top-level browsing context id and thread name
     LogEntry(Option<ScriptEventLoopId>, Option<String>, LogEntry),
     /// Discard the document.
@@ -693,7 +693,7 @@ pub enum ScriptToConstellationMessage {
     PipelineExited,
     /// Send messages from postMessage calls from serviceworker
     /// to constellation for storing in service worker manager
-    ForwardDOMMessage(DOMMessage, ServoUrl),
+    ForwardDOMMessage(DOMMessage, BrowserUrl),
     /// <https://w3c.github.io/ServiceWorker/#schedule-job-algorithm>
     ScheduleJob(Job),
     /// Notifies the constellation about media session events

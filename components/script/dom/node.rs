@@ -44,7 +44,7 @@ use selectors::matching::{
 use selectors::parser::SelectorList;
 use servo_arc::Arc as ServoArc;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use smallvec::SmallVec;
 use style::attr::AttrValue;
 use style::context::QuirksMode;
@@ -1815,7 +1815,7 @@ pub(crate) trait LayoutNodeHelpers<'dom> {
     fn is_text_container_of_single_line_input(&self) -> bool;
     fn text_content(self) -> Cow<'dom, str>;
     fn selection(self) -> Option<SharedSelection>;
-    fn image_url(self) -> Option<ServoUrl>;
+    fn image_url(self) -> Option<BrowserUrl>;
     fn image_density(self) -> Option<f64>;
     fn image_data(self) -> Option<(Option<Image>, Option<ImageMetadata>)>;
     fn showing_broken_image_icon(self) -> bool;
@@ -2050,7 +2050,7 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
             .map(|textarea| textarea.selection_for_layout())
     }
 
-    fn image_url(self) -> Option<ServoUrl> {
+    fn image_url(self) -> Option<BrowserUrl> {
         self.downcast::<HTMLImageElement>()
             .expect("not an image!")
             .image_url()

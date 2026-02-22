@@ -10,17 +10,19 @@ pub mod encoding;
 pub mod hppr;
 pub mod origin;
 
+use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 use std::path::Path;
 use std::str::FromStr;
 
 use hppr_packet::urc::URC;
-use malloc_size_of_derive::MallocSizeOf;
-use serde::{Deserialize, Serialize};
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use servo_arc::Arc;
 pub use url::Host;
 use url::{Position, Url};
@@ -67,73 +69,233 @@ pub enum UrlError {
     FromFilePath,
 }
 
-#[derive(Clone, Deserialize, Eq, Hash, MallocSizeOf, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct ServoUrl(#[conditional_malloc_size_of] Arc<Url>);
+// ── HpprUrlData ──────────────────────────────────────────────────────
 
-impl ServoUrl {
+/// Parsed HPPR URL data stored in the `BrowserUrl::Hppr` variant.
+///
+/// Stores the raw UTF-8 URL string alongside its parsed components.
+/// No percent-encoding is applied — `{`, `}`, `#` survive as-is.
+#[derive(Clone, Debug)]
+pub struct HpprUrlData {
+    /// Full URL string: `"hppr://group/app/location{jsonqa}"`
+    raw: String,
+    /// Parsed scheme + endpoint + URC.
+    address: HAVIAddress,
+    /// JSONqa suffix including braces, or empty.
+    jsonqa: String,
+}
+
+impl HpprUrlData {
+    /// Parse an HPPR URL string into data.
+    fn parse(input: &str) -> Result<Self, url::ParseError> {
+        let (coord_part, jsonqa) = split_jsonqa(input);
+        let address = HAVIAddress::parse(coord_part)
+            .map_err(|_| url::ParseError::InvalidDomainCharacter)?;
+        Ok(Self {
+            raw: input.to_owned(),
+            address,
+            jsonqa: jsonqa.to_owned(),
+        })
+    }
+
+    /// The full raw URL string.
+    pub fn as_str(&self) -> &str {
+        &self.raw
+    }
+
+    /// The parsed HAVIAddress.
+    pub fn address(&self) -> &HAVIAddress {
+        &self.address
+    }
+
+    /// The JSONqa suffix (including braces), or empty.
+    pub fn jsonqa(&self) -> &str {
+        &self.jsonqa
+    }
+}
+
+impl PartialEq for HpprUrlData {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+impl Eq for HpprUrlData {}
+
+impl Hash for HpprUrlData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+impl PartialOrd for HpprUrlData {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HpprUrlData {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.raw.cmp(&other.raw)
+    }
+}
+
+impl MallocSizeOf for HpprUrlData {
+    fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize {
+        self.raw.len() + self.jsonqa.len()
+    }
+}
+
+// ── BrowserUrl ───────────────────────────────────────────────────────
+
+/// URL type for the HAVI browser.
+///
+/// Replaces `BrowserUrl` (`Arc<Url>`). HPPR URLs are stored natively as
+/// UTF-8 strings without percent-encoding damage. Web URLs wrap `url::Url`.
+#[derive(Clone)]
+pub enum BrowserUrl {
+    /// Standard web URL (http, https, about, data, file, etc.).
+    Web(#[allow(unused)] Arc<Url>),
+    /// HPPR-family URL (hppr, hppr-sandbox, hppr-setup, hppr-browse, hppr-editor, havi).
+    Hppr(Arc<HpprUrlData>),
+}
+
+
+
+impl BrowserUrl {
     pub fn from_url(url: Url) -> Self {
-        ServoUrl(Arc::new(url))
+        // Detect HPPR URLs coming through the Url path and convert them.
+        let scheme = url.scheme();
+        if scheme == "hppr" || scheme.starts_with("hppr-") || scheme == "havi" {
+            // Percent-decode JSONqa characters that were encoded to survive Url::parse.
+            let decoded = hppr::percent_decode_jsonqa(url.as_str());
+            if let Ok(data) = HpprUrlData::parse(&decoded) {
+                return BrowserUrl::Hppr(Arc::new(data));
+            }
+        }
+        BrowserUrl::Web(Arc::new(url))
     }
 
     pub fn parse_with_base(base: Option<&Self>, input: &str) -> Result<Self, url::ParseError> {
+        if is_hppr_input(input) {
+            return HpprUrlData::parse(input).map(|d| BrowserUrl::Hppr(Arc::new(d)));
+        }
+        let base_url: Option<&Url> = base.and_then(|b| b.as_web_url());
         Url::options()
-            .base_url(base.map(|b| &*b.0))
+            .base_url(base_url)
             .parse(input)
             .map(Self::from_url)
     }
 
     pub fn into_string(self) -> String {
-        String::from(self.into_url())
+        match self {
+            BrowserUrl::Web(u) => String::from((*u).clone()),
+            BrowserUrl::Hppr(d) => d.raw.clone(),
+        }
     }
 
     pub fn into_url(self) -> Url {
-        self.as_url().clone()
+        match self {
+            BrowserUrl::Web(u) => (*u).clone(),
+            BrowserUrl::Hppr(d) => {
+                // Construct a Url for HTTP-only code paths.
+                // Percent-encodes JSONqa characters to survive Url::parse.
+                let encoded = encode_for_url_parse(&d.raw);
+                Url::parse(&encoded).expect("BrowserUrl::Hppr should round-trip through Url")
+            },
+        }
     }
 
     pub fn get_arc(&self) -> Arc<Url> {
-        self.0.clone()
+        match self {
+            BrowserUrl::Web(u) => u.clone(),
+            BrowserUrl::Hppr(d) => {
+                let encoded = encode_for_url_parse(&d.raw);
+                Arc::new(Url::parse(&encoded).expect("BrowserUrl::Hppr should round-trip"))
+            },
+        }
     }
 
     pub fn as_url(&self) -> &Url {
-        &self.0
+        match self {
+            BrowserUrl::Web(u) => u,
+            BrowserUrl::Hppr(_) => panic!("as_url() called on HPPR URL — use BrowserUrl methods"),
+        }
     }
 
-    pub fn hosturc(&self) -> Option<HAVIAddress> {
-        HAVIAddress::parse(self.as_str()).ok()
+    /// Returns a reference to the inner `Url` if this is a web URL, or `None` for HPPR.
+    pub fn as_web_url(&self) -> Option<&Url> {
+        match self {
+            BrowserUrl::Web(u) => Some(u),
+            BrowserUrl::Hppr(_) => None,
+        }
+    }
+
+    /// Returns the `HpprUrlData` if this is an HPPR URL.
+    pub fn as_hppr(&self) -> Option<&HpprUrlData> {
+        match self {
+            BrowserUrl::Hppr(d) => Some(d),
+            BrowserUrl::Web(_) => None,
+        }
     }
 
     pub fn parse(input: &str) -> Result<Self, url::ParseError> {
+        if is_hppr_input(input) {
+            return HpprUrlData::parse(input).map(|d| BrowserUrl::Hppr(Arc::new(d)));
+        }
         Url::parse(input).map(Self::from_url)
     }
 
     pub fn cannot_be_a_base(&self) -> bool {
-        self.0.cannot_be_a_base()
+        match self {
+            BrowserUrl::Web(u) => u.cannot_be_a_base(),
+            BrowserUrl::Hppr(_) => false,
+        }
     }
 
     pub fn domain(&self) -> Option<&str> {
-        self.0.domain()
+        match self {
+            BrowserUrl::Web(u) => u.domain(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn fragment(&self) -> Option<&str> {
-        self.0.fragment()
+        match self {
+            BrowserUrl::Web(u) => u.fragment(),
+            BrowserUrl::Hppr(_) => None, // HPPR uses JSONqa, not fragments
+        }
     }
 
     pub fn path(&self) -> &str {
-        self.0.path()
+        match self {
+            BrowserUrl::Web(u) => u.path(),
+            BrowserUrl::Hppr(d) => {
+                // Return the URC portion as the "path" for compatibility.
+                let s = d.address.urc().as_ref();
+                if s.starts_with("//") { s } else { "" }
+            },
+        }
     }
 
     pub fn origin(&self) -> ImmutableOrigin {
-        match HpprUrl::parse(self.as_str()) {
-            Ok(HpprUrl::HAVIAddress(address)) => {
-                hppr_origin_for_address(&address).unwrap_or_else(|| ImmutableOrigin::new_opaque())
+        match self {
+            BrowserUrl::Hppr(d) => {
+                hppr_origin_for_address(&d.address)
+                    .unwrap_or_else(|| ImmutableOrigin::new_opaque())
             },
-            Ok(HpprUrl::Havi(_)) => ImmutableOrigin::new_opaque(),
-            Err(_) => ImmutableOrigin::new(self.0.origin()),
+            BrowserUrl::Web(u) => {
+                // Check if this is an HPPR URL that came through the Web variant
+                // (shouldn't happen with proper construction, but defensive)
+                ImmutableOrigin::new(u.origin())
+            },
         }
     }
 
     pub fn scheme(&self) -> &str {
-        self.0.scheme()
+        match self {
+            BrowserUrl::Web(u) => u.scheme(),
+            BrowserUrl::Hppr(d) => d.address.scheme().prefix().trim_end_matches(':'),
+        }
     }
 
     pub fn is_secure_scheme(&self) -> bool {
@@ -159,32 +321,33 @@ impl ServoUrl {
     }
 
     /// <https://url.spec.whatwg.org/#url-equivalence>
-    /// In the future this may be removed if the helper is added upstream in rust-url
-    /// see <https://github.com/servo/rust-url/issues/1063> for details
-    pub fn is_equal_excluding_fragments(&self, other: &ServoUrl) -> bool {
-        self.0[..Position::AfterQuery] == other.0[..Position::AfterQuery]
+    pub fn is_equal_excluding_fragments(&self, other: &BrowserUrl) -> bool {
+        match (self, other) {
+            (BrowserUrl::Web(a), BrowserUrl::Web(b)) => {
+                a[..Position::AfterQuery] == b[..Position::AfterQuery]
+            },
+            (BrowserUrl::Hppr(a), BrowserUrl::Hppr(b)) => {
+                // For HPPR, compare everything (no fragment concept)
+                a.raw == b.raw
+            },
+            _ => false,
+        }
     }
 
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-
-    /// Display URL with decoded JSONqa for HPPR URLs.
-    ///
-    /// Returns the URL string with `%7B`/`%7D`/`%23` decoded back to
-    /// `{`/`}`/`#` inside JSONqa suffixes. For non-HPPR URLs, returns
-    /// the standard string representation.
-    pub fn hppr_display_url(&self) -> String {
-        let s = self.0.as_str();
-        if s.starts_with("hppr:") || s.starts_with("hppr-") {
-            hppr::percent_decode_jsonqa(s)
-        } else {
-            s.to_owned()
+        match self {
+            BrowserUrl::Web(u) => u.as_str(),
+            BrowserUrl::Hppr(d) => &d.raw,
         }
     }
 
     pub fn as_mut_url(&mut self) -> &mut Url {
-        Arc::make_mut(&mut self.0)
+        match self {
+            BrowserUrl::Web(u) => Arc::make_mut(u),
+            BrowserUrl::Hppr(_) => {
+                panic!("as_mut_url() called on HPPR URL — only valid for web URLs")
+            },
+        }
     }
 
     pub fn set_username(&mut self, user: &str) -> Result<(), UrlError> {
@@ -210,53 +373,79 @@ impl ServoUrl {
     }
 
     pub fn username(&self) -> &str {
-        self.0.username()
+        match self {
+            BrowserUrl::Web(u) => u.username(),
+            BrowserUrl::Hppr(_) => "",
+        }
     }
 
     pub fn password(&self) -> Option<&str> {
-        self.0.password()
+        match self {
+            BrowserUrl::Web(u) => u.password(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn to_file_path(&self) -> Result<::std::path::PathBuf, UrlError> {
-        self.0.to_file_path().map_err(|_| UrlError::ToFilePath)
+        match self {
+            BrowserUrl::Web(u) => u.to_file_path().map_err(|_| UrlError::ToFilePath),
+            BrowserUrl::Hppr(_) => Err(UrlError::ToFilePath),
+        }
     }
 
     pub fn host(&self) -> Option<url::Host<&str>> {
-        self.0.host()
+        match self {
+            BrowserUrl::Web(u) => u.host(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn host_str(&self) -> Option<&str> {
-        self.0.host_str()
+        match self {
+            BrowserUrl::Web(u) => u.host_str(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn port(&self) -> Option<u16> {
-        self.0.port()
+        match self {
+            BrowserUrl::Web(u) => u.port(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn port_or_known_default(&self) -> Option<u16> {
-        self.0.port_or_known_default()
+        match self {
+            BrowserUrl::Web(u) => u.port_or_known_default(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
-    pub fn join(&self, input: &str) -> Result<ServoUrl, url::ParseError> {
-        if let Ok(HpprUrl::HAVIAddress(address)) = HpprUrl::parse(self.as_str()) {
-            return self.join_hppr(input, &address);
+    pub fn join(&self, input: &str) -> Result<BrowserUrl, url::ParseError> {
+        match self {
+            BrowserUrl::Hppr(d) => self.join_hppr(input, &d.address),
+            BrowserUrl::Web(_) => {
+                // Check if the input itself is HPPR
+                if is_hppr_input(input) {
+                    return BrowserUrl::parse(input);
+                }
+                match self {
+                    BrowserUrl::Web(u) => u.join(input).map(Self::from_url),
+                    _ => unreachable!(),
+                }
+            },
         }
-        self.0.join(input).map(Self::from_url)
     }
 
     /// Join relative URL using URC resolution for HPPR coordinates.
-    ///
-    /// Coordinate-relative joins follow HPPR coordinate structure (`//group/app/location`),
-    /// not HTTP path semantics. The base coordinate's "file" segment is stripped before
-    /// resolving, so `//chess/game/board.html` + `style.css` = `//chess/game/style.css`.
-    /// Absolute coordinates (`//other/app/...`) replace the entire coordinate.
-    fn join_hppr(&self, input: &str, address: &HAVIAddress) -> Result<ServoUrl, url::ParseError> {
-        // Strip JSONqa suffix ({...}) before URL resolution.
-        // JSONqa is client-side metadata excluded from coordinate lookup.
-        // Characters like { } # inside JSONqa would be mangled by Url::parse.
+    fn join_hppr(
+        &self,
+        input: &str,
+        address: &HAVIAddress,
+    ) -> Result<BrowserUrl, url::ParseError> {
         let (coord_input, jsonqa) = split_jsonqa(input);
 
-        // Absolute URL with scheme - parse directly
+        // Absolute URL with scheme — parse directly
         if let Some(colon) = coord_input.find(':') {
             if colon > 0 &&
                 !coord_input.starts_with('.') &&
@@ -265,6 +454,15 @@ impl ServoUrl {
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-')
             {
+                // If HPPR scheme, parse natively; otherwise go through Url
+                if is_hppr_input(coord_input) {
+                    let full = if jsonqa.is_empty() {
+                        coord_input.to_owned()
+                    } else {
+                        format!("{}{}", coord_input, jsonqa)
+                    };
+                    return BrowserUrl::parse(&full);
+                }
                 if let Ok(url) = Url::parse(coord_input) {
                     return Ok(Self::from_url(url));
                 }
@@ -272,14 +470,14 @@ impl ServoUrl {
         }
 
         // Pure JSONqa with no coordinate (e.g. "{#:text}") — same-document qualifier.
-        // Resolve against current document's full coordinate.
         if coord_input.is_empty() {
             let url_str = format!(
                 "{}{}",
                 address.reconstruct(&address.urc_string()),
-                encode_jsonqa_for_url(jsonqa),
+                jsonqa,
             );
-            return Url::parse(&url_str).map(Self::from_url);
+            return HpprUrlData::parse(&url_str)
+                .map(|d| BrowserUrl::Hppr(Arc::new(d)));
         }
 
         // Absolute coordinate (//group/app/loc)
@@ -287,13 +485,13 @@ impl ServoUrl {
             let url_str = format!(
                 "{}{}",
                 address.reconstruct(coord_input),
-                encode_jsonqa_for_url(jsonqa),
+                jsonqa,
             );
-            return Url::parse(&url_str).map(Self::from_url);
+            return HpprUrlData::parse(&url_str)
+                .map(|d| BrowserUrl::Hppr(Arc::new(d)));
         }
 
-        // For web-like resolution: if coordinate doesn't end with '/', strip the "file" segment.
-        // e.g., //chess/game/board.html -> //chess/game/ before joining with style.css
+        // Relative resolution using URC::join
         let urc_string = address.urc_string();
         let base_coord = if urc_string.ends_with('/') {
             urc_string
@@ -304,29 +502,46 @@ impl ServoUrl {
             }
         };
 
-        // Parse base coordinate as URC and use URC::join()
         let Ok(current) = URC::parse(base_coord) else {
-            return self.0.join(input).map(Self::from_url);
+            // Fallback: try web URL join
+            return self.into_url_for_join().join(input).map(Self::from_url);
         };
 
         let Ok(resolved) = current.join(coord_input) else {
-            return self.0.join(input).map(Self::from_url);
+            return self.into_url_for_join().join(input).map(Self::from_url);
         };
 
         let url_str = format!(
             "{}{}",
             address.reconstruct(&resolved.unwrap()),
-            encode_jsonqa_for_url(jsonqa),
+            jsonqa,
         );
-        Url::parse(&url_str).map(Self::from_url)
+        HpprUrlData::parse(&url_str).map(|d| BrowserUrl::Hppr(Arc::new(d)))
+    }
+
+    /// Helper: construct a Url for fallback join operations.
+    fn into_url_for_join(&self) -> Url {
+        match self {
+            BrowserUrl::Web(u) => u.as_ref().clone(),
+            BrowserUrl::Hppr(d) => {
+                let encoded = encode_for_url_parse(&d.raw);
+                Url::parse(&encoded).unwrap()
+            },
+        }
     }
 
     pub fn path_segments(&self) -> Option<::std::str::Split<'_, char>> {
-        self.0.path_segments()
+        match self {
+            BrowserUrl::Web(u) => u.path_segments(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn query(&self) -> Option<&str> {
-        self.0.query()
+        match self {
+            BrowserUrl::Web(u) => u.query(),
+            BrowserUrl::Hppr(_) => None,
+        }
     }
 
     pub fn from_file_path<P: AsRef<Path>>(path: P) -> Result<Self, UrlError> {
@@ -335,89 +550,136 @@ impl ServoUrl {
             .map_err(|_| UrlError::FromFilePath)
     }
 
-    /// Return a non-standard shortened form of the URL. Mainly intended to be
-    /// used for debug printing in a constrained space (e.g., thread names).
+    /// Non-standard shortened form for debug printing (thread names, etc.).
     pub fn debug_compact(&self) -> impl std::fmt::Display + '_ {
-        match self.scheme() {
-            "http" | "https" => {
-                // Strip `scheme://`, which is hardly useful for identifying websites
-                let mut st = self.as_str();
-                st = st.strip_prefix(self.scheme()).unwrap_or(st);
-                st = st.strip_prefix(':').unwrap_or(st);
-                st = st.trim_start_matches('/');
-
-                // Don't want to return an empty string
-                if st.is_empty() {
-                    st = self.as_str();
-                }
-
-                st
+        match self {
+            BrowserUrl::Web(u) => {
+                let s = match u.scheme() {
+                    "http" | "https" => {
+                        let mut st = u.as_str();
+                        st = st.strip_prefix(u.scheme()).unwrap_or(st);
+                        st = st.strip_prefix(':').unwrap_or(st);
+                        st = st.trim_start_matches('/');
+                        if st.is_empty() { u.as_str() } else { st }
+                    },
+                    "file" => {
+                        let path = u.path();
+                        let i = path.rfind('/');
+                        let i = i.map(|i| path[..i].rfind('/').unwrap_or(i));
+                        match i {
+                            None | Some(0) => path,
+                            Some(i) => &path[i + 1..],
+                        }
+                    },
+                    _ => u.as_str(),
+                };
+                s
             },
-            "file" => {
-                // The only useful part in a `file` URL is usually only the last
-                // few components
-                let path = self.path();
-                let i = path.rfind('/');
-                let i = i.map(|i| path[..i].rfind('/').unwrap_or(i));
-                match i {
-                    None | Some(0) => path,
-                    Some(i) => &path[i + 1..],
-                }
-            },
-            _ => self.as_str(),
+            BrowserUrl::Hppr(d) => d.raw.as_str(),
         }
     }
 
     /// <https://w3c.github.io/webappsec-secure-contexts/#potentially-trustworthy-url>
     pub fn is_potentially_trustworthy(&self) -> bool {
-        // Step 1
         if self.as_str() == "about:blank" || self.as_str() == "about:srcdoc" {
             return true;
         }
-        // Step 2
         if self.scheme() == "data" {
             return true;
         }
-        // Step 3
         self.origin().is_potentially_trustworthy()
     }
 
     /// <https://html.spec.whatwg.org/multipage/#matches-about:blank>
     pub fn matches_about_blank(&self) -> bool {
-        // A URL matches about:blank if
+        match self {
+            BrowserUrl::Hppr(_) => false,
+            BrowserUrl::Web(u) => {
+                u.scheme() == "about" &&
+                    u.path() == "blank" &&
+                    u.username().is_empty() &&
+                    u.password().is_none() &&
+                    u.host().is_none()
+            },
+        }
+    }
 
-        // its scheme is "about",
-        let scheme_is_about = self.scheme() == "about";
+    // ── Semantic methods replacing Position indexing ──
 
-        // its path contains a single string "blank",
-        let path_is_blank = self.0.path() == "blank";
+    /// URL string without fragment (everything up to and including query).
+    /// For HPPR, returns the full URL (no fragment concept).
+    pub fn url_without_fragment(&self) -> &str {
+        match self {
+            BrowserUrl::Web(u) => &u[..Position::AfterQuery],
+            BrowserUrl::Hppr(d) => &d.raw,
+        }
+    }
 
-        // its username and password are the empty string,
-        let empty_username_and_password =
-            self.0.username().is_empty() && self.0.password().is_none();
+    /// URL string from before the fragment to the end.
+    /// For HPPR, returns the full URL.
+    pub fn url_from_before_fragment(&self) -> &str {
+        match self {
+            BrowserUrl::Web(u) => &u[Position::BeforeFragment..],
+            BrowserUrl::Hppr(d) => &d.raw,
+        }
+    }
 
-        // and its host is null.
-        let null_host = self.0.host().is_none();
+    /// Everything after the scheme separator (strips `scheme:`).
+    /// For HPPR, strips the scheme prefix.
+    pub fn url_after_scheme(&self) -> &str {
+        match self {
+            BrowserUrl::Web(u) => &u[Position::AfterScheme..],
+            BrowserUrl::Hppr(d) => {
+                let prefix = d.address.scheme().prefix();
+                &d.raw[prefix.len()..]
+            },
+        }
+    }
 
-        scheme_is_about && path_is_blank && empty_username_and_password && null_host
+    /// Everything from before the host to end, i.e. strips `scheme:`.
+    pub fn url_from_before_host(&self) -> &str {
+        match self {
+            BrowserUrl::Web(u) => &u[url::Position::BeforeHost..],
+            BrowserUrl::Hppr(d) => {
+                // For HPPR: strip scheme prefix to get `//group/app/loc{jsonqa}`
+                let prefix = d.address.scheme().prefix();
+                &d.raw[prefix.len()..]
+            },
+        }
+    }
+
+    /// Everything after the path (query + fragment for web, empty for HPPR).
+    pub fn url_after_path(&self) -> &str {
+        match self {
+            BrowserUrl::Web(u) => &u[Position::AfterPath..],
+            BrowserUrl::Hppr(d) => &d.jsonqa,
+        }
+    }
+
+    /// Check if two URLs differ only in fragment.
+    pub fn equals_ignoring_fragment(&self, other: &BrowserUrl) -> bool {
+        self.url_without_fragment() == other.url_without_fragment()
     }
 }
 
-impl fmt::Display for ServoUrl {
+impl fmt::Display for BrowserUrl {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        self.0.fmt(formatter)
+        match self {
+            BrowserUrl::Web(u) => u.fmt(formatter),
+            BrowserUrl::Hppr(d) => d.raw.fmt(formatter),
+        }
     }
 }
 
-impl fmt::Debug for ServoUrl {
+impl fmt::Debug for BrowserUrl {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        let url_string = self.0.as_str();
+        let url_string = self.as_str();
         if self.scheme() != "data" || url_string.len() <= DATA_URL_DISPLAY_LENGTH {
             return url_string.fmt(formatter);
         }
 
         let mut hasher = DefaultHasher::new();
-        hasher.write(self.0.as_str().as_bytes());
+        hasher.write(url_string.as_bytes());
 
         format!(
             "{}... ({:x})",
@@ -431,53 +693,127 @@ impl fmt::Debug for ServoUrl {
     }
 }
 
-impl Index<RangeFull> for ServoUrl {
+impl PartialEq for BrowserUrl {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+impl Eq for BrowserUrl {}
+
+impl Hash for BrowserUrl {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
+impl PartialOrd for BrowserUrl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BrowserUrl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl Serialize for BrowserUrl {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for BrowserUrl {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct BrowserUrlVisitor;
+        impl<'de> Visitor<'de> for BrowserUrlVisitor {
+            type Value = BrowserUrl;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a URL string")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<BrowserUrl, E> {
+                BrowserUrl::parse(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(BrowserUrlVisitor)
+    }
+}
+
+impl MallocSizeOf for BrowserUrl {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        match self {
+            BrowserUrl::Web(u) => u.size_of(ops),
+            BrowserUrl::Hppr(d) => d.size_of(ops),
+        }
+    }
+}
+
+// Keep Position-based Index impls for web URLs during transition.
+// These delegate to the inner Url and panic for HPPR.
+impl Index<RangeFull> for BrowserUrl {
     type Output = str;
     fn index(&self, _: RangeFull) -> &str {
-        &self.0[..]
+        self.as_str()
     }
 }
 
-impl Index<RangeFrom<Position>> for ServoUrl {
+impl Index<RangeFrom<Position>> for BrowserUrl {
     type Output = str;
     fn index(&self, range: RangeFrom<Position>) -> &str {
-        &self.0[range]
+        &self.as_url()[range]
     }
 }
 
-impl Index<RangeTo<Position>> for ServoUrl {
+impl Index<RangeTo<Position>> for BrowserUrl {
     type Output = str;
     fn index(&self, range: RangeTo<Position>) -> &str {
-        &self.0[range]
+        &self.as_url()[range]
     }
 }
 
-impl Index<Range<Position>> for ServoUrl {
+impl Index<Range<Position>> for BrowserUrl {
     type Output = str;
     fn index(&self, range: Range<Position>) -> &str {
-        &self.0[range]
+        &self.as_url()[range]
     }
 }
 
-impl From<Url> for ServoUrl {
+impl From<Url> for BrowserUrl {
     fn from(url: Url) -> Self {
-        ServoUrl::from_url(url)
+        BrowserUrl::from_url(url)
     }
 }
 
-impl From<Arc<Url>> for ServoUrl {
+impl From<Arc<Url>> for BrowserUrl {
     fn from(url: Arc<Url>) -> Self {
-        ServoUrl(url)
+        // Check if this is an HPPR URL
+        let scheme = url.scheme();
+        if scheme == "hppr" || scheme.starts_with("hppr-") || scheme == "havi" {
+            let decoded = hppr::percent_decode_jsonqa(url.as_str());
+            if let Ok(data) = HpprUrlData::parse(&decoded) {
+                return BrowserUrl::Hppr(Arc::new(data));
+            }
+        }
+        BrowserUrl::Web(url)
     }
 }
 
-impl FromStr for ServoUrl {
-    type Err = <Url as FromStr>::Err;
+impl FromStr for BrowserUrl {
+    type Err = url::ParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let url = Url::from_str(value)?;
-        Ok(url.into())
+        BrowserUrl::parse(value)
     }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/// Check if input string starts with an HPPR-family scheme.
+fn is_hppr_input(input: &str) -> bool {
+    input.starts_with("hppr:") ||
+        input.starts_with("hppr-") ||
+        input.starts_with("havi:")
 }
 
 /// Split JSONqa suffix from a URL or href string.
@@ -485,25 +821,19 @@ impl FromStr for ServoUrl {
 /// Returns (coordinate_part, jsonqa_part). The jsonqa_part includes
 /// the outer braces (e.g. `{#:text,page:5}`), or is empty if no JSONqa.
 fn split_jsonqa(input: &str) -> (&str, &str) {
-    // Find opening brace (literal or percent-encoded)
-    let brace_pos = input.find('{').or_else(|| input.find("%7B").or_else(|| input.find("%7b")));
+    let brace_pos = input
+        .find('{')
+        .or_else(|| input.find("%7B").or_else(|| input.find("%7b")));
     match brace_pos {
         Some(pos) => (&input[..pos], &input[pos..]),
         None => (input, ""),
     }
 }
 
-/// Percent-encode JSONqa for safe passage through rust-url's Url::parse.
-///
-/// Encodes `{`, `}`, `#` and other URL-special characters so they survive
-/// Url::parse without being interpreted as URL structure. HAVIAddress::parse
-/// decodes these back when parsing the URL.
-fn encode_jsonqa_for_url(jsonqa: &str) -> String {
-    if jsonqa.is_empty() {
-        return String::new();
-    }
-    let mut out = String::with_capacity(jsonqa.len() * 2);
-    for ch in jsonqa.chars() {
+/// Percent-encode characters that would be mangled by `Url::parse`.
+fn encode_for_url_parse(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 16);
+    for ch in input.chars() {
         match ch {
             '{' => out.push_str("%7B"),
             '}' => out.push_str("%7D"),
@@ -520,7 +850,7 @@ mod tests {
 
     #[test]
     fn hppr_routed_join_relative() {
-        let base = ServoUrl::parse("hppr://chess/game/board.html").unwrap();
+        let base = BrowserUrl::parse("hppr://chess/game/board.html").unwrap();
         assert_eq!(
             base.join("style.css").unwrap().as_str(),
             "hppr://chess/game/style.css"
@@ -529,8 +859,7 @@ mod tests {
 
     #[test]
     fn hppr_via_join_relative() {
-        // Relative join does NOT preserve {via:...}
-        let base = ServoUrl::parse("hppr://chess/game/board.html%7Bvia:192.168.1.10:4777%7D").unwrap();
+        let base = BrowserUrl::parse("hppr://chess/game/board.html{via:192.168.1.10:4777}").unwrap();
         assert_eq!(
             base.join("style.css").unwrap().as_str(),
             "hppr://chess/game/style.css"
@@ -539,7 +868,7 @@ mod tests {
 
     #[test]
     fn hppr_join_parent() {
-        let base = ServoUrl::parse("hppr://g/a/sub/file.html%7Bvia:10.0.0.1:4777%7D").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a/sub/file.html{via:10.0.0.1:4777}").unwrap();
         assert_eq!(
             base.join("../other.html").unwrap().as_str(),
             "hppr://g/a/other.html"
@@ -548,8 +877,7 @@ mod tests {
 
     #[test]
     fn hppr_join_absolute_coord() {
-        // Absolute coordinate join does NOT preserve {via:...}
-        let base = ServoUrl::parse("hppr://g/a/file.html%7Bvia:10.0.0.1:4777%7D").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a/file.html{via:10.0.0.1:4777}").unwrap();
         assert_eq!(
             base.join("//other/app/index.html").unwrap().as_str(),
             "hppr://other/app/index.html"
@@ -558,8 +886,7 @@ mod tests {
 
     #[test]
     fn hppr_sandbox_join() {
-        // Relative join does NOT preserve {via:...}
-        let base = ServoUrl::parse("hppr-sandbox://g/app/index.html%7Bvia:10.0.0.5:4778%7D").unwrap();
+        let base = BrowserUrl::parse("hppr-sandbox://g/app/index.html{via:10.0.0.5:4778}").unwrap();
         assert_eq!(
             base.join("style.css").unwrap().as_str(),
             "hppr-sandbox://g/app/style.css"
@@ -568,9 +895,9 @@ mod tests {
 
     #[test]
     fn hppr_origin_isolated_by_app() {
-        let app1 = ServoUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
-        let app2 = ServoUrl::parse("hppr://g1/app2/index.html").unwrap().origin();
-        let app1_other = ServoUrl::parse("hppr://g1/app1/other.html").unwrap().origin();
+        let app1 = BrowserUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
+        let app2 = BrowserUrl::parse("hppr://g1/app2/index.html").unwrap().origin();
+        let app1_other = BrowserUrl::parse("hppr://g1/app1/other.html").unwrap().origin();
 
         assert_ne!(app1, app2);
         assert_eq!(app1, app1_other);
@@ -578,8 +905,8 @@ mod tests {
 
     #[test]
     fn hppr_origin_ignores_endpoint() {
-        let routed = ServoUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
-        let direct = ServoUrl::parse("hppr://g1/app1/index.html%7Bvia:10.0.0.1:4777%7D")
+        let routed = BrowserUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
+        let direct = BrowserUrl::parse("hppr://g1/app1/index.html{via:10.0.0.1:4777}")
             .unwrap()
             .origin();
 
@@ -588,41 +915,68 @@ mod tests {
 
     #[test]
     fn jsonqa_same_document() {
-        // Pure JSONqa href stays on current document
-        let base = ServoUrl::parse("hppr://u/web/index.html").unwrap();
+        let base = BrowserUrl::parse("hppr://u/web/index.html").unwrap();
         let result = base.join("{#:text}").unwrap();
-        assert_eq!(result.hppr_display_url(), "hppr://u/web/index.html{#:text}");
+        assert_eq!(result.as_str(), "hppr://u/web/index.html{#:text}");
     }
 
     #[test]
     fn jsonqa_with_page() {
-        let base = ServoUrl::parse("hppr://docs/manual/chapter-3").unwrap();
+        let base = BrowserUrl::parse("hppr://docs/manual/chapter-3").unwrap();
         let result = base.join("{page:5}").unwrap();
-        assert_eq!(result.hppr_display_url(), "hppr://docs/manual/chapter-3{page:5}");
+        assert_eq!(result.as_str(), "hppr://docs/manual/chapter-3{page:5}");
     }
 
     #[test]
     fn jsonqa_relative_with_qa() {
-        let base = ServoUrl::parse("hppr://g/a/dir/page.html").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a/dir/page.html").unwrap();
         let result = base.join("other.html{#:section}").unwrap();
-        assert_eq!(result.hppr_display_url(), "hppr://g/a/dir/other.html{#:section}");
+        assert_eq!(result.as_str(), "hppr://g/a/dir/other.html{#:section}");
     }
 
     #[test]
     fn jsonqa_absolute_coord_with_qa() {
-        let base = ServoUrl::parse("hppr://g/a/page.html").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a/page.html").unwrap();
         let result = base.join("//other/app/index.html{page:1}").unwrap();
-        assert_eq!(result.hppr_display_url(), "hppr://other/app/index.html{page:1}");
+        assert_eq!(result.as_str(), "hppr://other/app/index.html{page:1}");
     }
 
     #[test]
     fn jsonqa_hash_not_fragment() {
-        // # inside JSONqa must not be treated as fragment separator
-        let base = ServoUrl::parse("hppr://u/web/index.html").unwrap();
+        let base = BrowserUrl::parse("hppr://u/web/index.html").unwrap();
         let result = base.join("{#:results}").unwrap();
-        let display = result.hppr_display_url();
-        assert!(display.contains("{#:results}"), "got: {}", display);
-        // The # must not appear as a URL fragment
-        assert!(!result.as_str().contains('#'), "raw URL has fragment: {}", result.as_str());
+        assert_eq!(result.as_str(), "hppr://u/web/index.html{#:results}");
+        assert!(result.fragment().is_none());
+    }
+
+    #[test]
+    fn hppr_as_str_no_percent_encoding() {
+        let url = BrowserUrl::parse("hppr://u/web/index.html{#:text}").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/web/index.html{#:text}");
+        assert!(matches!(url, BrowserUrl::Hppr(_)));
+    }
+
+    #[test]
+    fn web_url_round_trips() {
+        let url = BrowserUrl::parse("https://example.com/path?q=1#frag").unwrap();
+        assert!(matches!(url, BrowserUrl::Web(_)));
+        assert_eq!(url.as_str(), "https://example.com/path?q=1#frag");
+    }
+
+    #[test]
+    fn from_url_detects_hppr() {
+        let raw = Url::parse("hppr://g/a/loc%7Bvia:10.0.0.1%7D").unwrap();
+        let browser = BrowserUrl::from_url(raw);
+        assert!(matches!(browser, BrowserUrl::Hppr(_)));
+        assert_eq!(browser.as_str(), "hppr://g/a/loc{via:10.0.0.1}");
+    }
+
+    #[test]
+    fn serialize_deserialize_round_trip() {
+        let url = BrowserUrl::parse("hppr://chess/game/board.html{via:10.0.0.1:4777}").unwrap();
+        let json = serde_json::to_string(&url).unwrap();
+        assert_eq!(json, r#""hppr://chess/game/board.html{via:10.0.0.1:4777}""#);
+        let back: BrowserUrl = serde_json::from_str(&json).unwrap();
+        assert_eq!(url, back);
     }
 }

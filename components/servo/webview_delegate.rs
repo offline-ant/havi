@@ -22,7 +22,7 @@ use embedder_traits::{
 use paint_api::rendering_context::RenderingContext;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use tokio::sync::oneshot::Sender;
-use url::Url;
+use servo_url::BrowserUrl;
 use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 
 use crate::proxies::ConstellationProxy;
@@ -32,7 +32,7 @@ use crate::{RegisterOrUnregister, Servo, WebView, WebViewBuilder};
 /// A request to navigate a [`WebView`] or one of its inner frames. This can be handled
 /// asynchronously. If not handled, the request will automatically be allowed.
 pub struct NavigationRequest {
-    pub url: Url,
+    pub url: BrowserUrl,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) constellation_proxy: ConstellationProxy,
     pub(crate) response_sent: bool,
@@ -122,7 +122,7 @@ impl AllowOrDenyRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtocolHandlerRegistration {
     pub scheme: String,
-    pub url: Url,
+    pub url: BrowserUrl,
     pub register_or_unregister: RegisterOrUnregister,
 }
 
@@ -130,7 +130,7 @@ pub struct ProtocolHandlerRegistration {
 /// the user to enter credentials or simply ignore this request (in which case credentials
 /// will not be used).
 pub struct AuthenticationRequest {
-    pub(crate) url: Url,
+    pub(crate) url: BrowserUrl,
     pub(crate) for_proxy: bool,
     pub(crate) responder: IpcResponder<Option<AuthenticationResponse>>,
     pub(crate) error_sender: ServoErrorSender,
@@ -138,7 +138,7 @@ pub struct AuthenticationRequest {
 
 impl AuthenticationRequest {
     pub(crate) fn new(
-        url: Url,
+        url: BrowserUrl,
         for_proxy: bool,
         response_sender: Sender<Option<AuthenticationResponse>>,
         error_sender: ServoErrorSender,
@@ -155,7 +155,7 @@ impl AuthenticationRequest {
     }
 
     /// The URL of the request that triggered this authentication.
-    pub fn url(&self) -> &Url {
+    pub fn url(&self) -> &BrowserUrl {
         &self.url
     }
     /// Whether or not this authentication request is associated with a proxy server authentication.
@@ -875,7 +875,7 @@ pub trait WebViewDelegate {
     }
     /// The URL of the currently loaded page in this [`WebView`] has changed. The new
     /// URL can accessed via [`WebView::url`].
-    fn notify_url_changed(&self, _webview: WebView, _url: Url) {}
+    fn notify_url_changed(&self, _webview: WebView, _url: BrowserUrl) {}
     /// The page title of the currently loaded page in this [`WebView`] has changed. The new
     /// title can accessed via [`WebView::page_title`].
     fn notify_page_title_changed(&self, _webview: WebView, _title: Option<String>) {}
@@ -902,9 +902,9 @@ pub trait WebViewDelegate {
     /// Notify the embedder that it needs to present a new frame.
     fn notify_new_frame_ready(&self, _webview: WebView) {}
     /// The navigation history of this [`WebView`] has changed. The navigation history is represented
-    /// as a `Vec<Url>` and `_current` denotes the current index in the history. New navigations,
+    /// as a `Vec<BrowserUrl>` and `_current` denotes the current index in the history. New navigations,
     /// back navigation, and forward navigation modify this index.
-    fn notify_history_changed(&self, _webview: WebView, _entries: Vec<Url>, _current: usize) {}
+    fn notify_history_changed(&self, _webview: WebView, _entries: Vec<BrowserUrl>, _current: usize) {}
     /// A history traversal operation is complete.
     fn notify_traversal_complete(&self, _webview: WebView, _: TraversalId) {}
     /// Page content has closed this [`WebView`] via `window.close()`. It's the embedder's

@@ -24,7 +24,7 @@ use ipc_channel::ipc;
 use ipc_channel::router::ROUTER;
 use net_traits::{CoreResourceMsg, CustomResponseMediator};
 use servo_config::pref;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::abstractworker::{MessageData, WorkerScriptMsg};
 use crate::dom::serviceworkerglobalscope::{
@@ -44,14 +44,14 @@ pub(crate) struct ServiceWorker {
     /// A unique identifer.
     pub(crate) id: ServiceWorkerId,
     /// <https://w3c.github.io/ServiceWorker/#dfn-script-url>
-    pub(crate) script_url: ServoUrl,
+    pub(crate) script_url: BrowserUrl,
     /// A sender to the running service worker scope.
     pub(crate) sender: Sender<ServiceWorkerScriptMsg>,
 }
 
 impl ServiceWorker {
     fn new(
-        script_url: ServoUrl,
+        script_url: BrowserUrl,
         sender: Sender<ServiceWorkerScriptMsg>,
         id: ServiceWorkerId,
     ) -> ServiceWorker {
@@ -215,7 +215,7 @@ impl ServiceWorkerRegistration {
 /// A structure managing all registrations and workers for a given origin.
 pub struct ServiceWorkerManager {
     /// <https://w3c.github.io/ServiceWorker/#dfn-scope-to-registration-map>
-    registrations: HashMap<ServoUrl, ServiceWorkerRegistration>,
+    registrations: HashMap<BrowserUrl, ServiceWorkerRegistration>,
     // Will be useful to implement posting a message to a client.
     // See https://github.com/servo/servo/issues/24660
     _constellation_sender: GenericSender<SWManagerMsg>,
@@ -250,7 +250,7 @@ impl ServiceWorkerManager {
         }
     }
 
-    pub(crate) fn get_matching_scope(&self, load_url: &ServoUrl) -> Option<ServoUrl> {
+    pub(crate) fn get_matching_scope(&self, load_url: &BrowserUrl) -> Option<BrowserUrl> {
         for scope in self.registrations.keys() {
             if longest_prefix_match(scope, load_url) {
                 return Some(scope.clone());
@@ -454,7 +454,7 @@ impl ServiceWorkerManager {
 /// <https://w3c.github.io/ServiceWorker/#update-algorithm>
 fn update_serviceworker(
     own_sender: GenericSender<ServiceWorkerMsg>,
-    scope_url: ServoUrl,
+    scope_url: BrowserUrl,
     scope_things: ScopeThings,
     font_context: Arc<FontContext>,
 ) -> (

@@ -42,7 +42,7 @@ use rustc_hash::FxHashMap;
 use script_traits::{InitialScriptState, Painter, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::Atom;
 use style::animation::DocumentAnimationSet;
 use style::attr::{AttrValue, parse_integer, parse_unsigned_integer};
@@ -136,7 +136,7 @@ pub struct HTMLCanvasData {
 
 pub struct SVGElementData<'dom> {
     /// The SVG's XML source represented as a base64 encoded `data:` url.
-    pub source: Option<Result<ServoUrl, ()>>,
+    pub source: Option<Result<BrowserUrl, ()>>,
     pub width: Option<&'dom AttrValue>,
     pub height: Option<&'dom AttrValue>,
     pub svg_id: String,
@@ -174,7 +174,7 @@ unsafe impl Send for TrustedNodeAddress {}
 /// Whether the pending image needs to be fetched or is waiting on an existing fetch.
 #[derive(Debug)]
 pub enum PendingImageState {
-    Unrequested(ServoUrl),
+    Unrequested(BrowserUrl),
     PendingResponse,
 }
 
@@ -227,7 +227,7 @@ pub struct HTMLMediaData {
 pub struct LayoutConfig {
     pub id: PipelineId,
     pub webview_id: WebViewId,
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     pub is_iframe: bool,
     pub script_chan: GenericSender<ScriptThreadMessage>,
     pub image_cache: Arc<dyn ImageCache>,
@@ -309,7 +309,7 @@ pub trait Layout {
     fn remove_stylesheet(&mut self, stylesheet: ServoArc<Stylesheet>);
 
     /// Removes an image from the Layout image resolver cache.
-    fn remove_cached_image(&mut self, image_url: &ServoUrl);
+    fn remove_cached_image(&mut self, image_url: &BrowserUrl);
 
     /// Requests a reflow.
     fn reflow(&mut self, reflow_request: ReflowRequest) -> Option<ReflowResult>;

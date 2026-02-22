@@ -12,7 +12,7 @@ use malloc_size_of_derive::MallocSizeOf;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::fetch::headers::extract_mime_type_as_mime;
 use crate::http_status::HttpStatus;
@@ -86,7 +86,7 @@ pub enum HttpsState {
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
 pub struct ResponseInit {
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     #[serde(
         deserialize_with = "::hyper_serde::deserialize",
         serialize_with = "::hyper_serde::serialize"
@@ -94,8 +94,8 @@ pub struct ResponseInit {
     #[ignore_malloc_size_of = "Defined in hyper"]
     pub headers: HeaderMap,
     pub status_code: u16,
-    pub referrer: Option<ServoUrl>,
-    pub location_url: Option<Result<ServoUrl, String>>,
+    pub referrer: Option<BrowserUrl>,
+    pub location_url: Option<Result<BrowserUrl, String>>,
 }
 
 /// A [Response](https://fetch.spec.whatwg.org/#concept-response) as defined by the Fetch spec
@@ -103,8 +103,8 @@ pub struct ResponseInit {
 pub struct Response {
     pub response_type: ResponseType,
     pub termination_reason: Option<TerminationReason>,
-    url: Option<ServoUrl>,
-    pub url_list: Vec<ServoUrl>,
+    url: Option<BrowserUrl>,
+    pub url_list: Vec<BrowserUrl>,
     pub status: HttpStatus,
     #[serde(
         deserialize_with = "::hyper_serde::deserialize",
@@ -117,14 +117,14 @@ pub struct Response {
     pub cache_state: CacheState,
     pub https_state: HttpsState,
     pub tls_security_info: Option<TlsSecurityInfo>,
-    pub referrer: Option<ServoUrl>,
+    pub referrer: Option<BrowserUrl>,
     /// <https://fetch.spec.whatwg.org/#response-redirect-taint>
     pub redirect_taint: RedirectTaint,
     pub referrer_policy: ReferrerPolicy,
     /// [CORS-exposed header-name list](https://fetch.spec.whatwg.org/#concept-response-cors-exposed-header-name-list)
     pub cors_exposed_header_name_list: Vec<String>,
     /// [Location URL](https://fetch.spec.whatwg.org/#concept-response-location-url)
-    pub location_url: Option<Result<ServoUrl, String>>,
+    pub location_url: Option<Result<BrowserUrl, String>>,
     /// [Internal response](https://fetch.spec.whatwg.org/#concept-internal-response), only used if the Response
     /// is a filtered response
     pub internal_response: Option<Box<Response>>,
@@ -155,7 +155,7 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(url: ServoUrl, resource_timing: ResourceFetchTiming) -> Response {
+    pub fn new(url: BrowserUrl, resource_timing: ResourceFetchTiming) -> Response {
         Response {
             response_type: ResponseType::Default,
             termination_reason: None,
@@ -226,7 +226,7 @@ impl Response {
         }
     }
 
-    pub fn url(&self) -> Option<&ServoUrl> {
+    pub fn url(&self) -> Option<&BrowserUrl> {
         self.url.as_ref()
     }
 
@@ -341,7 +341,7 @@ impl Response {
     }
 
     pub fn metadata(&self) -> Result<FetchMetadata, NetworkError> {
-        fn init_metadata(response: &Response, url: &ServoUrl) -> Metadata {
+        fn init_metadata(response: &Response, url: &BrowserUrl) -> Metadata {
             let mut metadata = Metadata::default(url.clone());
             metadata.set_content_type(extract_mime_type_as_mime(&response.headers).as_ref());
             metadata.location_url.clone_from(&response.location_url);

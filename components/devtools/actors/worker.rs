@@ -13,7 +13,7 @@ use devtools_traits::{DevtoolScriptControlMsg, WorkerId};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::StreamId;
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
@@ -34,7 +34,7 @@ pub(crate) struct WorkerActor {
     pub console: String,
     pub thread: String,
     pub worker_id: WorkerId,
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     pub type_: WorkerType,
     pub script_chan: GenericSender<DevtoolScriptControlMsg>,
     pub streams: AtomicRefCell<HashMap<StreamId, TcpStream>>,

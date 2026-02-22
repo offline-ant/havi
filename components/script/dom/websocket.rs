@@ -24,7 +24,7 @@ use net_traits::{
 };
 use profile_traits::ipc as ProfiledIpc;
 use script_bindings::conversions::SafeToJSValConvertible;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::BlobBinding::BlobMethods;
@@ -103,7 +103,7 @@ fn fail_the_websocket_connection(address: Trusted<WebSocket>, task_source: &Send
 pub(crate) struct WebSocket {
     eventtarget: EventTarget,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     ready_state: Cell<WebSocketRequestState>,
     buffered_amount: Cell<u64>,
     clearing_buffer: Cell<bool>, // Flag to tell if there is a running thread to clear buffered_amount
@@ -114,7 +114,7 @@ pub(crate) struct WebSocket {
 }
 
 impl WebSocket {
-    fn new_inherited(url: ServoUrl, sender: IpcSender<WebSocketDomAction>) -> WebSocket {
+    fn new_inherited(url: BrowserUrl, sender: IpcSender<WebSocketDomAction>) -> WebSocket {
         WebSocket {
             eventtarget: EventTarget::new_inherited(),
             url,
@@ -130,7 +130,7 @@ impl WebSocket {
     fn new(
         global: &GlobalScope,
         proto: Option<HandleObject>,
-        url: ServoUrl,
+        url: BrowserUrl,
         sender: IpcSender<WebSocketDomAction>,
         can_gc: CanGc,
     ) -> DomRoot<WebSocket> {
@@ -207,7 +207,7 @@ impl WebSocketMethods<crate::DomTypeHolder> for WebSocket {
         // Step 2. Let urlRecord be the result of applying the URL parser to url with baseURL.
         // Step 3. If urlRecord is failure, then throw a "SyntaxError" DOMException.
         let mut url_record =
-            ServoUrl::parse_with_base(Some(&base_url), &url.str()).or(Err(Error::Syntax(None)))?;
+            BrowserUrl::parse_with_base(Some(&base_url), &url.str()).or(Err(Error::Syntax(None)))?;
 
         // Step 4. If urlRecord’s scheme is "http", then set urlRecord’s scheme to "ws".
         // Step 5. Otherwise, if urlRecord’s scheme is "https", set urlRecord’s scheme to "wss".

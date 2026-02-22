@@ -21,7 +21,7 @@ use net_traits::request::{
 use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
 use regex::Regex;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::body::Extractable;
 #[cfg(feature = "gamepad")]
@@ -236,7 +236,7 @@ impl Navigator {
         &self,
         scheme: DOMString,
         url: USVString,
-    ) -> Fallible<(String, ServoUrl)> {
+    ) -> Fallible<(String, BrowserUrl)> {
         // Step 1. Set scheme to scheme, converted to ASCII lowercase.
         let scheme = scheme.to_ascii_lowercase();
         // Step 2. If scheme is neither a safelisted scheme nor
@@ -485,7 +485,7 @@ impl NavigatorMethods<crate::DomTypeHolder> for Navigator {
         // Step 3. Set parsedUrl to the result of the URL parser steps with url and base.
         // If the algorithm returns an error, or if parsedUrl's scheme is not "http" or "https",
         // throw a "TypeError" exception and terminate these steps.
-        let Ok(url) = ServoUrl::parse_with_base(Some(&base), &url) else {
+        let Ok(url) = BrowserUrl::parse_with_base(Some(&base), &url) else {
             return Err(Error::Type(c"Cannot parse URL".to_owned()));
         };
         if !matches!(url.scheme(), "http" | "https") {
@@ -608,7 +608,7 @@ impl NavigatorMethods<crate::DomTypeHolder> for Navigator {
 
 struct BeaconFetchListener {
     /// URL of this request.
-    url: ServoUrl,
+    url: BrowserUrl,
     /// The global object fetching the report uri violation
     global: Trusted<GlobalScope>,
 }
@@ -647,7 +647,7 @@ impl FetchResponseListener for BeaconFetchListener {
 }
 
 impl ResourceTimingListener for BeaconFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Beacon, self.url.clone())
     }
 

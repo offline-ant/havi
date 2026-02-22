@@ -19,7 +19,7 @@ use js::rust::HandleObject;
 use net_traits::request::Destination;
 use profile_traits::ipc as ProfiledIpc;
 use script_traits::{NewPipelineInfo, UpdatePipelineIdReason};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 
 use crate::document_loader::{LoadBlocker, LoadType};
@@ -90,7 +90,7 @@ pub(crate) struct HTMLXFrame {
 impl HTMLXFrame {
     /// <https://html.spec.whatwg.org/multipage/#otherwise-steps-for-iframe-or-frame-elements>,
     /// step 1.
-    fn get_url(&self) -> ServoUrl {
+    fn get_url(&self) -> BrowserUrl {
         let element = self.upcast::<Element>();
         element
             .get_attribute(&ns!(), &local_name!("src"))
@@ -102,7 +102,7 @@ impl HTMLXFrame {
                     self.owner_document().base_url().join(&url).ok()
                 }
             })
-            .unwrap_or_else(|| ServoUrl::parse("about:blank").unwrap())
+            .unwrap_or_else(|| BrowserUrl::parse("about:blank").unwrap())
     }
 
     pub(crate) fn navigate_or_reload_child_browsing_context(
@@ -296,7 +296,7 @@ impl HTMLXFrame {
     /// Create a new child navigable for <x>
     /// Synchronously create a new browsing context (This is not a navigation).
     fn create_nested_browsing_context(&self, can_gc: CanGc) {
-        let url = ServoUrl::parse("about:blank").unwrap();
+        let url = BrowserUrl::parse("about:blank").unwrap();
         let document = self.owner_document();
         let window = self.owner_window();
         let pipeline_id = Some(window.pipeline_id());

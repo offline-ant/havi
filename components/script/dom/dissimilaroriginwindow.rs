@@ -9,7 +9,7 @@ use js::jsapi::{Heap, JSObject};
 use js::jsval::UndefinedValue;
 use js::rust::{CustomAutoRooter, CustomAutoRooterGuard, HandleValue, MutableHandleValue};
 use script_bindings::script_runtime::temp_cx;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::codegen::Bindings::DissimilarOriginWindowBinding;
 use crate::dom::bindings::codegen::Bindings::DissimilarOriginWindowBinding::DissimilarOriginWindowMethods;
@@ -234,7 +234,7 @@ impl DissimilarOriginWindow {
         let target_origin = match target_origin.0[..].as_ref() {
             "*" => None,
             "/" => Some(source_origin.clone()),
-            url => match ServoUrl::parse(url) {
+            url => match BrowserUrl::parse(url) {
                 Ok(url) => Some(url.origin().clone()),
                 Err(_) => return Err(Error::Syntax(None)),
             },

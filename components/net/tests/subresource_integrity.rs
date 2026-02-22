@@ -8,7 +8,7 @@ use net::subresource_integrity::{
 };
 use net_traits::response::{Response, ResponseBody};
 use net_traits::{ResourceFetchTiming, ResourceTimingType};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 #[test]
 fn test_get_prioritized_hash_function() {
@@ -72,7 +72,7 @@ fn test_get_strongest_metadata_different_algorithm() {
 
 #[test]
 fn test_response_integrity_valid() {
-    let url: ServoUrl = ServoUrl::parse("http://servo.org").unwrap();
+    let url: BrowserUrl = BrowserUrl::parse("http://servo.org").unwrap();
     let response: Response = Response::new(
         url,
         ResourceFetchTiming::new(ResourceTimingType::Navigation),
@@ -88,7 +88,7 @@ fn test_response_integrity_valid() {
 
 #[test]
 fn test_response_integrity_invalid() {
-    let url: ServoUrl = ServoUrl::parse("http://servo.org").unwrap();
+    let url: BrowserUrl = BrowserUrl::parse("http://servo.org").unwrap();
     let response: Response = Response::new(
         url,
         ResourceFetchTiming::new(ResourceTimingType::Navigation),

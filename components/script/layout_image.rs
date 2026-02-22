@@ -11,7 +11,7 @@ use std::sync::Arc;
 use net_traits::image_cache::{ImageCache, PendingImageId};
 use net_traits::request::{Destination, RequestBuilder, RequestId};
 use net_traits::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::refcounted::Trusted;
 use crate::dom::bindings::reflector::DomGlobal;
@@ -29,7 +29,7 @@ struct LayoutImageContext {
     id: PendingImageId,
     cache: Arc<dyn ImageCache>,
     doc: Trusted<Document>,
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl FetchResponseListener for LayoutImageContext {
@@ -74,7 +74,7 @@ impl FetchResponseListener for LayoutImageContext {
 }
 
 impl ResourceTimingListener for LayoutImageContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.url.clone())
     }
 
@@ -84,7 +84,7 @@ impl ResourceTimingListener for LayoutImageContext {
 }
 
 pub(crate) fn fetch_image_for_layout(
-    url: ServoUrl,
+    url: BrowserUrl,
     node: &Node,
     id: PendingImageId,
     cache: Arc<dyn ImageCache>,

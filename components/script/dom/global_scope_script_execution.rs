@@ -18,7 +18,7 @@ use js::rust::wrappers::{
 };
 use js::rust::{CompileOptionsWrapper, MutableHandleValue, transform_str_to_source_text};
 use script_bindings::cformat;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::error::{Error, ErrorResult};
@@ -45,7 +45,7 @@ pub(crate) struct ClassicScript {
     fetch_options: ScriptFetchOptions,
     /// <https://html.spec.whatwg.org/multipage/#concept-script-base-url>
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     /// <https://html.spec.whatwg.org/multipage/#muted-errors>
     muted_errors: ErrorReporting,
 }
@@ -77,7 +77,7 @@ impl GlobalScope {
     pub(crate) fn create_a_classic_script(
         &self,
         source: Cow<'_, str>,
-        url: ServoUrl,
+        url: BrowserUrl,
         fetch_options: ScriptFetchOptions,
         muted_errors: ErrorReporting,
         introduction_type: Option<&'static CStr>,
@@ -328,7 +328,7 @@ pub(crate) fn compile_script(
 pub(crate) fn evaluate_script(
     cx: SafeJSContext,
     compiled_script: NonNull<JSScript>,
-    url: ServoUrl,
+    url: BrowserUrl,
     fetch_options: ScriptFetchOptions,
     rval: MutableHandleValue,
 ) -> bool {

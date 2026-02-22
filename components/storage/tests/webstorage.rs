@@ -6,7 +6,7 @@ use base::generic_channel as base_channel;
 use base::generic_channel::GenericSend;
 use base::id::TEST_WEBVIEW_ID;
 use profile::mem as profile_mem;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
 use tempfile::TempDir;
@@ -55,7 +55,7 @@ impl WebStorageTest {
         self.threads.clone()
     }
 
-    pub(crate) fn length(&self, storage_type: WebStorageType, url: &ServoUrl) -> usize {
+    pub(crate) fn length(&self, storage_type: WebStorageType, url: &BrowserUrl) -> usize {
         let (sender, receiver) = base_channel::channel().unwrap();
         self.threads
             .send(WebStorageThreadMsg::Length(
@@ -71,7 +71,7 @@ impl WebStorageTest {
     pub(crate) fn key(
         &self,
         storage_type: WebStorageType,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         index: u32,
     ) -> Option<String> {
         let (sender, receiver) = base_channel::channel().unwrap();
@@ -87,7 +87,7 @@ impl WebStorageTest {
         receiver.recv().unwrap()
     }
 
-    pub(crate) fn keys(&self, storage_type: WebStorageType, url: &ServoUrl) -> Vec<String> {
+    pub(crate) fn keys(&self, storage_type: WebStorageType, url: &BrowserUrl) -> Vec<String> {
         let (sender, receiver) = base_channel::channel().unwrap();
         self.threads
             .send(WebStorageThreadMsg::Keys(
@@ -103,7 +103,7 @@ impl WebStorageTest {
     pub(crate) fn get_item(
         &self,
         storage_type: WebStorageType,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         key: &str,
     ) -> Option<String> {
         let (sender, receiver) = base_channel::channel().unwrap();
@@ -122,7 +122,7 @@ impl WebStorageTest {
     pub(crate) fn set_item(
         &self,
         storage_type: WebStorageType,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         key: &str,
         value: &str,
     ) -> Result<(bool, Option<String>), ()> {
@@ -143,7 +143,7 @@ impl WebStorageTest {
     pub(crate) fn remove_item(
         &self,
         storage_type: WebStorageType,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         key: &str,
     ) -> Option<String> {
         let (sender, receiver) = base_channel::channel().unwrap();
@@ -159,7 +159,7 @@ impl WebStorageTest {
         receiver.recv().unwrap()
     }
 
-    pub(crate) fn clear(&self, storage_type: WebStorageType, url: &ServoUrl) -> bool {
+    pub(crate) fn clear(&self, storage_type: WebStorageType, url: &BrowserUrl) -> bool {
         let (sender, receiver) = base_channel::channel().unwrap();
         self.threads
             .send(WebStorageThreadMsg::Clear(
@@ -192,7 +192,7 @@ impl Drop for WebStorageTest {
 #[test]
 fn set_and_get_item() {
     let test = WebStorageTest::new();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Set a value.
     let result = test.set_item(WebStorageType::Local, &url, "foo", "bar");
@@ -206,7 +206,7 @@ fn set_and_get_item() {
 #[test]
 fn set_and_get_item_in_memory() {
     let test = WebStorageTest::new_in_memory();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Set a value.
     let result = test.set_item(WebStorageType::Local, &url, "foo", "bar");
@@ -220,7 +220,7 @@ fn set_and_get_item_in_memory() {
 #[test]
 fn length_key_and_keys() {
     let test = WebStorageTest::new();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Insert two items.
     for (k, v) in [("foo", "v1"), ("bar", "v2")] {
@@ -246,7 +246,7 @@ fn length_key_and_keys() {
 #[test]
 fn remove_item_and_clear() {
     let test = WebStorageTest::new();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Insert items.
     for (k, v) in [("foo", "v1"), ("bar", "v2")] {
@@ -276,7 +276,7 @@ fn test_origin_descriptors(
     survives_restart: bool,
 ) {
     let threads = test.threads();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Set a value.
     let _ = test.set_item(storage_type, &url, "foo", "bar");
@@ -322,7 +322,7 @@ fn origin_descriptors_local() {
 
 fn test_clear_data_for_sites(test: WebStorageTest, storage_type: WebStorageType) {
     let threads = test.threads();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
 
     // Set a value.
     let _ = test.set_item(storage_type, &url, "foo", "bar");
@@ -404,7 +404,7 @@ fn clear_data_for_sites_local_in_memory() {
 fn no_storage_type_conflict() {
     // Ensures that editing session storage does not affect local storage and vice versa.
     let mut test = WebStorageTest::new();
-    let url = ServoUrl::parse("https://example.com").unwrap();
+    let url = BrowserUrl::parse("https://example.com").unwrap();
     test.set_item(
         WebStorageType::Local,
         &url,

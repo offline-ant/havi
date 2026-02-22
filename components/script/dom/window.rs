@@ -85,7 +85,7 @@ use selectors::attr::CaseSensitivity;
 use servo_arc::Arc as ServoArc;
 use servo_config::pref;
 use servo_geometry::DeviceIndependentIntRect;
-use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::WebStorageType;
 use style::error_reporting::{ContextualParseError, ParseErrorReporter};
@@ -96,7 +96,7 @@ use style::str::HTML_SPACE_CHARACTERS;
 use style::stylesheets::UrlExtraData;
 use style_traits::CSSPixel;
 use stylo_atoms::Atom;
-use url::Position;
+
 use webrender_api::ExternalScrollId;
 use webrender_api::units::{DeviceIntSize, DevicePixel, LayoutPixel, LayoutPoint};
 
@@ -998,7 +998,7 @@ struct FontNetworkTimingHandler {
 }
 
 impl NetworkTimingHandler for FontNetworkTimingHandler {
-    fn submit_timing(&self, url: ServoUrl, response: ResourceFetchTiming) {
+    fn submit_timing(&self, url: BrowserUrl, response: ResourceFetchTiming) {
         let global = self.global.clone();
         self.task_source.queue(task!(network_timing: move || {
             submit_timing(
@@ -1024,11 +1024,11 @@ impl NetworkTimingHandler for FontNetworkTimingHandler {
 #[derive(Debug)]
 struct FontFetchListener {
     global: Trusted<GlobalScope>,
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl ResourceTimingListener for FontFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Css, self.url.clone())
     }
 
@@ -2496,7 +2496,7 @@ impl Window {
         let target_origin = match target_origin.0[..].as_ref() {
             "*" => None,
             "/" => Some(source_origin.clone()),
-            url => match ServoUrl::parse(url) {
+            url => match BrowserUrl::parse(url) {
                 Ok(url) => Some(url.origin().clone()),
                 Err(_) => return Err(Error::Syntax(None)),
             },
@@ -3294,7 +3294,7 @@ impl Window {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#navigate-fragid>
-    fn navigate_to_fragment(&self, url: &ServoUrl, history_handling: NavigationHistoryBehavior) {
+    fn navigate_to_fragment(&self, url: &BrowserUrl, history_handling: NavigationHistoryBehavior) {
         let doc = self.Document();
         // Step 1. Let navigation be navigable's active window's navigation API.
         // TODO
@@ -3341,7 +3341,7 @@ impl Window {
 
     pub(crate) fn load_data_for_document(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         pipeline_id: PipelineId,
     ) -> LoadData {
         let source_document = self.Document();
@@ -3430,8 +3430,7 @@ impl Window {
             // > response is null;
             if !force_reload
                 // > url equals navigable's active session history entry's URL with exclude fragments set to true; and
-                && load_data.url.as_url()[..Position::AfterQuery] ==
-                    doc.url().as_url()[..Position::AfterQuery]
+                && load_data.url.equals_ignoring_fragment(&doc.url())
                 // > url's fragment is non-null,
                 && load_data.url.fragment().is_some()
             {
@@ -3523,7 +3522,7 @@ impl Window {
             .add_restyle_reason(RestyleReason::ThemeChanged);
     }
 
-    pub(crate) fn get_url(&self) -> ServoUrl {
+    pub(crate) fn get_url(&self) -> BrowserUrl {
         self.Document().url()
     }
 
@@ -3938,8 +3937,8 @@ impl Window {
         parent_info: Option<PipelineId>,
         viewport_details: ViewportDetails,
         origin: MutableOrigin,
-        creation_url: ServoUrl,
-        top_level_creation_url: ServoUrl,
+        creation_url: BrowserUrl,
+        top_level_creation_url: BrowserUrl,
         navigation_start: CrossProcessInstant,
         webgl_chan: Option<WebGLChan>,
         #[cfg(feature = "webxr")] webxr_registry: Option<webxr_api::Registry>,

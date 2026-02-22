@@ -9,7 +9,7 @@ use net::http_cache::{CacheKey, HttpCache, refresh};
 use net_traits::request::{Referrer, RequestBuilder};
 use net_traits::response::{Response, ResponseBody};
 use net_traits::{ResourceFetchTiming, ResourceTimingType};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tokio::sync::mpsc::unbounded_channel as unbounded;
 
 #[tokio::test]
@@ -19,7 +19,7 @@ async fn test_refreshing_resource_sets_done_chan_the_appropriate_value() {
         ResponseBody::Empty,
         ResponseBody::Done(vec![]),
     ];
-    let url = ServoUrl::parse("https://servo.org").unwrap();
+    let url = BrowserUrl::parse("https://servo.org").unwrap();
     let request = RequestBuilder::new(None, url.clone(), Referrer::NoReferrer)
         .pipeline_id(Some(TEST_PIPELINE_ID))
         .origin(url.origin())
@@ -62,7 +62,7 @@ async fn test_refreshing_resource_sets_done_chan_the_appropriate_value() {
 async fn test_skip_incomplete_cache_for_range_request_with_no_end_bound() {
     let actual_body_len = 10;
     let incomplete_response_body = &[1, 2, 3, 4, 5];
-    let url = ServoUrl::parse("https://servo.org").unwrap();
+    let url = BrowserUrl::parse("https://servo.org").unwrap();
 
     let cache = HttpCache::default();
     let mut headers = HeaderMap::new();

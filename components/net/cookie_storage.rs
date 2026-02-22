@@ -16,7 +16,7 @@ use log::info;
 use net_traits::pub_domains::reg_suffix;
 use net_traits::{CookieSource, SiteDescriptor};
 use serde::{Deserialize, Serialize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::cookie::ServoCookie;
 
@@ -46,7 +46,7 @@ impl CookieStorage {
     pub fn remove(
         &mut self,
         cookie: &ServoCookie,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         source: CookieSource,
     ) -> Result<Option<ServoCookie>, RemoveCookieError> {
         let domain = reg_host(cookie.cookie.domain().as_ref().unwrap_or(&""));
@@ -116,7 +116,7 @@ impl CookieStorage {
         }
     }
 
-    pub fn clear_storage(&mut self, url: Option<&ServoUrl>) {
+    pub fn clear_storage(&mut self, url: Option<&BrowserUrl>) {
         if let Some(url) = url {
             let domain = reg_host(url.host_str().unwrap_or(""));
             // TODO: This creates an empty cookie list if none existed? Should
@@ -130,7 +130,7 @@ impl CookieStorage {
         }
     }
 
-    pub fn delete_cookie_with_name(&mut self, url: &ServoUrl, name: String) {
+    pub fn delete_cookie_with_name(&mut self, url: &BrowserUrl, name: String) {
         let domain = reg_host(url.host_str().unwrap_or(""));
         // TODO: This creates an empty cookie list if none existed? Should we
         // just use `get_mut` here?
@@ -143,7 +143,7 @@ impl CookieStorage {
     }
 
     // http://tools.ietf.org/html/rfc6265#section-5.3
-    pub fn push(&mut self, mut cookie: ServoCookie, url: &ServoUrl, source: CookieSource) {
+    pub fn push(&mut self, mut cookie: ServoCookie, url: &BrowserUrl, source: CookieSource) {
         // https://www.ietf.org/id/draft-ietf-httpbis-cookie-alone-01.txt Step 1
         if cookie.cookie.secure().unwrap_or(false) && !url.is_secure_scheme() {
             return;
@@ -191,7 +191,7 @@ impl CookieStorage {
         }
     }
 
-    pub fn remove_expired_cookies_for_url(&mut self, url: &ServoUrl) {
+    pub fn remove_expired_cookies_for_url(&mut self, url: &BrowserUrl) {
         let domain = reg_host(url.host_str().unwrap_or(""));
         if let Entry::Occupied(mut entry) = self.cookies_map.entry(domain) {
             let cookies = entry.get_mut();
@@ -210,7 +210,7 @@ impl CookieStorage {
     }
 
     // http://tools.ietf.org/html/rfc6265#section-5.4
-    pub fn cookies_for_url(&mut self, url: &ServoUrl, source: CookieSource) -> Option<String> {
+    pub fn cookies_for_url(&mut self, url: &BrowserUrl, source: CookieSource) -> Option<String> {
         // Let cookie-list be the set of cookies from the cookie store
         let cookie_list = self.cookies_data_for_url(url, source);
 
@@ -240,7 +240,7 @@ impl CookieStorage {
     }
 
     /// <https://cookiestore.spec.whatwg.org/#query-cookies>
-    pub fn query_cookies(&mut self, url: &ServoUrl, name: Option<String>) -> Vec<Cookie<'static>> {
+    pub fn query_cookies(&mut self, url: &BrowserUrl, name: Option<String>) -> Vec<Cookie<'static>> {
         // 1. Retrieve cookie-list given request-uri and "non-HTTP" source
         let cookie_list = self.cookies_data_for_url(url, CookieSource::NonHTTP);
 
@@ -262,7 +262,7 @@ impl CookieStorage {
 
     pub fn cookies_data_for_url<'a>(
         &'a mut self,
-        url: &'a ServoUrl,
+        url: &'a BrowserUrl,
         source: CookieSource,
     ) -> impl Iterator<Item = cookie::Cookie<'static>> + 'a {
         let domain = reg_host(url.host_str().unwrap_or(""));

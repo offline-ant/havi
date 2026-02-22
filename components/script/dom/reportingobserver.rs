@@ -10,7 +10,7 @@ use dom_struct::dom_struct;
 use js::rust::HandleObject;
 use script_bindings::match_domstring_ascii;
 use script_bindings::str::DOMString;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::callback::ExceptionHandling;
 use crate::dom::bindings::cell::DomRefCell;
@@ -157,7 +157,7 @@ impl ReportingObserver {
     fn generate_a_report(
         global: &GlobalScope,
         type_: DOMString,
-        url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
         body: Option<CSPViolationReportBody>,
         destination: DOMString,
     ) -> Report {
@@ -204,7 +204,7 @@ impl ReportingObserver {
     }
 
     /// <https://w3c.github.io/webappsec-csp/#strip-url-for-use-in-reports>
-    pub(crate) fn strip_url_for_reports(mut url: ServoUrl) -> String {
+    pub(crate) fn strip_url_for_reports(mut url: BrowserUrl) -> String {
         let scheme = url.scheme();
         // Step 1: If url’s scheme is not an HTTP(S) scheme, then return url’s scheme.
         if scheme != "https" && scheme != "http" {

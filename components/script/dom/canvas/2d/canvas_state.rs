@@ -29,7 +29,7 @@ use net_traits::image_cache::{ImageCache, ImageResponse};
 use net_traits::request::CorsSettings;
 use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::color::{AbsoluteColor, ColorFlags, ColorSpace};
 use style::properties::longhands::font_variant_caps::computed_value::T as FontVariantCaps;
 use style::properties::style_structs::Font;
@@ -205,12 +205,12 @@ pub(super) struct CanvasState {
     /// The base URL for resolving CSS image URL values.
     /// Needed because of <https://github.com/servo/servo/issues/17625>
     #[no_trace]
-    base_url: ServoUrl,
+    base_url: BrowserUrl,
     #[no_trace]
     origin: ImmutableOrigin,
     /// Any missing image URLs.
     #[no_trace]
-    missing_image_urls: DomRefCell<Vec<ServoUrl>>,
+    missing_image_urls: DomRefCell<Vec<BrowserUrl>>,
     saved_states: DomRefCell<Vec<CanvasContextState>>,
     /// <https://html.spec.whatwg.org/multipage/#current-default-path>
     #[no_trace]
@@ -259,7 +259,7 @@ impl CanvasState {
         self.send_canvas_2d_msg(Canvas2dMsg::SetImageKey(image_key));
     }
 
-    pub(super) fn get_missing_image_urls(&self) -> &DomRefCell<Vec<ServoUrl>> {
+    pub(super) fn get_missing_image_urls(&self) -> &DomRefCell<Vec<BrowserUrl>> {
         &self.missing_image_urls
     }
 
@@ -395,7 +395,7 @@ impl CanvasState {
 
     fn fetch_image_data(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         cors_setting: Option<CorsSettings>,
     ) -> Option<Snapshot> {
         let raster_image = match self.request_image_from_cache(url, cors_setting) {
@@ -418,7 +418,7 @@ impl CanvasState {
 
     fn request_image_from_cache(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         cors_setting: Option<CorsSettings>,
     ) -> ImageResponse {
         match self
@@ -834,7 +834,7 @@ impl CanvasState {
     fn fetch_and_draw_image_data(
         &self,
         canvas: Option<&HTMLCanvasElement>,
-        url: ServoUrl,
+        url: BrowserUrl,
         cors_setting: Option<CorsSettings>,
         sx: f64,
         sy: f64,

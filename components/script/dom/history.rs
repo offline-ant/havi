@@ -16,7 +16,7 @@ use js::jsval::{JSVal, NullValue, UndefinedValue};
 use js::rust::{HandleValue, MutableHandleValue};
 use net_traits::CoreResourceMsg;
 use profile_traits::{generic_channel, ipc};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::codegen::Bindings::HistoryBinding::HistoryMethods;
 use crate::dom::bindings::codegen::Bindings::LocationBinding::Location_Binding::LocationMethods;
@@ -87,7 +87,7 @@ impl History {
     pub(crate) fn activate_state(
         &self,
         state_id: Option<HistoryStateId>,
-        url: ServoUrl,
+        url: BrowserUrl,
         can_gc: CanGc,
     ) {
         // Steps 5
@@ -205,14 +205,14 @@ impl History {
         let serialized_data = structuredclone::write(cx, data, None)?;
 
         // Step 5. Let newURL be document's URL.
-        let new_url: ServoUrl = match url {
+        let new_url: BrowserUrl = match url {
             // Step 6. If url is not null or the empty string, then:
             Some(urlstring) => {
                 let document_url = document.url();
 
                 // Step 6.1 Set newURL to the result of encoding-parsing a URL given url,
                 // relative to the relevant settings object of history.
-                let Ok(url) = ServoUrl::parse_with_base(Some(&document_url), &urlstring.0) else {
+                let Ok(url) = BrowserUrl::parse_with_base(Some(&document_url), &urlstring.0) else {
                     // Step 6.2 If newURL is failure, then throw a "SecurityError" DOMException.
                     return Err(Error::Security(None));
                 };
@@ -295,7 +295,7 @@ impl History {
 
     /// <https://html.spec.whatwg.org/multipage/#can-have-its-url-rewritten>
     /// Step 2-6
-    fn can_have_url_rewritten(document_url: &ServoUrl, target_url: &ServoUrl) -> bool {
+    fn can_have_url_rewritten(document_url: &BrowserUrl, target_url: &BrowserUrl) -> bool {
         // Step 2. If targetURL and documentURL differ in their scheme, username,
         // password, host, or port components, then return false.
         if target_url.scheme() != document_url.scheme() ||

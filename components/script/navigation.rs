@@ -26,7 +26,7 @@ use net_traits::{
     Metadata, fetch_async, set_default_accept_language,
 };
 use script_traits::{DocumentActivity, NewPipelineInfo};
-use servo_url::{MutableOrigin, ServoUrl};
+use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::fetch::FetchCanceller;
 use crate::messaging::MainThreadScriptMsg;
@@ -161,7 +161,7 @@ pub(crate) struct InProgressLoad {
     /// A list of URL to keep track of all the redirects that have happened during
     /// this load.
     #[no_trace]
-    pub(crate) url_list: Vec<ServoUrl>,
+    pub(crate) url_list: Vec<BrowserUrl>,
     #[no_trace]
     /// The [`UserContentManagerId`] associated with this load's `WebView`.
     pub(crate) user_content_manager_id: Option<UserContentManagerId>,

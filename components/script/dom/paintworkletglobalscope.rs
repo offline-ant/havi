@@ -26,7 +26,7 @@ use net_traits::image_cache::ImageCache;
 use pixels::PixelFormat;
 use script_traits::{DrawAPaintImageResult, PaintWorkletError, Painter};
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style_traits::{CSSPixel, SpeculativePainter};
 use stylo_atoms::Atom;
 use webrender_api::units::DevicePixel;
@@ -88,7 +88,7 @@ impl PaintWorkletGlobalScope {
     pub(crate) fn new(
         webview_id: WebViewId,
         pipeline_id: PipelineId,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         inherited_secure_context: Option<bool>,
         executor: WorkletExecutor,
         init: &WorkletGlobalScopeInit,
@@ -367,7 +367,7 @@ impl PaintWorkletGlobalScope {
     fn invalid_image(
         &self,
         size: Size2D<u32, DevicePixel>,
-        missing_image_urls: Vec<ServoUrl>,
+        missing_image_urls: Vec<BrowserUrl>,
     ) -> DrawAPaintImageResult {
         debug!("Returning an invalid image.");
         DrawAPaintImageResult {

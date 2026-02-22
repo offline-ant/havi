@@ -12,7 +12,7 @@ use net_traits::blob_url_store::parse_blob_url;
 use net_traits::filemanager_thread::FileManagerThreadMsg;
 use profile_traits::ipc;
 use script_bindings::cformat;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use uuid::Uuid;
 
 use crate::dom::bindings::cell::DomRefCell;
@@ -35,14 +35,14 @@ pub(crate) struct URL {
 
     /// <https://url.spec.whatwg.org/#concept-url-url>
     #[no_trace]
-    url: DomRefCell<ServoUrl>,
+    url: DomRefCell<BrowserUrl>,
 
     /// <https://url.spec.whatwg.org/#dom-url-searchparams>
     search_params: MutNullableDom<URLSearchParams>,
 }
 
 impl URL {
-    fn new_inherited(url: ServoUrl) -> URL {
+    fn new_inherited(url: BrowserUrl) -> URL {
         URL {
             reflector_: Reflector::new(),
             url: DomRefCell::new(url),
@@ -53,7 +53,7 @@ impl URL {
     fn new(
         global: &GlobalScope,
         proto: Option<HandleObject>,
-        url: ServoUrl,
+        url: BrowserUrl,
         can_gc: CanGc,
     ) -> DomRoot<URL> {
         reflect_dom_object_with_proto(Box::new(URL::new_inherited(url)), global, proto, can_gc)
@@ -123,7 +123,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
         let parsed_base = match base {
             None => None,
             Some(base) => {
-                match ServoUrl::parse(&base.0) {
+                match BrowserUrl::parse(&base.0) {
                     Ok(base) => Some(base),
                     Err(error) => {
                         // Step 2. Throw a TypeError if URL parsing fails.
@@ -132,7 +132,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
                 }
             },
         };
-        let parsed_url = match ServoUrl::parse_with_base(parsed_base.as_ref(), &url.0) {
+        let parsed_url = match BrowserUrl::parse_with_base(parsed_base.as_ref(), &url.0) {
             Ok(url) => url,
             Err(error) => {
                 // Step 2. Throw a TypeError if URL parsing fails.
@@ -158,7 +158,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
         // Step 1.
         let parsed_base = match base {
             None => None,
-            Some(base) => match ServoUrl::parse(&base.0) {
+            Some(base) => match BrowserUrl::parse(&base.0) {
                 Ok(base) => Some(base),
                 Err(_) => {
                     // Step 2.1
@@ -167,7 +167,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
             },
         };
         // Step 2.2, 3
-        ServoUrl::parse_with_base(parsed_base.as_ref(), &url.0).is_ok()
+        BrowserUrl::parse_with_base(parsed_base.as_ref(), &url.0).is_ok()
     }
 
     /// <https://url.spec.whatwg.org/#dom-url-parse>
@@ -179,15 +179,15 @@ impl URLMethods<crate::DomTypeHolder> for URL {
     ) -> Option<DomRoot<URL>> {
         // Step 1: Let parsedURL be the result of running the API URL parser on url with base,
         // if given.
-        let parsed_base = base.and_then(|base| ServoUrl::parse(base.0.as_str()).ok());
-        let parsed_url = ServoUrl::parse_with_base(parsed_base.as_ref(), &url.0);
+        let parsed_base = base.and_then(|base| BrowserUrl::parse(base.0.as_str()).ok());
+        let parsed_url = BrowserUrl::parse_with_base(parsed_base.as_ref(), &url.0);
 
         // Step 2: If parsedURL is failure, then return null.
         // Step 3: Let url be a new URL object.
         // Step 4: Initialize url with parsedURL.
         // Step 5: Return url.
 
-        // These steps are all handled while mapping the Result to an Option<ServoUrl>.
+        // These steps are all handled while mapping the Result to an Option<BrowserUrl>.
         // Regarding initialization, the same condition should apply here as stated in the comments
         // in Self::Constructor above - construct it on-demand inside `URL::SearchParams`.
         Some(URL::new(global, None, parsed_url.ok()?, can_gc))
@@ -211,7 +211,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
         // this method call does nothing. User agents may display a message on the error console.
         let origin = global.origin().immutable();
 
-        if let Ok(url) = ServoUrl::parse(&url.str()) {
+        if let Ok(url) = BrowserUrl::parse(&url.str()) {
             if url.fragment().is_none() && *origin == url.origin() {
                 if let Ok((id, _)) = parse_blob_url(&url) {
                     let resource_threads = global.resource_threads();
@@ -262,7 +262,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
 
     /// <https://url.spec.whatwg.org/#dom-url-href>
     fn SetHref(&self, value: USVString) -> ErrorResult {
-        match ServoUrl::parse(&value.0) {
+        match BrowserUrl::parse(&value.0) {
             Ok(url) => {
                 *self.url.borrow_mut() = url;
                 self.search_params.set(None); // To be re-initialized in the SearchParams getter.

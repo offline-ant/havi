@@ -20,7 +20,7 @@ use net_traits::request::{
     RequestMode as NetTraitsRequestMode, TraversableForUserPrompts,
 };
 use script_bindings::cformat;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::body::{BodyMixin, BodyType, Extractable, clone_body_stream_for_dom_body, consume_body};
 use crate::conversions::Convert;
@@ -58,7 +58,7 @@ pub(crate) struct Request {
 }
 
 impl Request {
-    fn new_inherited(global: &GlobalScope, url: ServoUrl) -> Request {
+    fn new_inherited(global: &GlobalScope, url: BrowserUrl) -> Request {
         Request {
             reflector_: Reflector::new(),
             request: DomRefCell::new(net_request_from_global(global, url)),
@@ -71,7 +71,7 @@ impl Request {
     fn new(
         global: &GlobalScope,
         proto: Option<HandleObject>,
-        url: ServoUrl,
+        url: BrowserUrl,
         can_gc: CanGc,
     ) -> DomRoot<Request> {
         reflect_dom_object_with_proto(
@@ -572,7 +572,7 @@ impl Request {
     }
 }
 
-fn net_request_from_global(global: &GlobalScope, url: ServoUrl) -> NetTraitsRequest {
+fn net_request_from_global(global: &GlobalScope, url: BrowserUrl) -> NetTraitsRequest {
     RequestBuilder::new(global.webview_id(), url, global.get_referrer())
         .with_global_scope(global)
         .build()
@@ -604,7 +604,7 @@ fn is_cors_safelisted_method(m: &HttpMethod) -> bool {
 }
 
 /// <https://url.spec.whatwg.org/#include-credentials>
-fn includes_credentials(input: &ServoUrl) -> bool {
+fn includes_credentials(input: &BrowserUrl) -> bool {
     !input.username().is_empty() || input.password().is_some()
 }
 

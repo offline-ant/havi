@@ -3,7 +3,7 @@ use makepad_widgets::*;
 use servo::{
     DeviceIndependentPixel, DevicePixel,
     RenderingContext,
-    WebViewId, percent_decode_jsonqa,
+    WebViewId,
 };
 use servo::protocol_handler::ProtocolRegistry;
 use havi_protocols::embedded_hpprd::{EmbeddedHpprd, HpprdMode};
@@ -288,7 +288,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         });
     }
 
-    fn notify_url_changed(&self, webview: servo::WebView, url: url::Url) {
+    fn notify_url_changed(&self, webview: servo::WebView, url: servo::BrowserUrl) {
         Cx::post_action(MakepadServoAction::UrlChanged {
             webview_id: webview.id(),
             url: url.to_string(),
@@ -773,7 +773,7 @@ impl App {
         // Step 4: Create first WebView with proper HiDPI scale factor.
         let start_url_str = std::env::var("HAVI_URL")
             .unwrap_or_else(|_| HOME_URL.to_string());
-        let url = url::Url::parse(&start_url_str).unwrap();
+        let url = servo::BrowserUrl::parse(&start_url_str).unwrap();
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
         let webview = servo::WebViewBuilder::new(&servo, rendering_context.clone())
@@ -980,9 +980,9 @@ impl App {
                     tab_bar_dirty = true;
                 }
                 if let Some(new_url) = tab.webview.url() {
-                    let new_url_str = percent_decode_jsonqa(new_url.as_str());
+                    let new_url_str = new_url.as_str();
                     if new_url_str != tab.url {
-                        tab.url = new_url_str;
+                        tab.url = new_url_str.to_owned();
                         tab_bar_dirty = true;
                     }
                 }
@@ -1333,5 +1333,6 @@ impl AppMain for App {
         self.ui.handle_event(cx, event, &mut Scope::empty());
     }
 }
+
 
 

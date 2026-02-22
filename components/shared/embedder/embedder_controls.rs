@@ -12,8 +12,7 @@ use base::generic_channel::GenericSender;
 use base::id::{PipelineId, WebViewId};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use servo_url::ImmutableOrigin;
-use url::Url;
+use servo_url::{BrowserUrl, ImmutableOrigin};
 use uuid::Uuid;
 
 use crate::{InputMethodType, RgbColor};
@@ -123,8 +122,8 @@ bitflags! {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ContextMenuElementInformation {
     pub flags: ContextMenuElementInformationFlags,
-    pub link_url: Option<Url>,
-    pub image_url: Option<Url>,
+    pub link_url: Option<BrowserUrl>,
+    pub image_url: Option<BrowserUrl>,
 }
 
 /// Request to present an IME to the user when an editable element is focused. If `type` is

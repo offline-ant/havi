@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::codegen::Bindings::WorkerLocationBinding::WorkerLocationMethods;
 use crate::dom::bindings::reflector::{Reflector, reflect_dom_object};
@@ -18,11 +18,11 @@ use crate::script_runtime::CanGc;
 pub(crate) struct WorkerLocation {
     reflector_: Reflector,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl WorkerLocation {
-    fn new_inherited(url: ServoUrl) -> WorkerLocation {
+    fn new_inherited(url: BrowserUrl) -> WorkerLocation {
         WorkerLocation {
             reflector_: Reflector::new(),
             url,
@@ -31,7 +31,7 @@ impl WorkerLocation {
 
     pub(crate) fn new(
         global: &WorkerGlobalScope,
-        url: ServoUrl,
+        url: BrowserUrl,
         can_gc: CanGc,
     ) -> DomRoot<WorkerLocation> {
         reflect_dom_object(Box::new(WorkerLocation::new_inherited(url)), global, can_gc)

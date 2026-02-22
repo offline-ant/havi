@@ -6,7 +6,7 @@ use base::id::WebViewId;
 use constellation_traits::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
 use profile_traits::generic_channel;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use storage_traits::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
 
 use crate::dom::bindings::codegen::Bindings::StorageBinding::StorageMethods;
@@ -52,7 +52,7 @@ impl Storage {
         self.global().as_window().window_proxy().webview_id()
     }
 
-    fn get_url(&self) -> ServoUrl {
+    fn get_url(&self) -> BrowserUrl {
         self.global().get_url()
     }
 
@@ -232,7 +232,7 @@ impl Storage {
     /// <https://html.spec.whatwg.org/multipage/#send-a-storage-notification>
     pub(crate) fn queue_storage_event(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         key: Option<String>,
         old_value: Option<String>,
         new_value: Option<String>,

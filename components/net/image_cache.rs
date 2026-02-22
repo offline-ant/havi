@@ -32,7 +32,7 @@ use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 use rustc_hash::FxHashMap;
 use servo_config::pref;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use webrender_api::ImageKey as WebRenderImageKey;
 use webrender_api::units::DeviceIntSize;
 
@@ -141,7 +141,7 @@ fn set_webrender_image_key(
 // ======================================================================
 
 /// <https://html.spec.whatwg.org/multipage/#list-of-available-images>
-type ImageKey = (ServoUrl, ImmutableOrigin, Option<CorsSettings>);
+type ImageKey = (BrowserUrl, ImmutableOrigin, Option<CorsSettings>);
 
 // Represents all the currently pending loads/decodings. For
 // performance reasons, loads are indexed by a dedicated load key.
@@ -187,7 +187,7 @@ impl AllPendingLoads {
 
     fn get_cached(
         &mut self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_status: Option<CorsSettings>,
     ) -> CacheResult<'_> {
@@ -343,7 +343,7 @@ struct PendingLoad {
 
     /// The url being loaded. Do not forget that this may be several Mb
     /// if we are loading a data: url.
-    url: ServoUrl,
+    url: BrowserUrl,
 
     /// The origin that requested this load.
     load_origin: ImmutableOrigin,
@@ -355,7 +355,7 @@ struct PendingLoad {
     cors_status: CorsStatus,
 
     /// The URL of the final response that contains a body.
-    final_url: Option<ServoUrl>,
+    final_url: Option<BrowserUrl>,
 
     /// The MIME type from the `Content-type` header of the HTTP response, if any.
     content_type: Option<Mime>,
@@ -363,7 +363,7 @@ struct PendingLoad {
 
 impl PendingLoad {
     fn new(
-        url: ServoUrl,
+        url: BrowserUrl,
         load_origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
     ) -> PendingLoad {
@@ -642,7 +642,7 @@ impl ImageCacheStore {
 
     fn remove_loaded_image(
         &mut self,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         origin: &ImmutableOrigin,
         cors_setting: &Option<CorsSettings>,
     ) {
@@ -689,10 +689,10 @@ impl ImageCacheStore {
     /// or the complete load is not fully decoded or is unavailable.
     fn get_completed_image_if_available(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
-    ) -> Option<Result<(Image, ServoUrl), ()>> {
+    ) -> Option<Result<(Image, BrowserUrl), ()>> {
         self.completed_loads
             .get(&(url, origin, cors_setting))
             .map(|completed_load| match &completed_load.image_response {
@@ -831,7 +831,7 @@ impl ImageCache for ImageCacheImpl {
 
     fn get_image(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
     ) -> Option<Image> {
@@ -845,7 +845,7 @@ impl ImageCache for ImageCacheImpl {
 
     fn get_cached_image_status(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: ImmutableOrigin,
         cors_setting: Option<CorsSettings>,
     ) -> ImageCacheResult {
@@ -1073,7 +1073,7 @@ impl ImageCache for ImageCacheImpl {
 
     fn evict_completed_image(
         &self,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         origin: &ImmutableOrigin,
         cors_setting: &Option<CorsSettings>,
     ) {

@@ -16,7 +16,7 @@ use malloc_size_of_derive::MallocSizeOf;
 use net_traits::image_cache::Image;
 use pixels::ImageMetadata;
 use servo_arc::Arc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::context::SharedStyleContext;
 use style::data::ElementData;
@@ -210,7 +210,7 @@ pub trait ThreadSafeLayoutNode<'dom>: Clone + Copy + Debug + NodeInfo + PartialE
     fn selection(&self) -> Option<SharedSelection>;
 
     /// If this is an image element, returns its URL. If this is not an image element, fails.
-    fn image_url(&self) -> Option<ServoUrl>;
+    fn image_url(&self) -> Option<BrowserUrl>;
 
     /// If this is an image element, returns its current-pixel-density. If this is not an image element, fails.
     fn image_density(&self) -> Option<f64>;

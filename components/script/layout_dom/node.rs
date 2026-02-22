@@ -21,7 +21,7 @@ use net_traits::image_cache::Image;
 use pixels::ImageMetadata;
 use selectors::Element as _;
 use servo_arc::Arc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style;
 use style::dom::{NodeInfo, TElement, TNode, TShadowRoot};
 use style::properties::ComputedValues;
@@ -384,7 +384,7 @@ impl<'dom> ThreadSafeLayoutNode<'dom> for ServoThreadSafeLayoutNode<'dom> {
         this.selection()
     }
 
-    fn image_url(&self) -> Option<ServoUrl> {
+    fn image_url(&self) -> Option<BrowserUrl> {
         let this = unsafe { self.get_jsmanaged() };
         this.image_url()
     }

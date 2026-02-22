@@ -67,7 +67,7 @@ use profile_traits::mem::{Report, ReportKind};
 use profile_traits::path;
 use rustc_hash::FxHashMap;
 use servo_arc::Arc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::mpsc::{
     Receiver as TokioReceiver, Sender as TokioSender, UnboundedReceiver, UnboundedSender, channel,
     unbounded_channel,
@@ -201,7 +201,7 @@ fn set_default_accept_encoding(headers: &mut HeaderMap) {
 }
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-state-no-referrer-when-downgrade>
-fn no_referrer_when_downgrade(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoUrl> {
+fn no_referrer_when_downgrade(referrer_url: BrowserUrl, current_url: BrowserUrl) -> Option<BrowserUrl> {
     // Step 1
     if referrer_url.is_potentially_trustworthy() && !current_url.is_potentially_trustworthy() {
         return None;
@@ -211,7 +211,7 @@ fn no_referrer_when_downgrade(referrer_url: ServoUrl, current_url: ServoUrl) -> 
 }
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-strict-origin>
-fn strict_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoUrl> {
+fn strict_origin(referrer_url: BrowserUrl, current_url: BrowserUrl) -> Option<BrowserUrl> {
     // Step 1
     if referrer_url.is_potentially_trustworthy() && !current_url.is_potentially_trustworthy() {
         return None;
@@ -222,9 +222,9 @@ fn strict_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoU
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-strict-origin-when-cross-origin>
 fn strict_origin_when_cross_origin(
-    referrer_url: ServoUrl,
-    current_url: ServoUrl,
-) -> Option<ServoUrl> {
+    referrer_url: BrowserUrl,
+    current_url: BrowserUrl,
+) -> Option<BrowserUrl> {
     // Step 1
     if referrer_url.origin() == current_url.origin() {
         return strip_url_for_use_as_referrer(referrer_url, false);
@@ -260,7 +260,7 @@ fn is_schemelessy_same_site(site_a: &ImmutableOrigin, site_b: &ImmutableOrigin) 
 }
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#strip-url>
-fn strip_url_for_use_as_referrer(mut url: ServoUrl, origin_only: bool) -> Option<ServoUrl> {
+fn strip_url_for_use_as_referrer(mut url: BrowserUrl, origin_only: bool) -> Option<BrowserUrl> {
     const MAX_REFERRER_URL_LENGTH: usize = 4096;
     // Step 2
     if url.is_local_scheme() {
@@ -285,7 +285,7 @@ fn strip_url_for_use_as_referrer(mut url: ServoUrl, origin_only: bool) -> Option
 }
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-same-origin>
-fn same_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoUrl> {
+fn same_origin(referrer_url: BrowserUrl, current_url: BrowserUrl) -> Option<BrowserUrl> {
     // Step 1
     if referrer_url.origin() == current_url.origin() {
         return strip_url_for_use_as_referrer(referrer_url, false);
@@ -295,7 +295,7 @@ fn same_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoUrl
 }
 
 /// <https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-origin-when-cross-origin>
-fn origin_when_cross_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Option<ServoUrl> {
+fn origin_when_cross_origin(referrer_url: BrowserUrl, current_url: BrowserUrl) -> Option<BrowserUrl> {
     // Step 1
     if referrer_url.origin() == current_url.origin() {
         return strip_url_for_use_as_referrer(referrer_url, false);
@@ -307,9 +307,9 @@ fn origin_when_cross_origin(referrer_url: ServoUrl, current_url: ServoUrl) -> Op
 /// <https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer>
 pub fn determine_requests_referrer(
     referrer_policy: ReferrerPolicy,
-    referrer_source: ServoUrl,
-    current_url: ServoUrl,
-) -> Option<ServoUrl> {
+    referrer_source: BrowserUrl,
+    current_url: BrowserUrl,
+) -> Option<BrowserUrl> {
     match referrer_policy {
         ReferrerPolicy::EmptyString | ReferrerPolicy::NoReferrer => None,
         ReferrerPolicy::Origin => strip_url_for_use_as_referrer(referrer_source, true),
@@ -329,7 +329,7 @@ pub fn determine_requests_referrer(
 }
 
 fn set_request_cookies(
-    url: &ServoUrl,
+    url: &BrowserUrl,
     headers: &mut HeaderMap,
     cookie_jar: &RwLock<CookieStorage>,
 ) {
@@ -343,7 +343,7 @@ fn set_request_cookies(
     }
 }
 
-fn set_cookie_for_url(cookie_jar: &RwLock<CookieStorage>, request: &ServoUrl, cookie_val: &str) {
+fn set_cookie_for_url(cookie_jar: &RwLock<CookieStorage>, request: &BrowserUrl, cookie_val: &str) {
     let mut cookie_jar = cookie_jar.write();
     let source = CookieSource::HTTP;
 
@@ -353,7 +353,7 @@ fn set_cookie_for_url(cookie_jar: &RwLock<CookieStorage>, request: &ServoUrl, co
 }
 
 fn set_cookies_from_headers(
-    url: &ServoUrl,
+    url: &BrowserUrl,
     headers: &HeaderMap,
     cookie_jar: &RwLock<CookieStorage>,
 ) {
@@ -406,7 +406,7 @@ fn build_tls_security_info(handshake: &TlsHandshakeInfo, hsts_enabled: bool) -> 
 #[allow(clippy::too_many_arguments)]
 fn prepare_devtools_request(
     request_id: String,
-    url: ServoUrl,
+    url: BrowserUrl,
     method: Method,
     headers: HeaderMap,
     body: Option<Vec<u8>>,
@@ -649,7 +649,7 @@ impl BodySink {
 #[allow(clippy::too_many_arguments)]
 async fn obtain_response(
     client: &ServoClient,
-    url: &ServoUrl,
+    url: &BrowserUrl,
     method: &Method,
     request_headers: &mut HeaderMap,
     body: Option<StdArc<Mutex<IpcSender<BodyChunkRequest>>>>,
@@ -1091,7 +1091,7 @@ static REQUEST_BODY_HEADER_NAMES: &[HeaderName] = &[
 fn location_url_for_response(
     response: &Response,
     request_fragment: Option<&str>,
-) -> Option<Result<ServoUrl, String>> {
+) -> Option<Result<BrowserUrl, String>> {
     // Step 1. If response’s status is not a redirect status, then return null.
     assert!(
         response
@@ -1109,7 +1109,7 @@ fn location_url_for_response(
             HeaderValue::to_str(header_value)
                 .map(|location_string| {
                     // Step 3. If location is a header value, then set location to the result of parsing location with response’s URL.
-                    ServoUrl::parse_with_base(response.actual_response().url(), location_string)
+                    BrowserUrl::parse_with_base(response.actual_response().url(), location_string)
                         .map_err(|error| error.to_string())
                 })
                 .ok()
@@ -2592,7 +2592,7 @@ fn cors_check(request: &Request, response: &Response) -> Result<(), ()> {
     Err(())
 }
 
-fn has_credentials(url: &ServoUrl) -> bool {
+fn has_credentials(url: &BrowserUrl) -> bool {
     !url.username().is_empty() || url.password().is_some()
 }
 

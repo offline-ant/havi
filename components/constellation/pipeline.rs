@@ -15,7 +15,7 @@ use paint_api::{CompositionPipeline, PaintMessage, PaintProxy};
 use script_traits::{
     DiscardBrowsingContext, DocumentActivity, NewPipelineInfo, ScriptThreadMessage,
 };
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::Constellation;
 use crate::event_loop::EventLoop;
@@ -43,7 +43,7 @@ pub struct Pipeline {
     /// The most recently loaded URL in this pipeline.
     /// Note that this URL can change, for example if the page navigates
     /// to a hash URL.
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
 
     /// Whether this pipeline is currently running animations. Pipelines that are running
     /// animations cause composites to be continually scheduled.

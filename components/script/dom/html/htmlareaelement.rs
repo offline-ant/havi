@@ -11,7 +11,7 @@ use dom_struct::dom_struct;
 use euclid::default::Point2D;
 use html5ever::{LocalName, Prefix, local_name};
 use js::rust::HandleObject;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use stylo_atoms::Atom;
 use stylo_dom::ElementState;
@@ -269,7 +269,7 @@ pub(crate) struct HTMLAreaElement {
     #[no_trace]
     relations: Cell<LinkRelations>,
     #[no_trace]
-    url: DomRefCell<Option<ServoUrl>>,
+    url: DomRefCell<Option<BrowserUrl>>,
 }
 
 impl HTMLAreaElement {
@@ -323,7 +323,7 @@ impl HTMLAreaElement {
 }
 
 impl HyperlinkElement for HTMLAreaElement {
-    fn get_url(&self) -> &DomRefCell<Option<ServoUrl>> {
+    fn get_url(&self) -> &DomRefCell<Option<BrowserUrl>> {
         &self.url
     }
 }

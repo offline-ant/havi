@@ -7,7 +7,7 @@ use log::warn;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageType};
 
@@ -125,7 +125,7 @@ impl SiteDataManager {
         let mut add_origins = |origins: Vec<OriginDescriptor>, storage_type: StorageType| {
             for origin in origins {
                 let url =
-                    ServoUrl::parse(&origin.name).expect("Should always be able to parse origins.");
+                    BrowserUrl::parse(&origin.name).expect("Should always be able to parse origins.");
 
                 let Some(domain) = registered_domain_name(&url) else {
                     warn!("Failed to get a registered domain name for: {url}.");

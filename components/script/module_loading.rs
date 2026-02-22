@@ -23,7 +23,7 @@ use js::rust::wrappers2::{
 use js::rust::{HandleValue, IntoHandle};
 use net_traits::request::{Destination, Referrer};
 use script_bindings::str::DOMString;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::refcounted::Trusted;
@@ -75,7 +75,7 @@ pub(crate) struct GraphLoadingState {
     /// [[PendingModulesCount]]
     pending_modules_count: Cell<u32>,
     /// [[Visited]]
-    visited: RefCell<HashSet<ServoUrl>>,
+    visited: RefCell<HashSet<BrowserUrl>>,
     /// [[HostDefined]]
     load_state: Option<Rc<LoadState>>,
 }
@@ -569,7 +569,7 @@ pub(crate) fn host_load_imported_module(
 
 /// <https://html.spec.whatwg.org/multipage/#fetch-a-single-imported-module-script>
 fn fetch_a_single_imported_module_script(
-    url: ServoUrl,
+    url: BrowserUrl,
     owner: ModuleOwner,
     destination: Destination,
     options: ScriptFetchOptions,

@@ -25,7 +25,7 @@ use ipc_channel::router::ROUTER;
 use log::{debug, trace, warn};
 use net_traits::request::{RequestBuilder, RequestMode};
 use net_traits::{CookieSource, MessageData, WebSocketDomAction, WebSocketNetworkEvent};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
@@ -123,7 +123,7 @@ pub fn create_handshake_request(
 fn process_ws_response(
     http_state: &HttpState,
     response: &Response,
-    resource_url: &ServoUrl,
+    resource_url: &BrowserUrl,
     protocols: &[String],
 ) -> Result<Option<String>, Error> {
     trace!("processing websocket http response for {}", resource_url);

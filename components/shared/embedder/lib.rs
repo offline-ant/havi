@@ -32,7 +32,7 @@ use malloc_size_of_derive::MallocSizeOf;
 use pixels::SharedRasterImage;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use servo_geometry::{DeviceIndependentIntRect, DeviceIndependentIntSize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use strum::{EnumMessage, IntoStaticStr};
 use style::queries::values::PrefersColorScheme;
 use style_traits::CSSPixel;
@@ -295,7 +295,7 @@ pub struct ProtocolHandlerUpdateRegistration {
     /// The scheme for the protocol handler
     pub scheme: String,
     /// The URL to navigate to when handling requests for scheme
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     /// Whether this update is to register or unregister the protocol handler
     pub register_or_unregister: RegisterOrUnregister,
 }
@@ -510,7 +510,7 @@ pub enum EmbedderMsg {
     /// way that makes them impossible to mistake for browser UI.
     ShowSimpleDialog(WebViewId, SimpleDialogRequest),
     /// Whether or not to allow a pipeline to load a url.
-    AllowNavigationRequest(WebViewId, PipelineId, ServoUrl),
+    AllowNavigationRequest(WebViewId, PipelineId, BrowserUrl),
     /// Request to (un)register protocol handler by page content.
     AllowProtocolHandlerRequest(
         WebViewId,
@@ -539,7 +539,7 @@ pub enum EmbedderMsg {
     /// A favicon was detected
     NewFavicon(WebViewId, Image),
     /// The history state has changed.
-    HistoryChanged(WebViewId, Vec<ServoUrl>, usize),
+    HistoryChanged(WebViewId, Vec<BrowserUrl>, usize),
     /// A history traversal operation completed.
     HistoryTraversalComplete(WebViewId, TraversalId),
     /// Get the device independent window rectangle.
@@ -894,16 +894,16 @@ pub struct Notification {
     /// the device's default settings should be respected.
     pub silent: Option<bool>,
     /// The URL of an icon. The icon will be displayed as part of the notification.
-    pub icon_url: Option<ServoUrl>,
+    pub icon_url: Option<BrowserUrl>,
     /// Icon's raw image data and metadata.
     pub icon_resource: Option<Arc<SharedRasterImage>>,
     /// The URL of a badge. The badge is used when there is no enough space to display the notification,
     /// such as on a mobile device's notification bar.
-    pub badge_url: Option<ServoUrl>,
+    pub badge_url: Option<BrowserUrl>,
     /// Badge's raw image data and metadata.
     pub badge_resource: Option<Arc<SharedRasterImage>>,
     /// The URL of an image. The image will be displayed as part of the notification.
-    pub image_url: Option<ServoUrl>,
+    pub image_url: Option<BrowserUrl>,
     /// Image's raw image data and metadata.
     pub image_resource: Option<Arc<SharedRasterImage>>,
     /// Actions available for users to choose from for interacting with the notification.
@@ -918,7 +918,7 @@ pub struct NotificationAction {
     /// The title string of the action to be shown to the user.
     pub title: String,
     /// The URL of an icon. The icon will be displayed with the action.
-    pub icon_url: Option<ServoUrl>,
+    pub icon_url: Option<BrowserUrl>,
     /// Icon's raw image data and metadata.
     pub icon_resource: Option<Arc<SharedRasterImage>>,
 }

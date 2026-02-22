@@ -18,8 +18,8 @@ use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_geometry::{DeviceIndependentIntRect, DeviceIndependentPixel};
+use servo_url::BrowserUrl;
 use style_traits::CSSPixel;
-use url::Url;
 use webdriver::error::ErrorStatus;
 
 use crate::{InputEvent, JSValue, JavaScriptEvaluationError, ScreenshotCaptureError, TraversalId};
@@ -96,7 +96,7 @@ pub enum WebDriverCommandMsg {
         GenericOneshotSender<Size2D<f32, DeviceIndependentPixel>>,
     ),
     /// Load a URL in the top-level browsing context with the given ID.
-    LoadUrl(WebViewId, Url, GenericSender<WebDriverLoadStatus>),
+    LoadUrl(WebViewId, BrowserUrl, GenericSender<WebDriverLoadStatus>),
     /// Refresh the top-level browsing context with the given ID.
     Refresh(WebViewId, GenericSender<WebDriverLoadStatus>),
     /// Navigate the webview with the given ID to the previous page in the browsing context's history.

@@ -334,7 +334,7 @@ impl ServoInner {
             ) => {
                 if let Some(webview) = self.get_webview_handle(webview_id) {
                     let authentication_request = AuthenticationRequest::new(
-                        url.into_url(),
+                        url,
                         for_proxy,
                         response_sender,
                         self.servo_errors.sender(),
@@ -383,7 +383,7 @@ impl ServoInner {
             EmbedderMsg::AllowNavigationRequest(webview_id, pipeline_id, servo_url) => {
                 if let Some(webview) = self.get_webview_handle(webview_id) {
                     let request = NavigationRequest {
-                        url: servo_url.into_url(),
+                        url: servo_url,
                         pipeline_id,
                         constellation_proxy: self.constellation_proxy.clone(),
                         response_sent: false,
@@ -404,7 +404,7 @@ impl ServoInner {
                     } = registration_update;
                     let protocol_handler_registration = ProtocolHandlerRegistration {
                         scheme,
-                        url: url.into_url(),
+                        url,
                         register_or_unregister,
                     };
                     let allow_deny_request = AllowOrDenyRequest::new(

@@ -35,7 +35,7 @@ use net_traits::request::Destination;
 use net_traits::{DebugVec, TlsSecurityInfo};
 use profile_traits::mem::ReportsChan;
 use serde::{Deserialize, Serialize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use uuid::Uuid;
 
 // Information would be attached to NewGlobal to be received and show in devtools.
@@ -43,7 +43,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DevtoolsPageInfo {
     pub title: String,
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     pub is_top_level_global: bool,
 }
 
@@ -87,7 +87,7 @@ pub enum ChromeToDevtoolsControlMsg {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum NavigationState {
     /// A browsing context is about to navigate to a given URL.
-    Start(ServoUrl),
+    Start(BrowserUrl),
     /// A browsing context has completed navigating to the provided pipeline.
     Stop(PipelineId, DevtoolsPageInfo),
 }
@@ -434,7 +434,7 @@ pub struct PageError {
 
 #[derive(Debug, PartialEq, MallocSizeOf)]
 pub struct HttpRequest {
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     #[ignore_malloc_size_of = "http type"]
     pub method: Method,
     #[ignore_malloc_size_of = "http type"]
@@ -548,7 +548,7 @@ impl fmt::Display for ShadowRootMode {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SourceInfo {
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     pub introduction_type: String,
     pub inline: bool,
     pub worker_id: Option<WorkerId>,

@@ -170,7 +170,7 @@ impl App {
     pub(super) fn create_webview(&self, url_str: &str) -> Option<servo::WebView> {
         let servo = self.servo.as_ref()?;
         let rc = self.rendering_context.as_ref()?;
-        let url = url::Url::parse(url_str).ok()?;
+        let url = servo::BrowserUrl::parse(url_str).ok()?;
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
         let webview = servo::WebViewBuilder::new(servo, rc.clone())
@@ -258,4 +258,5 @@ impl App {
     pub(super) fn tab_index_for_webview(&self, webview_id: WebViewId) -> Option<usize> {
         self.tabs.iter().position(|t| t.webview_id == webview_id)
     }
+
 }

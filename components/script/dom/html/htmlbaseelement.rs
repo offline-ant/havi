@@ -5,7 +5,7 @@
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::attr::Attr;
 use crate::dom::bindings::cell::DomRefCell;
@@ -28,7 +28,7 @@ pub(crate) struct HTMLBaseElement {
 
     /// <https://html.spec.whatwg.org/multipage/#frozen-base-url>
     #[no_trace]
-    frozen_base_url: DomRefCell<Option<ServoUrl>>,
+    frozen_base_url: DomRefCell<Option<BrowserUrl>>,
 }
 
 impl HTMLBaseElement {
@@ -102,7 +102,7 @@ impl HTMLBaseElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#frozen-base-url>
-    pub(crate) fn frozen_base_url(&self) -> ServoUrl {
+    pub(crate) fn frozen_base_url(&self) -> BrowserUrl {
         self.frozen_base_url
             .borrow()
             .clone()

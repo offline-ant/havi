@@ -20,7 +20,7 @@ use net_traits::image_cache::{
 use parking_lot::{Mutex, RwLock};
 use pixels::RasterImage;
 use script::layout_dom::ServoThreadSafeLayoutNode;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;
 use style::values::computed::image::{Gradient, Image};
@@ -104,7 +104,7 @@ pub(crate) struct ImageResolver {
 
     // A cache that maps image resources used in CSS (e.g as the `url()` value
     // for `background-image` or `content` property) to the final resolved image data.
-    pub resolved_images_cache: Arc<RwLock<HashMap<ServoUrl, CachedImageOrError>>>,
+    pub resolved_images_cache: Arc<RwLock<HashMap<BrowserUrl, CachedImageOrError>>>,
 
     /// The current animation timeline value used to properly initialize animating images.
     pub animation_timeline_value: f64,
@@ -128,7 +128,7 @@ impl ImageResolver {
     pub(crate) fn get_or_request_image_or_meta(
         &self,
         node: OpaqueNode,
-        url: ServoUrl,
+        url: BrowserUrl,
         destination: LayoutImageDestination,
     ) -> LayoutImageCacheResult {
         // Check for available image or start tracking.
@@ -182,7 +182,7 @@ impl ImageResolver {
     pub(crate) fn get_cached_image_for_url(
         &self,
         node: OpaqueNode,
-        url: ServoUrl,
+        url: BrowserUrl,
         destination: LayoutImageDestination,
     ) -> Result<CachedImage, ResolveImageError> {
         if let Some(cached_image) = self.resolved_images_cache.read().get(&url) {

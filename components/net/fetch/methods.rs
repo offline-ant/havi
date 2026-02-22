@@ -40,7 +40,7 @@ use rustc_hash::FxHashMap;
 use rustls_pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
-use servo_url::{Host, ImmutableOrigin, ServoUrl};
+use servo_url::{Host, ImmutableOrigin, BrowserUrl};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::mpsc::{UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender};
 
@@ -913,7 +913,7 @@ impl RangeRequestBounds {
     }
 }
 
-fn create_blank_reply(url: ServoUrl, timing_type: ResourceTimingType) -> Response {
+fn create_blank_reply(url: BrowserUrl, timing_type: ResourceTimingType) -> Response {
     let mut response = Response::new(url, ResourceFetchTiming::new(timing_type));
     response
         .headers
@@ -923,7 +923,7 @@ fn create_blank_reply(url: ServoUrl, timing_type: ResourceTimingType) -> Respons
     response
 }
 
-fn create_about_memory(url: ServoUrl, timing_type: ResourceTimingType) -> Response {
+fn create_about_memory(url: BrowserUrl, timing_type: ResourceTimingType) -> Response {
     let mut response = Response::new(url, ResourceFetchTiming::new(timing_type));
     response
         .headers
@@ -1104,7 +1104,7 @@ fn should_be_blocked_due_to_mime_type(
 }
 
 /// <https://fetch.spec.whatwg.org/#block-bad-port>
-pub fn should_request_be_blocked_due_to_a_bad_port(url: &ServoUrl) -> bool {
+pub fn should_request_be_blocked_due_to_a_bad_port(url: &BrowserUrl) -> bool {
     // Step 1. Let url be request’s current URL.
     // NOTE: We receive the request url as an argument
 

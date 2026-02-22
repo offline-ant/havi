@@ -10,11 +10,12 @@ const MENU_HEIGHT: f64 = 78.0; // 2 buttons + spacing + padding (measured)
 /// Build an `hppr-editor://` URL from the current page URL.
 /// Returns `None` for non-hppr URLs.
 pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
-    let url = url::Url::parse(url_text).ok()?;
+    let url = servo::BrowserUrl::parse(url_text).ok()?;
     if url.scheme() != "hppr" {
         return None;
     }
-    Some(format!("hppr-editor://{}{}", url.host_str().unwrap_or(""), url.path()))
+    // For HPPR URLs, replace scheme: hppr://group/app/loc → hppr-editor://group/app/loc
+    Some(format!("hppr-editor://{}", &url.as_str()["hppr://".len()..]))
 }
 
 impl App {

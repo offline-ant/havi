@@ -26,7 +26,7 @@ use profile_traits::path;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_config::pref;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageThreadMsg, WebStorageType};
 use uuid::Uuid;
 
@@ -102,7 +102,7 @@ impl StorageOrigins {
 
         self.origin_descriptors.retain(|_, descriptor| {
             let url =
-                ServoUrl::parse(&descriptor.name).expect("Should always be able to parse origins.");
+                BrowserUrl::parse(&descriptor.name).expect("Should always be able to parse origins.");
 
             let Some(domain) = registered_domain_name(&url) else {
                 warn!("Failed to get a registered domain name for: {url}");
@@ -451,7 +451,7 @@ impl WebStorageManager {
         sender: GenericSender<usize>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let data = self.select_data(storage_type, webview_id, url.origin());
         sender
@@ -464,7 +464,7 @@ impl WebStorageManager {
         sender: GenericSender<Option<String>>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
         index: u32,
     ) {
         let data = self.select_data(storage_type, webview_id, url.origin());
@@ -479,7 +479,7 @@ impl WebStorageManager {
         sender: GenericSender<Vec<String>>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let data = self.select_data(storage_type, webview_id, url.origin());
         let keys = data.map_or(vec![], |entry| entry.inner().keys().cloned().collect());
@@ -496,7 +496,7 @@ impl WebStorageManager {
         sender: GenericSender<Result<(bool, Option<String>), ()>>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
         name: String,
         value: String,
     ) {
@@ -537,7 +537,7 @@ impl WebStorageManager {
         sender: GenericSender<Option<String>>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
         name: String,
     ) {
         let data = self.select_data(storage_type, webview_id, url.origin());
@@ -552,7 +552,7 @@ impl WebStorageManager {
         sender: GenericSender<Option<String>>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
         name: String,
     ) {
         let data = self.select_data_mut(storage_type, webview_id, url.origin());
@@ -569,7 +569,7 @@ impl WebStorageManager {
         sender: GenericSender<bool>,
         storage_type: WebStorageType,
         webview_id: WebViewId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let data = self.select_data_mut(storage_type, webview_id, url.origin());
         sender

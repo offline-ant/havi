@@ -16,8 +16,7 @@ use net_traits::request::Request;
 use net_traits::response::Response;
 use net_traits::{DiscardFetch, NetworkError};
 use rustc_hash::FxHashMap;
-use servo_url::ServoUrl;
-use url::Position;
+use servo_url::BrowserUrl;
 
 use crate::fetch::methods::{DoneChannel, FetchContext, RangeRequestBounds, fetch};
 
@@ -157,14 +156,14 @@ impl ProtocolRegistry {
             .is_some_and(|handler| handler.is_secure())
     }
 
-    pub fn privileged_urls(&self) -> Vec<ServoUrl> {
+    pub fn privileged_urls(&self) -> Vec<BrowserUrl> {
         self.handlers
             .iter()
             .flat_map(|(scheme, handler)| {
                 let paths = handler.privileged_paths();
                 paths
                     .iter()
-                    .filter_map(move |path| ServoUrl::parse(&format!("{scheme}:{path}")).ok())
+                    .filter_map(move |path| BrowserUrl::parse(&format!("{scheme}:{path}")).ok())
             })
             .collect()
     }
@@ -206,12 +205,12 @@ impl ProtocolHandler for WebPageContentProtocolHandler {
         // Step 5. Let encodedURL be the result of running UTF-8 percent-encode on inputURLString using the component percent-encode set.
         //
         // Url is already UTF-8, so encoding isn't required
-        let encoded_url = &url[Position::AfterScheme..][1..];
+        let encoded_url = &url.url_after_scheme()[1..];
         // Step 6. Let handlerURLString be normalizedURLString.
         // Step 7. Replace the first instance of "%s" in handlerURLString with encodedURL.
         let handler_url_string = self.url.replacen("%s", encoded_url, 1);
         // Step 8. Let resultURL be the result of parsing handlerURLString.
-        let Ok(result_url) = ServoUrl::parse(&handler_url_string) else {
+        let Ok(result_url) = BrowserUrl::parse(&handler_url_string) else {
             return Box::pin(future::ready(Response::network_error(
                 NetworkError::ProtocolHandlerSubstitutionError,
             )));
@@ -229,7 +228,7 @@ impl ProtocolHandler for WebPageContentProtocolHandler {
 /// Test if the URL is potentially trustworthy or the custom protocol is registered as secure
 pub fn is_url_potentially_trustworthy(
     protocol_registry: &ProtocolRegistry,
-    url: &ServoUrl,
+    url: &BrowserUrl,
 ) -> bool {
     url.is_potentially_trustworthy() || protocol_registry.is_secure(url.scheme())
 }

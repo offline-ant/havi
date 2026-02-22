@@ -9,7 +9,7 @@ use dom_struct::dom_struct;
 use net_traits::request::InsecureRequestsPolicy;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use script_traits::DocumentActivity;
-use servo_url::{MutableOrigin, ServoUrl};
+use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::document_loader::DocumentLoader;
 use crate::dom::bindings::codegen::Bindings::DocumentBinding::{
@@ -38,7 +38,7 @@ impl XMLDocument {
     fn new_inherited(
         window: &Window,
         has_browsing_context: HasBrowsingContext,
-        url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
         origin: MutableOrigin,
         is_html_document: IsHTMLDocument,
         content_type: Option<Mime>,
@@ -80,7 +80,7 @@ impl XMLDocument {
     pub(crate) fn new(
         window: &Window,
         has_browsing_context: HasBrowsingContext,
-        url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
         origin: MutableOrigin,
         doctype: IsHTMLDocument,
         content_type: Option<Mime>,

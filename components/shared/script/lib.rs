@@ -44,7 +44,7 @@ use profile_traits::mem;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_config::prefs::PrefValue;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::WebStorageType;
 use strum::IntoStaticStr;
@@ -215,7 +215,7 @@ pub enum ScriptThreadMessage {
         UpdatePipelineIdReason,
     ),
     /// Updates the history state and url of a given pipeline.
-    UpdateHistoryState(PipelineId, Option<HistoryStateId>, ServoUrl),
+    UpdateHistoryState(PipelineId, Option<HistoryStateId>, BrowserUrl),
     /// Removes inaccesible history states.
     RemoveHistoryStates(PipelineId, Vec<HistoryStateId>),
     /// Set an iframe to be focused. Used when an element in an iframe gains focus.
@@ -250,7 +250,7 @@ pub enum ScriptThreadMessage {
     DispatchStorageEvent(
         PipelineId,
         WebStorageType,
-        ServoUrl,
+        BrowserUrl,
         Option<String>,
         Option<String>,
         Option<String>,
@@ -386,7 +386,7 @@ pub struct InitialScriptState {
     /// Application window's GL Context for Media player
     pub player_context: WindowGLContext,
     /// A list of URLs that can access privileged internal APIs.
-    pub privileged_urls: Vec<ServoUrl>,
+    pub privileged_urls: Vec<BrowserUrl>,
     /// A copy of constellation's `UserContentManagerId` to `UserContents` map.
     pub user_contents_for_manager_id: FxHashMap<UserContentManagerId, UserContents>,
     /// Whether this script should be initialized with accessibility already active.
@@ -442,5 +442,5 @@ pub struct DrawAPaintImageResult {
     /// The image drawn, or None if an invalid paint image was drawn
     pub image_key: Option<ImageKey>,
     /// Drawing the image might have requested loading some image URLs.
-    pub missing_image_urls: Vec<ServoUrl>,
+    pub missing_image_urls: Vec<BrowserUrl>,
 }

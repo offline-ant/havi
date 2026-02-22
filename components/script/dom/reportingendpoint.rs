@@ -15,7 +15,7 @@ use net_traits::request::{
 use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
 use script_bindings::str::DOMString;
 use serde::Serialize;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::codegen::Bindings::CSPViolationReportBodyBinding::CSPViolationReportBody;
 use crate::dom::bindings::codegen::Bindings::ReportingObserverBinding::Report;
@@ -36,7 +36,7 @@ pub(crate) struct ReportingEndpoint {
     /// <https://w3c.github.io/reporting/#dom-endpoint-name>
     name: DOMString,
     /// <https://w3c.github.io/reporting/#dom-endpoint-url>
-    url: ServoUrl,
+    url: BrowserUrl,
     /// <https://w3c.github.io/reporting/#dom-endpoint-failures>
     failures: u32,
 }
@@ -44,7 +44,7 @@ pub(crate) struct ReportingEndpoint {
 impl ReportingEndpoint {
     /// <https://w3c.github.io/reporting/#process-header>
     pub(crate) fn parse_reporting_endpoints_header(
-        response_url: &ServoUrl,
+        response_url: &BrowserUrl,
         headers: &Option<Serde<HeaderMap>>,
     ) -> Option<Vec<ReportingEndpoint>> {
         let headers = headers.as_ref()?;
@@ -85,7 +85,7 @@ impl ReportingEndpoint {
             // Step 5.2. Let endpoint url be the result of executing the URL parser on endpoint url string,
             // with base URL set to response’s url. If endpoint url is failure, then continue.
             let Ok(endpoint_url) =
-                ServoUrl::parse_with_base(Some(response_url), endpoint_url_value)
+                BrowserUrl::parse_with_base(Some(response_url), endpoint_url_value)
             else {
                 continue;
             };
@@ -111,7 +111,7 @@ pub(crate) trait SendReportsToEndpoints {
     /// <https://w3c.github.io/reporting/#try-delivery>
     fn attempt_to_deliver_reports_to_endpoints(
         &self,
-        endpoint: &ServoUrl,
+        endpoint: &BrowserUrl,
         origin: ImmutableOrigin,
         reports: &[&Report],
     );
@@ -151,7 +151,7 @@ impl SendReportsToEndpoints for GlobalScope {
             let mut origin_map: HashMap<ImmutableOrigin, Vec<&Report>> = HashMap::new();
             // Step 3.2. For each report in report list:
             for report in report_list {
-                let Ok(url) = ServoUrl::parse(&report.url.str()) else {
+                let Ok(url) = BrowserUrl::parse(&report.url.str()) else {
                     continue;
                 };
                 // Step 3.2.1. Let origin be the origin of report’s url.
@@ -185,7 +185,7 @@ impl SendReportsToEndpoints for GlobalScope {
 
     fn attempt_to_deliver_reports_to_endpoints(
         &self,
-        endpoint: &ServoUrl,
+        endpoint: &BrowserUrl,
         origin: ImmutableOrigin,
         reports: &[&Report],
     ) {
@@ -306,7 +306,7 @@ impl From<CSPViolationReportBody> for CSPReportingEndpointBody {
 
 struct CSPReportEndpointFetchListener {
     /// Endpoint URL of this request.
-    endpoint: ServoUrl,
+    endpoint: BrowserUrl,
     /// The global object fetching the report uri violation
     global: Trusted<GlobalScope>,
 }
@@ -342,7 +342,7 @@ impl FetchResponseListener for CSPReportEndpointFetchListener {
 }
 
 impl ResourceTimingListener for CSPReportEndpointFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.endpoint.clone())
     }
 

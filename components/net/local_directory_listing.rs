@@ -12,10 +12,10 @@ use net_traits::request::Request;
 use net_traits::response::{Response, ResponseBody};
 use net_traits::{NetworkError, ResourceFetchTiming};
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use url::Url;
 
-pub(crate) async fn fetch(request: &mut Request, url: ServoUrl, path_buf: PathBuf) -> Response {
+pub(crate) async fn fetch(request: &mut Request, url: BrowserUrl, path_buf: PathBuf) -> Response {
     if !pref!(network_local_directory_listing_enabled) {
         // If you want to be able to browse local directories, configure Servo prefs so that
         // "network.local_directory_listing.enabled" is set to true.

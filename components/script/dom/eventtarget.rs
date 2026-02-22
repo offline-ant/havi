@@ -20,7 +20,7 @@ use js::rust::{CompileOptionsWrapper, HandleObject, transform_u16_to_source_text
 use libc::c_char;
 use rustc_hash::FxBuildHasher;
 use script_bindings::cformat;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::str::HTML_SPACE_CHARACTERS;
 use stylo_atoms::Atom;
 
@@ -223,7 +223,7 @@ pub(crate) enum ListenerPhase {
 struct InternalRawUncompiledHandler {
     source: DOMString,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     line: usize,
 }
 
@@ -673,7 +673,7 @@ impl EventTarget {
     /// <https://html.spec.whatwg.org/multipage/#event-handler-attributes:event-handler-content-attributes-3>
     pub(crate) fn set_event_handler_uncompiled(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         line: usize,
         ty: &str,
         source: &str,

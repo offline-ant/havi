@@ -21,7 +21,7 @@ use html5ever::tree_builder::{
 use html5ever::{Attribute as HtmlAttribute, ExpandedName, QualName, local_name, ns};
 use markup5ever::TokenizerResult;
 use rustc_hash::FxHashMap;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::context::QuirksMode as ServoQuirksMode;
 
 use crate::dom::bindings::codegen::Bindings::HTMLTemplateElementBinding::HTMLTemplateElementMethods;
@@ -223,7 +223,7 @@ pub(crate) struct Tokenizer {
     //#[ignore_malloc_size_of = "Defined in std"]
     nodes: RefCell<FxHashMap<ParseNodeId, Dom<Node>>>,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     parsing_algorithm: ParsingAlgorithm,
     #[conditional_malloc_size_of]
     custom_element_reaction_stack: Rc<CustomElementReactionStack>,
@@ -233,7 +233,7 @@ pub(crate) struct Tokenizer {
 impl Tokenizer {
     pub(crate) fn new(
         document: &Document,
-        url: ServoUrl,
+        url: BrowserUrl,
         fragment_context: Option<super::FragmentContext>,
     ) -> Self {
         // Messages from the Tokenizer (main thread) to HtmlTokenizer (parser thread)
@@ -369,7 +369,7 @@ impl Tokenizer {
         }
     }
 
-    pub(crate) fn url(&self) -> &ServoUrl {
+    pub(crate) fn url(&self) -> &BrowserUrl {
         &self.url
     }
 

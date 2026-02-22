@@ -16,12 +16,12 @@ pub mod hppr_setup;
 
 use havi_protocols::PageResponse;
 use servo::protocol_handler::{HttpStatus, ResourceFetchTiming, Response, ResponseBody};
-use servo::ServoUrl;
+use servo::BrowserUrl;
 
 /// Convert a `PageResponse` from havi-protocols into a servo `Response`.
 fn page_response_to_servo(
     page: PageResponse,
-    url: ServoUrl,
+    url: BrowserUrl,
     timing_type: ResourceFetchTiming,
 ) -> Response {
     let mut response = Response::new(url, timing_type);

@@ -60,7 +60,7 @@ use script_traits::{DocumentActivity, ProgressiveWebMetricType};
 use servo_arc::Arc;
 use servo_config::pref;
 use servo_media::{ClientContextId, ServoMedia};
-use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use style::attr::AttrValue;
 use style::context::QuirksMode;
 use style::invalidation::element::restyle_hints::RestyleHint;
@@ -70,7 +70,7 @@ use style::str::{split_html_space_chars, str_join};
 use style::stylesheet_set::DocumentStylesheetSet;
 use style::stylesheets::{Origin, OriginSet, Stylesheet};
 use stylo_atoms::Atom;
-use url::{Host, Position};
+use url::Host;
 
 use crate::animation_timeline::AnimationTimeline;
 use crate::animations::Animations;
@@ -233,7 +233,7 @@ impl FireMouseEventType {
 #[derive(JSTraceable, MallocSizeOf)]
 pub(crate) struct RefreshRedirectDue {
     #[no_trace]
-    pub(crate) url: ServoUrl,
+    pub(crate) url: BrowserUrl,
     #[ignore_malloc_size_of = "non-owning"]
     pub(crate) window: DomRoot<Window>,
 }
@@ -279,7 +279,7 @@ struct FocusTransaction {
 pub(crate) enum DeclarativeRefresh {
     PendingLoad {
         #[no_trace]
-        url: ServoUrl,
+        url: BrowserUrl,
         time: u64,
     },
     CreatedAfterLoad,
@@ -324,10 +324,10 @@ pub(crate) struct Document {
     activity: Cell<DocumentActivity>,
     /// <https://html.spec.whatwg.org/multipage/#the-document%27s-address>
     #[no_trace]
-    url: DomRefCell<ServoUrl>,
+    url: DomRefCell<BrowserUrl>,
     /// <https://html.spec.whatwg.org/multipage/#concept-document-about-base-url>
     #[no_trace]
-    about_base_url: DomRefCell<Option<ServoUrl>>,
+    about_base_url: DomRefCell<Option<BrowserUrl>>,
     #[ignore_malloc_size_of = "defined in selectors"]
     #[no_trace]
     quirks_mode: Cell<QuirksMode>,
@@ -927,24 +927,24 @@ impl Document {
     }
 
     /// <https://dom.spec.whatwg.org/#concept-document-url>
-    pub(crate) fn url(&self) -> ServoUrl {
+    pub(crate) fn url(&self) -> BrowserUrl {
         self.url.borrow().clone()
     }
 
-    pub(crate) fn set_url(&self, url: ServoUrl) {
+    pub(crate) fn set_url(&self, url: BrowserUrl) {
         *self.url.borrow_mut() = url;
     }
 
-    pub(crate) fn about_base_url(&self) -> Option<ServoUrl> {
+    pub(crate) fn about_base_url(&self) -> Option<BrowserUrl> {
         self.about_base_url.borrow().clone()
     }
 
-    pub(crate) fn set_about_base_url(&self, about_base_url: Option<ServoUrl>) {
+    pub(crate) fn set_about_base_url(&self, about_base_url: Option<BrowserUrl>) {
         *self.about_base_url.borrow_mut() = about_base_url;
     }
 
     /// <https://html.spec.whatwg.org/multipage/#fallback-base-url>
-    pub(crate) fn fallback_base_url(&self) -> ServoUrl {
+    pub(crate) fn fallback_base_url(&self) -> BrowserUrl {
         let document_url = self.url();
         // Step 1: If document is an iframe srcdoc document:
         if document_url.as_str() == "about:srcdoc" {
@@ -968,7 +968,7 @@ impl Document {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#document-base-url>
-    pub(crate) fn base_url(&self) -> ServoUrl {
+    pub(crate) fn base_url(&self) -> BrowserUrl {
         match self.base_element() {
             // Step 1.
             None => self.fallback_base_url(),
@@ -2129,8 +2129,8 @@ impl Document {
     /// <https://html.spec.whatwg.org/multipage/#update-document-for-history-step-application>
     pub(crate) fn update_document_for_history_step_application(
         &self,
-        old_url: &ServoUrl,
-        new_url: &ServoUrl,
+        old_url: &BrowserUrl,
+        new_url: &BrowserUrl,
     ) {
         // Step 6. If documentsEntryChanged is true, then:
         //
@@ -2161,8 +2161,8 @@ impl Document {
         // to fire an event named hashchange at document's relevant global object, using HashChangeEvent,
         // with the oldURL attribute initialized to the serialization of oldURL
         // and the newURL attribute initialized to the serialization of entry's URL.
-        if old_url.as_url()[Position::BeforeFragment..] !=
-            new_url.as_url()[Position::BeforeFragment..]
+        if old_url.url_from_before_fragment() !=
+            new_url.url_from_before_fragment()
         {
             let window = Trusted::new(self.owner_window().deref());
             let old_url = old_url.to_string();
@@ -3331,7 +3331,7 @@ impl Document {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#encoding-parsing-a-url>
-    pub(crate) fn encoding_parse_a_url(&self, url: &str) -> Result<ServoUrl, url::ParseError> {
+    pub(crate) fn encoding_parse_a_url(&self, url: &str) -> Result<BrowserUrl, url::ParseError> {
         // NOTE: This algorithm is defined for both Document and environment settings objects.
         // This implementation is only for documents.
 
@@ -3353,7 +3353,7 @@ impl Document {
                 servo_url::encoding::encode_as_url_query_string(input, encoding)
             }))
             .parse(url)
-            .map(ServoUrl::from)
+            .map(BrowserUrl::from)
     }
 
     /// <https://html.spec.whatwg.org/multipage/#allowed-to-use>
@@ -3792,7 +3792,7 @@ pub(crate) fn get_registrable_domain_suffix_of_or_is_equal_to(
 }
 
 /// <https://url.spec.whatwg.org/#network-scheme>
-fn url_has_network_scheme(url: &ServoUrl) -> bool {
+fn url_has_network_scheme(url: &BrowserUrl) -> bool {
     matches!(url.scheme(), "ftp" | "http" | "https")
 }
 
@@ -3807,8 +3807,8 @@ impl Document {
     pub(crate) fn new_inherited(
         window: &Window,
         has_browsing_context: HasBrowsingContext,
-        url: Option<ServoUrl>,
-        about_base_url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
+        about_base_url: Option<BrowserUrl>,
         origin: MutableOrigin,
         is_html_document: IsHTMLDocument,
         content_type: Option<Mime>,
@@ -3826,7 +3826,7 @@ impl Document {
         custom_element_reaction_stack: Rc<CustomElementReactionStack>,
         creation_sandboxing_flag_set: SandboxingFlagSet,
     ) -> Document {
-        let url = url.unwrap_or_else(|| ServoUrl::parse("about:blank").unwrap());
+        let url = url.unwrap_or_else(|| BrowserUrl::parse("about:blank").unwrap());
 
         let (ready_state, domcontentloaded_dispatched) = if source == DocumentSource::FromParser {
             (DocumentReadyState::Loading, false)
@@ -4108,8 +4108,8 @@ impl Document {
     pub(crate) fn new(
         window: &Window,
         has_browsing_context: HasBrowsingContext,
-        url: Option<ServoUrl>,
-        about_base_url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
+        about_base_url: Option<BrowserUrl>,
         origin: MutableOrigin,
         doctype: IsHTMLDocument,
         content_type: Option<Mime>,
@@ -4159,8 +4159,8 @@ impl Document {
         window: &Window,
         proto: Option<HandleObject>,
         has_browsing_context: HasBrowsingContext,
-        url: Option<ServoUrl>,
-        about_base_url: Option<ServoUrl>,
+        url: Option<BrowserUrl>,
+        about_base_url: Option<BrowserUrl>,
         origin: MutableOrigin,
         doctype: IsHTMLDocument,
         content_type: Option<Mime>,
@@ -4960,7 +4960,7 @@ impl Document {
 
         // 11.11 Parse: Set urlRecord to the result of encoding-parsing a URL given urlString, relative to document.
         if let Some(url_match) = captured_url {
-            url_record = if let Ok(url) = ServoUrl::parse_with_base(
+            url_record = if let Ok(url) = BrowserUrl::parse_with_base(
                 Some(&url_record),
                 &String::from_utf8_lossy(url_match.as_bytes()),
             ) {
@@ -5186,7 +5186,7 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
         let document = Document::new(
             window,
             HasBrowsingContext::No,
-            Some(ServoUrl::parse("about:blank").unwrap()),
+            Some(BrowserUrl::parse("about:blank").unwrap()),
             None,
             doc.origin().clone(),
             IsHTMLDocument::HTMLDocument,

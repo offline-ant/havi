@@ -10,9 +10,9 @@ pub(super) enum NavCommand {
 impl App {
     pub(super) fn navigate(&self, url_str: &str) {
         if let Some(webview) = self.active_webview() {
-            if let Ok(url) = url::Url::parse(url_str) {
+            if let Ok(url) = servo::BrowserUrl::parse(url_str) {
                 webview.load(url);
-            } else if let Ok(url) = url::Url::parse(&format!("https://{}", url_str)) {
+            } else if let Ok(url) = servo::BrowserUrl::parse(&format!("https://{}", url_str)) {
                 webview.load(url);
             }
         }

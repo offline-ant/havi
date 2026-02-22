@@ -4,7 +4,7 @@
 
 use cssparser::{Parser, ParserInput};
 use dom_struct::dom_struct;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::codegen::Bindings::CSSStyleValueBinding::CSSStyleValueMethods;
 use crate::dom::bindings::reflector::{Reflector, reflect_dom_object};
@@ -52,7 +52,7 @@ impl CSSStyleValue {
     /// TODO: This should really always be an absolute URL, but we currently
     /// return relative URLs for computed values, so we pass in a base.
     /// <https://github.com/servo/servo/issues/17625>
-    pub(crate) fn get_url(&self, base_url: ServoUrl) -> Option<ServoUrl> {
+    pub(crate) fn get_url(&self, base_url: BrowserUrl) -> Option<BrowserUrl> {
         let mut input = ParserInput::new(&self.value);
         let mut parser = Parser::new(&mut input);
         parser

@@ -35,7 +35,7 @@ use profile_traits::time::{
 use profile_traits::time_profile;
 use script_traits::DocumentActivity;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::context::QuirksMode as ServoQuirksMode;
 use tendril::stream::LossyDecoder;
 use tendril::{ByteTendril, TendrilSink};
@@ -180,7 +180,7 @@ impl ServoParser {
     pub(crate) fn parse_html_document(
         document: &Document,
         input: Option<DOMString>,
-        url: ServoUrl,
+        url: BrowserUrl,
         encoding_hint_from_content_type: Option<&'static Encoding>,
         encoding_of_container_document: Option<&'static Encoding>,
         can_gc: CanGc,
@@ -311,7 +311,7 @@ impl ServoParser {
         }
     }
 
-    pub(crate) fn parse_html_script_input(document: &Document, url: ServoUrl) {
+    pub(crate) fn parse_html_script_input(document: &Document, url: BrowserUrl) {
         let parser = ServoParser::new(
             document,
             Tokenizer::Html(self::html::Tokenizer::new(
@@ -331,7 +331,7 @@ impl ServoParser {
     pub(crate) fn parse_xml_document(
         document: &Document,
         input: Option<DOMString>,
-        url: ServoUrl,
+        url: BrowserUrl,
         encoding_hint_from_content_type: Option<&'static Encoding>,
         can_gc: CanGc,
     ) {
@@ -859,7 +859,7 @@ impl Tokenizer {
         }
     }
 
-    fn url(&self) -> &ServoUrl {
+    fn url(&self) -> &BrowserUrl {
         match *self {
             Tokenizer::Html(ref tokenizer) => tokenizer.url(),
             Tokenizer::AsyncHtml(ref tokenizer) => tokenizer.url(),
@@ -899,7 +899,7 @@ struct NavigationParams {
     /// <https://mimesniff.spec.whatwg.org/#resource-header>
     resource_header: Vec<u8>,
     /// <https://html.spec.whatwg.org/multipage/#navigation-params-about-base-url>
-    about_base_url: Option<ServoUrl>,
+    about_base_url: Option<BrowserUrl>,
 }
 
 /// The context required for asynchronously fetching a document
@@ -916,7 +916,7 @@ pub(crate) struct ParserContext {
     /// The [`PipelineId`] of the `Pipeline` associated with this document.
     pipeline_id: PipelineId,
     /// The URL for this document.
-    url: ServoUrl,
+    url: BrowserUrl,
     /// pushed entry index
     pushed_entry_index: Option<usize>,
     /// params required in document load algorithms
@@ -927,7 +927,7 @@ impl ParserContext {
     pub(crate) fn new(
         webview_id: WebViewId,
         pipeline_id: PipelineId,
-        url: ServoUrl,
+        url: BrowserUrl,
         creation_sandboxing_flag_set: SandboxingFlagSet,
     ) -> ParserContext {
         ParserContext {
@@ -956,7 +956,7 @@ impl ParserContext {
         self.navigation_params.policy_container = policy_container.clone();
     }
 
-    pub(crate) fn set_about_base_url(&mut self, about_base_url: Option<ServoUrl>) {
+    pub(crate) fn set_about_base_url(&mut self, about_base_url: Option<BrowserUrl>) {
         self.navigation_params.about_base_url = about_base_url;
     }
 
@@ -1524,7 +1524,7 @@ fn insert(
 #[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
 pub(crate) struct Sink {
     #[no_trace]
-    base_url: ServoUrl,
+    base_url: BrowserUrl,
     document: Dom<Document>,
     current_line: Cell<u64>,
     script: MutNullableDom<HTMLScriptElement>,

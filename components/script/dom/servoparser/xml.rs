@@ -8,7 +8,7 @@ use std::cell::Cell;
 
 use markup5ever::TokenizerResult;
 use script_bindings::trace::CustomTraceable;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use xml5ever::buffer_queue::BufferQueue;
 use xml5ever::tokenizer::XmlTokenizer;
 use xml5ever::tree_builder::XmlTreeBuilder;
@@ -28,7 +28,7 @@ pub(crate) struct Tokenizer {
 }
 
 impl Tokenizer {
-    pub(crate) fn new(document: &Document, url: ServoUrl) -> Self {
+    pub(crate) fn new(document: &Document, url: BrowserUrl) -> Self {
         let sink = Sink {
             base_url: url,
             document: Dom::from_ref(document),
@@ -66,7 +66,7 @@ impl Tokenizer {
         self.inner.end()
     }
 
-    pub(crate) fn url(&self) -> &ServoUrl {
+    pub(crate) fn url(&self) -> &BrowserUrl {
         &self.inner.sink.sink.base_url
     }
 
