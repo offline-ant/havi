@@ -173,6 +173,36 @@ script_mod! {
                         width: Fill
                         height: Fill
                     }
+
+                    // Context menu overlay (hidden by default)
+                    context_menu := View{
+                        visible: false
+                        abs_pos: vec2(0.0, 0.0)
+                        width: Fit height: Fit
+                        flow: Down
+                        padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
+                        spacing: 2
+                        show_bg: true
+                        draw_bg.color: #x2a2a2a
+
+                        context_copy_btn := Button{
+                            text: "Copy"
+                            width: 120 height: 28
+                            padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
+                            draw_text.color: #xcccccc
+                            draw_text.text_style.font_size: 12.0
+                            draw_bg +: {
+                                color: uniform(#x2a2a2a)
+                                color_hover: uniform(#x3a3a3a)
+                                pixel: fn() {
+                                    let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                    sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
+                                    sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                    return sdf.result
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -430,6 +460,12 @@ pub struct App {
     scroll_y_estimate: f64,
     #[rust]
     content_height_estimate: f64,
+
+    // --- Context menu state ---
+    #[rust]
+    context_menu_open: bool,
+    #[rust]
+    context_menu_pos: DVec2,
 
     // --- Tab state ---
     #[rust]
@@ -1199,6 +1235,50 @@ impl App {
         self.tabs.iter().position(|t| t.webview_id == webview_id)
     }
 
+    /// Show the context menu at the right-click position.
+    fn show_context_menu(&mut self, cx: &mut Cx) {
+        let menu = self.ui.view(cx, ids!(context_menu));
+        menu.set_visible(cx, true);
+        if let Some(mut v) = menu.borrow_mut() {
+            v.walk.abs_pos = Some(dvec2(self.context_menu_pos.x, self.context_menu_pos.y));
+        }
+        cx.redraw_all();
+    }
+
+    fn hide_context_menu(&mut self, cx: &mut Cx) {
+        self.context_menu_open = false;
+        self.ui.view(cx, ids!(context_menu)).set_visible(cx, false);
+        cx.redraw_all();
+    }
+
+    /// Send Ctrl+C to Servo to copy selected text.
+    fn send_copy_command(&self) {
+        use keyboard_types::{Code, Modifiers};
+        // Send Ctrl+C keydown
+        self.send_input_event(servo::InputEvent::Keyboard(
+            KeyboardEvent::new(keyboard_types::KeyboardEvent {
+                state: keyboard_types::KeyState::Down,
+                key: Key::Character("c".into()),
+                code: Code::KeyC,
+                location: keyboard_types::Location::Standard,
+                modifiers: Modifiers::CONTROL,
+                repeat: false,
+                is_composing: false,
+            }),
+        ));
+        // Send Ctrl+C keyup
+        self.send_input_event(servo::InputEvent::Keyboard(
+            KeyboardEvent::new(keyboard_types::KeyboardEvent {
+                state: keyboard_types::KeyState::Up,
+                key: Key::Character("c".into()),
+                code: Code::KeyC,
+                location: keyboard_types::Location::Standard,
+                modifiers: Modifiers::CONTROL,
+                repeat: false,
+                is_composing: false,
+            }),
+        ));
+    }
 }
 
 impl MatchEvent for App {
@@ -1258,6 +1338,12 @@ impl MatchEvent for App {
         }
         if self.ui.button(cx, ids!(win_close)).clicked(actions) {
             cx.quit();
+        }
+
+        // --- Context menu ---
+        if self.ui.button(cx, ids!(context_copy_btn)).clicked(actions) {
+            self.hide_context_menu(cx);
+            self.send_copy_command();
         }
 
         // --- Tab bar events ---
@@ -1363,13 +1449,24 @@ impl MatchEvent for App {
                     //             position, then Touch(Move) for each move,
                     //             and Touch(Up) at the end.
                     //
-                    ServoWebViewAction::FingerDown { abs, digit_id: _, is_mouse } => {
-                        self.finger_down_pos = Some(*abs);
-                        self.is_touch_scrolling = false;
-                        self.is_mouse_gesture = *is_mouse;
-                        self.is_mouse_dragging = false;
-                        // Don't send any event yet — wait to see if it's a tap or drag/scroll.
-                        handled_input = true;
+                    ServoWebViewAction::FingerDown { abs, digit_id: _, is_mouse, is_right_click } => {
+                        if *is_right_click {
+                            self.context_menu_pos = *abs;
+                            self.context_menu_open = true;
+                            self.show_context_menu(cx);
+                            handled_input = true;
+                        } else {
+                            // Close context menu on left click
+                            if self.context_menu_open {
+                                self.hide_context_menu(cx);
+                            }
+                            self.finger_down_pos = Some(*abs);
+                            self.is_touch_scrolling = false;
+                            self.is_mouse_gesture = *is_mouse;
+                            self.is_mouse_dragging = false;
+                            // Don't send any event yet — wait to see if it's a tap or drag/scroll.
+                            handled_input = true;
+                        }
                     }
                     ServoWebViewAction::FingerUp { abs, digit_id, is_mouse: _ } => {
                         let pt = self.point_to_device(cx, *abs);
@@ -1591,13 +1688,25 @@ impl AppMain for App {
         if let Some(_ne) = self.next_frame.is_event(event) {
             self.update_servo_and_texture(cx);
 
+            // Poll Studio websocket for remote control messages (havi-bridge).
+            // This dispatches StudioToApp events (mouse, keyboard, screenshot
+            // requests, widget tree dumps) received from the bridge.
+            cx.poll_studio_websocket();
+            if !cx.screenshot_requests.is_empty() {
+                cx.repaint_windows();
+            }
+
             // Tick scroll fade animation
             let scroll_fading = self.ui.servo_web_view(cx, ids!(web_view))
                 .tick_scroll_fade(cx, 1.0 / 60.0);
 
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
-            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading {
+            // Keep running when a Studio websocket (havi-bridge) is connected
+            // so poll_studio_websocket() keeps receiving control messages.
+            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading
+                || Cx::has_studio_web_socket()
+            {
                 self.next_frame = cx.new_next_frame();
                 cx.redraw_all();
             }

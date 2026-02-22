@@ -1,0 +1,721 @@
+#!/usr/bin/env -S uv --quiet run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["websockets"]
+# ///
+"""havi-bridge: lightweight Studio replacement for HAVI remote control.
+
+Sits between havi-remote-cli and HAVI. Speaks the Makepad Studio terminal
+protocol on /$studio_terminal and the Studio app websocket protocol on
+/$studio_web_socket.
+
+Usage:
+    havi-bridge [--port PORT]
+
+HAVI connects with STUDIO=127.0.0.1:PORT.
+havi-remote-cli connects with --port PORT.
+"""
+
+import argparse
+import asyncio
+import io
+import json
+import os
+import struct
+import sys
+import tempfile
+import time
+
+import websockets
+import websockets.asyncio.server
+
+# ---------------------------------------------------------------------------
+# SerBin encoder/decoder for StudioToAppVec and AppToStudioVec
+#
+# SerBin format:
+#   u16/u32/u64/f64: little-endian
+#   bool: 1 byte (0 or 1)
+#   String: u64 len + utf-8 bytes
+#   Vec<T>: u64 len + elements
+#   enum: u16 variant index + fields
+# ---------------------------------------------------------------------------
+
+class BinWriter:
+    def __init__(self):
+        self.buf = bytearray()
+
+    def u8(self, v):
+        self.buf.append(v & 0xFF)
+
+    def u16(self, v):
+        self.buf.extend(struct.pack("<H", v))
+
+    def u32(self, v):
+        self.buf.extend(struct.pack("<I", v))
+
+    def u64(self, v):
+        self.buf.extend(struct.pack("<Q", v))
+
+    def f64(self, v):
+        self.buf.extend(struct.pack("<d", v))
+
+    def bool(self, v):
+        self.buf.append(1 if v else 0)
+
+    def string(self, s):
+        b = s.encode("utf-8")
+        self.u64(len(b))
+        self.buf.extend(b)
+
+    def bytes(self):
+        return bytes(self.buf)
+
+
+class BinReader:
+    def __init__(self, data):
+        self.data = data
+        self.pos = 0
+
+    def _check(self, n):
+        if self.pos + n > len(self.data):
+            raise ValueError(f"BinReader: need {n} bytes at offset {self.pos}, have {len(self.data)}")
+
+    def u8(self):
+        self._check(1)
+        v = self.data[self.pos]
+        self.pos += 1
+        return v
+
+    def u16(self):
+        self._check(2)
+        v = struct.unpack_from("<H", self.data, self.pos)[0]
+        self.pos += 2
+        return v
+
+    def u32(self):
+        self._check(4)
+        v = struct.unpack_from("<I", self.data, self.pos)[0]
+        self.pos += 4
+        return v
+
+    def u64(self):
+        self._check(8)
+        v = struct.unpack_from("<Q", self.data, self.pos)[0]
+        self.pos += 8
+        return v
+
+    def f64(self):
+        self._check(8)
+        v = struct.unpack_from("<d", self.data, self.pos)[0]
+        self.pos += 8
+        return v
+
+    def bool(self):
+        return self.u8() != 0
+
+    def string(self):
+        length = self.u64()
+        self._check(length)
+        s = self.data[self.pos:self.pos + length].decode("utf-8")
+        self.pos += length
+        return s
+
+    def raw_bytes(self, n):
+        self._check(n)
+        b = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return b
+
+    def vec_u8(self):
+        length = self.u64()
+        return self.raw_bytes(length)
+
+    def vec_u64(self):
+        length = self.u64()
+        return [self.u64() for _ in range(length)]
+
+    def remaining(self):
+        return len(self.data) - self.pos
+
+
+# ---------------------------------------------------------------------------
+# StudioToApp encoder (bridge → HAVI app)
+# ---------------------------------------------------------------------------
+
+# StudioToApp variant indices
+STA_SCREENSHOT = 0
+STA_WIDGET_TREE_DUMP = 1
+STA_KEEPALIVE = 2
+STA_MOUSE_DOWN = 7
+STA_MOUSE_UP = 8
+STA_MOUSE_MOVE = 9
+STA_KEY_DOWN = 10
+STA_KEY_UP = 11
+STA_TEXT_INPUT = 12
+STA_TEXT_COPY = 13
+STA_TEXT_CUT = 14
+STA_SCROLL = 15
+STA_KILL = 17
+
+# Makepad KeyCode variant indices (matches KEYCODE_VARIANTS order)
+KEYCODE_VARIANTS = [
+    "Escape", "Back", "Backtick",
+    "Key0", "Key1", "Key2", "Key3", "Key4", "Key5", "Key6", "Key7", "Key8", "Key9",
+    "Minus", "Equals", "Backspace", "Tab",
+    "KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO", "KeyP",
+    "LBracket", "RBracket", "ReturnKey",
+    "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL",
+    "Semicolon", "Quote", "Backslash",
+    "KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN", "KeyM",
+    "Comma", "Period", "Slash",
+    "Control", "Alt", "Shift", "Logo",
+    "Space", "Capslock",
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "PrintScreen", "ScrollLock", "Pause",
+    "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
+    "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
+    "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9",
+    "NumpadEquals", "NumpadSubtract", "NumpadAdd", "NumpadDecimal",
+    "NumpadMultiply", "NumpadDivide", "Numlock", "NumpadEnter",
+    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "Unknown",
+]
+KEYCODE_INDEX = {name: i for i, name in enumerate(KEYCODE_VARIANTS)}
+
+
+def encode_key_modifiers(w, mods):
+    """Encode KeyModifiers: shift, control, alt, logo as bools."""
+    w.bool(mods.get("shift", False))
+    w.bool(mods.get("control", False))
+    w.bool(mods.get("alt", False))
+    w.bool(mods.get("logo", False))
+
+
+def encode_key_event(w, e):
+    """Encode KeyEvent: key_code (u16 enum), is_repeat (bool), modifiers, time (f64)."""
+    key_code = e.get("key_code", 0)
+    if isinstance(key_code, str):
+        key_code = KEYCODE_INDEX.get(key_code, len(KEYCODE_VARIANTS) - 1)
+    w.u16(key_code)
+    w.bool(e.get("is_repeat", False))
+    encode_key_modifiers(w, e.get("modifiers", {}))
+    w.f64(e.get("time", 0.0))
+
+
+def encode_remote_key_modifiers(w, mods):
+    """Encode RemoteKeyModifiers: shift, control, alt, logo as bools."""
+    w.bool(mods.get("shift", False))
+    w.bool(mods.get("control", False))
+    w.bool(mods.get("alt", False))
+    w.bool(mods.get("logo", False))
+
+
+def encode_studio_to_app_vec(messages):
+    """Encode a list of StudioToApp messages into SerBin bytes."""
+    w = BinWriter()
+    w.u64(len(messages))
+    for msg in messages:
+        _encode_studio_to_app(w, msg)
+    return w.bytes()
+
+
+def _encode_studio_to_app(w, msg):
+    """Encode a single StudioToApp message."""
+    tag = msg[0]
+    data = msg[1] if len(msg) > 1 else {}
+
+    if tag == "Screenshot":
+        w.u16(STA_SCREENSHOT)
+        w.u64(data.get("request_id", 0))
+        w.u32(data.get("kind_id", 0))
+
+    elif tag == "WidgetTreeDump":
+        w.u16(STA_WIDGET_TREE_DUMP)
+        w.u64(data.get("request_id", 0))
+
+    elif tag == "KeepAlive":
+        w.u16(STA_KEEPALIVE)
+
+    elif tag == "MouseDown":
+        w.u16(STA_MOUSE_DOWN)
+        # RemoteMouseDown: button_raw_bits (u32), x (f64), y (f64), time (f64), modifiers
+        w.u32(data.get("button_raw_bits", 1))
+        w.f64(data.get("x", 0.0))
+        w.f64(data.get("y", 0.0))
+        w.f64(data.get("time", 0.0))
+        encode_remote_key_modifiers(w, data.get("modifiers", {}))
+
+    elif tag == "MouseUp":
+        w.u16(STA_MOUSE_UP)
+        # RemoteMouseUp: time (f64), button_raw_bits (u32), x (f64), y (f64), modifiers
+        w.f64(data.get("time", 0.0))
+        w.u32(data.get("button_raw_bits", 1))
+        w.f64(data.get("x", 0.0))
+        w.f64(data.get("y", 0.0))
+        encode_remote_key_modifiers(w, data.get("modifiers", {}))
+
+    elif tag == "MouseMove":
+        w.u16(STA_MOUSE_MOVE)
+        # RemoteMouseMove: time (f64), x (f64), y (f64), modifiers
+        w.f64(data.get("time", 0.0))
+        w.f64(data.get("x", 0.0))
+        w.f64(data.get("y", 0.0))
+        encode_remote_key_modifiers(w, data.get("modifiers", {}))
+
+    elif tag == "KeyDown":
+        w.u16(STA_KEY_DOWN)
+        encode_key_event(w, data)
+
+    elif tag == "KeyUp":
+        w.u16(STA_KEY_UP)
+        encode_key_event(w, data)
+
+    elif tag == "TextInput":
+        w.u16(STA_TEXT_INPUT)
+        # TextInputEvent: input (String), replace_last (bool), was_paste (bool)
+        w.string(data.get("input", ""))
+        w.bool(data.get("replace_last", False))
+        w.bool(data.get("was_paste", False))
+
+    elif tag == "TextCopy":
+        w.u16(STA_TEXT_COPY)
+
+    elif tag == "TextCut":
+        w.u16(STA_TEXT_CUT)
+
+    elif tag == "Scroll":
+        w.u16(STA_SCROLL)
+        # RemoteScroll: time, sx, sy, x, y, is_mouse, modifiers
+        w.f64(data.get("time", 0.0))
+        w.f64(data.get("sx", 0.0))
+        w.f64(data.get("sy", 0.0))
+        w.f64(data.get("x", 0.0))
+        w.f64(data.get("y", 0.0))
+        w.bool(data.get("is_mouse", True))
+        encode_remote_key_modifiers(w, data.get("modifiers", {}))
+
+    elif tag == "Kill":
+        w.u16(STA_KILL)
+
+    else:
+        raise ValueError(f"Unknown StudioToApp variant: {tag}")
+
+
+# ---------------------------------------------------------------------------
+# AppToStudio decoder (HAVI app → bridge)
+# ---------------------------------------------------------------------------
+
+# AppToStudio variant indices (only the ones we care about)
+ATS_SCREENSHOT = 9
+ATS_WIDGET_TREE_DUMP = 10
+ATS_SET_CLIPBOARD = 16
+
+
+def decode_app_to_studio_vec(data):
+    """Decode binary AppToStudioVec, extracting only Screenshot, WidgetTreeDump,
+    and SetClipboard messages. Other variants (EventSample, LogItem, etc.) are
+    skipped. If decoding fails mid-stream (unknown variant size), we return
+    whatever was successfully parsed so far."""
+    r = BinReader(data)
+    count = r.u64()
+    messages = []
+    for _ in range(count):
+        try:
+            msg = _decode_app_to_studio(r)
+            if msg is not None:
+                messages.append(msg)
+        except (ValueError, struct.error):
+            break  # can't skip unknown variants; stop here
+    return messages
+
+
+def _decode_app_to_studio(r):
+    """Decode a single AppToStudio message. Returns (tag, data) or None."""
+    variant = r.u16()
+
+    if variant == ATS_SCREENSHOT:
+        return ("Screenshot", {
+            "request_ids": r.vec_u64(),
+            "png": r.vec_u8(),
+            "width": r.u32(),
+            "height": r.u32(),
+        })
+
+    elif variant == ATS_WIDGET_TREE_DUMP:
+        return ("WidgetTreeDump", {
+            "request_id": r.u64(),
+            "dump": r.string(),
+        })
+
+    elif variant == ATS_SET_CLIPBOARD:
+        return ("SetClipboard", {"text": r.string()})
+
+    else:
+        # Unknown variant — can't determine size, so raise to stop decoding.
+        raise ValueError(f"unknown AppToStudio variant {variant}")
+
+
+# ---------------------------------------------------------------------------
+# Bridge state
+# ---------------------------------------------------------------------------
+
+class Bridge:
+    def __init__(self, port, build_id):
+        self.port = port
+        self.build_id = build_id
+        self.app_ws = None  # The HAVI app's websocket connection
+        self.terminal_clients = set()  # havi-remote-cli connections
+        self.screenshot_counter = 0
+        self.pending_screenshots = {}  # request_id -> asyncio.Future
+        self.widget_dump_counter = 0
+        self.pending_widget_dumps = {}  # request_id -> asyncio.Future
+        self.latest_widget_dump = None
+        self.dump_origin = None  # (ox, oy, dpi) from widget dump
+        self.screenshot_dir = tempfile.mkdtemp(prefix="havi-bridge-")
+
+    async def send_to_app(self, messages):
+        """Send StudioToApp messages to the HAVI app."""
+        if self.app_ws is None:
+            return False
+        try:
+            data = encode_studio_to_app_vec(messages)
+            await self.app_ws.send(data)
+            return True
+        except Exception:
+            return False
+
+    def alloc_screenshot_id(self):
+        self.screenshot_counter += 1
+        return self.screenshot_counter
+
+    def alloc_widget_dump_id(self):
+        self.widget_dump_counter += 1
+        return self.widget_dump_counter
+
+    def parse_dump_origin(self, dump):
+        """Extract origin (ox, oy) and dpi from a widget dump's first O line."""
+        for line in dump.split("\n"):
+            parts = line.split()
+            if not parts or parts[0] != "O":
+                continue
+            try:
+                # O <ox> <oy> <dpi> <w> <h>
+                ox = float(parts[1])
+                oy = float(parts[2])
+                dpi = float(parts[3])
+                return (ox, oy, dpi)
+            except (IndexError, ValueError):
+                pass
+        return None
+
+    def translate_coordinates(self, x, y):
+        """Translate terminal coordinates to app coordinates using dump origin."""
+        if self.dump_origin is None:
+            return (float(x), float(y))
+        ox, oy, dpi = self.dump_origin
+        dpi = max(dpi, 1.0)
+        return ((x + ox) / dpi, (y + oy) / dpi)
+
+    def query_widget_dump_rects(self, dump, query):
+        """Query the widget dump for matching widgets. Returns list of rect strings."""
+        results = []
+        query_lower = query.lower()
+        is_id_query = query.startswith("id:")
+        is_type_query = query.startswith("type:")
+        if is_id_query:
+            search_term = query[3:]
+        elif is_type_query:
+            search_term = query[5:]
+        else:
+            search_term = query_lower
+
+        for line in dump.split("\n"):
+            parts = line.split()
+            if not parts:
+                continue
+            first = parts[0]
+            if not (first.startswith("W") or first == "O"):
+                # This is a widget rect line: name x y w h [type]
+                name = parts[0] if parts else ""
+                match = False
+                if is_id_query:
+                    match = name == search_term
+                elif is_type_query:
+                    widget_type = parts[5] if len(parts) > 5 else ""
+                    match = widget_type.lower() == search_term.lower()
+                else:
+                    match = search_term in name.lower() or (
+                        len(parts) > 5 and search_term in parts[5].lower()
+                    )
+                if match:
+                    results.append(line)
+        return results
+
+    async def handle_terminal_request(self, ws, request):
+        """Process a StudioTerminalRequest from havi-remote-cli."""
+        if "ListBuilds" in request:
+            builds = [{
+                "build_id": self.build_id,
+                "root": "",
+                "package": "havishell",
+                "active": self.app_ws is not None,
+                "has_web_socket": self.app_ws is not None,
+            }]
+            await ws.send(json.dumps({"Builds": {"builds": builds}}))
+            return
+
+        if "Click" in request:
+            data = request["Click"]
+            bid = data.get("build_id", self.build_id)
+            x, y = float(data["x"]), float(data["y"])
+            tx, ty = self.translate_coordinates(x, y)
+            now = time.time()
+            mods = {"shift": False, "control": False, "alt": False, "logo": False}
+            messages = [
+                ("MouseMove", {"time": now, "x": tx, "y": ty, "modifiers": mods}),
+                ("MouseDown", {"button_raw_bits": data.get("button", 1),
+                               "x": tx, "y": ty, "time": now, "modifiers": mods}),
+                ("MouseUp", {"time": now + 0.01, "button_raw_bits": data.get("button", 1),
+                             "x": tx, "y": ty, "modifiers": mods}),
+            ]
+            await self.send_to_app(messages)
+            return
+
+        if "TypeText" in request:
+            data = request["TypeText"]
+            text = data["text"]
+            await self.send_to_app([
+                ("TextInput", {"input": text,
+                               "replace_last": data.get("replace_last", False),
+                               "was_paste": data.get("was_paste", False)}),
+            ])
+            return
+
+        if "Return" in request:
+            now = time.time()
+            return_key_idx = KEYCODE_INDEX["ReturnKey"]
+            mods = {"shift": False, "control": False, "alt": False, "logo": False}
+            await self.send_to_app([
+                ("KeyDown", {"key_code": return_key_idx, "is_repeat": False,
+                             "modifiers": mods, "time": now}),
+                ("KeyUp", {"key_code": return_key_idx, "is_repeat": False,
+                           "modifiers": mods, "time": now + 0.01}),
+            ])
+            return
+
+        if "StudioToApp" in request:
+            data = request["StudioToApp"]
+            msg = data["msg"]
+            # msg is a JSON StudioToApp like {"MouseDown": [{...}]}
+            # Convert to our tuple format
+            for key, val in msg.items():
+                if isinstance(val, list) and len(val) == 1:
+                    val = val[0]
+                await self.send_to_app([(key, val if isinstance(val, dict) else {})])
+            return
+
+        if "Screenshot" in request:
+            data = request["Screenshot"]
+            request_id = self.alloc_screenshot_id()
+            kind_id = data.get("kind_id", 0)
+            future = asyncio.get_event_loop().create_future()
+            self.pending_screenshots[request_id] = (future, ws, kind_id)
+            await self.send_to_app([
+                ("Screenshot", {"request_id": request_id, "kind_id": kind_id}),
+            ])
+            try:
+                result = await asyncio.wait_for(future, timeout=30)
+                await ws.send(json.dumps(result))
+            except asyncio.TimeoutError:
+                self.pending_screenshots.pop(request_id, None)
+                await ws.send(json.dumps({"error": "screenshot timeout"}))
+            return
+
+        if "WidgetTreeDump" in request:
+            request_id = self.alloc_widget_dump_id()
+            future = asyncio.get_event_loop().create_future()
+            self.pending_widget_dumps[request_id] = (future, ws, True)
+            await self.send_to_app([
+                ("WidgetTreeDump", {"request_id": request_id}),
+            ])
+            try:
+                result = await asyncio.wait_for(future, timeout=30)
+                await ws.send(json.dumps(result))
+            except asyncio.TimeoutError:
+                self.pending_widget_dumps.pop(request_id, None)
+                await ws.send(json.dumps({"error": "widget tree dump timeout"}))
+            return
+
+        if "WidgetQuery" in request:
+            data = request["WidgetQuery"]
+            query = data["query"]
+            if self.latest_widget_dump is None:
+                # Request a fresh dump first
+                request_id = self.alloc_widget_dump_id()
+                future = asyncio.get_event_loop().create_future()
+                self.pending_widget_dumps[request_id] = (future, ws, False)
+                await self.send_to_app([
+                    ("WidgetTreeDump", {"request_id": request_id}),
+                ])
+                try:
+                    await asyncio.wait_for(future, timeout=30)
+                except asyncio.TimeoutError:
+                    self.pending_widget_dumps.pop(request_id, None)
+                    await ws.send(json.dumps({"error": "widget tree dump timeout"}))
+                    return
+
+            if self.latest_widget_dump:
+                rects = self.query_widget_dump_rects(self.latest_widget_dump, query)
+            else:
+                rects = []
+            await ws.send(json.dumps({
+                "WidgetQuery": {
+                    "build_id": self.build_id,
+                    "query": query,
+                    "rects": rects,
+                },
+            }))
+            return
+
+        if "Stop" in request:
+            await self.send_to_app([("Kill", {})])
+            return
+
+        await ws.send(json.dumps({"Error": {"message": f"unknown request: {json.dumps(request)}"}}))
+
+    def handle_app_message(self, msg):
+        """Process an AppToStudio message from HAVI."""
+        tag, data = msg
+
+        if tag == "Screenshot":
+            png_data = data["png"]
+            request_ids = data["request_ids"]
+            width = data["width"]
+            height = data["height"]
+            for rid in request_ids:
+                entry = self.pending_screenshots.pop(rid, None)
+                if entry is None:
+                    continue
+                future, _ws, kind_id = entry
+                # Write PNG to temp file
+                path = os.path.join(self.screenshot_dir, f"screenshot_{rid}.png")
+                with open(path, "wb") as f:
+                    f.write(png_data)
+                if not future.done():
+                    future.set_result({
+                        "Screenshot": {
+                            "build_id": self.build_id,
+                            "request_id": rid,
+                            "kind_id": kind_id,
+                            "path": path,
+                            "width": width,
+                            "height": height,
+                        },
+                    })
+
+        elif tag == "WidgetTreeDump":
+            request_id = data["request_id"]
+            dump = data["dump"]
+            self.latest_widget_dump = dump
+            origin = self.parse_dump_origin(dump)
+            if origin:
+                self.dump_origin = origin
+            entry = self.pending_widget_dumps.pop(request_id, None)
+            if entry is not None:
+                future, _ws, emit_dump = entry
+                if not future.done():
+                    if emit_dump:
+                        future.set_result({
+                            "WidgetTreeDump": {
+                                "build_id": self.build_id,
+                                "request_id": request_id,
+                                "dump": dump,
+                            },
+                        })
+                    else:
+                        future.set_result(None)
+
+        elif tag == "SetClipboard":
+            pass  # Could forward if needed
+
+    async def handle_app_websocket(self, ws):
+        """Handle the HAVI app's /$studio_web_socket connection."""
+        self.app_ws = ws
+        print(f"[havi-bridge] app connected", file=sys.stderr)
+        try:
+            async for message in ws:
+                if isinstance(message, bytes):
+                    try:
+                        msgs = decode_app_to_studio_vec(message)
+                        for msg in msgs:
+                            self.handle_app_message(msg)
+                    except Exception as e:
+                        print(f"[havi-bridge] decode error: {e}", file=sys.stderr)
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            self.app_ws = None
+            print(f"[havi-bridge] app disconnected", file=sys.stderr)
+
+    async def handle_terminal_websocket(self, ws):
+        """Handle an havi-remote-cli /$studio_terminal connection."""
+        self.terminal_clients.add(ws)
+        try:
+            async for message in ws:
+                try:
+                    request = json.loads(message)
+                    await self.handle_terminal_request(ws, request)
+                except json.JSONDecodeError:
+                    await ws.send(json.dumps({"Error": {"message": "invalid JSON"}}))
+                except Exception as e:
+                    await ws.send(json.dumps({"Error": {"message": str(e)}}))
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            self.terminal_clients.discard(ws)
+
+    async def handle_connection(self, ws):
+        """Route websocket connections by path."""
+        path = ws.request.path if ws.request else "/"
+        if path == "/$studio_web_socket":
+            await self.handle_app_websocket(ws)
+        elif path == "/$studio_terminal":
+            await self.handle_terminal_websocket(ws)
+        else:
+            await ws.close(4000, f"unknown path: {path}")
+
+    async def keepalive_loop(self):
+        """Send periodic keepalive to the app."""
+        while True:
+            await asyncio.sleep(5)
+            if self.app_ws is not None:
+                try:
+                    await self.send_to_app([("KeepAlive", {})])
+                except Exception:
+                    pass
+
+
+async def main(port, build_id):
+    bridge = Bridge(port, build_id)
+
+    async with websockets.asyncio.server.serve(
+        bridge.handle_connection,
+        "127.0.0.1",
+        port,
+        max_size=64 * 1024 * 1024,  # 64 MiB for screenshots
+    ):
+        print(f"HAVI_BRIDGE=127.0.0.1:{port}")
+        sys.stdout.flush()
+        asyncio.create_task(bridge.keepalive_loop())
+        await asyncio.Future()  # run forever
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="havi-bridge: Studio replacement for HAVI control")
+    p.add_argument("--port", type=int, default=8001)
+    p.add_argument("--build-id", type=int, default=1)
+    args = p.parse_args()
+    try:
+        asyncio.run(main(args.port, args.build_id))
+    except KeyboardInterrupt:
+        pass

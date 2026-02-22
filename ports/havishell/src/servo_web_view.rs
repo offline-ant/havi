@@ -25,7 +25,7 @@ script_mod! {
 pub enum ServoWebViewAction {
     #[default]
     None,
-    FingerDown { abs: DVec2, digit_id: u64, is_mouse: bool },
+    FingerDown { abs: DVec2, digit_id: u64, is_mouse: bool, is_right_click: bool },
     FingerUp { abs: DVec2, digit_id: u64, is_mouse: bool },
     FingerMove { abs: DVec2, digit_id: u64, is_mouse: bool },
     HoverIn { abs: DVec2 },
@@ -87,12 +87,15 @@ impl Widget for ServoWebView {
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
                 cx.set_key_focus(self.draw_bg.area());
+                let is_right_click = fd.device.mouse_button()
+                    .map_or(false, |b| b.is_secondary());
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::FingerDown {
                         abs: fd.abs,
                         digit_id: fd.digit_id.0 .0,
                         is_mouse: matches!(fd.device, DigitDevice::Mouse { .. }),
+                        is_right_click,
                     },
                 );
             }

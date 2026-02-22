@@ -724,78 +724,69 @@ def _run_desktop(args: argparse.Namespace) -> int:
 
 
 def _studio_is_ready(host: str, port: int) -> bool:
-    """Check if a Studio instance is listening."""
-    url = f"http://{host}:{port}/$watch"
+    """Check if a bridge or Studio instance is listening (TCP connect)."""
+    import socket
     try:
-        resp = urllib.request.urlopen(url, timeout=2)
-        return resp.status == 200
-    except (urllib.error.URLError, OSError):
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except (OSError, ConnectionRefusedError):
         return False
 
 
 def _run_desktop_control(
     cmd: list[str], env: dict[str, str], studio_addr: str | None
 ) -> int:
-    """Launch HAVI with Studio bridge for remote control.
+    """Launch HAVI with havi-bridge for remote control.
 
     If studio_addr is given (--studio=HOST:PORT), connects to an existing
-    Studio.  Otherwise (--control), auto-starts Studio if none is running
-    and reuses an existing one if found.
+    bridge/Studio.  Otherwise (--control), auto-starts havi-bridge.
     """
     import random
 
-    # Parse or default the studio address.
+    # Parse or default the bridge address.
     if studio_addr:
         parts = studio_addr.rsplit(":", 1)
-        studio_host = parts[0] if len(parts) == 2 else "127.0.0.1"
-        studio_port = int(parts[-1]) if parts[-1].isdigit() else 8001
+        bridge_host = parts[0] if len(parts) == 2 else "127.0.0.1"
+        bridge_port = int(parts[-1]) if parts[-1].isdigit() else 8001
     else:
-        studio_host, studio_port = "127.0.0.1", 8001
+        bridge_host, bridge_port = "127.0.0.1", 8001
 
-    # Probe for an existing Studio.
-    studio_proc = None
-    if _studio_is_ready(studio_host, studio_port):
-        _log(f"reusing Studio at {studio_host}:{studio_port}")
-    elif studio_addr:
-        sys.exit(f"[mach-havi] Studio not reachable at {studio_addr}")
+    # Start havi-bridge if not connecting to an existing one.
+    bridge_proc = None
+    if studio_addr:
+        if not _studio_is_ready(bridge_host, bridge_port):
+            sys.exit(f"[mach-havi] bridge/Studio not reachable at {studio_addr}")
+        _log(f"reusing bridge at {bridge_host}:{bridge_port}")
     else:
-        # Auto-start Studio.
-        studio_bin = MAKEPAD_ROOT / "target" / "release" / "makepad-studio"
-        if not studio_bin.is_file():
-            _log("building makepad-studio")
-            ret = subprocess.call(
-                ["cargo", "build", "-p", "makepad-studio", "--release"],
-                cwd=str(MAKEPAD_ROOT),
-            )
-            if ret != 0:
-                sys.exit(f"[mach-havi] makepad-studio build failed (exit {ret})")
+        bridge_script = HAVI_ROOT / "havi-bridge"
+        if not bridge_script.is_file():
+            sys.exit(f"[mach-havi] havi-bridge not found at {bridge_script}")
 
-        studio_env = {k: v for k, v in env.items()
-                      if k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
-                               "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
-                               "HOME", "PATH", "LANG")}
-        _log("starting makepad-studio")
-        studio_proc = subprocess.Popen(
-            [str(studio_bin), f"--root=havi:{HAVI_ROOT}"],
-            env=studio_env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        _log(f"starting havi-bridge on port {bridge_port}")
+        bridge_proc = subprocess.Popen(
+            [str(bridge_script), "--port", str(bridge_port)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
-        deadline = time.time() + 30
+        # Wait for bridge to print its ready line.
+        deadline = time.time() + 15
         while time.time() < deadline:
-            if _studio_is_ready(studio_host, studio_port):
+            if bridge_proc.poll() is not None:
+                sys.exit(f"[mach-havi] havi-bridge exited early (code {bridge_proc.returncode})")
+            if _studio_is_ready(bridge_host, bridge_port):
                 break
-            time.sleep(0.5)
+            time.sleep(0.3)
         else:
-            studio_proc.kill()
-            sys.exit("[mach-havi] Studio did not become ready within 30s")
+            bridge_proc.kill()
+            sys.exit("[mach-havi] havi-bridge did not become ready within 15s")
 
     # Generate a unique build ID for this instance.
     build_id = random.randint(1, 2**53)
 
-    # Set STUDIO env for HAVI.
-    env["STUDIO"] = f"{studio_host}:{studio_port}"
+    # Set STUDIO env for HAVI — it connects to the bridge.
+    env["STUDIO"] = f"{bridge_host}:{bridge_port}"
     env["STUDIO_BUILD_ID"] = str(build_id)
 
     # Forward Wayland/display env to HAVI.
@@ -828,16 +819,16 @@ def _run_desktop_control(
 
     dt = devtools_addr[0] if devtools_addr else "<unknown>"
     dt_port = dt.rsplit(":", 1)[-1] if devtools_addr else "<port>"
-    print(f"\nHAVI_STUDIO={studio_host}:{studio_port}")
+    print(f"\nHAVI_BRIDGE={bridge_host}:{bridge_port}")
     print(f"HAVI_BUILD_ID={build_id}")
     print(f"HAVI_DEVTOOLS={dt}")
-    print(f"# havi-remote-cli --port {studio_port} builds")
-    print(f"# havi-remote-cli --port {studio_port} --build-id {build_id} screenshot /tmp/test.png")
+    print(f"# havi-remote-cli --port {bridge_port} builds")
+    print(f"# havi-remote-cli --port {bridge_port} --build-id {build_id} screenshot /tmp/test.png")
     print(f"# havi-webview-remote-cli -p {dt_port} eval 'document.title'")
 
     havi_proc.wait()
-    if studio_proc is not None:
-        studio_proc.kill()
+    if bridge_proc is not None:
+        bridge_proc.kill()
     return havi_proc.returncode
 
 
