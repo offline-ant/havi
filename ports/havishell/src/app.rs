@@ -1,10 +1,8 @@
 use euclid::Scale;
 use makepad_widgets::*;
 use servo::{
-    CompositionEvent, CompositionState, DeviceIndependentPixel, DevicePixel,
-    ImeEvent, Key, KeyState, KeyboardEvent,
-    MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
-    NamedKey, RenderingContext, TouchEventType, TouchId,
+    DeviceIndependentPixel, DevicePixel,
+    RenderingContext,
     WebViewId, percent_decode_jsonqa,
 };
 use servo::protocol_handler::ProtocolRegistry;
@@ -16,6 +14,14 @@ use std::sync::mpsc;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::makepad_platform::thread::SignalToUI;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
+
+mod context_menu;
+mod input_handling;
+mod navigation;
+mod tabs;
+
+use navigation::NavCommand;
+use tabs::{TabInfo, HOME_URL, title_from_url, next_tab_live_id};
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};
@@ -173,40 +179,61 @@ script_mod! {
                         home_btn := Button{ text: "⌂" }
                     }
 
-                    web_view := ServoWebView{
-                        width: Fill
-                        height: Fill
-                    }
+                    content_area := View{
+                        width: Fill height: Fill
+                        flow: Overlay
 
-                    // Context menu overlay (hidden by default)
-                    context_menu := View{
-                        visible: false
-                        abs_pos: vec2(0.0, 0.0)
-                        width: Fit height: Fit
-                        flow: Down
-                        padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
-                        spacing: 2
-                        show_bg: true
-                        draw_bg.color: #x2a2a2a
+                        web_view := ServoWebView{
+                            width: Fill
+                            height: Fill
+                        }
 
-                        context_copy_btn := Button{
-                            text: "Copy"
-                            width: 120 height: 28
-                            padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
-                            draw_text.color: #xcccccc
-                            draw_text.text_style.font_size: 12.0
-                            draw_bg +: {
-                                color: uniform(#x2a2a2a)
-                                color_hover: uniform(#x3a3a3a)
-                                pixel: fn() {
-                                    let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                    sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
-                                    sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                    return sdf.result
+                        // Context menu overlay
+                        context_menu := View{
+                            visible: false
+                            width: Fit height: Fit
+                            flow: Down
+                            padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
+                            spacing: 2
+                            show_bg: true
+                            draw_bg.color: #x2a2a2a
+
+                            context_copy_btn := Button{
+                                text: "Copy"
+                                width: 160 height: 28
+                                padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
+                                draw_text.color: #xcccccc
+                                draw_text.text_style.font_size: 12.0
+                                draw_bg +: {
+                                    color: uniform(#x2a2a2a)
+                                    color_hover: uniform(#x3a3a3a)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+                            context_edit_btn := Button{
+                                text: "Go to Editor"
+                                width: 160 height: 28
+                                padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
+                                draw_text.color: #xcccccc
+                                draw_text.text_style.font_size: 12.0
+                                draw_bg +: {
+                                    color: uniform(#x2a2a2a)
+                                    color_hover: uniform(#x3a3a3a)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
                                 }
                             }
                         }
-                    }
+                    } // end content_area
                 }
             }
         }
@@ -242,7 +269,7 @@ impl Default for MakepadServoAction {
 // WebViewDelegate — forwards Servo webview events to Makepad actions
 // ---------------------------------------------------------------------------
 
-struct HaviWebViewDelegate;
+pub(super) struct HaviWebViewDelegate;
 
 impl servo::WebViewDelegate for HaviWebViewDelegate {
     fn notify_page_title_changed(&self, webview: servo::WebView, title: Option<String>) {
@@ -366,36 +393,6 @@ impl servo::resources::ResourceReaderMethods for ResourceReader {
 }
 
 // ---------------------------------------------------------------------------
-// Tab state
-// ---------------------------------------------------------------------------
-
-/// Default start page URL.
-const HOME_URL: &str = "hppr://u/web/index.html";
-
-/// Derive a tab title from a URL. Uses the last path segment.
-fn title_from_url(url: &str) -> String {
-    url.rsplit('/').find(|s| !s.is_empty())
-        .unwrap_or("New Tab")
-        .to_string()
-}
-
-/// Counter for generating unique tab widget LiveIds.
-static TAB_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
-fn next_tab_live_id() -> LiveId {
-    LiveId(TAB_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-}
-
-struct TabInfo {
-    webview_id: WebViewId,
-    webview: servo::WebView,
-    title: String,
-    url: String,
-    /// LiveId used as the key in tab_bar View.children.
-    widget_id: LiveId,
-}
-
-// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -458,6 +455,10 @@ pub struct App {
     /// Whether a mouse drag is in progress (MouseDown sent to Servo).
     #[rust]
     is_mouse_dragging: bool,
+    /// Whether the current gesture is a right-click. Right-clicks are sent
+    /// to Servo immediately on finger-down; finger-up is suppressed.
+    #[rust]
+    is_right_click_gesture: bool,
 
     // --- Tab state ---
     #[rust]
@@ -470,7 +471,6 @@ pub struct App {
     context_menu_open: bool,
     #[rust]
     context_menu_pos: DVec2,
-
     // --- Tab state ---
     #[rust]
     tabs: Vec<TabInfo>,
@@ -1032,305 +1032,6 @@ impl App {
         }
     }
 
-    fn navigate(&self, url_str: &str) {
-        if let Some(webview) = self.active_webview() {
-            if let Ok(url) = url::Url::parse(url_str) {
-                webview.load(url);
-            } else if let Ok(url) = url::Url::parse(&format!("https://{}", url_str)) {
-                webview.load(url);
-            }
-        }
-    }
-
-    fn go_back(&self) {
-        if let Some(webview) = self.active_webview() {
-            webview.go_back(1);
-        }
-    }
-
-    fn go_forward(&self) {
-        if let Some(webview) = self.active_webview() {
-            webview.go_forward(1);
-        }
-    }
-
-    fn reload(&self) {
-        if let Some(webview) = self.active_webview() {
-            webview.reload();
-        }
-    }
-
-    /// Synchronize the tab bar UI: rebuild children from tab state.
-    fn sync_tab_bar(&mut self, cx: &mut Cx) {
-        let tab_bar_ref = self.ui.view(cx, ids!(tab_bar));
-
-        // Extract template source ScriptObjectRef (clone to release borrow)
-        let template_source = {
-            let tab_bar = tab_bar_ref.borrow_mut();
-            tab_bar.and_then(|tb| {
-                tb.children.iter()
-                    .find(|(id, _)| *id == live_id!(tab_template))
-                    .and_then(|(_, w)| {
-                        let view_borrow = w.borrow_mut::<View>();
-                        view_borrow.map(|v| v.source.clone())
-                    })
-            })
-        };
-
-        let Some(template_source) = template_source else {
-            return;
-        };
-
-        // Build new tab widgets from the template
-        let mut new_children: Vec<(LiveId, WidgetRef)> = Vec::new();
-
-        // Keep the template (hidden)
-        {
-            if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb.children.iter()
-                    .find(|(id, _)| *id == live_id!(tab_template))
-                {
-                    let entry = entry.clone();
-                    entry.1.set_visible(cx, false);
-                    new_children.push(entry);
-                }
-            }
-        }
-
-        // Create a tab widget for each tab
-        for (i, tab) in self.tabs.iter().enumerate() {
-            let is_active = i == self.active_tab_idx;
-            let widget = cx.with_vm(|vm| {
-                let template_val: ScriptValue = template_source.as_object().into();
-                WidgetRef::script_from_value(vm, template_val)
-            });
-            // Set label text
-            widget.widget(cx, ids!(tab_label)).set_text(cx, &tab.title);
-            // Set active/inactive bg color
-            let bg = if is_active {
-                [0.208f32, 0.208, 0.208, 1.0] // #353535
-            } else {
-                [0.165f32, 0.165, 0.165, 1.0] // #2a2a2a
-            };
-            // Set bg color via View's draw_bg uniform
-            if let Some(mut view) = widget.borrow_mut::<View>() {
-                view.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &bg);
-            }
-            // Set label text color
-            let text_color = if is_active {
-                Vec4f { x: 0.9, y: 0.9, z: 0.9, w: 1.0 }
-            } else {
-                Vec4f { x: 0.6, y: 0.6, z: 0.6, w: 1.0 }
-            };
-            let label_widget = widget.widget(cx, ids!(tab_label));
-            if let Some(mut label) = label_widget.borrow_mut::<Label>() {
-                label.draw_text.color = text_color;
-            }
-            new_children.push((tab.widget_id, widget));
-        }
-
-        // Preserve the new_tab_btn widget from the original children
-        {
-            if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb.children.iter()
-                    .find(|(id, _)| *id == live_id!(new_tab_btn))
-                {
-                    new_children.push(entry.clone());
-                }
-            }
-        }
-
-        // Replace children
-        {
-            let mut tab_bar_borrow = tab_bar_ref.borrow_mut();
-            if let Some(ref mut tab_bar) = tab_bar_borrow {
-                tab_bar.children.clear();
-                for entry in new_children {
-                    tab_bar.children.push(entry);
-                }
-            }
-        }
-        cx.redraw_all();
-    }
-
-    /// Handle clicks on dynamic tab bar children (switch tab / close tab).
-    fn handle_tab_clicks(&mut self, cx: &mut Cx, actions: &Actions) {
-        use makepad_widgets::view::ViewAction;
-
-        let tab_bar_ref = self.ui.view(cx, ids!(tab_bar));
-        let mut clicked_tab: Option<usize> = None;
-        let mut closed_tab: Option<usize> = None;
-
-        if let Some(tab_bar) = tab_bar_ref.borrow_mut() {
-            for (child_id, child_widget) in tab_bar.children.iter() {
-                let Some(tab_idx) = self.tabs.iter().position(|t| t.widget_id == *child_id)
-                else {
-                    continue;
-                };
-
-                let uid = child_widget.widget_uid();
-                if let Some(action) = actions.find_widget_action(uid) {
-                    if let ViewAction::FingerDown(fd) = action.cast() {
-                        // Check if click is in the close area (rightmost 24px)
-                        let tab_rect = child_widget.area().rect(cx);
-                        let close_x = tab_rect.pos.x + tab_rect.size.x - 24.0;
-                        if fd.abs.x >= close_x {
-                            closed_tab = Some(tab_idx);
-                        } else {
-                            clicked_tab = Some(tab_idx);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Some(idx) = closed_tab {
-            self.close_tab(cx, idx);
-        } else if let Some(idx) = clicked_tab {
-            if idx != self.active_tab_idx {
-                self.switch_tab(cx, idx);
-            }
-        }
-    }
-
-    /// Create a new Servo WebView for a new tab.
-    fn create_webview(&self, url_str: &str) -> Option<servo::WebView> {
-        let servo = self.servo.as_ref()?;
-        let rc = self.rendering_context.as_ref()?;
-        let url = url::Url::parse(url_str).ok()?;
-        let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
-            Scale::new(self.dpi_factor as f32);
-        let webview = servo::WebViewBuilder::new(servo, rc.clone())
-            .url(url)
-            .hidpi_scale_factor(hidpi)
-            .delegate(Rc::new(HaviWebViewDelegate))
-            .build();
-        // Set size to match current content size
-        let (w, h) = self.content_size;
-        webview.resize(dpi::PhysicalSize::new(w as u32, h as u32));
-        Some(webview)
-    }
-
-    /// Activate a tab's webview (show+focus) and deactivate all others.
-    fn activate_tab_webview(&self, active_idx: usize) {
-        for (i, tab) in self.tabs.iter().enumerate() {
-            if i == active_idx {
-                tab.webview.show();
-                tab.webview.focus();
-            } else {
-                tab.webview.hide();
-                tab.webview.blur();
-            }
-        }
-    }
-
-    /// Add a new tab and switch to it.
-    fn add_tab(&mut self, cx: &mut Cx) {
-        let Some(webview) = self.create_webview(HOME_URL) else {
-            return;
-        };
-        let webview_id = webview.id();
-        self.tabs.push(TabInfo {
-            webview_id,
-            webview,
-            title: title_from_url(HOME_URL),
-            url: HOME_URL.to_string(),
-            widget_id: next_tab_live_id(),
-        });
-        self.active_tab_idx = self.tabs.len() - 1;
-        self.activate_tab_webview(self.active_tab_idx);
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, HOME_URL);
-        self.needs_paint = true;
-        self.sync_tab_bar(cx);
-    }
-
-    /// Close tab at given index. Quits when the last tab is closed.
-    fn close_tab(&mut self, cx: &mut Cx, idx: usize) {
-        if idx >= self.tabs.len() {
-            return;
-        }
-        if self.tabs.len() <= 1 {
-            cx.quit();
-            return;
-        }
-        // Remove the tab (webview is dropped, Servo cleans it up)
-        self.tabs.remove(idx);
-        if self.active_tab_idx >= self.tabs.len() {
-            self.active_tab_idx = self.tabs.len() - 1;
-        } else if self.active_tab_idx > idx {
-            self.active_tab_idx -= 1;
-        }
-        // Activate the now-current tab
-        self.activate_tab_webview(self.active_tab_idx);
-        let url = self.tabs[self.active_tab_idx].url.clone();
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
-        self.needs_paint = true;
-        self.sync_tab_bar(cx);
-    }
-
-    /// Switch to tab at given index.
-    fn switch_tab(&mut self, cx: &mut Cx, idx: usize) {
-        if idx >= self.tabs.len() || idx == self.active_tab_idx {
-            return;
-        }
-        self.active_tab_idx = idx;
-        self.activate_tab_webview(idx);
-        let url = self.tabs[idx].url.clone();
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
-        self.needs_paint = true;
-        self.sync_tab_bar(cx);
-    }
-
-    /// Find tab index by webview id.
-    fn tab_index_for_webview(&self, webview_id: WebViewId) -> Option<usize> {
-        self.tabs.iter().position(|t| t.webview_id == webview_id)
-    }
-
-    /// Show the context menu at the right-click position.
-    fn show_context_menu(&mut self, cx: &mut Cx) {
-        let menu = self.ui.view(cx, ids!(context_menu));
-        menu.set_visible(cx, true);
-        if let Some(mut v) = menu.borrow_mut() {
-            v.walk.abs_pos = Some(dvec2(self.context_menu_pos.x, self.context_menu_pos.y));
-        }
-        cx.redraw_all();
-    }
-
-    fn hide_context_menu(&mut self, cx: &mut Cx) {
-        self.context_menu_open = false;
-        self.ui.view(cx, ids!(context_menu)).set_visible(cx, false);
-        cx.redraw_all();
-    }
-
-    /// Send Ctrl+C to Servo to copy selected text.
-    fn send_copy_command(&self) {
-        use keyboard_types::{Code, Modifiers};
-        // Send Ctrl+C keydown
-        self.send_input_event(servo::InputEvent::Keyboard(
-            KeyboardEvent::new(keyboard_types::KeyboardEvent {
-                state: keyboard_types::KeyState::Down,
-                key: Key::Character("c".into()),
-                code: Code::KeyC,
-                location: keyboard_types::Location::Standard,
-                modifiers: Modifiers::CONTROL,
-                repeat: false,
-                is_composing: false,
-            }),
-        ));
-        // Send Ctrl+C keyup
-        self.send_input_event(servo::InputEvent::Keyboard(
-            KeyboardEvent::new(keyboard_types::KeyboardEvent {
-                state: keyboard_types::KeyState::Up,
-                key: Key::Character("c".into()),
-                code: Code::KeyC,
-                location: keyboard_types::Location::Standard,
-                modifiers: Modifiers::CONTROL,
-                repeat: false,
-                is_composing: false,
-            }),
-        ));
-    }
 }
 
 impl MatchEvent for App {
@@ -1351,10 +1052,8 @@ impl MatchEvent for App {
             nav_action = Some(NavCommand::Navigate(url_text));
         }
         if self.ui.button(cx, ids!(edit_btn)).clicked(actions) {
-            // Navigate to the editor view for the current page
             let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            if let Ok(url) = url::Url::parse(&url_text) {
-                let edit_url = format!("hppr-editor://{}{}", url.host_str().unwrap_or(""), url.path());
+            if let Some(edit_url) = context_menu::editor_url_for(&url_text) {
                 nav_action = Some(NavCommand::Navigate(edit_url));
             }
         }
@@ -1396,6 +1095,13 @@ impl MatchEvent for App {
         if self.ui.button(cx, ids!(context_copy_btn)).clicked(actions) {
             self.hide_context_menu(cx);
             self.send_copy_command();
+        }
+        if self.ui.button(cx, ids!(context_edit_btn)).clicked(actions) {
+            self.hide_context_menu(cx);
+            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
+            if let Some(edit_url) = context_menu::editor_url_for(&url_text) {
+                nav_action = Some(NavCommand::Navigate(edit_url));
+            }
         }
 
         // --- Tab bar events ---
@@ -1478,239 +1184,8 @@ impl MatchEvent for App {
             }
         }
 
-        // Handle ServoWebView actions — the custom widget emits these for all
-        // touch / mouse / keyboard / IME interactions on the web content area.
-        let mut handled_input = false;
-        for action in actions {
-            if let Some(wa) = action.as_widget_action() {
-                let swva: ServoWebViewAction = wa.cast();
-                match &swva {
-                    ServoWebViewAction::None => {}
-
-                    // ----- Finger / touch -----
-                    //
-                    // Strategy: defer the Touch(Down) until we know whether
-                    // the gesture is a tap or a scroll.
-                    //
-                    //  • TAP  → send only Mouse events (move + down + up).
-                    //           This avoids the double-fire problem where
-                    //           both touchend JS listeners AND the synthetic
-                    //           click fire on toggle-style UI (hamburger menus).
-                    //
-                    //  • SCROLL → send Touch(Down) retroactively at the saved
-                    //             position, then Touch(Move) for each move,
-                    //             and Touch(Up) at the end.
-                    //
-                    ServoWebViewAction::FingerDown { abs, digit_id: _, is_mouse, is_right_click } => {
-                        if *is_right_click {
-                            self.context_menu_pos = *abs;
-                            self.context_menu_open = true;
-                            self.show_context_menu(cx);
-                            handled_input = true;
-                        } else {
-                            // Close context menu on left click
-                            if self.context_menu_open {
-                                self.hide_context_menu(cx);
-                            }
-                            self.finger_down_pos = Some(*abs);
-                            self.is_touch_scrolling = false;
-                            self.is_mouse_gesture = *is_mouse;
-                            self.is_mouse_dragging = false;
-                            // Don't send any event yet — wait to see if it's a tap or drag/scroll.
-                            handled_input = true;
-                        }
-                    }
-                    ServoWebViewAction::FingerUp { abs, digit_id, is_mouse: _ } => {
-                        let pt = self.point_to_device(cx, *abs);
-                        let touch_id = TouchId(*digit_id as i32);
-                        if self.is_mouse_dragging {
-                            // Complete mouse drag — send final MouseMove + MouseUp
-                            self.send_input_event(servo::InputEvent::MouseMove(
-                                servo::MouseMoveEvent::new(pt.into()),
-                            ));
-                            self.send_input_event(servo::InputEvent::MouseButton(
-                                MouseButtonEvent::new(
-                                    MouseButtonAction::Up,
-                                    MouseButton::Left,
-                                    pt.into(),
-                                ),
-                            ));
-                        } else if self.is_touch_scrolling {
-                            // Complete the touch/scroll sequence
-                            self.send_input_event(servo::InputEvent::Touch(
-                                servo::TouchEvent::new(
-                                    TouchEventType::Up,
-                                    touch_id,
-                                    pt.into(),
-                                ),
-                            ));
-                        } else {
-                            // TAP — send mouse click only (no touch events)
-                            self.send_input_event(servo::InputEvent::MouseMove(
-                                servo::MouseMoveEvent::new(pt.into()),
-                            ));
-                            self.send_input_event(servo::InputEvent::MouseButton(
-                                MouseButtonEvent::new(
-                                    MouseButtonAction::Down,
-                                    MouseButton::Left,
-                                    pt.into(),
-                                ),
-                            ));
-                            self.send_input_event(servo::InputEvent::MouseButton(
-                                MouseButtonEvent::new(
-                                    MouseButtonAction::Up,
-                                    MouseButton::Left,
-                                    pt.into(),
-                                ),
-                            ));
-                        }
-
-                        // Reset gesture state
-                        self.finger_down_pos = None;
-                        self.is_touch_scrolling = false;
-                        self.is_mouse_gesture = false;
-                        self.is_mouse_dragging = false;
-                        handled_input = true;
-                    }
-                    ServoWebViewAction::FingerMove { abs, digit_id, is_mouse: _ } => {
-                        let touch_id = TouchId(*digit_id as i32);
-
-                        if !self.is_touch_scrolling && !self.is_mouse_dragging {
-                            if let Some(down_pos) = self.finger_down_pos {
-                                let dx = abs.x - down_pos.x;
-                                let dy = abs.y - down_pos.y;
-                                let dist = (dx * dx + dy * dy).sqrt();
-                                if dist > TAP_DISTANCE_THRESHOLD {
-                                    if self.is_mouse_gesture {
-                                        // Mouse drag — send MouseDown at original position
-                                        self.is_mouse_dragging = true;
-                                        let down_pt = self.point_to_device(cx, down_pos);
-                                        self.send_input_event(servo::InputEvent::MouseButton(
-                                            MouseButtonEvent::new(
-                                                MouseButtonAction::Down,
-                                                MouseButton::Left,
-                                                down_pt.into(),
-                                            ),
-                                        ));
-                                    } else {
-                                        // Touch scroll
-                                        self.is_touch_scrolling = true;
-                                        let down_pt = self.point_to_device(cx, down_pos);
-                                        self.send_input_event(servo::InputEvent::Touch(
-                                            servo::TouchEvent::new(
-                                                TouchEventType::Down,
-                                                touch_id,
-                                                down_pt.into(),
-                                            ),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-
-                        if self.is_mouse_dragging {
-                            let pt = self.point_to_device(cx, *abs);
-                            self.send_input_event(servo::InputEvent::MouseMove(
-                                servo::MouseMoveEvent::new(pt.into()),
-                            ));
-                        } else if self.is_touch_scrolling {
-                            let pt = self.point_to_device(cx, *abs);
-                            self.send_input_event(servo::InputEvent::Touch(
-                                servo::TouchEvent::new(
-                                    TouchEventType::Move,
-                                    touch_id,
-                                    pt.into(),
-                                ),
-                            ));
-                        }
-                        handled_input = true;
-                    }
-
-                    // ----- Mouse hover events -----
-                    ServoWebViewAction::HoverIn { abs }
-                    | ServoWebViewAction::HoverOver { abs } => {
-                        let pt = self.point_to_device(cx, *abs);
-                        self.send_input_event(servo::InputEvent::MouseMove(
-                            servo::MouseMoveEvent::new(pt.into()),
-                        ));
-                        handled_input = true;
-                    }
-                    ServoWebViewAction::HoverOut => {
-                        self.send_input_event(servo::InputEvent::MouseLeftViewport(
-                            MouseLeftViewportEvent::default(),
-                        ));
-                        handled_input = true;
-                    }
-
-                    // ----- Scroll / wheel events -----
-                    ServoWebViewAction::Scroll { abs, scroll } => {
-                        let pt = self.point_to_device(cx, *abs);
-                        let delta = servo::WheelDelta {
-                            x: scroll.x * self.dpi_factor,
-                            y: scroll.y * self.dpi_factor,
-                            z: 0.0,
-                            mode: servo::WheelMode::DeltaPixel,
-                        };
-                        self.send_input_event(servo::InputEvent::Wheel(
-                            servo::WheelEvent::new(delta, pt.into()),
-                        ));
-                        // Update local scroll estimate for the overlay indicator.
-                        // scroll.y is in logical pixels (negative = scroll down in Makepad).
-                        self.scroll_y_estimate = (self.scroll_y_estimate - scroll.y).max(0.0);
-                        // Use viewport size as rough content height estimate until we know better.
-                        let vp_h = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx).size.y;
-                        if self.content_height_estimate < vp_h {
-                            self.content_height_estimate = vp_h * 3.0; // rough initial guess
-                        }
-                        // Clamp scroll to content bounds
-                        let max_scroll = (self.content_height_estimate - vp_h).max(0.0);
-                        self.scroll_y_estimate = self.scroll_y_estimate.min(max_scroll);
-                        self.ui.servo_web_view(cx, ids!(web_view))
-                            .set_scroll_state(cx, self.scroll_y_estimate, self.content_height_estimate, vp_h);
-                        handled_input = true;
-                    }
-
-                    // ----- Keyboard events -----
-                    ServoWebViewAction::KeyDown { key_event } => {
-                        if let Some(event) = crate::input::translate_key_event(key_event, true) {
-                            self.send_input_event(event);
-                            handled_input = true;
-                        }
-                    }
-                    ServoWebViewAction::KeyUp { key_event } => {
-                        if let Some(event) = crate::input::translate_key_event(key_event, false) {
-                            self.send_input_event(event);
-                            handled_input = true;
-                        }
-                    }
-
-                    // ----- IME / text input -----
-                    ServoWebViewAction::TextInput { input } => {
-                        if !input.is_empty() {
-                            self.send_input_event(servo::InputEvent::Keyboard(
-                                KeyboardEvent::from_state_and_key(
-                                    KeyState::Down,
-                                    Key::Named(NamedKey::Process),
-                                ),
-                            ));
-                            self.send_input_event(servo::InputEvent::Ime(
-                                ImeEvent::Composition(CompositionEvent {
-                                    state: CompositionState::End,
-                                    data: input.clone(),
-                                }),
-                            ));
-                            self.send_input_event(servo::InputEvent::Keyboard(
-                                KeyboardEvent::from_state_and_key(
-                                    KeyState::Up,
-                                    Key::Named(NamedKey::Process),
-                                ),
-                            ));
-                            handled_input = true;
-                        }
-                    }
-                }
-            }
-        }
+        // Handle ServoWebView actions (touch/mouse/keyboard/IME input)
+        let handled_input = self.handle_servo_webview_input(cx, actions);
 
         // After processing any web view input actions, restart the frame loop.
         // The touch→click synthesis pipeline requires multiple event loop
@@ -1722,13 +1197,6 @@ impl MatchEvent for App {
             cx.redraw_all();
         }
     }
-}
-
-enum NavCommand {
-    Back,
-    Forward,
-    Reload,
-    Navigate(String),
 }
 
 impl AppMain for App {

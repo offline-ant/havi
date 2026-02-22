@@ -53,6 +53,8 @@ KEY_MAP = {
 
 MODS = {"shift": False, "control": False, "alt": False, "logo": False}
 
+BUTTON_BITS = {"left": 1, "right": 2, "middle": 4}
+
 last_pos = [0.0, 0.0]
 
 # ---------------------------------------------------------------------------
@@ -202,13 +204,14 @@ def cmd_click(args, conn):
     x, y = float(args.x), float(args.y)
     tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
+    bits = BUTTON_BITS.get(getattr(args, "button", "left") or "left", 1)
     now = time.time()
     conn.send(mkv("MouseMove", {"time": now, "x": tx, "y": ty, "modifiers": MODS}))
     tick(conn)
-    conn.send(mkv("MouseDown", {"button_raw_bits": 1, "x": tx, "y": ty,
+    conn.send(mkv("MouseDown", {"button_raw_bits": bits, "x": tx, "y": ty,
                                 "time": now, "modifiers": MODS}))
     tick(conn)
-    conn.send(mkv("MouseUp", {"time": now + 0.01, "button_raw_bits": 1,
+    conn.send(mkv("MouseUp", {"time": now + 0.01, "button_raw_bits": bits,
                                "x": tx, "y": ty, "modifiers": MODS}))
     tick(conn)
 
@@ -239,7 +242,8 @@ def cmd_mousedown(args, conn):
     x, y = float(args.x), float(args.y)
     tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    conn.send(mkv("MouseDown", {"button_raw_bits": 1, "x": tx, "y": ty,
+    bits = BUTTON_BITS.get(getattr(args, "button", "left") or "left", 1)
+    conn.send(mkv("MouseDown", {"button_raw_bits": bits, "x": tx, "y": ty,
                                 "time": 0.0, "modifiers": MODS}))
     tick(conn)
 
@@ -249,7 +253,8 @@ def cmd_mouseup(args, conn):
     y = float(args.y) if args.y is not None else last_pos[1]
     tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    conn.send(mkv("MouseUp", {"time": 0.0, "button_raw_bits": 1,
+    bits = BUTTON_BITS.get(getattr(args, "button", "left") or "left", 1)
+    conn.send(mkv("MouseUp", {"time": 0.0, "button_raw_bits": bits,
                                "x": tx, "y": ty, "modifiers": MODS}))
     tick(conn)
 
@@ -372,16 +377,19 @@ def cmd_pipe(args, conn):
     """Read commands from stdin, one per line. Space-separated."""
     dispatch = {
         "click": lambda parts: cmd_click(
-            argparse.Namespace(x=parts[0], y=parts[1]), conn),
+            argparse.Namespace(x=parts[0], y=parts[1],
+                               button=parts[2] if len(parts) > 2 else "left"), conn),
         "type": lambda parts: cmd_type(
             argparse.Namespace(text=parts), conn),
         "key": lambda parts: cmd_key(
             argparse.Namespace(name=parts[0]), conn),
         "mousedown": lambda parts: cmd_mousedown(
-            argparse.Namespace(x=parts[0], y=parts[1]), conn),
+            argparse.Namespace(x=parts[0], y=parts[1],
+                               button=parts[2] if len(parts) > 2 else "left"), conn),
         "mouseup": lambda parts: cmd_mouseup(
             argparse.Namespace(x=parts[0] if parts else None,
-                               y=parts[1] if len(parts) > 1 else None), conn),
+                               y=parts[1] if len(parts) > 1 else None,
+                               button=parts[2] if len(parts) > 2 else "left"), conn),
         "mousemove": lambda parts: cmd_mousemove(
             argparse.Namespace(x=parts[0], y=parts[1]), conn),
         "touch": lambda parts: cmd_touch(
@@ -431,6 +439,8 @@ def main():
     s = sub.add_parser("click", help="Click at window coordinates")
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
+    s.add_argument("--button", "-b", default="left", choices=["left", "right", "middle"],
+                   help="Mouse button (default: left)")
     s.set_defaults(func=cmd_click)
 
     s = sub.add_parser("type", help="Type text")
@@ -444,11 +454,15 @@ def main():
     s = sub.add_parser("mousedown", help="Mouse button down at window coordinates")
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
+    s.add_argument("--button", "-b", default="left", choices=["left", "right", "middle"],
+                   help="Mouse button (default: left)")
     s.set_defaults(func=cmd_mousedown)
 
     s = sub.add_parser("mouseup", help="Mouse button up")
     s.add_argument("x", type=float, nargs="?", default=None)
     s.add_argument("y", type=float, nargs="?", default=None)
+    s.add_argument("--button", "-b", default="left", choices=["left", "right", "middle"],
+                   help="Mouse button (default: left)")
     s.set_defaults(func=cmd_mouseup)
 
     s = sub.add_parser("mousemove", help="Move mouse to window coordinates")
