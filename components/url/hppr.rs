@@ -743,7 +743,7 @@ mod tests {
         assert_eq!(url.path(), "home-repo");
 
         let url = HaviUrl::parse("havi:///homepage").unwrap();
-        assert_eq!(url.path(), "home");
+        assert_eq!(url.path(), "homepage");
 
         let url = HaviUrl::parse("havi:///ring0").unwrap();
         assert_eq!(url.path(), "ring0");
