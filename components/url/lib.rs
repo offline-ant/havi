@@ -169,6 +169,20 @@ impl ServoUrl {
         self.0.as_str()
     }
 
+    /// Display URL with decoded JSONqa for HPPR URLs.
+    ///
+    /// Returns the URL string with `%7B`/`%7D`/`%23` decoded back to
+    /// `{`/`}`/`#` inside JSONqa suffixes. For non-HPPR URLs, returns
+    /// the standard string representation.
+    pub fn hppr_display_url(&self) -> String {
+        let s = self.0.as_str();
+        if s.starts_with("hppr:") || s.starts_with("hppr-") {
+            hppr::percent_decode_jsonqa(s)
+        } else {
+            s.to_owned()
+        }
+    }
+
     pub fn as_mut_url(&mut self) -> &mut Url {
         Arc::make_mut(&mut self.0)
     }
@@ -237,24 +251,45 @@ impl ServoUrl {
     /// resolving, so `//chess/game/board.html` + `style.css` = `//chess/game/style.css`.
     /// Absolute coordinates (`//other/app/...`) replace the entire coordinate.
     fn join_hppr(&self, input: &str, address: &HAVIAddress) -> Result<ServoUrl, url::ParseError> {
+        // Strip JSONqa suffix ({...}) before URL resolution.
+        // JSONqa is client-side metadata excluded from coordinate lookup.
+        // Characters like { } # inside JSONqa would be mangled by Url::parse.
+        let (coord_input, jsonqa) = split_jsonqa(input);
+
         // Absolute URL with scheme - parse directly
-        if let Some(colon) = input.find(':') {
+        if let Some(colon) = coord_input.find(':') {
             if colon > 0 &&
-                !input.starts_with('.') &&
-                !input.starts_with('/') &&
-                input[..colon]
+                !coord_input.starts_with('.') &&
+                !coord_input.starts_with('/') &&
+                coord_input[..colon]
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-')
             {
-                if let Ok(url) = Url::parse(input) {
+                if let Ok(url) = Url::parse(coord_input) {
                     return Ok(Self::from_url(url));
                 }
             }
         }
 
+        // Pure JSONqa with no coordinate (e.g. "{#:text}") — same-document qualifier.
+        // Resolve against current document's full coordinate.
+        if coord_input.is_empty() {
+            let url_str = format!(
+                "{}{}",
+                address.reconstruct(&address.urc_string()),
+                encode_jsonqa_for_url(jsonqa),
+            );
+            return Url::parse(&url_str).map(Self::from_url);
+        }
+
         // Absolute coordinate (//group/app/loc)
-        if input.starts_with("//") {
-            return Url::parse(&address.reconstruct(input)).map(Self::from_url);
+        if coord_input.starts_with("//") {
+            let url_str = format!(
+                "{}{}",
+                address.reconstruct(coord_input),
+                encode_jsonqa_for_url(jsonqa),
+            );
+            return Url::parse(&url_str).map(Self::from_url);
         }
 
         // For web-like resolution: if coordinate doesn't end with '/', strip the "file" segment.
@@ -274,11 +309,16 @@ impl ServoUrl {
             return self.0.join(input).map(Self::from_url);
         };
 
-        let Ok(resolved) = current.join(input) else {
+        let Ok(resolved) = current.join(coord_input) else {
             return self.0.join(input).map(Self::from_url);
         };
 
-        Url::parse(&address.reconstruct(&resolved.unwrap())).map(Self::from_url)
+        let url_str = format!(
+            "{}{}",
+            address.reconstruct(&resolved.unwrap()),
+            encode_jsonqa_for_url(jsonqa),
+        );
+        Url::parse(&url_str).map(Self::from_url)
     }
 
     pub fn path_segments(&self) -> Option<::std::str::Split<'_, char>> {
@@ -440,6 +480,40 @@ impl FromStr for ServoUrl {
     }
 }
 
+/// Split JSONqa suffix from a URL or href string.
+///
+/// Returns (coordinate_part, jsonqa_part). The jsonqa_part includes
+/// the outer braces (e.g. `{#:text,page:5}`), or is empty if no JSONqa.
+fn split_jsonqa(input: &str) -> (&str, &str) {
+    // Find opening brace (literal or percent-encoded)
+    let brace_pos = input.find('{').or_else(|| input.find("%7B").or_else(|| input.find("%7b")));
+    match brace_pos {
+        Some(pos) => (&input[..pos], &input[pos..]),
+        None => (input, ""),
+    }
+}
+
+/// Percent-encode JSONqa for safe passage through rust-url's Url::parse.
+///
+/// Encodes `{`, `}`, `#` and other URL-special characters so they survive
+/// Url::parse without being interpreted as URL structure. HAVIAddress::parse
+/// decodes these back when parsing the URL.
+fn encode_jsonqa_for_url(jsonqa: &str) -> String {
+    if jsonqa.is_empty() {
+        return String::new();
+    }
+    let mut out = String::with_capacity(jsonqa.len() * 2);
+    for ch in jsonqa.chars() {
+        match ch {
+            '{' => out.push_str("%7B"),
+            '}' => out.push_str("%7D"),
+            '#' => out.push_str("%23"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,5 +584,45 @@ mod tests {
             .origin();
 
         assert_eq!(routed, direct);
+    }
+
+    #[test]
+    fn jsonqa_same_document() {
+        // Pure JSONqa href stays on current document
+        let base = ServoUrl::parse("hppr://u/web/index.html").unwrap();
+        let result = base.join("{#:text}").unwrap();
+        assert_eq!(result.hppr_display_url(), "hppr://u/web/index.html{#:text}");
+    }
+
+    #[test]
+    fn jsonqa_with_page() {
+        let base = ServoUrl::parse("hppr://docs/manual/chapter-3").unwrap();
+        let result = base.join("{page:5}").unwrap();
+        assert_eq!(result.hppr_display_url(), "hppr://docs/manual/chapter-3{page:5}");
+    }
+
+    #[test]
+    fn jsonqa_relative_with_qa() {
+        let base = ServoUrl::parse("hppr://g/a/dir/page.html").unwrap();
+        let result = base.join("other.html{#:section}").unwrap();
+        assert_eq!(result.hppr_display_url(), "hppr://g/a/dir/other.html{#:section}");
+    }
+
+    #[test]
+    fn jsonqa_absolute_coord_with_qa() {
+        let base = ServoUrl::parse("hppr://g/a/page.html").unwrap();
+        let result = base.join("//other/app/index.html{page:1}").unwrap();
+        assert_eq!(result.hppr_display_url(), "hppr://other/app/index.html{page:1}");
+    }
+
+    #[test]
+    fn jsonqa_hash_not_fragment() {
+        // # inside JSONqa must not be treated as fragment separator
+        let base = ServoUrl::parse("hppr://u/web/index.html").unwrap();
+        let result = base.join("{#:results}").unwrap();
+        let display = result.hppr_display_url();
+        assert!(display.contains("{#:results}"), "got: {}", display);
+        // The # must not appear as a URL fragment
+        assert!(!result.as_str().contains('#'), "raw URL has fragment: {}", result.as_str());
     }
 }

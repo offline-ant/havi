@@ -446,6 +446,27 @@ impl HAVIAddress {
 }
 
 /// Percent-decode only `%7B` and `%7D` (braces) in a string.
+/// Decode percent-encoded JSONqa in an HPPR URL string for display.
+///
+/// Finds the JSONqa suffix (starting at `%7B` or `%7b`) and decodes
+/// `%7B` → `{`, `%7D` → `}`, `%23` → `#` within it.
+pub fn percent_decode_jsonqa(url: &str) -> String {
+    let pos = url.find("%7B").or_else(|| url.find("%7b"));
+    match pos {
+        Some(idx) => {
+            let (prefix, suffix) = url.split_at(idx);
+            let decoded = suffix
+                .replace("%7B", "{")
+                .replace("%7D", "}")
+                .replace("%7b", "{")
+                .replace("%7d", "}")
+                .replace("%23", "#");
+            format!("{}{}", prefix, decoded)
+        },
+        None => url.to_owned(),
+    }
+}
+
 fn percent_decode_braces(input: &str) -> String {
     input
         .replace("%7B", "{")

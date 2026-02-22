@@ -875,7 +875,7 @@ impl App {
                     tab_bar_dirty = true;
                 }
                 if let Some(new_url) = tab.webview.url() {
-                    let new_url_str = new_url.to_string();
+                    let new_url_str = decode_hppr_display(new_url.as_str());
                     if new_url_str != tab.url {
                         tab.url = new_url_str;
                         tab_bar_dirty = true;
@@ -1594,6 +1594,12 @@ impl AppMain for App {
             // Update DPI factor if it changed (e.g., moved to different-DPI monitor)
             if re.new_geom.dpi_factor > 0.0 && re.new_geom.dpi_factor != self.dpi_factor {
                 self.dpi_factor = re.new_geom.dpi_factor;
+                // Update Servo webview hidpi scale factors
+                let new_hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
+                    Scale::new(self.dpi_factor as f32);
+                for tab in &self.tabs {
+                    tab.webview.set_hidpi_scale_factor(new_hidpi);
+                }
             }
         }
 
@@ -1639,5 +1645,30 @@ impl AppMain for App {
         // interactions here as well.
         self.match_event(cx, event);
         self.ui.handle_event(cx, event, &mut Scope::empty());
+    }
+}
+
+/// Decode percent-encoded JSONqa in HPPR URLs for address bar display.
+/// Mirrors `servo_url::hppr::percent_decode_jsonqa`.
+///
+/// Converts `%7B` → `{`, `%7D` → `}`, `%23` → `#` in the JSONqa suffix
+/// of hppr:// URLs so the address bar shows the readable form.
+fn decode_hppr_display(url: &str) -> String {
+    if !url.starts_with("hppr:") && !url.starts_with("hppr-") {
+        return url.to_owned();
+    }
+    let pos = url.find("%7B").or_else(|| url.find("%7b"));
+    match pos {
+        Some(idx) => {
+            let (prefix, suffix) = url.split_at(idx);
+            let decoded = suffix
+                .replace("%7B", "{")
+                .replace("%7D", "}")
+                .replace("%7b", "{")
+                .replace("%7d", "}")
+                .replace("%23", "#");
+            format!("{}{}", prefix, decoded)
+        },
+        None => url.to_owned(),
     }
 }
