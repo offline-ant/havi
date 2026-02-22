@@ -1,19 +1,20 @@
 #!/usr/bin/env -S uv --quiet run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["websockets"]
+# dependencies = []
 # ///
-"""Drive a Makepad app via the Studio bridge websocket.
+"""Drive a HAVI app via stdin/stdout JSON-line control socket.
 
-Sends mouse, keyboard, touch input and takes screenshots.
+Connects to the Unix domain socket created by `mach-havi run --control`.
+Sends StudioToApp JSON lines, reads AppToStudio JSON lines.
 For webview-level JS eval, use havi-webview-remote-cli.
 """
 
-import argparse, json, queue, shutil
-import subprocess, sys, threading, time
+import argparse, json, os, socket, shutil
+import subprocess, sys, threading, time, queue
 
 # ---------------------------------------------------------------------------
-# Makepad KeyCode index table (matches KEYCODE_VARIANTS in keyboard.rs)
+# Makepad KeyCode variants (string names used directly in JSON)
 # ---------------------------------------------------------------------------
 
 KEYCODE_VARIANTS = [
@@ -54,255 +55,349 @@ MODS = {"shift": False, "control": False, "alt": False, "logo": False}
 last_pos = [0.0, 0.0]
 
 # ---------------------------------------------------------------------------
-# Websocket connection (uses websockets library)
+# Connection: Unix domain socket, JSON lines
 # ---------------------------------------------------------------------------
 
-import websockets.sync.client
+class Connection:
+    """Bidirectional JSON-line connection over a Unix domain socket."""
 
-def ws_connect(host, port, path="/$studio_terminal"):
-    """Open a websocket connection. Returns (ws, reader_thread, rx_queue)."""
-    ws = websockets.sync.client.connect(
-        f"ws://{host}:{port}{path}",
-        additional_headers={"Host": f"{host}:{port}"},
-    )
-    rx = queue.Queue()
-    reader = threading.Thread(target=_ws_reader, args=(ws, rx), daemon=True)
-    reader.start()
-    return ws, reader, rx
+    def __init__(self, sock_path):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(sock_path)
+        self.rfile = self.sock.makefile("r", encoding="utf-8")
+        self.wfile = self.sock.makefile("w", encoding="utf-8")
+        self.rx = queue.Queue()
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
 
-
-def _ws_reader(ws, rx):
-    """Background: read websocket messages, put parsed JSON into rx queue."""
-    try:
-        for msg in ws:
-            try:
-                rx.put(json.loads(msg))
-            except (json.JSONDecodeError, TypeError):
-                pass
-    except Exception:
-        pass
-
-
-def ws_send(ws, msg):
-    """Send a JSON message."""
-    ws.send(json.dumps(msg))
-
-
-def ws_recv(rx, match_fn=None, timeout=30):
-    """Wait for a matching message from the queue."""
-    deadline = time.monotonic() + timeout
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return None
+    def _read_loop(self):
         try:
-            msg = rx.get(timeout=min(remaining, 0.5))
-        except queue.Empty:
-            continue
-        if match_fn is None or match_fn(msg):
-            return msg
+            for line in self.rfile:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    self.rx.put(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        except (OSError, ValueError):
+            pass
+
+    def send(self, msg):
+        """Send a JSON message as one line."""
+        self.wfile.write(json.dumps(msg) + "\n")
+        self.wfile.flush()
+
+    def recv(self, match_fn=None, timeout=30):
+        """Wait for a matching response."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                msg = self.rx.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
+            if match_fn is None or match_fn(msg):
+                return msg
+
+    def send_recv(self, msg, match_fn=None, timeout=30):
+        """Send and wait for matching response."""
+        self.send(msg)
+        return self.recv(match_fn, timeout)
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
 
 
-def ws_send_recv(ws, rx, msg, match_fn=None, timeout=30):
-    """Send msg and wait for a matching response."""
-    ws_send(ws, msg)
-    return ws_recv(rx, match_fn, timeout)
+def connect(args):
+    """Open connection from --socket arg or HAVI_CONTROL env."""
+    path = getattr(args, "socket", None) or os.environ.get("HAVI_CONTROL")
+    if not path:
+        sys.exit("error: no socket path. Use --socket or set HAVI_CONTROL.")
+    return Connection(path)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def keycode_index(name):
-    code = KEY_MAP.get(name.lower(), name)
-    try:
-        return KEYCODE_VARIANTS.index(code)
-    except ValueError:
-        return KEYCODE_VARIANTS.index("Unknown")
+def keycode_name(name):
+    """Map user-friendly key name to Makepad KeyCode variant string."""
+    return KEY_MAP.get(name.lower(), name)
 
 
-def discover_build_id(ws, rx):
-    resp = ws_send_recv(ws, rx, {"ListBuilds": []},
-                        match_fn=lambda m: "Builds" in m)
-    if not resp:
-        sys.exit("error: ListBuilds timeout")
-    builds = resp["Builds"]["builds"]
-    for b in builds:
-        if b.get("active") and b.get("has_web_socket"):
-            return b["build_id"]
-    for b in builds:
-        if b.get("active"):
-            return b["build_id"]
-    if builds:
-        return builds[0]["build_id"]
-    sys.exit("error: no builds found")
+def tick(conn):
+    """Send Tick to trigger event processing."""
+    conn.send({"Tick":[]})
 
 
-def get_build_id(args, ws, rx):
-    if args.build_id is not None:
-        return args.build_id
-    return discover_build_id(ws, rx)
+def mkv(name, data):
+    """Wrap a value as a Makepad SerJson tuple variant: {"Name":[data]}"""
+    return {name: [data]}
+
+
+# Coordinate translation state (populated by dump)
+dump_origin = None  # (ox, oy, dpi)
+latest_dump = None
+
+
+def parse_dump_origin(dump):
+    """Extract origin (ox, oy) and dpi from widget dump's first O line."""
+    for line in dump.split("\n"):
+        parts = line.split()
+        if parts and parts[0] == "O":
+            try:
+                return (float(parts[1]), float(parts[2]), float(parts[3]))
+            except (IndexError, ValueError):
+                pass
+    return None
+
+
+def translate_coords(x, y):
+    """Translate coordinates using dump origin if available."""
+    if dump_origin is None:
+        return (float(x), float(y))
+    ox, oy, dpi = dump_origin
+    dpi = max(dpi, 1.0)
+    return ((x + ox) / dpi, (y + oy) / dpi)
+
+
+def query_widget_dump(dump, query):
+    """Query widget dump for matching widgets. Returns list of line strings."""
+    results = []
+    query_lower = query.lower()
+    is_id = query.startswith("id:")
+    is_type = query.startswith("type:")
+    term = query[3:] if is_id else query[5:] if is_type else query_lower
+
+    for line in dump.split("\n"):
+        parts = line.split()
+        if not parts or parts[0] in ("O", "W"):
+            continue
+        name = parts[0]
+        if is_id:
+            match = name == term
+        elif is_type:
+            wtype = parts[5] if len(parts) > 5 else ""
+            match = wtype.lower() == term.lower()
+        else:
+            match = term in name.lower() or (
+                len(parts) > 5 and term in parts[5].lower()
+            )
+        if match:
+            results.append(line)
+    return results
 
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
-def cmd_click(args, ws, rx, bid):
-    x, y = int(args.x), int(args.y)
+def cmd_click(args, conn):
+    x, y = float(args.x), float(args.y)
+    tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(ws, {"Click": {"build_id": bid, "x": x, "y": y}})
+    now = time.time()
+    conn.send(mkv("MouseMove", {"time": now, "x": tx, "y": ty, "modifiers": MODS}))
+    tick(conn)
+    conn.send(mkv("MouseDown", {"button_raw_bits": 1, "x": tx, "y": ty,
+                                "time": now, "modifiers": MODS}))
+    tick(conn)
+    conn.send(mkv("MouseUp", {"time": now + 0.01, "button_raw_bits": 1,
+                               "x": tx, "y": ty, "modifiers": MODS}))
+    tick(conn)
 
 
-def cmd_type(args, ws, rx, bid):
+def cmd_type(args, conn):
     text = " ".join(args.text)
-    ws_send(ws, {"TypeText": {"build_id": bid, "text": text}})
+    conn.send(mkv("TextInput", {"input": text, "replace_last": False, "was_paste": False}))
+    tick(conn)
 
 
-def cmd_key(args, ws, rx, bid):
+def cmd_key(args, conn):
     name = args.name
-    if name.lower() == "enter":
-        ws_send(ws, {"Return": {"build_id": bid}})
-        return
-    idx = keycode_index(name)
-    kd = {"key_code": idx, "is_repeat": False, "modifiers": MODS, "time": 0.0}
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg": {"KeyDown": [kd]}}})
+    code = keycode_name(name)
+    now = time.time()
+    kd = {"key_code": code, "is_repeat": False, "modifiers": MODS, "time": now}
+    conn.send(mkv("KeyDown", kd))
+    tick(conn)
+    # For single printable chars, also send TextInput
     char = name if len(name) == 1 else {"space": " "}.get(name.lower())
     if char:
-        ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
-            {"TextInput": [{"input": char, "replace_last": False, "was_paste": False}]}}})
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg": {"KeyUp": [kd]}}})
+        conn.send(mkv("TextInput", {"input": char, "replace_last": False, "was_paste": False}))
+        tick(conn)
+    conn.send(mkv("KeyUp", kd))
+    tick(conn)
 
 
-def cmd_mousedown(args, ws, rx, bid):
+def cmd_mousedown(args, conn):
     x, y = float(args.x), float(args.y)
+    tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
-        {"MouseDown": [{"button_raw_bits": 1, "x": x, "y": y,
-                        "time": 0.0, "modifiers": MODS}]}}})
+    conn.send(mkv("MouseDown", {"button_raw_bits": 1, "x": tx, "y": ty,
+                                "time": 0.0, "modifiers": MODS}))
+    tick(conn)
 
 
-def cmd_mouseup(args, ws, rx, bid):
+def cmd_mouseup(args, conn):
     x = float(args.x) if args.x is not None else last_pos[0]
     y = float(args.y) if args.y is not None else last_pos[1]
+    tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
-        {"MouseUp": [{"time": 0.0, "button_raw_bits": 1, "x": x, "y": y,
-                      "modifiers": MODS}]}}})
+    conn.send(mkv("MouseUp", {"time": 0.0, "button_raw_bits": 1,
+                               "x": tx, "y": ty, "modifiers": MODS}))
+    tick(conn)
 
 
-def cmd_mousemove(args, ws, rx, bid):
+def cmd_mousemove(args, conn):
     x, y = float(args.x), float(args.y)
+    tx, ty = translate_coords(x, y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
-        {"MouseMove": [{"time": 0.0, "x": x, "y": y, "modifiers": MODS}]}}})
+    conn.send(mkv("MouseMove", {"time": 0.0, "x": tx, "y": ty, "modifiers": MODS}))
+    tick(conn)
 
 
-def cmd_touch(args, ws, rx, bid):
+def cmd_touch(args, conn):
     state_map = {"start": "Start", "down": "Start", "stop": "Stop",
                  "up": "Stop", "move": "Move", "stable": "Stable"}
     state_name = state_map.get(args.phase.lower())
     if not state_name:
         sys.exit(f"error: unknown touch phase: {args.phase}")
-    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
-        {"TouchUpdate": [{"touches": [
-            {"uid": args.id, "state": {state_name: []},
-             "x": float(args.x), "y": float(args.y), "time": time.time(),
-             "rotation_angle": 0.0, "force": 1.0,
-             "radius_x": 0.0, "radius_y": 0.0}],
-          "modifiers": MODS}]}}})
+    conn.send(mkv("TouchUpdate", {"touches": [
+        {"uid": args.id, "state": state_name,
+         "x": float(args.x), "y": float(args.y), "time": time.time(),
+         "rotation_angle": 0.0, "force": 1.0,
+         "radius_x": 0.0, "radius_y": 0.0}],
+        "modifiers": MODS}))
+    tick(conn)
 
 
-def cmd_screenshot(args, ws, rx, bid):
-    resp = ws_send_recv(ws, rx,
-        {"Screenshot": {"build_id": bid, "kind_id": 0}},
-        match_fn=lambda m: "Screenshot" in m, timeout=30)
+def cmd_screenshot(args, conn):
+    req_id = int(time.monotonic() * 1000) & 0xFFFFFFFF
+    conn.send(mkv("Screenshot", {"request_id": req_id, "kind_id": 0}))
+    tick(conn)
+
+    resp = conn.recv(match_fn=lambda m: isinstance(m, dict) and "Screenshot" in m,
+                     timeout=30)
     if not resp or "Screenshot" not in resp:
         print(json.dumps(resp or {"error": "timeout"}))
         sys.exit(1)
-    src = resp["Screenshot"]["path"]
-    if src != args.path:
-        shutil.copy2(src, args.path)
+
+    # Decode PNG from byte array and write to file.
+    # Response is tuple variant: {"Screenshot": [{"request_ids":..., "png":..., ...}]}
+    sdata = resp["Screenshot"]
+    if isinstance(sdata, list):
+        sdata = sdata[0]
+    png_bytes = bytes(sdata["png"])
+    with open(args.path, "wb") as f:
+        f.write(png_bytes)
+
+    # Normalize with ImageMagick if available
     try:
         subprocess.run(["magick", args.path, args.path], check=True,
                        capture_output=True, timeout=10)
     except (FileNotFoundError, subprocess.SubprocessError):
         pass
-    print(json.dumps(resp))
+
+    info = {k: v for k, v in sdata.items() if k != "png"}
+    info["path"] = args.path
+    print(json.dumps({"Screenshot": info}))
 
 
-def cmd_sleep(args, ws, rx, bid):
+def cmd_sleep(args, conn):
     time.sleep(args.ms / 1000.0)
 
 
-def cmd_builds(args, ws, rx, bid):
-    resp = ws_send_recv(ws, rx, {"ListBuilds": []},
-                        match_fn=lambda m: "Builds" in m)
-    if not resp:
-        sys.exit("error: ListBuilds timeout")
-    for b in resp["Builds"]["builds"]:
-        flags = []
-        if b.get("active"): flags.append("active")
-        if b.get("has_web_socket"): flags.append("ws")
-        f = " ".join(flags)
-        print(f'{b["build_id"]} {b.get("package", "")} [{f}]')
+def cmd_builds(args, conn):
+    print("connected [active]")
 
 
-def cmd_dump(args, ws, rx, bid):
-    resp = ws_send_recv(ws, rx,
-        {"WidgetTreeDump": {"build_id": bid}},
-        match_fn=lambda m: "WidgetTreeDump" in m, timeout=30)
+def cmd_dump(args, conn):
+    global latest_dump, dump_origin
+    req_id = int(time.monotonic() * 1000) & 0xFFFFFFFF
+    conn.send(mkv("WidgetTreeDump", {"request_id": req_id}))
+    tick(conn)
+
+    resp = conn.recv(
+        match_fn=lambda m: isinstance(m, dict) and "WidgetTreeDump" in m,
+        timeout=30)
     if not resp or "WidgetTreeDump" not in resp:
         print(json.dumps(resp or {"error": "timeout"}))
         sys.exit(1)
-    print(resp["WidgetTreeDump"]["dump"])
+
+    dump = resp["WidgetTreeDump"][0]["dump"] if isinstance(resp["WidgetTreeDump"], list) else resp["WidgetTreeDump"]["dump"]
+    latest_dump = dump
+    origin = parse_dump_origin(dump)
+    if origin:
+        dump_origin = origin
+    print(dump)
 
 
-def cmd_query(args, ws, rx, bid):
-    resp = ws_send_recv(ws, rx,
-        {"WidgetQuery": {"build_id": bid, "query": args.query}},
-        match_fn=lambda m: "WidgetQuery" in m, timeout=30)
-    if not resp or "WidgetQuery" not in resp:
+def cmd_query(args, conn):
+    global latest_dump, dump_origin
+    # Get a fresh dump first
+    req_id = int(time.monotonic() * 1000) & 0xFFFFFFFF
+    conn.send(mkv("WidgetTreeDump", {"request_id": req_id}))
+    tick(conn)
+
+    resp = conn.recv(
+        match_fn=lambda m: isinstance(m, dict) and "WidgetTreeDump" in m,
+        timeout=30)
+    if not resp or "WidgetTreeDump" not in resp:
         print(json.dumps(resp or {"error": "timeout"}))
         sys.exit(1)
-    for r in resp["WidgetQuery"]["rects"]:
-        print(r)
+
+    dump = resp["WidgetTreeDump"][0]["dump"] if isinstance(resp["WidgetTreeDump"], list) else resp["WidgetTreeDump"]["dump"]
+    latest_dump = dump
+    origin = parse_dump_origin(dump)
+    if origin:
+        dump_origin = origin
+
+    for line in query_widget_dump(dump, args.query):
+        print(line)
 
 
-def cmd_send(args, ws, rx, bid):
+def cmd_send(args, conn):
     msg = json.loads(args.json)
-    resp = ws_send_recv(ws, rx, msg, timeout=30)
+    conn.send(msg)
+    tick(conn)
+    resp = conn.recv(timeout=5)
     if resp:
         print(json.dumps(resp))
 
 
-def cmd_pipe(args, ws, rx, bid):
+def cmd_pipe(args, conn):
     """Read commands from stdin, one per line. Space-separated."""
     dispatch = {
         "click": lambda parts: cmd_click(
-            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), conn),
         "type": lambda parts: cmd_type(
-            argparse.Namespace(text=parts), ws, rx, bid),
+            argparse.Namespace(text=parts), conn),
         "key": lambda parts: cmd_key(
-            argparse.Namespace(name=parts[0]), ws, rx, bid),
+            argparse.Namespace(name=parts[0]), conn),
         "mousedown": lambda parts: cmd_mousedown(
-            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), conn),
         "mouseup": lambda parts: cmd_mouseup(
             argparse.Namespace(x=parts[0] if parts else None,
-                               y=parts[1] if len(parts) > 1 else None), ws, rx, bid),
+                               y=parts[1] if len(parts) > 1 else None), conn),
         "mousemove": lambda parts: cmd_mousemove(
-            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), conn),
         "touch": lambda parts: cmd_touch(
             argparse.Namespace(id=int(parts[0]), phase=parts[1],
-                               x=parts[2], y=parts[3]), ws, rx, bid),
+                               x=parts[2], y=parts[3]), conn),
         "screenshot": lambda parts: cmd_screenshot(
-            argparse.Namespace(path=parts[0]), ws, rx, bid),
+            argparse.Namespace(path=parts[0]), conn),
         "sleep": lambda parts: cmd_sleep(
-            argparse.Namespace(ms=int(parts[0])), ws, rx, bid),
+            argparse.Namespace(ms=int(parts[0])), conn),
         "dump": lambda parts: cmd_dump(
-            argparse.Namespace(), ws, rx, bid),
+            argparse.Namespace(), conn),
         "query": lambda parts: cmd_query(
-            argparse.Namespace(query=" ".join(parts)), ws, rx, bid),
+            argparse.Namespace(query=" ".join(parts)), conn),
         "send": lambda parts: cmd_send(
-            argparse.Namespace(json=" ".join(parts)), ws, rx, bid),
+            argparse.Namespace(json=" ".join(parts)), conn),
     }
     try:
         for line in sys.stdin:
@@ -327,10 +422,9 @@ def cmd_pipe(args, ws, rx, bid):
 def main():
     p = argparse.ArgumentParser(
         prog="havi-remote-cli",
-        description="Drive a Makepad app via Studio bridge websocket.")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8001)
-    p.add_argument("--build-id", type=int, default=None)
+        description="Drive a HAVI app via control socket (JSON lines).")
+    p.add_argument("--socket", "-s", default=None,
+                   help="Path to Unix control socket (or set HAVI_CONTROL)")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("click", help="Click at coordinates")
@@ -376,7 +470,7 @@ def main():
     s.add_argument("ms", type=int)
     s.set_defaults(func=cmd_sleep)
 
-    s = sub.add_parser("builds", help="List active builds")
+    s = sub.add_parser("builds", help="Show connection status")
     s.set_defaults(func=cmd_builds)
 
     s = sub.add_parser("dump", help="Widget tree dump")
@@ -394,9 +488,9 @@ def main():
     s.set_defaults(func=cmd_pipe)
 
     args = p.parse_args()
-    ws, _reader, rx = ws_connect(args.host, args.port)
-    bid = get_build_id(args, ws, rx)
-    args.func(args, ws, rx, bid)
+    conn = connect(args)
+    args.func(args, conn)
+    conn.close()
 
 
 if __name__ == "__main__":

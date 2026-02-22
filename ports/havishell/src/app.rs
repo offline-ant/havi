@@ -12,6 +12,10 @@ use havi_protocols::embedded_hpprd::EmbeddedHpprd;
 use havi_protocols::credentials::global_credential_store;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::mpsc;
+use makepad_widgets::makepad_platform::studio::StudioToApp;
+use makepad_widgets::makepad_platform::thread::SignalToUI;
+use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};
@@ -292,7 +296,7 @@ struct HaviServoDelegate;
 
 impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
-        println!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
+        eprintln!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
         log!("DEVTOOLS_BIND=127.0.0.1:{} # havi-webview-remote-cli -p {}", port, port);
     }
 
@@ -472,7 +476,6 @@ pub struct App {
     tabs: Vec<TabInfo>,
     #[rust]
     active_tab_idx: usize,
-
 
 }
 
@@ -809,20 +812,51 @@ impl App {
         // Print eval-compatible environment summary
         {
             let repo_dir = havi_protocols::config::repo_dir();
-            println!("HPPRD_REPO={}", repo_dir.display());
+            eprintln!("HPPRD_REPO={}", repo_dir.display());
             if let Some(ref h) = self._embedded_hpprd {
                 let port = h.port();
-                println!("HPPRD_BIND=127.0.0.1:{}", port);
-                println!("HPPRD_BIND_WS=127.0.0.1:{}", port + 1);
-                println!("HPPRD_BIND_QUIB=127.0.0.1:{}", port.saturating_sub(1));
-                println!("HPPRD_BIND_UDP=127.0.0.1:{}", port);
-                println!("HPPRD_SOCK={}", repo_dir.join("hppr.sock").display());
+                eprintln!("HPPRD_BIND=127.0.0.1:{}", port);
+                eprintln!("HPPRD_BIND_WS=127.0.0.1:{}", port + 1);
+                eprintln!("HPPRD_BIND_QUIB=127.0.0.1:{}", port.saturating_sub(1));
+                eprintln!("HPPRD_BIND_UDP=127.0.0.1:{}", port);
+                eprintln!("HPPRD_SOCK={}", repo_dir.join("hppr.sock").display());
             }
-            println!("HAVI_URL={}", start_url_str);
+            eprintln!("HAVI_URL={}", start_url_str);
         }
 
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
+
+        // Control mode: stdin/stdout JSON protocol
+        if std::env::var("HAVI_CONTROL").is_ok() {
+            Cx::set_studio_stdout_mode(true);
+            cx.in_makepad_studio = true;
+
+            let (tx, rx) = mpsc::channel();
+            Cx::set_control_channel(rx);
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let stdin = std::io::stdin();
+                let reader = std::io::BufReader::new(stdin.lock());
+                for line in reader.lines() {
+                    let Ok(line) = line else { break };
+                    if line.is_empty() { continue; }
+                    match StudioToApp::deserialize_json(&line) {
+                        Ok(msg) => {
+                            if tx.send(msg).is_err() { break; }
+                            SignalToUI::set_ui_signal();
+                        }
+                        Err(e) => {
+                            eprintln!("[havi-control] parse error: {:?} for: {}", e, line);
+                        }
+                    }
+                }
+            });
+
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
+            let _ = std::io::stdout().flush();
+        }
     }
 
     /// Check if the web_view widget has been resized and update the rendering context
@@ -1688,22 +1722,13 @@ impl AppMain for App {
         if let Some(_ne) = self.next_frame.is_event(event) {
             self.update_servo_and_texture(cx);
 
-            // Poll Studio websocket for remote control messages (havi-bridge).
-            // This dispatches StudioToApp events (mouse, keyboard, screenshot
-            // requests, widget tree dumps) received from the bridge.
-            cx.poll_studio_websocket();
-            if !cx.screenshot_requests.is_empty() {
-                cx.repaint_windows();
-            }
-
             // Tick scroll fade animation
             let scroll_fading = self.ui.servo_web_view(cx, ids!(web_view))
                 .tick_scroll_fade(cx, 1.0 / 60.0);
 
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
-            // Keep running when a Studio websocket (havi-bridge) is connected
-            // so poll_studio_websocket() keeps receiving control messages.
+            // Keep running in control mode so stdin messages are polled.
             if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading
                 || Cx::has_studio_web_socket()
             {

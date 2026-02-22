@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import pathlib
 import platform
@@ -715,121 +716,189 @@ def _run_desktop(args: argparse.Namespace) -> int:
     if args.extra:
         cmd.extend(args.extra)
 
-    studio_addr = getattr(args, "studio", None)
-    if getattr(args, "control", False) or studio_addr:
-        return _run_desktop_control(cmd, env, studio_addr)
+    if getattr(args, "control", False):
+        return _run_desktop_control(cmd, env)
 
     _log("desktop run", env=env, cmd=cmd)
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
 
-def _studio_is_ready(host: str, port: int) -> bool:
-    """Check if a bridge or Studio instance is listening (TCP connect)."""
-    import socket
-    try:
-        with socket.create_connection((host, port), timeout=2):
-            return True
-    except (OSError, ConnectionRefusedError):
-        return False
+def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
+    """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
 
-
-def _run_desktop_control(
-    cmd: list[str], env: dict[str, str], studio_addr: str | None
-) -> int:
-    """Launch HAVI with havi-bridge for remote control.
-
-    If studio_addr is given (--studio=HOST:PORT), connects to an existing
-    bridge/Studio.  Otherwise (--control), auto-starts havi-bridge.
+    Creates a Unix socket so havi-remote-cli can connect.  JSON lines from
+    socket clients are forwarded to HAVI's stdin; JSON lines from HAVI's
+    stdout are broadcast to all connected clients.
     """
-    import random
+    import select
+    import socket as sock_mod
+    import tempfile
 
-    # Parse or default the bridge address.
-    if studio_addr:
-        parts = studio_addr.rsplit(":", 1)
-        bridge_host = parts[0] if len(parts) == 2 else "127.0.0.1"
-        bridge_port = int(parts[-1]) if parts[-1].isdigit() else 8001
-    else:
-        bridge_host, bridge_port = "127.0.0.1", 8001
+    sock_path = os.path.join(tempfile.gettempdir(), f"havi-control-{os.getpid()}.sock")
 
-    # Start havi-bridge if not connecting to an existing one.
-    bridge_proc = None
-    if studio_addr:
-        if not _studio_is_ready(bridge_host, bridge_port):
-            sys.exit(f"[mach-havi] bridge/Studio not reachable at {studio_addr}")
-        _log(f"reusing bridge at {bridge_host}:{bridge_port}")
-    else:
-        bridge_script = HAVI_ROOT / "havi-bridge"
-        if not bridge_script.is_file():
-            sys.exit(f"[mach-havi] havi-bridge not found at {bridge_script}")
+    # Clean up stale socket file.
+    try:
+        os.unlink(sock_path)
+    except FileNotFoundError:
+        pass
 
-        _log(f"starting havi-bridge on port {bridge_port}")
-        bridge_proc = subprocess.Popen(
-            [str(bridge_script), "--port", str(bridge_port)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+    # Create the Unix domain socket.
+    server = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+    server.bind(sock_path)
+    server.listen(8)
+    server.setblocking(False)
 
-        # Wait for bridge to print its ready line.
-        deadline = time.time() + 15
-        while time.time() < deadline:
-            if bridge_proc.poll() is not None:
-                sys.exit(f"[mach-havi] havi-bridge exited early (code {bridge_proc.returncode})")
-            if _studio_is_ready(bridge_host, bridge_port):
-                break
-            time.sleep(0.3)
-        else:
-            bridge_proc.kill()
-            sys.exit("[mach-havi] havi-bridge did not become ready within 15s")
-
-    # Generate a unique build ID for this instance.
-    build_id = random.randint(1, 2**53)
-
-    # Set STUDIO env for HAVI — it connects to the bridge.
-    env["STUDIO"] = f"{bridge_host}:{bridge_port}"
-    env["STUDIO_BUILD_ID"] = str(build_id)
+    # Tell HAVI to use stdin/stdout control mode.
+    env["HAVI_CONTROL"] = "1"
 
     # Forward Wayland/display env to HAVI.
     for var in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY"):
         if var in os.environ and var not in env:
             env[var] = os.environ[var]
 
-    # Launch HAVI with captured stdout.
     _log("desktop run (control)", cmd=cmd)
     havi_proc = subprocess.Popen(
-        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cmd, env=env, stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=None,  # stderr passes through
+        cwd=str(HAVI_ROOT),
     )
 
+    assert havi_proc.stdin is not None
+    assert havi_proc.stdout is not None
+
+    # Connected socket clients.
+    clients: list[sock_mod.socket] = []
+    client_bufs: dict[int, str] = {}  # fd -> partial line buffer
+
+    # Wait for ReadyToStart from HAVI stdout.
+    ready = threading.Event()
+    havi_lines: list[str] = []
+    stdout_lock = threading.Lock()
     devtools_addr: list[str] = []
-    found = threading.Event()
 
-    def _read_stdout() -> None:
+    def _read_havi_stdout() -> None:
+        """Read JSON lines from HAVI stdout, broadcast to clients."""
         assert havi_proc.stdout is not None
-        for line in havi_proc.stdout:
-            print(line, end="")
-            stripped = line.strip()
-            if stripped.startswith("HAVI_DEVTOOLS=") and not devtools_addr:
-                devtools_addr.append(stripped.split("=", 1)[1])
-                found.set()
+        for raw in havi_proc.stdout:
+            line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+            line = line.rstrip("\n")
+            if not line:
+                continue
 
-    reader = threading.Thread(target=_read_stdout, daemon=True)
+            # Check for ReadyToStart
+            try:
+                msg = json.loads(line)
+                if isinstance(msg, dict) and "ReadyToStart" in msg:
+                    ready.set()
+            except json.JSONDecodeError:
+                # Not JSON — might be stderr leak or log line.  Print it.
+                print(line, file=sys.stderr)
+                # Check for HAVI_DEVTOOLS in non-JSON output
+                if line.strip().startswith("HAVI_DEVTOOLS=") and not devtools_addr:
+                    devtools_addr.append(line.strip().split("=", 1)[1])
+                continue
+
+            # Broadcast to all connected clients.
+            with stdout_lock:
+                dead = []
+                for c in clients:
+                    try:
+                        c.sendall((line + "\n").encode("utf-8"))
+                    except (OSError, BrokenPipeError):
+                        dead.append(c)
+                for c in dead:
+                    clients.remove(c)
+                    client_bufs.pop(id(c), None)
+                    c.close()
+
+    reader = threading.Thread(target=_read_havi_stdout, daemon=True)
     reader.start()
 
-    found.wait(timeout=30)
+    ready.wait(timeout=30)
+    if not ready.is_set():
+        print("[mach-havi] warning: HAVI did not send ReadyToStart within 30s",
+              file=sys.stderr)
 
-    dt = devtools_addr[0] if devtools_addr else "<unknown>"
-    dt_port = dt.rsplit(":", 1)[-1] if devtools_addr else "<port>"
-    print(f"\nHAVI_BRIDGE={bridge_host}:{bridge_port}")
-    print(f"HAVI_BUILD_ID={build_id}")
-    print(f"HAVI_DEVTOOLS={dt}")
-    print(f"# havi-remote-cli --port {bridge_port} builds")
-    print(f"# havi-remote-cli --port {bridge_port} --build-id {build_id} screenshot /tmp/test.png")
-    print(f"# havi-webview-remote-cli -p {dt_port} eval 'document.title'")
+    dt = devtools_addr[0] if devtools_addr else ""
+    dt_port = dt.rsplit(":", 1)[-1] if dt else ""
+    print(f"\nHAVI_CONTROL={sock_path}")
+    if dt:
+        print(f"HAVI_DEVTOOLS={dt}")
+    print(f"# havi-remote-cli --socket {sock_path} screenshot /tmp/test.png")
+    if dt_port:
+        print(f"# havi-webview-remote-cli -p {dt_port} eval 'document.title'")
 
-    havi_proc.wait()
-    if bridge_proc is not None:
-        bridge_proc.kill()
-    return havi_proc.returncode
+    # Main relay loop: accept client connections, relay lines to HAVI stdin.
+    stdin_lock = threading.Lock()
+
+    def _write_to_havi(data: bytes) -> None:
+        assert havi_proc.stdin is not None
+        with stdin_lock:
+            try:
+                havi_proc.stdin.write(data)
+                havi_proc.stdin.flush()
+            except (OSError, BrokenPipeError):
+                pass
+
+    try:
+        while havi_proc.poll() is None:
+            # Build read list: server socket + all clients.
+            rlist = [server] + clients
+            try:
+                readable, _, _ = select.select(rlist, [], [], 0.5)
+            except (ValueError, OSError):
+                # Bad fd — prune dead clients.
+                with stdout_lock:
+                    alive = []
+                    for c in clients:
+                        try:
+                            c.fileno()
+                            alive.append(c)
+                        except Exception:
+                            client_bufs.pop(id(c), None)
+                    clients[:] = alive
+                continue
+
+            for s in readable:
+                if s is server:
+                    conn, _ = server.accept()
+                    with stdout_lock:
+                        clients.append(conn)
+                        client_bufs[id(conn)] = ""
+                else:
+                    try:
+                        data = s.recv(65536)
+                    except (OSError, ConnectionResetError):
+                        data = b""
+                    if not data:
+                        with stdout_lock:
+                            if s in clients:
+                                clients.remove(s)
+                            client_bufs.pop(id(s), None)
+                        s.close()
+                        continue
+                    # Buffer and extract complete lines.
+                    buf = client_bufs.get(id(s), "") + data.decode("utf-8", errors="replace")
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if line:
+                            _write_to_havi((line + "\n").encode("utf-8"))
+                    client_bufs[id(s)] = buf
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Cleanup.
+        server.close()
+        try:
+            os.unlink(sock_path)
+        except FileNotFoundError:
+            pass
+        if havi_proc.poll() is None:
+            havi_proc.terminate()
+            havi_proc.wait(timeout=5)
+
+    return havi_proc.returncode or 0
 
 
 # ---------------------------------------------------------------------------
@@ -870,9 +939,7 @@ def run(topdir: str) -> int:
                         help="Android package name (default: dev.makepad.havishell)")
         if name == "run":
             p.add_argument("--control", action="store_true",
-                            help="Start Studio bridge for remote control")
-            p.add_argument("--studio", default=None, metavar="HOST:PORT",
-                            help="Connect to existing Studio (e.g. 127.0.0.1:8001)")
+                            help="Launch with control socket for havi-remote-cli")
         p.add_argument("extra", nargs="*",
                         help="Extra arguments forwarded to cargo")
         p.set_defaults(func=handler)
