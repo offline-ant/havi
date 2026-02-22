@@ -651,6 +651,11 @@ def cmd_check(args: argparse.Namespace) -> int:
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
 
+def cmd_studio(args: argparse.Namespace) -> int:
+    """Launch Makepad Studio with the havi workspace."""
+    return _run_studio(args)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     if args.emulator:
         return _run_emulator(args)
@@ -701,6 +706,18 @@ def _run_emulator(args: argparse.Namespace) -> int:
         return ret
 
     return _emulator_install_and_run(args, target_triple)
+
+
+def _run_studio(args: argparse.Namespace) -> int:
+    """Launch Makepad Studio with the havi workspace as a root."""
+    env = setup_desktop_env()
+    cmd = [
+        "cargo", "run", "-p", "makepad-studio",
+        "--release", "--",
+        f"--root=havi:{HAVI_ROOT}",
+    ]
+    _log("studio", cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(MAKEPAD_ROOT))
 
 
 def _run_desktop(args: argparse.Namespace) -> int:
@@ -918,6 +935,10 @@ def run(topdir: str) -> int:
         description="Build entry point for the havishell port of havi",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_studio = sub.add_parser("studio", help="Launch Makepad Studio with havi workspace")
+    p_studio.add_argument("extra", nargs="*", help="Extra arguments forwarded to cargo")
+    p_studio.set_defaults(func=cmd_studio)
 
     for name, handler, verb in [
         ("build", cmd_build, "Build"),
