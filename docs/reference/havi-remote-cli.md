@@ -16,6 +16,7 @@ socket path is printed as `HAVI_CONTROL=<path>`.
 ## Global options
 
 - `-s, --socket PATH` — Unix control socket path (default: `$HAVI_CONTROL`)
+- `--debug-port PORT` — Devtools port for navigate (default: `$HAVI_DEBUG_PORT`)
 
 ## Commands
 
@@ -48,6 +49,14 @@ socket path is printed as `HAVI_CONTROL=<path>`.
     `<command> [args...]`, same as CLI arguments.
 - `builds`
   - Print connection status.
+- `navigate <url>`
+  - Navigate HAVI to a URL via havi-webview-remote-cli. Requires `--debug-port`.
+- `trust <group> <app>`
+  - Ensure site-trust exists for an origin. Idempotent. No socket needed.
+- `publish <coordinate> <file>`
+  - Store a signed file, ensure trust, navigate. Requires `--debug-port`.
+- `publish-dir <coordinate> <dir>`
+  - Store a directory tree, ensure trust, navigate. Requires `--debug-port`.
 
 ## Protocol
 
@@ -80,4 +89,16 @@ havi-remote-cli -s $HAVI_CONTROL query id:address_bar
 # Pipe mode
 echo -e "click 200 120\nsleep 500\nscreenshot /tmp/out.png" | \
   havi-remote-cli -s $HAVI_CONTROL pipe
+
+# Publish a file and view it
+export HPPR_SIGNER='!ring0/mysecret'
+havi-remote-cli --debug-port 6000 publish //mysite/www/index.html ./index.html
+
+# Publish a directory
+havi-remote-cli --debug-port 6000 publish-dir //docs/manual ./site/
+
+# Trust once, then iterate with hppr directly
+havi-remote-cli trust mysite www
+hppr add --seal-by oldest //mysite/www/page.html < page.html
+havi-remote-cli --debug-port 6000 navigate hppr://mysite/www/page.html
 ```
