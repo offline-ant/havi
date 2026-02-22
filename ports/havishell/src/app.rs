@@ -177,6 +177,14 @@ script_mod! {
                         edit_btn := Button{ text: "✏" }
                         share_btn := Button{ text: "🔗" }
                         home_btn := Button{ text: "⌂" }
+
+                        repo_mode_label := Label{
+                            text: ""
+                            draw_text.color: #x666666
+                            draw_text.text_style.font_size: 9.0
+                            width: Fit height: Fit
+                            margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
+                        }
                     }
 
                     content_area := View{
@@ -188,9 +196,10 @@ script_mod! {
                             height: Fill
                         }
 
-                        // Context menu overlay
+                        // Context menu overlay (starts off-screen; show_context_menu positions it)
                         context_menu := View{
                             visible: false
+                            abs_pos: vec2(-1000.0, -1000.0)
                             width: Fit height: Fit
                             flow: Down
                             padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
@@ -796,6 +805,10 @@ impl App {
 
         // Set initial URL in the text input
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &start_url_str);
+
+        // Show repo mode indicator
+        let mode_text = if self._embedded_hpprd.is_some() { "embedded" } else { "connected" };
+        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, mode_text);
 
         // Set window title caption to "havi"
         self.ui.widget(cx, ids!(caption_bar.caption_label.label)).set_text(cx, "havi");

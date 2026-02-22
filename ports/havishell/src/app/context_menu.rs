@@ -5,7 +5,7 @@ use super::App;
 
 /// Context menu dimensions (must match DSL definition).
 const MENU_WIDTH: f64 = 160.0 + 8.0; // button width + padding
-const MENU_HEIGHT: f64 = 66.0; // 2 buttons + spacing + padding
+const MENU_HEIGHT: f64 = 78.0; // 2 buttons + spacing + padding (measured)
 
 /// Build an `hppr-editor://` URL from the current page URL.
 /// Returns `None` for non-hppr URLs.
@@ -23,26 +23,26 @@ impl App {
         let url_text = self.ui.text_input(cx, ids!(url_input)).text();
         let has_editor = editor_url_for(&url_text).is_some();
         self.ui.button(cx, ids!(context_edit_btn)).set_visible(cx, has_editor);
-        // abs_pos is relative to the content_area parent — subtract its origin.
+        // abs_pos is window-absolute in Makepad, so use click position directly.
         let content_rect = self.ui.view(cx, ids!(content_area)).area().rect(cx);
-        let mut menu_x = self.context_menu_pos.x - content_rect.pos.x;
-        let mut menu_y = self.context_menu_pos.y - content_rect.pos.y;
+        let mut menu_x = self.context_menu_pos.x;
+        let mut menu_y = self.context_menu_pos.y;
 
-        let content_w = content_rect.size.x;
-        let content_h = content_rect.size.y;
+        let content_right = content_rect.pos.x + content_rect.size.x;
+        let content_bottom = content_rect.pos.y + content_rect.size.y;
 
         // Flip horizontally if menu would extend past right edge
-        if menu_x + MENU_WIDTH > content_w {
+        if menu_x + MENU_WIDTH > content_right {
             menu_x = menu_x - MENU_WIDTH;
         }
         // Flip vertically if menu would extend past bottom edge
-        if menu_y + MENU_HEIGHT > content_h {
+        if menu_y + MENU_HEIGHT > content_bottom {
             menu_y = menu_y - MENU_HEIGHT;
         }
 
         // Ensure menu stays within content area bounds
-        menu_x = menu_x.max(0.0);
-        menu_y = menu_y.max(0.0);
+        menu_x = menu_x.max(content_rect.pos.x);
+        menu_y = menu_y.max(content_rect.pos.y);
 
         let menu = self.ui.view(cx, ids!(context_menu));
         menu.set_visible(cx, true);
