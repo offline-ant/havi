@@ -488,14 +488,12 @@ const MAX_IDLE_FRAMES: u32 = 10;
 /// the gesture is treated as a scroll; otherwise it's a tap (click).
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
-/// Create a shared GL rendering context by extracting EGL handles from Makepad's
-/// platform-specific context. This context shares texture namespaces with Makepad,
-/// enabling zero-copy rendering: Servo renders into an FBO texture that Makepad
-/// can directly bind and display.
+/// Create a rendering context that loads GL function pointers from Makepad's EGL
+/// context. Servo renders into an FBO within the same GL context — no second
+/// context is created.
 ///
-/// On Linux, Makepad exposes EGL via `cx.os.opengl_cx` (OpenglCx) with Wayland/X11
-/// platform info. On Android, it uses `cx.os.display` (CxAndroidDisplay) with a
-/// direct EGL backend.
+/// On Linux, Makepad exposes EGL via `cx.os.opengl_cx` (OpenglCx). On Android,
+/// it uses `cx.os.display` (CxAndroidDisplay).
 #[cfg(target_os = "linux")]
 fn create_shared_rendering_context(
     cx: &mut Cx,
@@ -506,25 +504,21 @@ fn create_shared_rendering_context(
         .opengl_cx
         .as_ref()
         .expect("Makepad OpenGL context not initialized");
-    let egl_display = opengl_cx.egl_display as *mut std::ffi::c_void;
-    let egl_context = opengl_cx.egl_context as *mut std::ffi::c_void;
-    let egl_platform = opengl_cx.egl_platform;
-    let platform_display = opengl_cx.egl_platform_display;
 
-    // Ensure Makepad's EGL context is current before creating the shared
-    // rendering context. Surfman's create_context_from_native_context
-    // internally queries GL_VERSION via glow, which requires a current context.
     opengl_cx.make_current();
 
-    // SAFETY: The EGL handles are valid and the context is current (ensured above).
+    let egl_get_proc_address = opengl_cx
+        .libegl
+        .eglGetProcAddress
+        .expect("eglGetProcAddress not available");
+
+    // SAFETY: Makepad's EGL context is current (ensured above). The GL function
+    // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
-        servo::MakepadRenderingContext::new(
-            egl_display,
-            egl_context,
-            egl_platform,
-            platform_display,
-            size,
-        )
+        servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
+            let c_name = std::ffi::CString::new(func_name).unwrap();
+            egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
+        })
     }
 }
 
@@ -539,22 +533,17 @@ fn create_shared_rendering_context(
         .as_ref()
         .expect("Makepad Android display not initialized");
 
-    // Ensure Makepad's EGL context is current.
     display.make_current();
 
-    // Get eglGetProcAddress from Makepad's loaded EGL library.
-    // We pass this as a GL function loader so Servo can load gleam/glow
-    // function pointers without creating a second EGL context.
     let egl_get_proc_address = display
         .libegl
         .eglGetProcAddress
         .expect("eglGetProcAddress not available");
 
-    // SAFETY: Makepad's EGL context is current (ensured above) and valid.
-    // The GL function pointers loaded via eglGetProcAddress are valid for
-    // this context. No second EGL context is created.
+    // SAFETY: Makepad's EGL context is current (ensured above). The GL function
+    // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
-        servo::MakepadRenderingContext::new_android(size, &|func_name: &str| {
+        servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
             let c_name = std::ffi::CString::new(func_name).unwrap();
             egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
         })
@@ -562,8 +551,9 @@ fn create_shared_rendering_context(
 }
 
 /// Restore Makepad's EGL context as current after Servo rendering.
-/// Servo creates its own shared GL context for painting. After Servo's paint/present
-/// cycle, that context is left current. Makepad needs its own context current to draw.
+/// With the unified single-context approach this is technically a no-op (Servo
+/// renders within Makepad's own context), but kept for safety in case platform
+/// code changes the current context between frames.
 #[cfg(target_os = "linux")]
 fn restore_makepad_gl_context(cx: &mut Cx) {
     if let Some(opengl_cx) = cx.os.opengl_cx.as_ref() {
@@ -805,6 +795,12 @@ impl App {
         // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
         self.ui.view(cx, ids!(caption_bar)).set_visible(cx, false);
 
+        // In Makepad Studio's RunView, window control buttons are meaningless —
+        // the child process doesn't own a real window.
+        if cx.in_makepad_studio {
+            self.ui.view(cx, ids!(window_controls)).set_visible(cx, false);
+        }
+
         // Signal that we need to paint the first frame
         self.needs_paint = true;
         self.idle_frames = 0;
@@ -827,8 +823,10 @@ impl App {
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
 
-        // Control mode: stdin/stdout JSON protocol
-        if std::env::var("HAVI_CONTROL").is_ok() {
+        // Control mode: stdin/stdout JSON protocol.
+        // Skip when running inside Makepad Studio's RunView — stdin is already
+        // used by the Studio WebSocket protocol.
+        if std::env::var("HAVI_CONTROL").is_ok() && !cx.in_makepad_studio {
             Cx::set_studio_stdout_mode(true);
             cx.in_makepad_studio = true;
 
