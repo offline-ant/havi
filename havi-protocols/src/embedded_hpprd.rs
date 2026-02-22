@@ -17,6 +17,14 @@ use std::thread;
 use hpprd::instance::{create_repository, InstanceConfig, RepoInstance};
 use hpprd::{BoundListener, ListenerConfig, RepoSocket, compute_transports};
 
+/// Result of attempting to start embedded hpprd.
+pub enum HpprdMode {
+    /// Successfully started embedded hpprd daemon.
+    Embedded(EmbeddedHpprd),
+    /// Connected to an already-running hpprd via Unix socket.
+    Reused { socket_path: String },
+}
+
 /// Handle to the embedded hpprd repo daemon thread.
 pub struct EmbeddedHpprd {
     _thread: thread::JoinHandle<()>,
@@ -27,12 +35,26 @@ impl EmbeddedHpprd {
     /// Start embedded hpprd on a background thread with the given repo path.
     ///
     /// Instance locking prevents multiple repo daemons on the same repo path.
-    pub fn start(repo_path: PathBuf) -> Result<Self, String> {
+    /// Falls back to connecting to an existing hpprd Unix socket if locking fails.
+    pub fn start(repo_path: PathBuf) -> Result<HpprdMode, String> {
         let config = InstanceConfig::new(repo_path.clone());
 
         // Acquire instance: PID lock + TCP + Unix socket
         // Fails if another instance is already running on this repo
-        let instance = RepoInstance::acquire(config).map_err(|e| e.to_string())?;
+        let instance = match RepoInstance::acquire(config) {
+            Ok(inst) => inst,
+            Err(lock_err) => {
+                // Lock failed — try connecting to existing hpprd Unix socket
+                let socket_path = InstanceConfig::new(repo_path).socket_path();
+                match std::os::unix::net::UnixStream::connect(&socket_path) {
+                    Ok(_stream) => {
+                        let path_str = socket_path.to_string_lossy().into_owned();
+                        return Ok(HpprdMode::Reused { socket_path: path_str });
+                    }
+                    Err(_) => return Err(lock_err.to_string()),
+                }
+            }
+        };
 
         let actual_port = instance.port();
         let repo_path_owned = instance.config().repo_path.clone();
@@ -48,10 +70,10 @@ impl EmbeddedHpprd {
             }
         });
 
-        Ok(Self {
+        Ok(HpprdMode::Embedded(Self {
             _thread: thread,
             port: actual_port,
-        })
+        }))
     }
 
     /// Get the actual bound port.

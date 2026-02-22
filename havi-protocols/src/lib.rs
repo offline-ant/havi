@@ -12,6 +12,7 @@
 
 pub mod config;
 pub mod client;
+pub mod instance;
 pub mod credentials;
 pub mod embedded_hpprd;
 pub mod local_ip;

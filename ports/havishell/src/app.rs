@@ -8,7 +8,7 @@ use servo::{
     WebViewId, percent_decode_jsonqa,
 };
 use servo::protocol_handler::ProtocolRegistry;
-use havi_protocols::embedded_hpprd::EmbeddedHpprd;
+use havi_protocols::embedded_hpprd::{EmbeddedHpprd, HpprdMode};
 use havi_protocols::credentials::global_credential_store;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -477,6 +477,9 @@ pub struct App {
     #[rust]
     active_tab_idx: usize,
 
+    // --- IPC single-instance listener ---
+    #[rust]
+    ipc_rx: Option<std::sync::mpsc::Receiver<havi_protocols::instance::IpcCommand>>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.
@@ -641,7 +644,7 @@ impl App {
                 // Embedded mode: start local hpprd.
                 let repo_path = havi_protocols::config::repo_dir();
                 match EmbeddedHpprd::start(repo_path) {
-                    Ok(h) => {
+                    Ok(HpprdMode::Embedded(h)) => {
                         let port = h.port();
                         let target = hppr_client::ViaSpec::Net {
                             host: "127.0.0.1".to_string(),
@@ -651,6 +654,14 @@ impl App {
                         hppr_client::set_repo_target(target);
                         log!("[havishell] Embedded hpprd on localhost:{}", port);
                         Some(h)
+                    },
+                    Ok(HpprdMode::Reused { socket_path }) => {
+                        let target = hppr_client::ViaSpec::Unix {
+                            path: socket_path.clone().into(),
+                        };
+                        hppr_client::set_repo_target(target);
+                        log!("[havishell] Reusing existing hpprd via {}", socket_path);
+                        None
                     },
                     Err(e) => {
                         log!("[havishell] Failed to start embedded hpprd: {}", e);
@@ -799,6 +810,15 @@ impl App {
         // the child process doesn't own a real window.
         if cx.in_makepad_studio {
             self.ui.view(cx, ids!(window_controls)).set_visible(cx, false);
+        }
+
+        // Start HAVI IPC listener for single-instance support
+        havi_protocols::instance::set_signal_callback(|| {
+            SignalToUI::set_ui_signal();
+        });
+        match havi_protocols::instance::start_ipc_listener() {
+            Ok(rx) => self.ipc_rx = Some(rx),
+            Err(e) => log!("[havishell] IPC listener: {}", e),
         }
 
         // Signal that we need to paint the first frame
@@ -1715,6 +1735,39 @@ impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         // Lazy init servo on first event
         self.init_servo(cx);
+
+        // Handle IPC commands (single-instance tab open requests)
+        {
+            let mut ipc_urls = Vec::new();
+            if let Some(ref rx) = self.ipc_rx {
+                while let Ok(cmd) = rx.try_recv() {
+                    match cmd {
+                        havi_protocols::instance::IpcCommand::Open { url } => {
+                            ipc_urls.push(url);
+                        }
+                    }
+                }
+            }
+            for url in ipc_urls {
+                if let Some(webview) = self.create_webview(&url) {
+                    let webview_id = webview.id();
+                    self.tabs.push(TabInfo {
+                        webview_id,
+                        webview,
+                        title: title_from_url(&url),
+                        url: url.clone(),
+                        widget_id: next_tab_live_id(),
+                    });
+                    self.active_tab_idx = self.tabs.len() - 1;
+                    self.activate_tab_webview(self.active_tab_idx);
+                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                    self.needs_paint = true;
+                    self.sync_tab_bar(cx);
+                    self.idle_frames = 0;
+                    self.next_frame = cx.new_next_frame();
+                }
+            }
+        }
 
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
