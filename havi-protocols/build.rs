@@ -62,7 +62,6 @@ fn generate_havi_typings(manifest_dir: &Path, js_dir: &Path) {
 /// Each .js file in src/js/ is checked in isolation with strict TypeScript
 /// settings via `bun x tsc`.
 fn check_page_scripts(js_dir: &Path) {
-    println!("cargo:rerun-if-changed={}", js_dir.display());
     for entry in std::fs::read_dir(js_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();

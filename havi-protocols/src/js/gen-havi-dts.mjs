@@ -246,12 +246,19 @@ interface Window {
 }
 `;
 
-for (const file of [JS_HPPR_HTML_DTS, ROOT_HPPR_HTML_DTS, ROOT_HAVI_DTS]) {
-  mkdirSync(dirname(file), { recursive: true });
+/** Write file only if content differs (preserves mtime for cargo caching). */
+function writeIfChanged(path, content) {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    if (readFileSync(path, "utf8") === content) return false;
+  } catch {}
+  writeFileSync(path, content);
+  return true;
 }
-writeFileSync(JS_HPPR_HTML_DTS, hpprHtml);
-writeFileSync(ROOT_HPPR_HTML_DTS, hpprHtml);
-writeFileSync(ROOT_HAVI_DTS, havi);
+
+writeIfChanged(JS_HPPR_HTML_DTS, hpprHtml);
+writeIfChanged(ROOT_HPPR_HTML_DTS, hpprHtml);
+writeIfChanged(ROOT_HAVI_DTS, havi);
 
 console.log(`generated ${JS_HPPR_HTML_DTS}`);
 console.log(`generated ${ROOT_HPPR_HTML_DTS}`);
