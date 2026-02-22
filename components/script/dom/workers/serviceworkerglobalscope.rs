@@ -24,7 +24,7 @@ use net_traits::request::{
 };
 use rand::random;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::thread_state::{self, ThreadState};
 
 use crate::devtools;
@@ -177,7 +177,7 @@ pub(crate) struct ServiceWorkerGlobalScope {
     swmanager_sender: GenericSender<ServiceWorkerMsg>,
 
     #[no_trace]
-    scope_url: ServoUrl,
+    scope_url: BrowserUrl,
 
     /// A receiver of control messages,
     /// currently only used to signal shutdown.
@@ -230,14 +230,14 @@ impl ServiceWorkerGlobalScope {
     #[allow(clippy::too_many_arguments)]
     fn new_inherited(
         init: WorkerGlobalScopeInit,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         own_sender: Sender<ServiceWorkerScriptMsg>,
         receiver: Receiver<ServiceWorkerScriptMsg>,
         time_out_port: Receiver<Instant>,
         swmanager_sender: GenericSender<ServiceWorkerMsg>,
-        scope_url: ServoUrl,
+        scope_url: BrowserUrl,
         control_receiver: Receiver<ServiceWorkerControlMsg>,
         closing: Arc<AtomicBool>,
         font_context: Arc<FontContext>,
@@ -269,14 +269,14 @@ impl ServiceWorkerGlobalScope {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         init: WorkerGlobalScopeInit,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         own_sender: Sender<ServiceWorkerScriptMsg>,
         receiver: Receiver<ServiceWorkerScriptMsg>,
         time_out_port: Receiver<Instant>,
         swmanager_sender: GenericSender<ServiceWorkerMsg>,
-        scope_url: ServoUrl,
+        scope_url: BrowserUrl,
         control_receiver: Receiver<ServiceWorkerControlMsg>,
         closing: Arc<AtomicBool>,
         font_context: Arc<FontContext>,
@@ -308,7 +308,7 @@ impl ServiceWorkerGlobalScope {
         receiver: Receiver<ServiceWorkerScriptMsg>,
         devtools_receiver: GenericReceiver<DevtoolScriptControlMsg>,
         swmanager_sender: GenericSender<ServiceWorkerMsg>,
-        scope_url: ServoUrl,
+        scope_url: BrowserUrl,
         control_receiver: Receiver<ServiceWorkerControlMsg>,
         context_sender: Sender<ThreadSafeJSContext>,
         closing: Arc<AtomicBool>,

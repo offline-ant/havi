@@ -23,7 +23,7 @@ use net_traits::request::{
     CredentialsMode, Destination, InsecureRequestsPolicy, Origin, ParserMetadata,
     PreloadedResources, Referrer, RequestBuilder, RequestClient, RequestMode,
 };
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::thread_state::{self, ThreadState};
 
 use crate::devtools;
@@ -263,7 +263,7 @@ impl DedicatedWorkerGlobalScope {
         webview_id: WebViewId,
         worker_name: DOMString,
         worker_type: WorkerType,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         parent_event_loop_sender: ScriptEventLoopSender,
@@ -309,7 +309,7 @@ impl DedicatedWorkerGlobalScope {
         webview_id: WebViewId,
         worker_name: DOMString,
         worker_type: WorkerType,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         parent_event_loop_sender: ScriptEventLoopSender,
@@ -353,7 +353,7 @@ impl DedicatedWorkerGlobalScope {
     pub(crate) fn run_worker_scope(
         mut init: WorkerGlobalScopeInit,
         webview_id: WebViewId,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         from_devtools_receiver: GenericReceiver<DevtoolScriptControlMsg>,
         worker: TrustedWorkerAddress,
         parent_event_loop_sender: ScriptEventLoopSender,

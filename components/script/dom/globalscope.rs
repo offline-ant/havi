@@ -62,7 +62,7 @@ use net_traits::{
 use profile_traits::{ipc as profile_ipc, mem as profile_mem, time as profile_time};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use script_bindings::interfaces::GlobalScopeHelpers;
-use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use strum::VariantArray;
 use timers::{TimerEventRequest, TimerId};
@@ -291,11 +291,11 @@ pub(crate) struct GlobalScope {
 
     /// <https://html.spec.whatwg.org/multipage/#concept-environment-creation-url>
     #[no_trace]
-    creation_url: DomRefCell<ServoUrl>,
+    creation_url: DomRefCell<BrowserUrl>,
 
     /// <https://html.spec.whatwg.org/multipage/#concept-environment-top-level-creation-url>
     #[no_trace]
-    top_level_creation_url: Option<ServoUrl>,
+    top_level_creation_url: Option<BrowserUrl>,
 
     /// A map for storing the previous permission state read results.
     permission_state_invocation_results: DomRefCell<HashMap<PermissionName, PermissionState>>,
@@ -759,8 +759,8 @@ impl GlobalScope {
         resource_threads: ResourceThreads,
         storage_threads: StorageThreads,
         origin: MutableOrigin,
-        creation_url: ServoUrl,
-        top_level_creation_url: Option<ServoUrl>,
+        creation_url: BrowserUrl,
+        top_level_creation_url: Option<BrowserUrl>,
         #[cfg(feature = "webgpu")] gpu_id_hub: Arc<IdentityHub>,
         inherited_secure_context: Option<bool>,
         unminify_js: bool,
@@ -849,8 +849,8 @@ impl GlobalScope {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn get_serviceworker_registration(
         &self,
-        script_url: &ServoUrl,
-        scope: &ServoUrl,
+        script_url: &BrowserUrl,
+        scope: &BrowserUrl,
         registration_id: ServiceWorkerRegistrationId,
         installing_worker: Option<ServiceWorkerId>,
         _waiting_worker: Option<ServiceWorkerId>,
@@ -889,8 +889,8 @@ impl GlobalScope {
     /// <https://w3c.github.io/ServiceWorker/#get-the-service-worker-object>
     pub(crate) fn get_serviceworker(
         &self,
-        script_url: &ServoUrl,
-        scope: &ServoUrl,
+        script_url: &BrowserUrl,
+        scope: &BrowserUrl,
         worker_id: ServiceWorkerId,
         can_gc: CanGc,
     ) -> DomRoot<ServiceWorker> {
@@ -2483,16 +2483,16 @@ impl GlobalScope {
     }
 
     /// Get the creation_url for this global scope
-    pub(crate) fn creation_url(&self) -> ServoUrl {
+    pub(crate) fn creation_url(&self) -> BrowserUrl {
         self.creation_url.borrow().clone()
     }
 
-    pub(crate) fn set_creation_url(&self, creation_url: ServoUrl) {
+    pub(crate) fn set_creation_url(&self, creation_url: BrowserUrl) {
         *self.creation_url.borrow_mut() = creation_url;
     }
 
     /// Get the top_level_creation_url for this global scope
-    pub(crate) fn top_level_creation_url(&self) -> &Option<ServoUrl> {
+    pub(crate) fn top_level_creation_url(&self) -> &Option<BrowserUrl> {
         &self.top_level_creation_url
     }
 
@@ -2576,7 +2576,7 @@ impl GlobalScope {
 
     /// Get the [base url](https://html.spec.whatwg.org/multipage/#api-base-url)
     /// for this global scope.
-    pub(crate) fn api_base_url(&self) -> ServoUrl {
+    pub(crate) fn api_base_url(&self) -> BrowserUrl {
         if let Some(window) = self.downcast::<Window>() {
             // https://html.spec.whatwg.org/multipage/#script-settings-for-browsing-contexts:api-base-url
             return window.Document().base_url();
@@ -2596,7 +2596,7 @@ impl GlobalScope {
     }
 
     /// Get the URL for this global scope.
-    pub(crate) fn get_url(&self) -> ServoUrl {
+    pub(crate) fn get_url(&self) -> BrowserUrl {
         if let Some(window) = self.downcast::<Window>() {
             return window.get_url();
         }
@@ -3462,7 +3462,7 @@ impl GlobalScope {
         &self,
         base_url: &str,
         specifier: &str,
-        specifier_url: Option<ServoUrl>,
+        specifier_url: Option<BrowserUrl>,
     ) {
         // Step 1. Let global be settingsObject's global object.
         // Step 2. If global does not implement Window, then return.
@@ -3589,7 +3589,7 @@ impl GlobalScopeHelpers<crate::DomTypeHolder> for GlobalScope {
         GlobalScope::perform_a_microtask_checkpoint(self, can_gc)
     }
 
-    fn get_url(&self) -> ServoUrl {
+    fn get_url(&self) -> BrowserUrl {
         self.get_url()
     }
 

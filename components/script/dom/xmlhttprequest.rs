@@ -37,9 +37,8 @@ use script_bindings::conversions::SafeToJSValConvertible;
 use script_bindings::num::Finite;
 use script_bindings::trace::RootedTraceableBox;
 use script_traits::DocumentActivity;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
-use url::Position;
 
 use crate::body::{BodySource, Extractable, ExtractedBody, decode_to_utf16_with_bom_removal};
 use crate::document_loader::DocumentLoader;
@@ -98,7 +97,7 @@ struct XHRContext {
     xhr: TrustedXHRAddress,
     gen_id: GenerationId,
     sync_status: Arc<AtomicRefCell<Option<ErrorResult>>>,
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl FetchResponseListener for XHRContext {
@@ -152,7 +151,7 @@ impl FetchResponseListener for XHRContext {
 }
 
 impl ResourceTimingListener for XHRContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::XMLHttpRequest, self.url.clone())
     }
 
@@ -214,7 +213,7 @@ pub(crate) struct XMLHttpRequest {
     #[no_trace]
     request_method: DomRefCell<Method>,
     #[no_trace]
-    request_url: DomRefCell<Option<ServoUrl>>,
+    request_url: DomRefCell<Option<BrowserUrl>>,
     #[ignore_malloc_size_of = "Defined in hyper"]
     #[no_trace]
     request_headers: DomRefCell<HeaderMap>,
@@ -1031,7 +1030,7 @@ impl XMLHttpRequest {
             },
         };
 
-        metadata.final_url[..Position::AfterQuery].clone_into(&mut self.response_url.borrow_mut());
+        metadata.final_url.url_without_fragment().clone_into(&mut self.response_url.borrow_mut());
 
         // XXXManishearth Clear cache entries in case of a network error
         self.process_partial_response(

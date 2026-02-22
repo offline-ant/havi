@@ -12,8 +12,7 @@ use hyper_serde::Serde;
 use js::rust::{HandleObject, HandleValue};
 use net_traits::http_status::HttpStatus;
 use script_bindings::cformat;
-use servo_url::ServoUrl;
-use url::Position;
+use servo_url::BrowserUrl;
 
 use crate::body::{
     BodyMixin, BodyType, Extractable, ExtractedBody, clone_body_stream_for_dom_body, consume_body,
@@ -44,9 +43,9 @@ pub(crate) struct Response {
     status: DomRefCell<HttpStatus>,
     response_type: DomRefCell<DOMResponseType>,
     #[no_trace]
-    url: DomRefCell<Option<ServoUrl>>,
+    url: DomRefCell<Option<BrowserUrl>>,
     #[no_trace]
-    url_list: DomRefCell<Vec<ServoUrl>>,
+    url_list: DomRefCell<Vec<BrowserUrl>>,
     /// The stream of <https://fetch.spec.whatwg.org/#body>.
     body_stream: MutNullableDom<ReadableStream>,
     /// The stream that receives network delivered bytes for Fetch responses.
@@ -216,7 +215,7 @@ impl ResponseMethods<crate::DomTypeHolder> for Response {
         // Step 2
         let url = match parsed_url {
             Ok(url) => url,
-            Err(_) => return Err(Error::Type(c"ServoUrl could not be parsed".to_owned())),
+            Err(_) => return Err(Error::Type(c"BrowserUrl could not be parsed".to_owned())),
         };
 
         // Step 3
@@ -469,8 +468,8 @@ fn initialize_response(
     Ok(response)
 }
 
-fn serialize_without_fragment(url: &ServoUrl) -> &str {
-    &url[..Position::AfterQuery]
+fn serialize_without_fragment(url: &BrowserUrl) -> &str {
+    url.url_without_fragment()
 }
 
 impl Response {
@@ -495,7 +494,7 @@ impl Response {
         self.status.borrow_mut().clone_from(status);
     }
 
-    pub(crate) fn set_final_url(&self, final_url: ServoUrl) {
+    pub(crate) fn set_final_url(&self, final_url: BrowserUrl) {
         *self.url.borrow_mut() = Some(final_url);
     }
 

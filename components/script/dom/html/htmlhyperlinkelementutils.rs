@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use html5ever::{local_name, ns};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::conversions::DerivedFrom;
@@ -15,7 +15,7 @@ use crate::dom::urlhelper::UrlHelper;
 use crate::script_runtime::CanGc;
 
 pub(crate) trait HyperlinkElement {
-    fn get_url(&self) -> &DomRefCell<Option<ServoUrl>>;
+    fn get_url(&self) -> &DomRefCell<Option<BrowserUrl>>;
 }
 
 /// <https://html.spec.whatwg.org/multipage/#htmlhyperlinkelementutils>
@@ -42,7 +42,7 @@ pub(crate) trait HyperlinkElementTraits {
     fn get_username(&self) -> USVString;
     fn set_url(&self);
     fn set_username(&self, value: USVString, can_gc: CanGc);
-    fn update_href(&self, url: &ServoUrl, can_gc: CanGc);
+    fn update_href(&self, url: &BrowserUrl, can_gc: CanGc);
     fn reinitialize_url(&self);
 }
 
@@ -471,7 +471,7 @@ impl<T: HyperlinkElement + DerivedFrom<Element> + Castable + NodeTraits> Hyperli
     }
 
     /// <https://html.spec.whatwg.org/multipage/#update-href>
-    fn update_href(&self, url: &ServoUrl, can_gc: CanGc) {
+    fn update_href(&self, url: &BrowserUrl, can_gc: CanGc) {
         self.upcast::<Element>().set_string_attribute(
             &local_name!("href"),
             DOMString::from(url.as_str()),

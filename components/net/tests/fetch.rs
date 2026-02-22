@@ -47,7 +47,7 @@ use net_traits::{
 };
 use parking_lot::Mutex;
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::Mutex as TokioMutex;
 use uuid::Uuid;
 
@@ -84,7 +84,7 @@ fn test_fetch_response_is_not_network_error() {
 
 #[test]
 fn test_fetch_on_bad_port_is_network_error() {
-    let url = ServoUrl::parse("http://www.example.org:6667").unwrap();
+    let url = BrowserUrl::parse("http://www.example.org:6667").unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .policy_container(Default::default())
@@ -125,7 +125,7 @@ fn test_fetch_response_body_matches_const_message() {
 
 #[test]
 fn test_fetch_aboutblank() {
-    let url = ServoUrl::parse("about:blank").unwrap();
+    let url = BrowserUrl::parse("about:blank").unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .policy_container(Default::default())
@@ -182,13 +182,13 @@ fn test_fetch_blob() {
         bytes: bytes.to_vec(),
     };
 
-    let origin = ServoUrl::parse("http://www.example.org/").unwrap();
+    let origin = BrowserUrl::parse("http://www.example.org/").unwrap();
 
     let id = Uuid::new_v4();
     context
         .filemanager
         .promote_memory(id.clone(), blob_buf, true, origin.origin());
-    let url = ServoUrl::parse(&format!("blob:{}{}", origin.as_str(), id.simple())).unwrap();
+    let url = BrowserUrl::parse(&format!("blob:{}{}", origin.as_str(), id.simple())).unwrap();
 
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(origin.origin())
@@ -228,7 +228,7 @@ fn test_file() {
     let path = Path::new("../../components/net/tests/test.css")
         .canonicalize()
         .unwrap();
-    let url = ServoUrl::from_file_path(path.clone()).unwrap();
+    let url = BrowserUrl::from_file_path(path.clone()).unwrap();
 
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
@@ -271,7 +271,7 @@ fn test_file() {
 
 #[test]
 fn test_fetch_ftp() {
-    let url = ServoUrl::parse("ftp://not-supported").unwrap();
+    let url = BrowserUrl::parse("ftp://not-supported").unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .policy_container(Default::default())
@@ -282,7 +282,7 @@ fn test_fetch_ftp() {
 
 #[test]
 fn test_fetch_bogus_scheme() {
-    let url = ServoUrl::parse("bogus://whatever").unwrap();
+    let url = BrowserUrl::parse("bogus://whatever").unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .policy_container(Default::default())
@@ -702,7 +702,7 @@ fn test_fetch_with_local_urls_only() {
         };
     let (server, server_url) = make_server(handler);
 
-    let do_fetch = |url: ServoUrl| {
+    let do_fetch = |url: BrowserUrl| {
         let mut request =
             RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
                 .origin(url.origin())
@@ -715,7 +715,7 @@ fn test_fetch_with_local_urls_only() {
         fetch(request, None)
     };
 
-    let local_url = ServoUrl::parse("about:blank").unwrap();
+    let local_url = BrowserUrl::parse("about:blank").unwrap();
     let local_response = do_fetch(local_url);
     let server_response = do_fetch(server_url);
 
@@ -1548,7 +1548,7 @@ fn test_fetch_request_intercepted() {
         hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
     };
 
-    let url = ServoUrl::parse("http://www.example.org").unwrap();
+    let url = BrowserUrl::parse("http://www.example.org").unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .policy_container(Default::default())

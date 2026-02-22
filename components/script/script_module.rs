@@ -53,7 +53,7 @@ use script_bindings::domstring::BytesView;
 use script_bindings::error::Fallible;
 use script_bindings::trace::CustomTraceable;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::document_loader::LoadType;
 use crate::dom::bindings::cell::DomRefCell;
@@ -148,14 +148,14 @@ impl Clone for RethrowError {
 }
 
 pub(crate) struct ModuleScript {
-    pub(crate) base_url: ServoUrl,
+    pub(crate) base_url: BrowserUrl,
     pub(crate) options: ScriptFetchOptions,
     owner: Option<ModuleOwner>,
 }
 
 impl ModuleScript {
     pub(crate) fn new(
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         options: ScriptFetchOptions,
         owner: Option<ModuleOwner>,
     ) -> Self {
@@ -167,7 +167,7 @@ impl ModuleScript {
     }
 }
 
-pub(crate) type ModuleRequest = (ServoUrl, ModuleType);
+pub(crate) type ModuleRequest = (BrowserUrl, ModuleType);
 
 #[derive(Clone, JSTraceable)]
 pub(crate) enum ModuleStatus {
@@ -178,7 +178,7 @@ pub(crate) enum ModuleStatus {
 #[derive(JSTraceable, MallocSizeOf)]
 pub(crate) struct ModuleTree {
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     #[ignore_malloc_size_of = "mozjs"]
     record: OnceCell<ModuleObject>,
     #[ignore_malloc_size_of = "mozjs"]
@@ -186,11 +186,11 @@ pub(crate) struct ModuleTree {
     #[ignore_malloc_size_of = "mozjs"]
     rethrow_error: DomRefCell<Option<RethrowError>>,
     #[no_trace]
-    loaded_modules: DomRefCell<IndexMap<String, ServoUrl>>,
+    loaded_modules: DomRefCell<IndexMap<String, BrowserUrl>>,
 }
 
 impl ModuleTree {
-    pub(crate) fn get_url(&self) -> ServoUrl {
+    pub(crate) fn get_url(&self) -> BrowserUrl {
         self.url.clone()
     }
 
@@ -258,7 +258,7 @@ pub(crate) struct ModuleSource {
     pub source: Rc<DOMString>,
     pub unminified_dir: Option<String>,
     pub external: bool,
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
 }
 
 impl crate::unminify::ScriptSource for ModuleSource {
@@ -274,7 +274,7 @@ impl crate::unminify::ScriptSource for ModuleSource {
         self.source = source;
     }
 
-    fn url(&self) -> ServoUrl {
+    fn url(&self) -> BrowserUrl {
         self.url.clone()
     }
 
@@ -292,7 +292,7 @@ impl ModuleTree {
     fn create_a_javascript_module_script(
         source: Rc<DOMString>,
         owner: ModuleOwner,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         options: ScriptFetchOptions,
         external: bool,
         line_number: u32,
@@ -374,7 +374,7 @@ impl ModuleTree {
     fn crate_a_json_module_script(
         source: &str,
         global: &GlobalScope,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         introduction_type: Option<&'static CStr>,
         _can_gc: CanGc,
     ) -> Self {
@@ -497,11 +497,11 @@ impl ModuleTree {
         script: Option<&ModuleScript>,
         specifier: DOMString,
         can_gc: CanGc,
-    ) -> Fallible<ServoUrl> {
+    ) -> Fallible<BrowserUrl> {
         // Step 1~3 to get settingsObject and baseURL
         let script_global = script.and_then(|s| s.owner.as_ref().map(|o| o.global()));
         // Step 1. Let settingsObject and baseURL be null.
-        let (global, base_url): (&GlobalScope, &ServoUrl) = match script {
+        let (global, base_url): (&GlobalScope, &BrowserUrl) = match script {
             // Step 2. If referringScript is not null, then:
             // Set settingsObject to referringScript's settings object.
             // Set baseURL to referringScript's base URL.
@@ -599,15 +599,15 @@ impl ModuleTree {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#resolving-a-url-like-module-specifier>
-    fn resolve_url_like_module_specifier(specifier: &str, base_url: &ServoUrl) -> Option<ServoUrl> {
+    fn resolve_url_like_module_specifier(specifier: &str, base_url: &BrowserUrl) -> Option<BrowserUrl> {
         // Step 1. If specifier starts with "/", "./", or "../", then:
         if specifier.starts_with('/') || specifier.starts_with("./") || specifier.starts_with("../")
         {
             // Step 1.1. Let url be the result of URL parsing specifier with baseURL.
-            return ServoUrl::parse_with_base(Some(base_url), specifier).ok();
+            return BrowserUrl::parse_with_base(Some(base_url), specifier).ok();
         }
         // Step 2. Let url be the result of URL parsing specifier (with no base URL).
-        ServoUrl::parse(specifier).ok()
+        BrowserUrl::parse(specifier).ok()
     }
 }
 
@@ -853,7 +853,7 @@ impl FetchResponseListener for ModuleContext {
 }
 
 impl ResourceTimingListener for ModuleContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         let initiator_type = InitiatorType::LocalName("module".to_string());
         let (url, _) = &self.module_request;
         (initiator_type, url.clone())
@@ -961,7 +961,7 @@ impl ScriptFetchOptions {
     /// <https://html.spec.whatwg.org/multipage/#descendant-script-fetch-options>
     pub(crate) fn descendant_fetch_options(
         &self,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         global: &GlobalScope,
     ) -> ScriptFetchOptions {
         // Step 2. Let integrity be the result of resolving a module integrity metadata with url and settingsObject.
@@ -1176,7 +1176,7 @@ unsafe extern "C" fn import_meta_resolve(cx: *mut RawJSContext, argc: u32, vp: *
 
 /// <https://html.spec.whatwg.org/multipage/#fetch-a-module-script-tree>
 pub(crate) fn fetch_an_external_module_script(
-    url: ServoUrl,
+    url: BrowserUrl,
     owner: ModuleOwner,
     options: ScriptFetchOptions,
     can_gc: CanGc,
@@ -1210,7 +1210,7 @@ pub(crate) fn fetch_an_external_module_script(
 pub(crate) fn fetch_inline_module_script(
     owner: ModuleOwner,
     module_script_text: Rc<DOMString>,
-    url: ServoUrl,
+    url: BrowserUrl,
     options: ScriptFetchOptions,
     line_number: u32,
     can_gc: CanGc,
@@ -1337,7 +1337,7 @@ fn fetch_the_descendants_and_link_module_script(
 /// <https://html.spec.whatwg.org/multipage/#fetch-a-single-module-script>
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn fetch_a_single_module_script(
-    url: ServoUrl,
+    url: BrowserUrl,
     owner: ModuleOwner,
     destination: Destination,
     options: ScriptFetchOptions,
@@ -1465,8 +1465,8 @@ pub(crate) fn fetch_a_single_module_script(
     };
 }
 
-pub(crate) type ModuleSpecifierMap = IndexMap<String, Option<ServoUrl>>;
-pub(crate) type ModuleIntegrityMap = IndexMap<ServoUrl, String>;
+pub(crate) type ModuleSpecifierMap = IndexMap<String, Option<BrowserUrl>>;
+pub(crate) type ModuleIntegrityMap = IndexMap<BrowserUrl, String>;
 
 /// <https://html.spec.whatwg.org/multipage/#specifier-resolution-record>
 #[derive(Default, Eq, Hash, JSTraceable, MallocSizeOf, PartialEq)]
@@ -1477,14 +1477,14 @@ pub(crate) struct ResolvedModule {
     specifier: String,
     /// <https://html.spec.whatwg.org/multipage/#specifier-resolution-record-as-url>
     #[no_trace]
-    specifier_url: Option<ServoUrl>,
+    specifier_url: Option<BrowserUrl>,
 }
 
 impl ResolvedModule {
     pub(crate) fn new(
         base_url: String,
         specifier: String,
-        specifier_url: Option<ServoUrl>,
+        specifier_url: Option<BrowserUrl>,
     ) -> Self {
         Self {
             base_url,
@@ -1500,14 +1500,14 @@ pub(crate) struct ImportMap {
     #[no_trace]
     imports: ModuleSpecifierMap,
     #[no_trace]
-    scopes: IndexMap<ServoUrl, ModuleSpecifierMap>,
+    scopes: IndexMap<BrowserUrl, ModuleSpecifierMap>,
     #[no_trace]
     integrity: ModuleIntegrityMap,
 }
 
 impl ImportMap {
     /// <https://html.spec.whatwg.org/multipage/#resolving-a-module-integrity-metadata>
-    pub(crate) fn resolve_a_module_integrity_metadata(&self, url: &ServoUrl) -> String {
+    pub(crate) fn resolve_a_module_integrity_metadata(&self, url: &BrowserUrl) -> String {
         // Step 1. Let map be settingsObject's global object's import map.
 
         // Step 2. If map's integrity[url] does not exist, then return the empty string.
@@ -1706,7 +1706,7 @@ fn merge_module_specifier_maps(
 pub(crate) fn parse_an_import_map_string(
     module_owner: ModuleOwner,
     input: Rc<DOMString>,
-    base_url: ServoUrl,
+    base_url: BrowserUrl,
     can_gc: CanGc,
 ) -> Fallible<ImportMap> {
     // Step 1. Let parsed be the result of parsing a JSON string to an Infra value given input.
@@ -1742,7 +1742,7 @@ pub(crate) fn parse_an_import_map_string(
     }
 
     // Step 5. Let sortedAndNormalizedScopes be an empty ordered map.
-    let mut sorted_and_normalized_scopes: IndexMap<ServoUrl, ModuleSpecifierMap> = IndexMap::new();
+    let mut sorted_and_normalized_scopes: IndexMap<BrowserUrl, ModuleSpecifierMap> = IndexMap::new();
     // Step 6. If parsed["scopes"] exists, then:
     if let Some(scopes) = parsed.get("scopes") {
         // Step 6.1 If parsed["scopes"] is not an ordered map, then throw a TypeError
@@ -1801,7 +1801,7 @@ pub(crate) fn parse_an_import_map_string(
 fn sort_and_normalize_module_specifier_map(
     global: &GlobalScope,
     original_map: &JsonMap<String, JsonValue>,
-    base_url: &ServoUrl,
+    base_url: &BrowserUrl,
     can_gc: CanGc,
 ) -> ModuleSpecifierMap {
     // Step 1. Let normalized be an empty ordered map.
@@ -1884,11 +1884,11 @@ fn sort_and_normalize_module_specifier_map(
 fn sort_and_normalize_scopes(
     global: &GlobalScope,
     original_map: &JsonMap<String, JsonValue>,
-    base_url: &ServoUrl,
+    base_url: &BrowserUrl,
     can_gc: CanGc,
-) -> Fallible<IndexMap<ServoUrl, ModuleSpecifierMap>> {
+) -> Fallible<IndexMap<BrowserUrl, ModuleSpecifierMap>> {
     // Step 1. Let normalized be an empty ordered map.
-    let mut normalized: IndexMap<ServoUrl, ModuleSpecifierMap> = IndexMap::new();
+    let mut normalized: IndexMap<BrowserUrl, ModuleSpecifierMap> = IndexMap::new();
 
     // Step 2. For each scopePrefix → potentialSpecifierMap of originalMap:
     for (scope_prefix, potential_specifier_map) in original_map {
@@ -1902,7 +1902,7 @@ fn sort_and_normalize_scopes(
         };
 
         // Step 2.2 Let scopePrefixURL be the result of URL parsing scopePrefix with baseURL.
-        let Ok(scope_prefix_url) = ServoUrl::parse_with_base(Some(base_url), scope_prefix) else {
+        let Ok(scope_prefix_url) = BrowserUrl::parse_with_base(Some(base_url), scope_prefix) else {
             // Step 2.3 If scopePrefixURL is failure, then:
             // Step 2.3.1 The user agent may report a warning
             // to the console that the scope prefix URL was not parseable.
@@ -1940,7 +1940,7 @@ fn sort_and_normalize_scopes(
 fn normalize_module_integrity_map(
     global: &GlobalScope,
     original_map: &JsonMap<String, JsonValue>,
-    base_url: &ServoUrl,
+    base_url: &BrowserUrl,
     _can_gc: CanGc,
 ) -> ModuleIntegrityMap {
     // Step 1. Let normalized be an empty ordered map.
@@ -1988,7 +1988,7 @@ fn normalize_module_integrity_map(
 fn normalize_specifier_key(
     global: &GlobalScope,
     specifier_key: &str,
-    base_url: &ServoUrl,
+    base_url: &BrowserUrl,
     _can_gc: CanGc,
 ) -> Option<String> {
     // step 1. If specifierKey is the empty string, then:
@@ -2020,10 +2020,10 @@ fn normalize_specifier_key(
 /// without any further fallbacks.
 fn resolve_imports_match(
     normalized_specifier: &str,
-    as_url: Option<&ServoUrl>,
+    as_url: Option<&BrowserUrl>,
     specifier_map: &ModuleSpecifierMap,
     _can_gc: CanGc,
-) -> Fallible<Option<ServoUrl>> {
+) -> Fallible<Option<BrowserUrl>> {
     // Step 1. For each specifierKey → resolutionResult of specifierMap:
     for (specifier_key, resolution_result) in specifier_map {
         // Step 1.1 If specifierKey is normalizedSpecifier, then:
@@ -2066,7 +2066,7 @@ fn resolve_imports_match(
             debug_assert!(resolution_result.as_str().ends_with('\u{002f}'));
 
             // Step 1.2.5 Let url be the result of URL parsing afterPrefix with resolutionResult.
-            let url = ServoUrl::parse_with_base(Some(resolution_result), after_prefix);
+            let url = BrowserUrl::parse_with_base(Some(resolution_result), after_prefix);
 
             // Step 1.2.6 If url is failure, then throw a TypeError
             // Step 1.2.7 Assert: url is a URL.

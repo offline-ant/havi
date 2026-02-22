@@ -17,7 +17,7 @@ use paint_api::display_list::ScrollTree;
 use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use servo_arc::Arc as ServoArc;
 use servo_geometry::{FastLayoutTransform, au_rect_to_f32_rect, f32_rect_to_au_rect};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::computed_values::display::T as Display;
 use style::computed_values::position::T as Position;
 use style::computed_values::visibility::T as Visibility;
@@ -1425,7 +1425,7 @@ pub fn process_resolved_font_style_query<'dom, E>(
     context: &SharedStyleContext,
     node: E,
     value: &str,
-    url_data: ServoUrl,
+    url_data: BrowserUrl,
     shared_lock: &SharedRwLock,
 ) -> Option<ServoArc<Font>>
 where
@@ -1433,7 +1433,7 @@ where
 {
     fn create_font_declaration(
         value: &str,
-        url_data: &ServoUrl,
+        url_data: &BrowserUrl,
         quirks_mode: QuirksMode,
     ) -> Option<PropertyDeclarationBlock> {
         let mut declarations = SourcePropertyDeclaration::default();

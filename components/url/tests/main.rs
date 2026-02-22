@@ -4,12 +4,12 @@
 
 use std::str::FromStr;
 
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use url::Url;
 
 #[test]
 fn test_matches_about_blank_matches_simple_about_blank() {
-    let mut url = ServoUrl::from_str("about:blank").unwrap();
+    let mut url = BrowserUrl::from_str("about:blank").unwrap();
     assert!(url.matches_about_blank());
 
     // Cannot set password.
@@ -20,19 +20,19 @@ fn test_matches_about_blank_matches_simple_about_blank() {
     assert!(url.set_username("user1").is_err());
     assert!(url.matches_about_blank());
 
-    // Note: cannot set host, `set_host` not available on `ServoUrl`.
+    // Note: cannot set host, `set_host` not available on `BrowserUrl`.
     assert!(url.host().is_none());
 }
 
 #[test]
 fn test_matches_about_blank_doest_matches_fake_about_blank() {
-    let url = ServoUrl::from_str("about:blank2").unwrap();
+    let url = BrowserUrl::from_str("about:blank2").unwrap();
     assert!(!url.matches_about_blank());
 }
 
 #[test]
 fn test_matches_about_blank_does_not_match() {
-    let mut url = ServoUrl::from_str("ftp://user1:secret1@example.com").unwrap();
+    let mut url = BrowserUrl::from_str("ftp://user1:secret1@example.com").unwrap();
     assert!(!url.matches_about_blank());
 
     url.set_password(Some("Test")).unwrap();
@@ -52,7 +52,7 @@ fn test_matches_about_blank_does_not_match_from_other_url() {
     assert!(url.set_password(Some("Test")).is_ok());
     url.set_path("blank");
 
-    let servo_url = ServoUrl::from_url(url);
+    let servo_url = BrowserUrl::from_url(url);
     assert!(!servo_url.matches_about_blank());
 }
 
@@ -70,11 +70,11 @@ fn test_matches_about_blank_does_not_match_invariants_maintained_from_url() {
     // Cannot set host.
     assert!(url.set_host(Some("rust-lang.org")).is_err());
 
-    let servo_url = ServoUrl::from_url(url.clone());
+    let servo_url = BrowserUrl::from_url(url.clone());
     assert!(servo_url.matches_about_blank());
 
     // Can set path, but match will fail.
     url.set_path("test");
-    let servo_url = ServoUrl::from_url(url);
+    let servo_url = BrowserUrl::from_url(url);
     assert!(!servo_url.matches_about_blank());
 }

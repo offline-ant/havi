@@ -29,7 +29,7 @@ use num_traits::ToPrimitive;
 use pixels::{CorsStatus, ImageMetadata, Snapshot};
 use regex::Regex;
 use rustc_hash::FxHashSet;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use servo_url::origin::MutableOrigin;
 use style::attr::{AttrValue, LengthOrPercentageOrAuto, parse_unsigned_integer};
 use style::stylesheets::CssRuleType;
@@ -158,7 +158,7 @@ enum ImageRequestPhase {
 struct ImageRequest {
     state: State,
     #[no_trace]
-    parsed_url: Option<ServoUrl>,
+    parsed_url: Option<BrowserUrl>,
     source_url: Option<USVString>,
     blocker: DomRefCell<Option<LoadBlocker>>,
     #[no_trace]
@@ -166,7 +166,7 @@ struct ImageRequest {
     #[no_trace]
     metadata: Option<ImageMetadata>,
     #[no_trace]
-    final_url: Option<ServoUrl>,
+    final_url: Option<BrowserUrl>,
     current_pixel_density: Option<f64>,
 }
 
@@ -236,7 +236,7 @@ struct ImageContext {
     aborted: bool,
     /// The document associated with this request
     doc: Trusted<Document>,
-    url: ServoUrl,
+    url: BrowserUrl,
     element: Trusted<HTMLImageElement>,
 }
 
@@ -329,7 +329,7 @@ impl FetchResponseListener for ImageContext {
 }
 
 impl ResourceTimingListener for ImageContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (
             InitiatorType::LocalName("img".to_string()),
             self.url.clone(),
@@ -344,7 +344,7 @@ impl ResourceTimingListener for ImageContext {
 #[expect(non_snake_case)]
 impl HTMLImageElement {
     /// Update the current image with a valid URL.
-    fn fetch_image(&self, img_url: &ServoUrl, can_gc: CanGc) {
+    fn fetch_image(&self, img_url: &BrowserUrl, can_gc: CanGc) {
         let window = self.owner_window();
 
         let cache_result = window.image_cache().get_cached_image_status(
@@ -419,7 +419,7 @@ impl HTMLImageElement {
         ));
     }
 
-    fn fetch_request(&self, img_url: &ServoUrl, id: PendingImageId) {
+    fn fetch_request(&self, img_url: &BrowserUrl, id: PendingImageId) {
         let document = self.owner_document();
         let window = self.owner_window();
 
@@ -457,7 +457,7 @@ impl HTMLImageElement {
     }
 
     // Steps common to when an image has been loaded.
-    fn handle_loaded_image(&self, image: Image, url: ServoUrl, can_gc: CanGc) {
+    fn handle_loaded_image(&self, image: Image, url: BrowserUrl, can_gc: CanGc) {
         self.current_request.borrow_mut().metadata = Some(image.metadata());
         self.current_request.borrow_mut().final_url = Some(url);
         self.current_request.borrow_mut().image = Some(image);
@@ -882,7 +882,7 @@ impl HTMLImageElement {
     fn init_image_request(
         &self,
         request: &mut RefMut<'_, ImageRequest>,
-        url: &ServoUrl,
+        url: &BrowserUrl,
         src: &USVString,
         can_gc: CanGc,
     ) {
@@ -901,7 +901,7 @@ impl HTMLImageElement {
         &self,
         selected_source: &USVString,
         selected_pixel_density: f64,
-        image_url: &ServoUrl,
+        image_url: &BrowserUrl,
         can_gc: CanGc,
     ) {
         match self.image_request.get() {
@@ -1604,7 +1604,7 @@ impl HTMLImageElement {
 
     /// Get the full URL of the current image of this `<img>` element, returning `None` if the URL
     /// could not be joined with the `Document` URL.
-    pub(crate) fn full_image_url_for_user_interface(&self) -> Option<ServoUrl> {
+    pub(crate) fn full_image_url_for_user_interface(&self) -> Option<BrowserUrl> {
         self.owner_document()
             .base_url()
             .join(&self.CurrentSrc())
@@ -1668,7 +1668,7 @@ impl MicrotaskRunnable for ImageElementMicrotask {
 }
 
 pub(crate) trait LayoutHTMLImageElementHelpers {
-    fn image_url(self) -> Option<ServoUrl>;
+    fn image_url(self) -> Option<BrowserUrl>;
     fn image_density(self) -> Option<f64>;
     fn image_data(self) -> (Option<Image>, Option<ImageMetadata>);
     fn get_width(self) -> LengthOrPercentageOrAuto;
@@ -1694,7 +1694,7 @@ impl<'dom> LayoutDom<'dom, HTMLImageElement> {
 }
 
 impl LayoutHTMLImageElementHelpers for LayoutDom<'_, HTMLImageElement> {
-    fn image_url(self) -> Option<ServoUrl> {
+    fn image_url(self) -> Option<BrowserUrl> {
         self.current_request().parsed_url.clone()
     }
 

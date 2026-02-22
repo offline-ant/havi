@@ -8,7 +8,7 @@ use net_traits::request::{
     CredentialsMode, Destination, RequestBody, RequestId, create_request_body_with_content,
 };
 use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 
 use crate::conversions::Convert;
@@ -98,7 +98,7 @@ impl CSPViolationReportTask {
             //
             // TODO: Figure out if this should be the URL of the containing document or not in case
             // the url points to a blob
-            let Ok(endpoint) = ServoUrl::parse_with_base(Some(&global.get_url()), token) else {
+            let Ok(endpoint) = BrowserUrl::parse_with_base(Some(&global.get_url()), token) else {
                 // Step 3.4.2.2. If endpoint is not a valid URL, skip the remaining substeps.
                 continue;
             };
@@ -175,7 +175,7 @@ impl TaskOnce for CSPViolationReportTask {
 
 struct CSPReportUriFetchListener {
     /// Endpoint URL of this request.
-    endpoint: ServoUrl,
+    endpoint: BrowserUrl,
     /// The global object fetching the report uri violation
     global: Trusted<GlobalScope>,
 }
@@ -211,7 +211,7 @@ impl FetchResponseListener for CSPReportUriFetchListener {
 }
 
 impl ResourceTimingListener for CSPReportUriFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.endpoint.clone())
     }
 

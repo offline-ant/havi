@@ -30,7 +30,7 @@ use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashSet;
 use servo_arc::Arc as ServoArc;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::Atom;
 use style::computed_values::font_variant_caps::T as FontVariantCaps;
 use style::font_face::{
@@ -115,7 +115,7 @@ pub trait CspViolationHandler: Send + std::fmt::Debug {
 /// A callback that will be invoked on the Fetch thread when a web font
 /// download succeeds, providing timing information about the request.
 pub trait NetworkTimingHandler: Send + std::fmt::Debug {
-    fn submit_timing(&self, url: ServoUrl, response: ResourceFetchTiming);
+    fn submit_timing(&self, url: BrowserUrl, response: ResourceFetchTiming);
     fn clone(&self) -> Box<dyn NetworkTimingHandler>;
 }
 
@@ -124,7 +124,7 @@ pub trait NetworkTimingHandler: Send + std::fmt::Debug {
 pub struct WebFontDocumentContext {
     pub policy_container: PolicyContainer,
     pub request_client: RequestClient,
-    pub document_url: ServoUrl,
+    pub document_url: BrowserUrl,
     pub has_trustworthy_ancestor_origin: bool,
     pub insecure_requests_policy: InsecureRequestsPolicy,
     pub csp_handler: Box<dyn CspViolationHandler>,
@@ -987,7 +987,7 @@ impl RemoteWebFontDownloader {
             },
         };
 
-        let url: ServoUrl = self.url.clone().into();
+        let url: BrowserUrl = self.url.clone().into();
         let identifier = FontIdentifier::Web(url.clone());
         let Ok(handle) = PlatformFont::new_from_data(identifier, &font_data, None, &[], false)
         else {
@@ -1068,7 +1068,7 @@ impl RemoteWebFontDownloader {
                     .expect("must have download state before termination")
                     .document_context
                     .network_timing_handler
-                    .submit_timing(ServoUrl::from_url(self.url.as_ref().clone()), timing);
+                    .submit_timing(BrowserUrl::from_url(self.url.as_ref().clone()), timing);
                 DownloaderResponseResult::Finished
             },
         }

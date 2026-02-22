@@ -58,7 +58,7 @@ pub use servo_config::{opts, pref, prefs};
 pub use servo_geometry::{
     DeviceIndependentIntRect, DeviceIndependentPixel, convert_rect_to_css_pixel,
 };
-pub use servo_url::ServoUrl;
+pub use servo_url::BrowserUrl;
 pub use servo_url::hppr::{HAVIAddress, via_url};
 pub use style::Zero;
 pub use style_traits::CSSPixel;

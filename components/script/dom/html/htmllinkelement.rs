@@ -21,7 +21,7 @@ use net_traits::{
 use pixels::PixelFormat;
 use script_bindings::root::Dom;
 use servo_arc::Arc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::stylesheets::Stylesheet;
 use stylo_atoms::Atom;
@@ -1096,7 +1096,7 @@ struct FaviconFetchContext {
     id: PendingImageId,
 
     /// The base url of the document that the `<link>` element belongs to.
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl FetchResponseListener for FaviconFetchContext {
@@ -1147,7 +1147,7 @@ impl FetchResponseListener for FaviconFetchContext {
 }
 
 impl ResourceTimingListener for FaviconFetchContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (
             InitiatorType::LocalName("link".to_string()),
             self.url.clone(),

@@ -19,7 +19,7 @@ use log::warn;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use self::network_parent::NetworkParentActor;
 use super::breakpoint::BreakpointListActor;
@@ -201,7 +201,7 @@ pub(crate) struct WillNavigateMessage {
     time: u64,
     is_frame_switching: bool,
     #[serde(rename = "newURI")]
-    new_uri: ServoUrl,
+    new_uri: BrowserUrl,
 }
 
 impl Actor for WatcherActor {
@@ -444,7 +444,7 @@ impl WatcherActor {
     pub fn emit_will_navigate<'a>(
         &self,
         browsing_context_id: BrowsingContextId,
-        url: ServoUrl,
+        url: BrowserUrl,
         connections: impl Iterator<Item = &'a mut TcpStream>,
         id_map: &mut IdMap,
     ) {

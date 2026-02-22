@@ -28,7 +28,7 @@ use net_traits::request::{
 };
 use net_traits::{FetchMetadata, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming};
 use profile_traits::mem::{ProcessReports, perform_memory_report};
-use servo_url::{MutableOrigin, ServoUrl};
+use servo_url::{MutableOrigin, BrowserUrl};
 use timers::TimerScheduler;
 use uuid::Uuid;
 
@@ -113,7 +113,7 @@ pub(crate) struct ScriptFetchContext {
     scope: Trusted<WorkerGlobalScope>,
     response: Option<Metadata>,
     body_bytes: Vec<u8>,
-    url: ServoUrl,
+    url: BrowserUrl,
     worker: TrustedWorkerAddress,
     policy_container: PolicyContainer,
 }
@@ -121,7 +121,7 @@ pub(crate) struct ScriptFetchContext {
 impl ScriptFetchContext {
     pub(crate) fn new(
         scope: Trusted<WorkerGlobalScope>,
-        url: ServoUrl,
+        url: BrowserUrl,
         worker: TrustedWorkerAddress,
         policy_container: PolicyContainer,
     ) -> ScriptFetchContext {
@@ -258,7 +258,7 @@ impl FetchResponseListener for ScriptFetchContext {
 }
 
 impl ResourceTimingListener for ScriptFetchContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.url.clone())
     }
 
@@ -282,7 +282,7 @@ pub(crate) struct WorkerGlobalScope {
     #[no_trace]
     worker_id: WorkerId,
     #[no_trace]
-    worker_url: DomRefCell<ServoUrl>,
+    worker_url: DomRefCell<BrowserUrl>,
     #[conditional_malloc_size_of]
     closing: Arc<AtomicBool>,
     execution_ready: AtomicBool,
@@ -336,7 +336,7 @@ impl WorkerGlobalScope {
         init: WorkerGlobalScopeInit,
         worker_name: DOMString,
         worker_type: WorkerType,
-        worker_url: ServoUrl,
+        worker_url: BrowserUrl,
         runtime: Runtime,
         devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         closing: Arc<AtomicBool>,
@@ -453,11 +453,11 @@ impl WorkerGlobalScope {
         self.execution_ready.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn get_url(&self) -> Ref<'_, ServoUrl> {
+    pub(crate) fn get_url(&self) -> Ref<'_, BrowserUrl> {
         self.worker_url.borrow()
     }
 
-    pub(crate) fn set_url(&self, url: ServoUrl) {
+    pub(crate) fn set_url(&self, url: BrowserUrl) {
         *self.worker_url.borrow_mut() = url;
     }
 

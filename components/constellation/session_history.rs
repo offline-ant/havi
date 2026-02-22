@@ -9,7 +9,7 @@ use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
 use constellation_traits::LoadData;
 use embedder_traits::ViewportDetails;
 use log::debug;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::browsingcontext::NewBrowsingContextInfo;
 
@@ -54,7 +54,7 @@ impl JointSessionHistory {
         &mut self,
         pipeline_id: PipelineId,
         history_state_id: HistoryStateId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         if let Some(SessionHistoryDiff::Pipeline {
             new_history_state_id,
@@ -197,16 +197,16 @@ pub enum SessionHistoryDiff {
         /// The old history state id.
         old_history_state_id: Option<HistoryStateId>,
         /// The old url
-        old_url: ServoUrl,
+        old_url: BrowserUrl,
         /// The new history state id.
         new_history_state_id: HistoryStateId,
         /// The new url
-        new_url: ServoUrl,
+        new_url: BrowserUrl,
     },
     Hash {
         pipeline_reloader: NeedsToReload,
-        old_url: ServoUrl,
-        new_url: ServoUrl,
+        old_url: BrowserUrl,
+        new_url: BrowserUrl,
     },
 }
 

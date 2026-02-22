@@ -5,7 +5,7 @@
 use constellation_traits::{LoadData, LoadOrigin, NavigationHistoryBehavior};
 use dom_struct::dom_struct;
 use net_traits::request::Referrer;
-use servo_url::{MutableOrigin, ServoUrl};
+use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::codegen::Bindings::LocationBinding::LocationMethods;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::Window_Binding::WindowMethods;
@@ -59,7 +59,7 @@ impl Location {
     /// <https://html.spec.whatwg.org/multipage/#location-object-navigate>
     fn navigate_a_location(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         history_handling: NavigationHistoryBehavior,
         can_gc: CanGc,
     ) {
@@ -92,7 +92,7 @@ impl Location {
     /// greatly deviated from our code.
     pub(crate) fn navigate(
         &self,
-        url: ServoUrl,
+        url: BrowserUrl,
         history_handling: NavigationHistoryBehavior,
         navigation_type: NavigationType,
         can_gc: CanGc,
@@ -226,11 +226,11 @@ impl Location {
     ///
     /// [1]: https://html.spec.whatwg.org/multipage/#concept-location-url
     /// [2]: https://html.spec.whatwg.org/multipage/#relevant-document
-    fn get_url_if_same_origin(&self) -> Fallible<ServoUrl> {
+    fn get_url_if_same_origin(&self) -> Fallible<BrowserUrl> {
         Ok(if let Some(document) = self.document_if_same_origin()? {
             document.url()
         } else {
-            ServoUrl::parse("about:blank").unwrap()
+            BrowserUrl::parse("about:blank").unwrap()
         })
     }
 
@@ -242,7 +242,7 @@ impl Location {
     #[inline]
     fn setter_common(
         &self,
-        f: impl FnOnce(ServoUrl) -> Fallible<Option<ServoUrl>>,
+        f: impl FnOnce(BrowserUrl) -> Fallible<Option<BrowserUrl>>,
         can_gc: CanGc,
     ) -> ErrorResult {
         // Step 1: If this Location object's relevant Document is null, then return.

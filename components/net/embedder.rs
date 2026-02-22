@@ -9,7 +9,7 @@ use embedder_traits::{
     AuthenticationResponse, EmbedderControlId, FilePickerRequest, WebResourceRequest,
     WebResourceResponseMsg,
 };
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use tokio::sync::oneshot::Sender as TokioOneshotSender;
 
@@ -29,7 +29,7 @@ pub enum NetToEmbedderMsg {
     /// Request authentication for a load or navigation from the embedder.
     RequestAuthentication(
         WebViewId,
-        ServoUrl,
+        BrowserUrl,
         bool, /* for proxy */
         TokioOneshotSender<Option<AuthenticationResponse>>,
     ),

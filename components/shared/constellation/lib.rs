@@ -33,7 +33,7 @@ use profile_traits::mem::MemoryReportResult;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_config::prefs::PrefValue;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 pub use structured_data::*;
 use strum::IntoStaticStr;
 use webrender_api::units::LayoutVector2D;
@@ -48,7 +48,7 @@ pub enum EmbedderToConstellationMessage {
     /// Whether to allow script to navigate.
     AllowNavigationResponse(PipelineId, bool),
     /// Request to load a page.
-    LoadUrl(WebViewId, ServoUrl),
+    LoadUrl(WebViewId, BrowserUrl),
     /// Request to traverse the joint session history of the provided browsing context.
     TraverseHistory(WebViewId, TraversalDirection, TraversalId),
     /// Inform the Constellation that a `WebView`'s [`ViewportDetails`] have changed.
@@ -69,7 +69,7 @@ pub enum EmbedderToConstellationMessage {
     /// A log entry, with the top-level browsing context id and thread name
     LogEntry(Option<ScriptEventLoopId>, Option<String>, LogEntry),
     /// Create a new top level browsing context.
-    NewWebView(ServoUrl, NewWebViewDetails),
+    NewWebView(BrowserUrl, NewWebViewDetails),
     /// Close a top level browsing context.
     CloseWebView(WebViewId),
     /// Panic a top level browsing context.

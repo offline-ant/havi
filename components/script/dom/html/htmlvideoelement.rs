@@ -20,7 +20,7 @@ use net_traits::{
 };
 use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use servo_media::player::video::VideoFrame;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::{AttrValue, LengthOrPercentageOrAuto};
 
 use crate::document_loader::{LoadBlocker, LoadType};
@@ -220,7 +220,7 @@ impl HTMLVideoElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#poster-frame>
-    fn do_fetch_poster_frame(&self, poster_url: ServoUrl, id: PendingImageId, can_gc: CanGc) {
+    fn do_fetch_poster_frame(&self, poster_url: BrowserUrl, id: PendingImageId, can_gc: CanGc) {
         // Step 5. Let request be a new request whose URL is url, client is the element's node
         // document's relevant settings object, destination is "image", initiator type is "video",
         // credentials mode is "include", and whose use-URL-credentials flag is set.
@@ -395,7 +395,7 @@ struct PosterFrameFetchContext {
     /// True if this response is invalid and should be ignored.
     cancelled: bool,
     /// Url for the resource
-    url: ServoUrl,
+    url: BrowserUrl,
     /// A [`FetchCanceller`] for this request.
     fetch_canceller: FetchCanceller,
 }
@@ -465,7 +465,7 @@ impl FetchResponseListener for PosterFrameFetchContext {
 }
 
 impl ResourceTimingListener for PosterFrameFetchContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         let initiator_type = InitiatorType::LocalName(
             self.elem
                 .root()
@@ -484,7 +484,7 @@ impl ResourceTimingListener for PosterFrameFetchContext {
 impl PosterFrameFetchContext {
     fn new(
         elem: &HTMLVideoElement,
-        url: ServoUrl,
+        url: BrowserUrl,
         id: PendingImageId,
         request_id: RequestId,
         core_resource_thread: CoreResourceThread,

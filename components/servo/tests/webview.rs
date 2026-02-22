@@ -24,7 +24,7 @@ use servo::{
     WebView, WebViewBuilder, WebViewDelegate,
 };
 use servo_config::prefs::Preferences;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use url::Url;
 use webrender_api::units::{DeviceIntSize, DevicePoint};
 
@@ -92,7 +92,7 @@ fn test_create_webview_http() {
 
     let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
         .delegate(delegate.clone())
-        .url(url.into_url())
+        .url(url)
         .build();
 
     servo_test.spin(move || !delegate.url_changed.get());
@@ -127,13 +127,13 @@ fn test_create_webview_http_custom_host() {
 
     replace_host_table(host_table);
 
-    let custom_url = ServoUrl::parse(&format!("http://www.example.com:{}", port)).unwrap();
+    let custom_url = BrowserUrl::parse(&format!("http://www.example.com:{}", port)).unwrap();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
 
     let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
         .delegate(delegate.clone())
-        .url(custom_url.clone().into_url())
+        .url(custom_url.clone())
         .build();
 
     servo_test.spin(move || !delegate.load_status_changed.get());
@@ -146,7 +146,7 @@ fn test_create_webview_http_custom_host() {
 
     let url = webview.url();
     assert!(url.is_some());
-    assert_eq!(url.unwrap(), custom_url.into_url());
+    assert_eq!(url.unwrap(), custom_url);
 }
 
 #[test]
@@ -863,7 +863,7 @@ fn test_user_content_manager_user_script() {
 
     let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
-        .url(url.into_url())
+        .url(url)
         .build();
 
     let load_webview = webview.clone();

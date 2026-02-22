@@ -304,7 +304,7 @@ impl ServoShellWindow {
                         break;
                     };
                     if let Some(active_webview) = self.active_webview() {
-                        active_webview.load(url.into_url());
+                        active_webview.load(url);
                     }
                 },
                 UserInterfaceCommand::Back => {

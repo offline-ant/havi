@@ -16,9 +16,9 @@ use mime::Mime;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::oneshot::Sender as TokioSender;
-use url::Position;
+
 use uuid::Uuid;
 
 use crate::policy_container::{PolicyContainer, RequestPolicyContainer};
@@ -73,8 +73,8 @@ pub enum Referrer {
     ///
     /// If you are unsure you should probably use
     /// [`GlobalScope::get_referrer`](https://doc.servo.org/script/dom/globalscope/struct.GlobalScope.html#method.get_referrer)
-    Client(ServoUrl),
-    ReferrerUrl(ServoUrl),
+    Client(BrowserUrl),
+    ReferrerUrl(BrowserUrl),
 }
 
 /// A [request mode](https://fetch.spec.whatwg.org/#concept-request-mode)
@@ -86,7 +86,7 @@ pub enum RequestMode {
     CorsMode,
     WebSocket {
         protocols: Vec<String>,
-        original_url: ServoUrl,
+        original_url: BrowserUrl,
     },
 }
 
@@ -136,7 +136,7 @@ pub enum ResponseTainting {
 #[derive(Clone, Debug, Eq, Hash, Deserialize, MallocSizeOf, Serialize, PartialEq)]
 pub struct PreloadKey {
     /// <https://html.spec.whatwg.org/multipage/#preload-url>
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     /// <https://html.spec.whatwg.org/multipage/#preload-destination>
     pub destination: Destination,
     /// <https://html.spec.whatwg.org/multipage/#preload-mode>
@@ -406,7 +406,7 @@ pub struct RequestBuilder {
     pub method: Method,
 
     /// <https://fetch.spec.whatwg.org/#concept-request-url>
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
 
     /// <https://fetch.spec.whatwg.org/#concept-request-header-list>
     #[serde(
@@ -469,7 +469,7 @@ pub struct RequestBuilder {
     pub cryptographic_nonce_metadata: String,
 
     // to keep track of redirects
-    pub url_list: Vec<ServoUrl>,
+    pub url_list: Vec<BrowserUrl>,
 
     /// <https://fetch.spec.whatwg.org/#concept-request-parser-metadata>
     pub parser_metadata: ParserMetadata,
@@ -483,7 +483,7 @@ pub struct RequestBuilder {
 }
 
 impl RequestBuilder {
-    pub fn new(webview_id: Option<WebViewId>, url: ServoUrl, referrer: Referrer) -> RequestBuilder {
+    pub fn new(webview_id: Option<WebViewId>, url: BrowserUrl, referrer: Referrer) -> RequestBuilder {
         RequestBuilder {
             id: RequestId::default(),
             preload_id: None,
@@ -810,7 +810,7 @@ pub struct Request {
     // Use the last method on url_list to act as spec current url field, and
     // first method to act as spec url field
     /// <https://fetch.spec.whatwg.org/#concept-request-url-list>
-    pub url_list: Vec<ServoUrl>,
+    pub url_list: Vec<BrowserUrl>,
     /// <https://fetch.spec.whatwg.org/#concept-request-redirect-count>
     pub redirect_count: u32,
     /// <https://fetch.spec.whatwg.org/#concept-request-response-tainting>
@@ -830,7 +830,7 @@ pub struct Request {
 impl Request {
     pub fn new(
         id: RequestId,
-        url: ServoUrl,
+        url: BrowserUrl,
         origin: Option<Origin>,
         referrer: Referrer,
         pipeline_id: Option<PipelineId>,
@@ -878,11 +878,11 @@ impl Request {
     }
 
     /// <https://fetch.spec.whatwg.org/#concept-request-url>
-    pub fn url(&self) -> ServoUrl {
+    pub fn url(&self) -> BrowserUrl {
         self.url_list.first().unwrap().clone()
     }
 
-    pub fn original_url(&self) -> ServoUrl {
+    pub fn original_url(&self) -> BrowserUrl {
         match self.mode {
             RequestMode::WebSocket {
                 protocols: _,
@@ -893,12 +893,12 @@ impl Request {
     }
 
     /// <https://fetch.spec.whatwg.org/#concept-request-current-url>
-    pub fn current_url(&self) -> ServoUrl {
+    pub fn current_url(&self) -> BrowserUrl {
         self.url_list.last().unwrap().clone()
     }
 
     /// <https://fetch.spec.whatwg.org/#concept-request-current-url>
-    pub fn current_url_mut(&mut self) -> &mut ServoUrl {
+    pub fn current_url_mut(&mut self) -> &mut BrowserUrl {
         self.url_list.last_mut().unwrap()
     }
 
@@ -987,7 +987,7 @@ impl Request {
     /// <https://fetch.spec.whatwg.org/#total-request-length>
     pub fn total_request_length(&self) -> usize {
         // Step 1. Let totalRequestLength be the length of request’s URL, serialized with exclude fragment set to true.
-        let mut total_request_length = self.url()[..Position::AfterQuery].len();
+        let mut total_request_length = self.url().url_without_fragment().len();
         // Step 2. Increment totalRequestLength by the length of request’s referrer, serialized.
         total_request_length += self
             .referrer
@@ -1048,7 +1048,7 @@ impl Request {
 }
 
 impl Referrer {
-    pub fn to_url(&self) -> Option<&ServoUrl> {
+    pub fn to_url(&self) -> Option<&BrowserUrl> {
         match *self {
             Referrer::NoReferrer => None,
             Referrer::Client(ref url) => Some(url),

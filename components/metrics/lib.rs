@@ -14,7 +14,7 @@ use profile_traits::time::{
 };
 use script_traits::ProgressiveWebMetricType;
 use servo_config::opts;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 /// TODO make this configurable
 /// maximum task time is 50ms (in ns)
@@ -39,7 +39,7 @@ fn set_metric(
     category: ProfilerCategory,
     attr: &Cell<Option<CrossProcessInstant>>,
     metric_time: CrossProcessInstant,
-    url: &ServoUrl,
+    url: &BrowserUrl,
 ) {
     attr.set(Some(metric_time));
 
@@ -101,7 +101,7 @@ pub struct ProgressiveWebMetrics {
     /// See <https://www.w3.org/TR/largest-contentful-paint/>
     largest_contentful_paint: Cell<Option<CrossProcessInstant>>,
     time_profiler_chan: ProfilerChan,
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 #[derive(Clone, Copy, Debug, MallocSizeOf)]
@@ -145,7 +145,7 @@ pub enum InteractiveFlag {
 impl ProgressiveWebMetrics {
     pub fn new(
         time_profiler_chan: ProfilerChan,
-        url: ServoUrl,
+        url: BrowserUrl,
         frame_type: TimerMetadataFrameType,
     ) -> ProgressiveWebMetrics {
         ProgressiveWebMetrics {
@@ -322,7 +322,7 @@ mod test {
         let profiler_chan = ProfilerChan(Some(sender));
         let mut metrics = ProgressiveWebMetrics::new(
             profiler_chan,
-            ServoUrl::parse("about:blank").unwrap(),
+            BrowserUrl::parse("about:blank").unwrap(),
             TimerMetadataFrameType::RootWindow,
         );
 

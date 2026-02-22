@@ -23,7 +23,7 @@ use net_traits::{
 use rustc_hash::FxHashMap;
 use script_bindings::cformat;
 use serde::{Deserialize, Serialize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use timers::TimerEventRequest;
 use uuid::Uuid;
 
@@ -491,7 +491,7 @@ pub(crate) struct FetchContext {
     locally_aborted: bool,
     canceller: FetchCanceller,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl FetchContext {
@@ -651,7 +651,7 @@ impl FetchResponseListener for FetchContext {
 }
 
 impl ResourceTimingListener for FetchContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Fetch, self.url.clone())
     }
 
@@ -662,7 +662,7 @@ impl ResourceTimingListener for FetchContext {
 
 struct FetchLaterListener {
     /// URL of this request.
-    url: ServoUrl,
+    url: BrowserUrl,
     /// The global object fetching the report uri violation
     global: Trusted<GlobalScope>,
 }
@@ -701,7 +701,7 @@ impl FetchResponseListener for FetchLaterListener {
 }
 
 impl ResourceTimingListener for FetchLaterListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Fetch, self.url.clone())
     }
 
@@ -796,7 +796,7 @@ impl RequestWithGlobalScope for RequestBuilder {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_a_potential_cors_request(
     webview_id: Option<WebViewId>,
-    url: ServoUrl,
+    url: BrowserUrl,
     destination: Destination,
     cors_setting: Option<CorsSettings>,
     same_origin_fallback: Option<bool>,

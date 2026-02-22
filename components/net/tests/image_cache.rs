@@ -18,7 +18,7 @@ use net_traits::{
     ResourceFetchTiming, ResourceTimingType,
 };
 use paint_api::{CrossProcessPaintApi, PaintMessage};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use uuid::Uuid;
 use webrender_api::ImageKey;
 
@@ -71,7 +71,7 @@ fn svg_image_bytes() -> Vec<u8> {
 }
 
 fn create_test_metadata(mime_type: Option<mime::Mime>) -> FetchMetadata {
-    let url = ServoUrl::parse("http://example.com").unwrap();
+    let url = BrowserUrl::parse("http://example.com").unwrap();
     let mut metadata = Metadata::default(url);
     metadata.set_content_type(mime_type.as_ref());
     FetchMetadata::Filtered {
@@ -91,7 +91,7 @@ fn create_timing() -> ResourceFetchTiming {
 #[test]
 fn test_get_cached_image_status_before_request() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let result = cache.get_cached_image_status(url, origin, None);
@@ -107,7 +107,7 @@ fn test_get_cached_image_status_before_request() {
 #[test]
 fn test_get_cached_image_status_no_response_data() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -128,7 +128,7 @@ fn test_get_cached_image_status_no_response_data() {
 #[test]
 fn test_notify_pending_response_with_headers() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -154,7 +154,7 @@ fn test_notify_pending_response_with_headers() {
 #[test]
 fn test_notify_pending_response_with_partial_chunk() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -186,7 +186,7 @@ fn test_notify_pending_response_with_partial_chunk() {
 #[test]
 fn test_notify_pending_response_with_metadata_chunk() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -221,7 +221,7 @@ fn test_notify_pending_response_with_metadata_chunk() {
 #[test]
 fn test_notify_pending_response_complete() {
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -265,7 +265,7 @@ fn test_notify_pending_response_complete() {
 #[test]
 fn test_notify_pending_response_network_error() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -294,7 +294,7 @@ fn test_notify_pending_response_network_error() {
 #[test]
 fn test_image_listener_on_complete_response() {
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -338,7 +338,7 @@ fn test_image_listener_on_complete_response() {
 #[test]
 fn test_image_listener_on_network_error() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -375,7 +375,7 @@ fn test_image_listener_on_network_error() {
 #[test]
 fn test_image_listener_on_metadata_available() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -413,7 +413,7 @@ fn test_image_listener_on_metadata_available() {
 #[test]
 fn test_get_image_returns_none_when_not_loaded() {
     let (cache, _key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.png").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.png").unwrap();
     let origin = mock_origin();
 
     let image = cache.get_image(url, origin, None);
@@ -423,7 +423,7 @@ fn test_get_image_returns_none_when_not_loaded() {
 #[test]
 fn test_multiple_listeners_same_image() {
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -478,7 +478,7 @@ fn test_multiple_listeners_same_image() {
 #[test]
 fn test_cached_image_reuse() {
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/test.jpeg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/test.jpeg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -515,7 +515,7 @@ fn test_cached_image_reuse() {
 #[test]
 fn test_svg_rasterization() {
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.svg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.svg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
@@ -567,7 +567,7 @@ fn test_rasterization_listener() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let (cache, key_receiver) = create_test_image_cache();
-    let url = ServoUrl::parse("http://example.com/image.svg").unwrap();
+    let url = BrowserUrl::parse("http://example.com/image.svg").unwrap();
     let origin = mock_origin();
 
     let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {

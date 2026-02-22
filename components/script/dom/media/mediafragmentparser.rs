@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::str::FromStr;
 
 use chrono::NaiveDateTime;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use url::{Position, Url, form_urlencoded};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -196,9 +196,9 @@ impl From<&Url> for MediaFragmentParser {
     }
 }
 
-impl From<&ServoUrl> for MediaFragmentParser {
-    fn from(servo_url: &ServoUrl) -> Self {
-        let input: &str = &servo_url[Position::AfterPath..];
+impl From<&BrowserUrl> for MediaFragmentParser {
+    fn from(servo_url: &BrowserUrl) -> Self {
+        let input: &str = servo_url.url_after_path();
         MediaFragmentParser::parse(input)
     }
 }

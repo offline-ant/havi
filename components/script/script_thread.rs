@@ -93,18 +93,18 @@ use script_traits::{
 };
 use servo_arc::Arc as ServoArc;
 use servo_config::{opts, pref, prefs};
-use servo_url::{ImmutableOrigin, MutableOrigin, OriginSnapshot, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, OriginSnapshot, BrowserUrl};
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::WebStorageType;
 use style::context::QuirksMode;
 use style::error_reporting::RustLogReporter;
 use style::global_style_data::GLOBAL_STYLE_DATA;
 use style::media_queries::MediaList;
-use style::stylesheets::{AllowImportRules, DocumentStyleSheet, Origin, Stylesheet};
+use style::stylesheets::{AllowImportRules, DocumentStyleSheet, Origin, Stylesheet, UrlExtraData};
 use style::thread_state::{self, ThreadState};
 use stylo_atoms::Atom;
 use timers::{TimerEventRequest, TimerId, TimerScheduler};
-use url::Position;
+
 #[cfg(feature = "webgpu")]
 use webgpu_traits::{WebGPUDevice, WebGPUMsg};
 use webrender_api::ExternalScrollId;
@@ -233,7 +233,7 @@ impl From<UserContents> for ScriptThreadUserContents {
             .map(|user_stylesheet| {
                 DocumentStyleSheet(ServoArc::new(Stylesheet::from_str(
                     user_stylesheet.source(),
-                    user_stylesheet.url().into(),
+                    UrlExtraData(user_stylesheet.url().get_arc()),
                     Origin::User,
                     ServoArc::new(shared_lock.wrap(MediaList::empty())),
                     shared_lock.clone(),
@@ -407,7 +407,7 @@ pub struct ScriptThread {
 
     /// A list of URLs that can access privileged internal APIs.
     #[no_trace]
-    privileged_urls: Vec<ServoUrl>,
+    privileged_urls: Vec<BrowserUrl>,
 
     /// Whether accessibility is active. If true, each Layout will maintain an accessibility tree
     /// and send accessibility updates to the embedder.
@@ -2993,7 +2993,7 @@ impl ScriptThread {
         &self,
         pipeline_id: PipelineId,
         history_state_id: Option<HistoryStateId>,
-        url: ServoUrl,
+        url: BrowserUrl,
         can_gc: CanGc,
     ) {
         let Some(window) = self.documents.borrow().find_window(pipeline_id) else {
@@ -3229,7 +3229,7 @@ impl ScriptThread {
         &self,
         pipeline_id: PipelineId,
         storage_type: WebStorageType,
-        url: ServoUrl,
+        url: BrowserUrl,
         key: Option<String>,
         old_value: Option<String>,
         new_value: Option<String>,
@@ -3631,7 +3631,7 @@ impl ScriptThread {
     fn notify_devtools(
         &self,
         title: DOMString,
-        url: ServoUrl,
+        url: BrowserUrl,
         is_top_level_global: bool,
         (browsing_context_id, pipeline_id, worker_id, webview_id): (
             BrowsingContextId,
@@ -3723,7 +3723,7 @@ impl ScriptThread {
         // Start with the scheme data of the parsed URL;
         // append question mark and query component, if any;
         // append number sign and fragment component if any.
-        let encoded = &load_data.url[Position::AfterScheme..][1..];
+        let encoded = &load_data.url.url_after_scheme()[1..];
 
         // Percent-decode (8.) and UTF-8 decode (9.)
         let script_source = percent_decode(encoded.as_bytes()).decode_utf8_lossy();
@@ -3756,7 +3756,7 @@ impl ScriptThread {
             Some(JsEvalResult::NoContent)
         };
 
-        load_data.url = ServoUrl::parse("about:blank").unwrap();
+        load_data.url = BrowserUrl::parse("about:blank").unwrap();
     }
 
     /// Instructs the constellation to fetch the document that will be loaded. Stores the InProgressLoad
@@ -3964,7 +3964,7 @@ impl ScriptThread {
         cx: &mut js::context::JSContext,
         mut incomplete: InProgressLoad,
     ) {
-        let url = ServoUrl::parse("about:blank").unwrap();
+        let url = BrowserUrl::parse("about:blank").unwrap();
         let mut context = ParserContext::new(
             incomplete.webview_id,
             incomplete.pipeline_id,
@@ -4010,7 +4010,7 @@ impl ScriptThread {
         cx: &mut js::context::JSContext,
         mut incomplete: InProgressLoad,
     ) {
-        let url = ServoUrl::parse("about:srcdoc").unwrap();
+        let url = BrowserUrl::parse("about:srcdoc").unwrap();
         let mut meta = Metadata::default(url.clone());
         meta.set_content_type(Some(&mime::TEXT_HTML));
         meta.set_referrer_policy(incomplete.load_data.referrer_policy);
@@ -4189,7 +4189,7 @@ impl ScriptThread {
         document.event_handler().handle_refresh_cursor();
     }
 
-    pub(crate) fn is_servo_privileged(url: ServoUrl) -> bool {
+    pub(crate) fn is_servo_privileged(url: BrowserUrl) -> bool {
         with_script_thread(|script_thread| script_thread.privileged_urls.contains(&url))
     }
 

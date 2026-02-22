@@ -17,7 +17,7 @@ use mime::{self, Mime};
 use net_traits::request::{CacheMode, CorsSettings, Destination, RequestBuilder, RequestId};
 use net_traits::{FetchMetadata, FilteredMetadata, NetworkError, ResourceFetchTiming};
 use script_bindings::conversions::SafeToJSValConvertible;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 
 use crate::dom::bindings::cell::DomRefCell;
@@ -87,7 +87,7 @@ impl Drop for DroppableEventSource {
 pub(crate) struct EventSource {
     eventtarget: EventTarget,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     #[no_trace]
     request: DomRefCell<Option<RequestBuilder>>,
     last_event_id: DomRefCell<DOMString>,
@@ -474,7 +474,7 @@ impl FetchResponseListener for EventSourceContext {
 }
 
 impl ResourceTimingListener for EventSourceContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.event_source.root().url().clone())
     }
 
@@ -484,7 +484,7 @@ impl ResourceTimingListener for EventSourceContext {
 }
 
 impl EventSource {
-    fn new_inherited(url: ServoUrl, with_credentials: bool) -> EventSource {
+    fn new_inherited(url: BrowserUrl, with_credentials: bool) -> EventSource {
         EventSource {
             eventtarget: EventTarget::new_inherited(),
             url,
@@ -502,7 +502,7 @@ impl EventSource {
     fn new(
         global: &GlobalScope,
         proto: Option<HandleObject>,
-        url: ServoUrl,
+        url: BrowserUrl,
         with_credentials: bool,
         can_gc: CanGc,
     ) -> DomRoot<EventSource> {
@@ -539,7 +539,7 @@ impl EventSource {
         self.request.borrow().clone().unwrap()
     }
 
-    pub(crate) fn url(&self) -> &ServoUrl {
+    pub(crate) fn url(&self) -> &BrowserUrl {
         &self.url
     }
 }

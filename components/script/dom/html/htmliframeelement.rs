@@ -22,7 +22,7 @@ use net_traits::ReferrerPolicy;
 use net_traits::request::Destination;
 use profile_traits::ipc as ProfiledIpc;
 use script_traits::{NewPipelineInfo, UpdatePipelineIdReason};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::{AttrValue, LengthOrPercentageOrAuto};
 use stylo_atoms::Atom;
 
@@ -102,7 +102,7 @@ pub(crate) struct HTMLIFrameElement {
 
 impl HTMLIFrameElement {
     /// <https://html.spec.whatwg.org/multipage/#shared-attribute-processing-steps-for-iframe-and-frame-elements>,
-    fn shared_attribute_processing_steps_for_iframe_and_frame_elements(&self) -> Option<ServoUrl> {
+    fn shared_attribute_processing_steps_for_iframe_and_frame_elements(&self) -> Option<BrowserUrl> {
         let element = self.upcast::<Element>();
         // Step 2. If element has a src attribute specified, and its value is not the empty string, then:
         let url = element
@@ -119,7 +119,7 @@ impl HTMLIFrameElement {
                 }
             })
             // Step 1. Let url be the URL record about:blank.
-            .unwrap_or_else(|| ServoUrl::parse("about:blank").unwrap());
+            .unwrap_or_else(|| BrowserUrl::parse("about:blank").unwrap());
         // Step 3. If the inclusive ancestor navigables of element's node navigable contains
         // a navigable whose active document's URL equals url with exclude fragments set to true, then return null.
         // TODO
@@ -298,7 +298,7 @@ impl HTMLIFrameElement {
         //
         // Note that this also includes the empty string
         if element.has_attribute(&local_name!("srcdoc")) {
-            let url = ServoUrl::parse("about:srcdoc").unwrap();
+            let url = BrowserUrl::parse("about:srcdoc").unwrap();
             let document = self.owner_document();
             let window = self.owner_window();
             let pipeline_id = Some(window.pipeline_id());
@@ -452,7 +452,7 @@ impl HTMLIFrameElement {
     /// and we still fire load and pageshow events as part of `maybe_queue_document_completion`.
     /// Also, some controversy spec-wise remains: <https://github.com/whatwg/html/issues/4965>
     fn create_nested_browsing_context(&self, can_gc: CanGc) {
-        let url = ServoUrl::parse("about:blank").unwrap();
+        let url = BrowserUrl::parse("about:blank").unwrap();
         let document = self.owner_document();
         let window = self.owner_window();
         let pipeline_id = Some(window.pipeline_id());
@@ -1049,7 +1049,7 @@ pub(crate) struct IframeContext<'a> {
     // The iframe element that this context is associated with.
     element: &'a HTMLIFrameElement,
     // The URL of the iframe document.
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl<'a> IframeContext<'a> {
@@ -1065,7 +1065,7 @@ impl<'a> IframeContext<'a> {
 }
 
 impl<'a> ResourceTimingListener for IframeContext<'a> {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (
             InitiatorType::LocalName("iframe".to_string()),
             self.url.clone(),

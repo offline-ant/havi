@@ -10,7 +10,7 @@ use net_traits::{
     BoxedFetchCallback, FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming,
     ResourceTimingType,
 };
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::DomRoot;
@@ -23,7 +23,7 @@ use crate::script_runtime::CanGc;
 use crate::task_source::SendableTaskSource;
 
 pub(crate) trait ResourceTimingListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl);
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl);
     fn resource_timing_global(&self) -> DomRoot<GlobalScope>;
 }
 
@@ -80,7 +80,7 @@ pub(crate) fn submit_timing<T: ResourceTimingListener>(
 
 pub(crate) fn submit_timing_data(
     global: &GlobalScope,
-    url: ServoUrl,
+    url: BrowserUrl,
     initiator_type: InitiatorType,
     resource_timing: &ResourceFetchTiming,
     can_gc: CanGc,

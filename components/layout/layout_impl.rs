@@ -44,7 +44,7 @@ use script_traits::{DrawAPaintImageResult, PaintWorkletError, Painter, ScriptThr
 use servo_arc::Arc as ServoArc;
 use servo_config::opts::{self, DiagnosticsLogging};
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::animation::DocumentAnimationSet;
 use style::context::{
     QuirksMode, RegisteredSpeculativePainter, RegisteredSpeculativePainters, SharedStyleContext,
@@ -126,7 +126,7 @@ pub struct LayoutThread {
     webview_id: WebViewId,
 
     /// The URL of the pipeline that we belong to.
-    url: ServoUrl,
+    url: BrowserUrl,
 
     /// Performs CSS selector matching and style resolution.
     stylist: Stylist,
@@ -190,7 +190,7 @@ pub struct LayoutThread {
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
     // image data, or an error if the image cache failed to load/decode the image.
-    resolved_images_cache: Arc<RwLock<HashMap<ServoUrl, CachedImageOrError>>>,
+    resolved_images_cache: Arc<RwLock<HashMap<BrowserUrl, CachedImageOrError>>>,
 
     /// The executors for paint worklets.
     registered_painters: RegisteredPaintersImpl,
@@ -315,7 +315,7 @@ impl Layout for LayoutThread {
     }
 
     #[servo_tracing::instrument(skip_all)]
-    fn remove_cached_image(&mut self, url: &ServoUrl) {
+    fn remove_cached_image(&mut self, url: &BrowserUrl) {
         let mut resolved_images_cache = self.resolved_images_cache.write();
         resolved_images_cache.remove(url);
     }

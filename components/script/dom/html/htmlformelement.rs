@@ -1022,7 +1022,7 @@ impl HTMLFormElement {
 
     fn set_url_query_pairs<T>(
         &self,
-        url: &mut servo_url::ServoUrl,
+        url: &mut servo_url::BrowserUrl,
         pairs: impl Iterator<Item = (T, String)>,
     ) where
         T: AsRef<str>,

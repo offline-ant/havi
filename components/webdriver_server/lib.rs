@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use servo_config::prefs::{self, PrefValue, Preferences};
 use servo_geometry::DeviceIndependentIntRect;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style_traits::CSSPixel;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -717,8 +717,7 @@ impl Handler {
         self.verify_top_level_browsing_context_is_open(webview_id)?;
         // Step 3. If URL is not an absolute URL or is not an absolute URL with fragment
         // or not a local scheme, return error with error code invalid argument.
-        let url = ServoUrl::parse(&parameters.url)
-            .map(|url| url.into_url())
+        let url = BrowserUrl::parse(&parameters.url)
             .map_err(|_| WebDriverError::new(ErrorStatus::InvalidArgument, "Invalid URL"))?;
 
         // Step 4. Handle any user prompt.

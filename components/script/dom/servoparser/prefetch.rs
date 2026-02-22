@@ -21,7 +21,7 @@ use net_traits::request::{
     RequestClient,
 };
 use net_traits::{CoreResourceMsg, FetchChannels, ReferrerPolicy, ResourceThreads};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::trace::{CustomTraceable, JSTraceable};
@@ -101,9 +101,9 @@ struct PrefetchSink {
     #[no_trace]
     webview_id: WebViewId,
     #[no_trace]
-    document_url: ServoUrl,
+    document_url: BrowserUrl,
     #[no_trace]
-    base_url: RefCell<Option<ServoUrl>>,
+    base_url: RefCell<Option<BrowserUrl>>,
     #[no_trace]
     referrer: Referrer,
     #[no_trace]
@@ -261,11 +261,11 @@ impl PrefetchSink {
         tag.attrs.iter().find(|attr| attr.name.local == name)
     }
 
-    fn get_url(&self, tag: &Tag, name: LocalName) -> Option<ServoUrl> {
+    fn get_url(&self, tag: &Tag, name: LocalName) -> Option<BrowserUrl> {
         let attr = self.get_attr(tag, name)?;
         let base_url = self.base_url.borrow();
         let base = base_url.as_ref().unwrap_or(&self.document_url);
-        ServoUrl::parse_with_base(Some(base), &attr.value).ok()
+        BrowserUrl::parse_with_base(Some(base), &attr.value).ok()
     }
 
     fn get_referrer_policy(&self, tag: &Tag, name: LocalName) -> ReferrerPolicy {

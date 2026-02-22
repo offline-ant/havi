@@ -5,7 +5,7 @@
 use dom_struct::dom_struct;
 use js::rust::{HandleObject, HandleValue};
 use net_traits::pub_domains::is_same_site;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::dom::bindings::codegen::Bindings::OriginBinding::OriginMethods;
 use crate::dom::bindings::conversions::{
@@ -136,7 +136,7 @@ impl OriginMethods<crate::DomTypeHolder> for Origin {
             // Step 2.1. Let parsedURL be the result of basic URL parsing value.
             // Step 2.2. If parsedURL is not failure, then return a new Origin object whose
             //           origin is set to parsedURL's origin.
-            match ServoUrl::parse(&s.to_string()) {
+            match BrowserUrl::parse(&s.to_string()) {
                 Ok(url) => return Ok(Origin::new(global, None, url.origin(), can_gc)),
                 Err(_) => return Err(Error::Type(c"Failed to parse URL".to_owned())),
             }

@@ -19,7 +19,7 @@ use log::warn;
 use serde_json::Value;
 use servo::{
     DeviceIndependentPixel, DiagnosticsLogging, Opts, OutputOptions, PrefValue, Preferences,
-    ServoUrl,
+    BrowserUrl,
 };
 use url::Url;
 
@@ -266,13 +266,13 @@ fn parse_resolution_string(
 }
 
 /// Parse stylesheets into the byte stream.
-fn parse_user_stylesheets(string: String) -> Result<Vec<(Vec<u8>, ServoUrl)>, std::io::Error> {
+fn parse_user_stylesheets(string: String) -> Result<Vec<(Vec<u8>, BrowserUrl)>, std::io::Error> {
     Ok(string
         .split_whitespace()
         .map(|filename| {
             let cwd = env::current_dir().unwrap();
             let path = cwd.join(filename);
-            let url = ServoUrl::from_url(Url::from_file_path(&path).unwrap());
+            let url = BrowserUrl::from_url(Url::from_file_path(&path).unwrap());
             let mut contents = Vec::new();
             File::open(path)
                 .unwrap()
@@ -549,7 +549,7 @@ struct CmdArgs {
     ///
     ///  A user stylesheet to be added to every document.
     #[bpaf(argument::<String>("file.css"), parse(parse_user_stylesheets), fallback(vec![]))]
-    user_stylesheet: Vec<(Vec<u8>, ServoUrl)>,
+    user_stylesheet: Vec<(Vec<u8>, BrowserUrl)>,
 
     /// Start remote WebDriver server on port.
     #[bpaf(external)]

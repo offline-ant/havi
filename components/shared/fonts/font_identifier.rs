@@ -5,12 +5,12 @@
 use malloc_size_of_derive::MallocSizeOf;
 pub use platform::LocalFontIdentifier;
 use serde::{Deserialize, Serialize};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize)]
 pub enum FontIdentifier {
     Local(LocalFontIdentifier),
-    Web(ServoUrl),
+    Web(BrowserUrl),
 }
 
 impl FontIdentifier {

@@ -5,7 +5,7 @@
 use std::default::Default;
 
 use dom_struct::dom_struct;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use uuid::Uuid;
 
 use crate::dom::bindings::codegen::Bindings::ClientBinding::{ClientMethods, FrameType};
@@ -21,14 +21,14 @@ pub(crate) struct Client {
     reflector_: Reflector,
     active_worker: MutNullableDom<ServiceWorker>,
     #[no_trace]
-    url: ServoUrl,
+    url: BrowserUrl,
     frame_type: FrameType,
     #[no_trace]
     id: Uuid,
 }
 
 impl Client {
-    fn new_inherited(url: ServoUrl) -> Client {
+    fn new_inherited(url: BrowserUrl) -> Client {
         Client {
             reflector_: Reflector::new(),
             active_worker: Default::default(),
@@ -46,7 +46,7 @@ impl Client {
         )
     }
 
-    pub(crate) fn creation_url(&self) -> ServoUrl {
+    pub(crate) fn creation_url(&self) -> BrowserUrl {
         self.url.clone()
     }
 

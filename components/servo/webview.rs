@@ -22,9 +22,8 @@ use image::RgbaImage;
 use paint_api::WebViewTrait;
 use paint_api::rendering_context::RenderingContext;
 use servo_geometry::DeviceIndependentPixel;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style_traits::CSSPixel;
-use url::Url;
 use webrender_api::units::{DeviceIntRect, DevicePixel, DevicePoint, DeviceSize};
 
 use crate::clipboard_delegate::{ClipboardDelegate, DefaultClipboardDelegate};
@@ -101,7 +100,7 @@ pub(crate) struct WebViewInner {
     cursor: Cursor,
 
     /// The back / forward list of this WebView.
-    back_forward_list: Vec<Url>,
+    back_forward_list: Vec<BrowserUrl>,
 
     /// The current index in the back / forward list.
     back_forward_list_index: usize,
@@ -180,14 +179,14 @@ impl WebView {
             },
             None => {
                 let url = builder.url.unwrap_or(
-                    Url::parse("about:blank")
+                    BrowserUrl::parse("about:blank")
                         .expect("Should always be able to parse 'about:blank'."),
                 );
 
                 servo
                     .constellation_proxy()
                     .send(EmbedderToConstellationMessage::NewWebView(
-                        url.into(),
+                        url,
                         new_webview_details,
                     ));
             },
@@ -277,7 +276,7 @@ impl WebView {
         self.delegate().notify_load_status_changed(self, new_value);
     }
 
-    pub fn url(&self) -> Option<Url> {
+    pub fn url(&self) -> Option<BrowserUrl> {
         let inner = self.inner();
         inner
             .back_forward_list
@@ -440,13 +439,13 @@ impl WebView {
             ))
     }
 
-    pub fn load(&self, url: Url) {
+    pub fn load(&self, url: BrowserUrl) {
         self.inner()
             .servo
             .constellation_proxy()
             .send(EmbedderToConstellationMessage::LoadUrl(
                 self.id(),
-                url.into(),
+                url,
             ))
     }
 
@@ -665,14 +664,11 @@ impl WebView {
             .request_screenshot(self.id(), rect, Box::new(callback));
     }
 
-    pub(crate) fn set_history(self, new_back_forward_list: Vec<ServoUrl>, new_index: usize) {
+    pub(crate) fn set_history(self, new_back_forward_list: Vec<BrowserUrl>, new_index: usize) {
         {
             let mut inner_mut = self.inner_mut();
             inner_mut.back_forward_list_index = new_index;
-            inner_mut.back_forward_list = new_back_forward_list
-                .into_iter()
-                .map(ServoUrl::into_url)
-                .collect();
+            inner_mut.back_forward_list = new_back_forward_list;
         }
 
         let back_forward_list = self.inner().back_forward_list.clone();
@@ -788,7 +784,7 @@ pub struct WebViewBuilder {
     servo: Servo,
     rendering_context: Rc<dyn RenderingContext>,
     delegate: Rc<dyn WebViewDelegate>,
-    url: Option<Url>,
+    url: Option<BrowserUrl>,
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
     create_new_webview_responder: Option<IpcResponder<Option<NewWebViewDetails>>>,
     user_content_manager: Option<Rc<UserContentManager>>,
@@ -822,7 +818,7 @@ impl WebViewBuilder {
         self
     }
 
-    pub fn url(mut self, url: Url) -> Self {
+    pub fn url(mut self, url: BrowserUrl) -> Self {
         self.url = Some(url);
         self
     }

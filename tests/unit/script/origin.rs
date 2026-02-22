@@ -2,17 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 
 #[test]
 fn same_origin() {
     let a = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/a.html")
+        BrowserUrl::parse("http://example.com/a.html")
             .unwrap()
             .origin(),
     );
     let b = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/b.html")
+        BrowserUrl::parse("http://example.com/b.html")
             .unwrap()
             .origin(),
     );
@@ -23,7 +23,7 @@ fn same_origin() {
 #[test]
 fn identical_origin() {
     let a = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/a.html")
+        BrowserUrl::parse("http://example.com/a.html")
             .unwrap()
             .origin(),
     );
@@ -33,12 +33,12 @@ fn identical_origin() {
 #[test]
 fn cross_origin() {
     let a = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/a.html")
+        BrowserUrl::parse("http://example.com/a.html")
             .unwrap()
             .origin(),
     );
     let b = MutableOrigin::new(
-        ServoUrl::parse("http://example.org/b.html")
+        BrowserUrl::parse("http://example.org/b.html")
             .unwrap()
             .origin(),
     );
@@ -48,12 +48,12 @@ fn cross_origin() {
 #[test]
 fn clone_same_origin() {
     let a = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/a.html")
+        BrowserUrl::parse("http://example.com/a.html")
             .unwrap()
             .origin(),
     );
     let b = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/b.html")
+        BrowserUrl::parse("http://example.com/b.html")
             .unwrap()
             .origin(),
     );
@@ -67,12 +67,12 @@ fn clone_same_origin() {
 #[test]
 fn clone_cross_origin() {
     let a = MutableOrigin::new(
-        ServoUrl::parse("http://example.com/a.html")
+        BrowserUrl::parse("http://example.com/a.html")
             .unwrap()
             .origin(),
     );
     let b = MutableOrigin::new(
-        ServoUrl::parse("http://example.org/b.html")
+        BrowserUrl::parse("http://example.org/b.html")
             .unwrap()
             .origin(),
     );

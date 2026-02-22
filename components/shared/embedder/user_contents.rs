@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use malloc_size_of::MallocSizeOfOps;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};
-use url::Url;
+use servo_url::BrowserUrl;
 
 static USER_CONTENT_MANAGER_ID: AtomicU32 = AtomicU32::new(1);
 
@@ -49,13 +49,13 @@ impl UserStyleSheetId {
 pub struct UserStyleSheet {
     id: UserStyleSheetId,
     source: String,
-    url: Url,
+    url: BrowserUrl,
 }
 
 impl UserStyleSheet {
     /// Create a new `UserStyleSheet` for the given source and url representing its location. The
     /// `url` can be a local file url.
-    pub fn new(source: String, url: Url) -> Self {
+    pub fn new(source: String, url: BrowserUrl) -> Self {
         Self {
             id: UserStyleSheetId::next(),
             source,
@@ -74,7 +74,7 @@ impl UserStyleSheet {
     }
 
     /// Return the source url of this `UserStyleSheet`.
-    pub fn url(&self) -> Url {
+    pub fn url(&self) -> BrowserUrl {
         self.url.clone()
     }
 }

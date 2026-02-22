@@ -21,7 +21,7 @@ use embedder_traits::resources::{self, Resource};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashSet;
-use servo_url::{Host, ImmutableOrigin, ServoUrl};
+use servo_url::{Host, ImmutableOrigin, BrowserUrl};
 
 // We can use FxHash here.
 // The list is given by publicsuffix.org so an attack is highly unlikely
@@ -182,7 +182,7 @@ pub fn is_same_site(site_a: &ImmutableOrigin, site_b: &ImmutableOrigin) -> bool 
 /// Returns None if the URL has no host name.
 /// Returns the registered suffix for the host name if it is a domain.
 /// Leaves the host name alone if it is an IP address.
-pub fn registered_domain_name(url: &ServoUrl) -> Option<Host> {
+pub fn registered_domain_name(url: &BrowserUrl) -> Option<Host> {
     match url.origin() {
         ImmutableOrigin::Tuple(_, Host::Domain(domain), _) => {
             Some(Host::Domain(String::from(reg_suffix(&domain))))

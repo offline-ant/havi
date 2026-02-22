@@ -45,7 +45,7 @@ use net_traits::request::{
 use net_traits::response::{Response, ResponseBody};
 use net_traits::{CookieSource, FetchTaskTarget, NetworkError, ReferrerPolicy};
 use parking_lot::{Mutex, RwLock};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use url::Url;
 
 use crate::{
@@ -60,7 +60,7 @@ fn assert_cookie_for_domain(
     cookie: Option<&str>,
 ) {
     let mut cookie_jar = cookie_jar.write();
-    let url = ServoUrl::parse(&*domain).unwrap();
+    let url = BrowserUrl::parse(&*domain).unwrap();
     let cookies = cookie_jar.cookies_for_url(&url, CookieSource::HTTP);
     assert_eq!(cookies.as_ref().map(|c| &**c), cookie);
 }
@@ -1179,7 +1179,7 @@ fn test_load_sets_default_accept_encoding_to_gzip_and_deflate() {
 
 #[test]
 fn test_load_errors_when_there_a_redirect_loop() {
-    let url_b_for_a = Arc::new(Mutex::new(None::<ServoUrl>));
+    let url_b_for_a = Arc::new(Mutex::new(None::<BrowserUrl>));
     let url_b_for_a_clone = url_b_for_a.clone();
     let handler_a =
         move |_: HyperRequest<Incoming>,
@@ -1228,7 +1228,7 @@ fn test_load_errors_when_there_a_redirect_loop() {
 
 #[test]
 fn test_load_succeeds_with_a_redirect_loop() {
-    let url_b_for_a = Arc::new(Mutex::new(None::<ServoUrl>));
+    let url_b_for_a = Arc::new(Mutex::new(None::<BrowserUrl>));
     let url_b_for_a_clone = url_b_for_a.clone();
     let handled_a = AtomicBool::new(false);
     let handler_a =
@@ -1328,7 +1328,7 @@ fn test_load_follows_a_redirect() {
 
 #[test]
 fn test_redirect_from_x_to_y_provides_y_cookies_from_y() {
-    let shared_url_y = Arc::new(Mutex::new(None::<ServoUrl>));
+    let shared_url_y = Arc::new(Mutex::new(None::<BrowserUrl>));
     let shared_url_y_clone = shared_url_y.clone();
     let handler =
         move |request: HyperRequest<Incoming>,
@@ -1366,8 +1366,8 @@ fn test_redirect_from_x_to_y_provides_y_cookies_from_y() {
 
     replace_host_table(host_table);
 
-    let url_x = ServoUrl::parse(&format!("http://mozilla.com:{}/com/", port)).unwrap();
-    let url_y = ServoUrl::parse(&format!("http://mozilla.org:{}/org/", port)).unwrap();
+    let url_x = BrowserUrl::parse(&format!("http://mozilla.com:{}/com/", port)).unwrap();
+    let url_y = BrowserUrl::parse(&format!("http://mozilla.org:{}/org/", port)).unwrap();
     *shared_url_y_clone.lock() = Some(url_y.clone());
 
     let mut context = new_fetch_context(None, None);
@@ -1549,8 +1549,8 @@ fn test_auth_ui_needs_www_auth() {
 #[test]
 fn test_determine_requests_referrer_shorter_than_4k() {
     let url_str = "http://username:password@example.com/such/short/referer?query#fragment";
-    let referrer_source = ServoUrl::parse(url_str).unwrap();
-    let current_url = ServoUrl::parse("http://example.com/current/url").unwrap();
+    let referrer_source = BrowserUrl::parse(url_str).unwrap();
+    let current_url = BrowserUrl::parse("http://example.com/current/url").unwrap();
     let referrer_policy = ReferrerPolicy::UnsafeUrl;
 
     let referer = determine_requests_referrer(referrer_policy, referrer_source, current_url);
@@ -1567,8 +1567,8 @@ fn test_determine_requests_referrer_longer_than_4k() {
         "http://username:password@example.com/such/{}/referer?query#fragment",
         "long".repeat(1024)
     );
-    let referrer_source = ServoUrl::parse(&long_url_str).unwrap();
-    let current_url = ServoUrl::parse("http://example.com/current/url").unwrap();
+    let referrer_source = BrowserUrl::parse(&long_url_str).unwrap();
+    let current_url = BrowserUrl::parse("http://example.com/current/url").unwrap();
     let referrer_policy = ReferrerPolicy::UnsafeUrl;
 
     let referer = determine_requests_referrer(referrer_policy, referrer_source, current_url);

@@ -10,7 +10,7 @@ use std::process::Command;
 use std::rc::Rc;
 
 use script_bindings::domstring::BytesView;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
@@ -20,7 +20,7 @@ pub(crate) trait ScriptSource {
     fn unminified_dir(&self) -> Option<String>;
     fn extract_bytes(&self) -> BytesView<'_>;
     fn rewrite_source(&mut self, source: Rc<DOMString>);
-    fn url(&self) -> ServoUrl;
+    fn url(&self) -> BrowserUrl;
     fn is_external(&self) -> bool;
 }
 
@@ -67,20 +67,20 @@ pub(crate) fn execute_js_beautify(input: &Path, output: File, file_type: Beautif
 
 pub(crate) fn create_output_file(
     unminified_dir: String,
-    url: &ServoUrl,
+    url: &BrowserUrl,
     external: Option<bool>,
 ) -> Result<File, Error> {
     let path = PathBuf::from(unminified_dir);
 
     let (base, has_name) = match url.as_str().ends_with('/') {
         true => (
-            path.join(&url[url::Position::BeforeHost..])
+            path.join(url.url_from_before_host())
                 .as_path()
                 .to_owned(),
             false,
         ),
         false => (
-            path.join(&url[url::Position::BeforeHost..])
+            path.join(url.url_from_before_host())
                 .parent()
                 .unwrap()
                 .to_owned(),
@@ -92,7 +92,7 @@ pub(crate) fn create_output_file(
 
     let path = if external.unwrap_or(true) && has_name {
         // External.
-        path.join(&url[url::Position::BeforeHost..])
+        path.join(url.url_from_before_host())
     } else {
         // Inline file or url ends with '/'
         base.join(Uuid::new_v4().to_string())

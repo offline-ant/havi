@@ -5,11 +5,11 @@
 use net::cookie::ServoCookie;
 use net::cookie_storage::CookieStorage;
 use net_traits::CookieSource;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 fn run(set_location: &str, set_cookies: &[&str], final_location: &str) -> String {
     let mut storage = CookieStorage::new(150);
-    let url = ServoUrl::parse(set_location).unwrap();
+    let url = BrowserUrl::parse(set_location).unwrap();
     let source = CookieSource::HTTP;
 
     // Add all cookies to the store
@@ -20,7 +20,7 @@ fn run(set_location: &str, set_cookies: &[&str], final_location: &str) -> String
     }
 
     // Get cookies for the test location
-    let url = ServoUrl::parse(final_location).unwrap();
+    let url = BrowserUrl::parse(final_location).unwrap();
     storage
         .cookies_for_url(&url, source)
         .unwrap_or("".to_string())

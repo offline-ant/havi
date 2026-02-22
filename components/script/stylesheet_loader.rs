@@ -16,7 +16,7 @@ use net_traits::{
 };
 use servo_arc::Arc;
 use servo_config::pref;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::context::QuirksMode;
 use style::global_style_data::STYLE_THREAD_POOL;
 use style::media_queries::MediaList;
@@ -85,7 +85,7 @@ struct StylesheetContext {
     element: Trusted<HTMLElement>,
     source: StylesheetContextSource,
     media: Arc<Locked<MediaList>>,
-    url: ServoUrl,
+    url: BrowserUrl,
     metadata: Option<Metadata>,
     /// The response body received to date.
     data: Vec<u8>,
@@ -103,7 +103,7 @@ struct StylesheetContext {
 }
 
 impl StylesheetContext {
-    fn unminify_css(&mut self, file_url: ServoUrl) {
+    fn unminify_css(&mut self, file_url: BrowserUrl) {
         let Some(unminified_dir) = self.document.root().window().unminified_css_dir() else {
             return;
         };
@@ -419,7 +419,7 @@ impl FetchResponseListener for StylesheetContext {
 }
 
 impl ResourceTimingListener for StylesheetContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         let initiator_type = InitiatorType::LocalName(
             self.element
                 .root()
@@ -451,7 +451,7 @@ impl ElementStylesheetLoader<'_> {
         element: &HTMLElement,
         source: StylesheetContextSource,
         media: Arc<Locked<MediaList>>,
-        url: ServoUrl,
+        url: BrowserUrl,
         cors_setting: Option<CorsSettings>,
         integrity_metadata: String,
     ) {

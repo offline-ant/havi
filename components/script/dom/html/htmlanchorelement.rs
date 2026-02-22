@@ -9,7 +9,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name};
 use js::rust::HandleObject;
 use num_traits::ToPrimitive;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use stylo_atoms::Atom;
 use stylo_dom::ElementState;
@@ -45,7 +45,7 @@ pub(crate) struct HTMLAnchorElement {
     #[no_trace]
     relations: Cell<LinkRelations>,
     #[no_trace]
-    url: DomRefCell<Option<ServoUrl>>,
+    url: DomRefCell<Option<BrowserUrl>>,
 }
 
 impl HTMLAnchorElement {
@@ -81,7 +81,7 @@ impl HTMLAnchorElement {
 
     /// Get the full URL of the `href` attribute of this `<a>` element, returning `None` if
     /// the URL could not be joined with the `Document` URL.
-    pub(crate) fn full_href_url_for_user_interface(&self) -> Option<ServoUrl> {
+    pub(crate) fn full_href_url_for_user_interface(&self) -> Option<BrowserUrl> {
         self.upcast::<Element>()
             .get_attribute(&ns!(), &local_name!("href"))?;
         self.owner_document().base_url().join(&self.Href()).ok()
@@ -89,7 +89,7 @@ impl HTMLAnchorElement {
 }
 
 impl HyperlinkElement for HTMLAnchorElement {
-    fn get_url(&self) -> &DomRefCell<Option<ServoUrl>> {
+    fn get_url(&self) -> &DomRefCell<Option<BrowserUrl>> {
         &self.url
     }
 }

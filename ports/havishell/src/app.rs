@@ -218,7 +218,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         });
     }
 
-    fn notify_url_changed(&self, webview: servo::WebView, url: url::Url) {
+    fn notify_url_changed(&self, webview: servo::WebView, url: servo::BrowserUrl) {
         Cx::post_action(MakepadServoAction::UrlChanged {
             webview_id: webview.id(),
             url: url.to_string(),
@@ -718,7 +718,7 @@ impl App {
         // Step 4: Create first WebView with proper HiDPI scale factor.
         let start_url_str = std::env::var("HAVI_URL")
             .unwrap_or_else(|_| HOME_URL.to_string());
-        let url = url::Url::parse(&start_url_str).unwrap();
+        let url = servo::BrowserUrl::parse(&start_url_str).unwrap();
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
         let webview = servo::WebViewBuilder::new(&servo, rendering_context.clone())
@@ -875,9 +875,9 @@ impl App {
                     tab_bar_dirty = true;
                 }
                 if let Some(new_url) = tab.webview.url() {
-                    let new_url_str = decode_hppr_display(new_url.as_str());
+                    let new_url_str = new_url.as_str();
                     if new_url_str != tab.url {
-                        tab.url = new_url_str;
+                        tab.url = new_url_str.to_owned();
                         tab_bar_dirty = true;
                     }
                 }
@@ -942,9 +942,9 @@ impl App {
 
     fn navigate(&self, url_str: &str) {
         if let Some(webview) = self.active_webview() {
-            if let Ok(url) = url::Url::parse(url_str) {
+            if let Ok(url) = servo::BrowserUrl::parse(url_str) {
                 webview.load(url);
-            } else if let Ok(url) = url::Url::parse(&format!("https://{}", url_str)) {
+            } else if let Ok(url) = servo::BrowserUrl::parse(&format!("https://{}", url_str)) {
                 webview.load(url);
             }
         }
@@ -1106,7 +1106,7 @@ impl App {
     fn create_webview(&self, url_str: &str) -> Option<servo::WebView> {
         let servo = self.servo.as_ref()?;
         let rc = self.rendering_context.as_ref()?;
-        let url = url::Url::parse(url_str).ok()?;
+        let url = servo::BrowserUrl::parse(url_str).ok()?;
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
         let webview = servo::WebViewBuilder::new(servo, rc.clone())
@@ -1675,9 +1675,6 @@ impl AppMain for App {
     }
 }
 
-/// Decode percent-encoded JSONqa in HPPR URLs for address bar display.
-/// Mirrors `servo_url::hppr::percent_decode_jsonqa`.
-///
 /// Extract a numeric value from a simple JSON object string.
 /// Handles `{"key":123.4,...}` without pulling in a JSON parser.
 fn json_extract_f64(json: &str, key: &str) -> Option<f64> {
@@ -1688,24 +1685,4 @@ fn json_extract_f64(json: &str, key: &str) -> Option<f64> {
     rest[..end].parse().ok()
 }
 
-/// Converts `%7B` → `{`, `%7D` → `}`, `%23` → `#` in the JSONqa suffix
-/// of hppr:// URLs so the address bar shows the readable form.
-fn decode_hppr_display(url: &str) -> String {
-    if !url.starts_with("hppr:") && !url.starts_with("hppr-") {
-        return url.to_owned();
-    }
-    let pos = url.find("%7B").or_else(|| url.find("%7b"));
-    match pos {
-        Some(idx) => {
-            let (prefix, suffix) = url.split_at(idx);
-            let decoded = suffix
-                .replace("%7B", "{")
-                .replace("%7D", "}")
-                .replace("%7b", "{")
-                .replace("%7d", "}")
-                .replace("%23", "#");
-            format!("{}{}", prefix, decoded)
-        },
-        None => url.to_owned(),
-    }
-}
+

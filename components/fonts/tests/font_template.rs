@@ -12,7 +12,7 @@ fn test_font_template_descriptor() {
 
     use fonts::platform::font::PlatformFont;
     use fonts::{FontData, FontIdentifier, FontTemplateDescriptor, PlatformFontMethods};
-    use servo_url::ServoUrl;
+    use servo_url::BrowserUrl;
     use style::values::computed::font::{FontStretch, FontStyle, FontWeight};
 
     fn descriptor(filename: &str) -> FontTemplateDescriptor {
@@ -27,7 +27,7 @@ fn test_font_template_descriptor() {
         .collect();
         path.push(format!("{}.ttf", filename));
 
-        let identifier = FontIdentifier::Web(ServoUrl::from_file_path(path.clone()).unwrap());
+        let identifier = FontIdentifier::Web(BrowserUrl::from_file_path(path.clone()).unwrap());
 
         let mut bytes = Vec::new();
         File::open(path.clone())

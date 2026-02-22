@@ -9,7 +9,7 @@ use js::glue::JSPrincipalsCallbacks;
 use js::jsapi::{CallArgs, HandleObject as RawHandleObject, JSContext as RawJSContext, JSObject};
 use js::realm::CurrentRealm;
 use js::rust::{HandleObject, MutableHandleObject};
-use servo_url::{MutableOrigin, ServoUrl};
+use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::DomTypes;
 use crate::codegen::PrototypeList;
@@ -83,7 +83,7 @@ pub trait GlobalScopeHelpers<D: DomTypes> {
 
     fn perform_a_microtask_checkpoint(&self, can_gc: CanGc);
 
-    fn get_url(&self) -> ServoUrl;
+    fn get_url(&self) -> BrowserUrl;
 
     fn is_secure_context(&self) -> bool;
 }

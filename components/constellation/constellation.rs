@@ -165,7 +165,7 @@ use script_traits::{
     ProgressiveWebMetricType, ScriptThreadMessage, UpdatePipelineIdReason,
 };
 use servo_config::{opts, pref};
-use servo_url::{Host, ImmutableOrigin, ServoUrl};
+use servo_url::{Host, ImmutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use storage_traits::client_storage::ClientStorageThreadMessage;
 use storage_traits::indexeddb::{IndexedDBThreadMsg, SyncOperation};
@@ -488,7 +488,7 @@ pub struct Constellation<STF, SWF> {
     event_loop_join_handles: Vec<JoinHandle<()>>,
 
     /// A list of URLs that can access privileged internal APIs.
-    pub(crate) privileged_urls: Vec<ServoUrl>,
+    pub(crate) privileged_urls: Vec<BrowserUrl>,
 
     /// The [`ImageCacheFactory`] to use for all `ScriptThread`s when we are running in
     /// single-process mode. In multi-process mode, each process will create its own
@@ -563,7 +563,7 @@ pub struct InitialConstellationState {
     pub wgpu_image_map: WebGpuExternalImageMap,
 
     /// A list of URLs that can access privileged internal APIs.
-    pub privileged_urls: Vec<ServoUrl>,
+    pub privileged_urls: Vec<BrowserUrl>,
 
     /// The async runtime.
     pub async_runtime: Box<dyn AsyncRuntime>,
@@ -2561,7 +2561,7 @@ where
         &self,
         pipeline_id: PipelineId,
         storage: WebStorageType,
-        url: ServoUrl,
+        url: BrowserUrl,
         key: Option<String>,
         old_value: Option<String>,
         new_value: Option<String>,
@@ -3103,7 +3103,7 @@ where
     #[servo_tracing::instrument(skip_all)]
     fn handle_new_top_level_browsing_context(
         &mut self,
-        url: ServoUrl,
+        url: BrowserUrl,
         NewWebViewDetails {
             webview_id,
             viewport_details,
@@ -3830,7 +3830,7 @@ where
     fn handle_navigated_to_fragment(
         &mut self,
         pipeline_id: PipelineId,
-        new_url: ServoUrl,
+        new_url: BrowserUrl,
         history_handling: NavigationHistoryBehavior,
     ) {
         let (webview_id, old_url) = match self.pipelines.get_mut(&pipeline_id) {
@@ -3870,8 +3870,8 @@ where
     ) {
         let mut browsing_context_changes = FxHashMap::<BrowsingContextId, NeedsToReload>::default();
         let mut pipeline_changes =
-            FxHashMap::<PipelineId, (Option<HistoryStateId>, ServoUrl)>::default();
-        let mut url_to_load = FxHashMap::<PipelineId, ServoUrl>::default();
+            FxHashMap::<PipelineId, (Option<HistoryStateId>, BrowserUrl)>::default();
+        let mut url_to_load = FxHashMap::<PipelineId, BrowserUrl>::default();
         {
             let Some(webview) = self.webviews.get_mut(&webview_id) else {
                 return warn!(
@@ -4136,7 +4136,7 @@ where
         &mut self,
         pipeline_id: PipelineId,
         history_state_id: Option<HistoryStateId>,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let msg =
             ScriptThreadMessage::UpdateHistoryState(pipeline_id, history_state_id, url.clone());
@@ -4162,7 +4162,7 @@ where
         &mut self,
         pipeline_id: PipelineId,
         history_state_id: HistoryStateId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let (webview_id, old_state_id, old_url) = match self.pipelines.get_mut(&pipeline_id) {
             Some(pipeline) => {
@@ -4200,7 +4200,7 @@ where
         &mut self,
         pipeline_id: PipelineId,
         history_state_id: HistoryStateId,
-        url: ServoUrl,
+        url: BrowserUrl,
     ) {
         let webview_id = match self.pipelines.get_mut(&pipeline_id) {
             Some(pipeline) => {
@@ -4699,7 +4699,7 @@ where
         // If URL was ignored, use the URL of the previous SessionHistoryEntry, which
         // is the URL of the parent browsing context.
         let resolve_url_future =
-            |previous_url: &mut ServoUrl, diff: &SessionHistoryDiff| match *diff {
+            |previous_url: &mut BrowserUrl, diff: &SessionHistoryDiff| match *diff {
                 SessionHistoryDiff::BrowsingContext {
                     browsing_context_id,
                     ref new_reloader,
@@ -4724,7 +4724,7 @@ where
                 _ => Some(previous_url.clone()),
             };
 
-        let resolve_url_past = |previous_url: &mut ServoUrl, diff: &SessionHistoryDiff| match *diff
+        let resolve_url_past = |previous_url: &mut BrowserUrl, diff: &SessionHistoryDiff| match *diff
         {
             SessionHistoryDiff::BrowsingContext {
                 browsing_context_id,
@@ -4748,7 +4748,7 @@ where
             _ => Some(previous_url.clone()),
         };
 
-        let mut entries: Vec<ServoUrl> = session_history
+        let mut entries: Vec<BrowserUrl> = session_history
             .past
             .iter()
             .rev()

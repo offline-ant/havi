@@ -15,7 +15,7 @@ use html5ever::tree_builder::{QuirksMode as HTML5EverQuirksMode, TreeBuilder, Tr
 use html5ever::{QualName, local_name, ns};
 use markup5ever::TokenizerResult;
 use script_bindings::trace::CustomTraceable;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::context::QuirksMode as StyleContextQuirksMode;
 use xml5ever::LocalName;
@@ -48,7 +48,7 @@ pub(crate) struct Tokenizer {
 impl Tokenizer {
     pub(crate) fn new(
         document: &Document,
-        url: ServoUrl,
+        url: BrowserUrl,
         fragment_context: Option<super::FragmentContext>,
         parsing_algorithm: ParsingAlgorithm,
     ) -> Self {
@@ -114,7 +114,7 @@ impl Tokenizer {
         self.inner.end();
     }
 
-    pub(crate) fn url(&self) -> &ServoUrl {
+    pub(crate) fn url(&self) -> &BrowserUrl {
         &self.inner.sink.sink.base_url
     }
 

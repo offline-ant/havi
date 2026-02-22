@@ -4,7 +4,7 @@
 
 use net_traits::request::Referrer;
 use serde::Serialize;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::conversions::Convert;
 use crate::dom::bindings::codegen::Bindings::CSPViolationReportBodyBinding::CSPViolationReportBody;
@@ -125,7 +125,7 @@ impl From<SecurityPolicyViolationReport> for CSPReportUriViolationReportBody {
         if !value.source_file.is_empty() {
             // Step 2.1. Set body["source-file'] to the result of
             // executing § 5.4 Strip URL for use in reports on violation’s source file.
-            converted.source_file = ServoUrl::parse(&value.source_file)
+            converted.source_file = BrowserUrl::parse(&value.source_file)
                 .map(ReportingObserver::strip_url_for_reports)
                 .ok();
             // Step 2.2. Set body["line-number"] to violation’s line number.

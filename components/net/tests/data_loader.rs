@@ -11,7 +11,7 @@ use mime::{self, Mime};
 use net_traits::request::Referrer;
 use net_traits::response::ResponseBody;
 use net_traits::{FetchMetadata, FilteredMetadata, NetworkError};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::fetch;
 
@@ -24,7 +24,7 @@ fn assert_parse(
 ) {
     use net_traits::request::RequestBuilder;
 
-    let url = ServoUrl::parse(url).unwrap();
+    let url = BrowserUrl::parse(url).unwrap();
     let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
         .origin(url.origin())
         .pipeline_id(None)

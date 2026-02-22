@@ -15,7 +15,7 @@ use hppr_packet::urc::URC as HpprURC;
 use js::jsapi::JSObject;
 use js::rust::HandleObject;
 use jsonqa::Qa;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::codegen::Bindings::AddressBinding::AddressMethods;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::Window_Binding::WindowMethods;
@@ -364,7 +364,7 @@ impl Address {
     }
 
     /// Navigate to a new HPPR URL, mirroring Location::navigate_a_location.
-    fn navigate_to(&self, url: ServoUrl, can_gc: CanGc) {
+    fn navigate_to(&self, url: BrowserUrl, can_gc: CanGc) {
         let global = self.global();
         let window = global.as_window();
         let document = window.Document();
@@ -427,7 +427,7 @@ impl Address {
     fn navigate_to_href(&self, href: &str, can_gc: CanGc) -> ErrorResult {
         // Validate the URL parses as a valid Address
         let _ = Self::parse(href)?;
-        let url = ServoUrl::parse(href)
+        let url = BrowserUrl::parse(href)
             .map_err(|e| Error::Syntax(Some(format!("Invalid URL: {}", e))))?;
         self.navigate_to(url, can_gc);
         Ok(())

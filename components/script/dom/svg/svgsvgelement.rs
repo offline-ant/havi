@@ -8,7 +8,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
 use layout_api::SVGElementData;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::parser::ParserContext;
 use style::stylesheets::Origin;
@@ -42,7 +42,7 @@ pub(crate) struct SVGSVGElement {
     // a base64 encoded `data:` url. This is cached to avoid recomputation
     // on each layout and must be invalidated when the subtree changes.
     #[no_trace]
-    cached_serialized_data_url: DomRefCell<Option<Result<ServoUrl, ()>>>,
+    cached_serialized_data_url: DomRefCell<Option<Result<BrowserUrl, ()>>>,
 }
 
 impl SVGSVGElement {
@@ -92,7 +92,7 @@ impl SVGSVGElement {
         let xml_source: String = xml_source.into();
         let base64_encoded_source = base64::engine::general_purpose::STANDARD.encode(xml_source);
         let data_url = format!("data:image/svg+xml;base64,{}", base64_encoded_source);
-        match ServoUrl::parse(&data_url) {
+        match BrowserUrl::parse(&data_url) {
             Ok(url) => *self.cached_serialized_data_url.borrow_mut() = Some(Ok(url)),
             Err(error) => error!("Unable to parse serialized SVG data url: {error}"),
         };

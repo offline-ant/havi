@@ -40,7 +40,7 @@ use net_traits::request::Referrer;
 use script_bindings::reflector::MutDomObject;
 use script_traits::NewPipelineInfo;
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use storage_traits::webstorage_thread::WebStorageThreadMsg;
 use style::attr::parse_integer;
 
@@ -124,7 +124,7 @@ pub(crate) struct WindowProxy {
 
     /// The creator browsing context's url.
     #[no_trace]
-    creator_url: Option<ServoUrl>,
+    creator_url: Option<BrowserUrl>,
 
     /// The creator browsing context's origin.
     #[no_trace]
@@ -312,7 +312,7 @@ impl WindowProxy {
             .get()
             .and_then(ScriptThread::find_document)
             .expect("A WindowProxy creating an auxiliary to have an active document");
-        let blank_url = ServoUrl::parse("about:blank").ok().unwrap();
+        let blank_url = BrowserUrl::parse("about:blank").ok().unwrap();
         let load_data = LoadData::new(
             LoadOrigin::Script(document.origin().snapshot()),
             blank_url,
@@ -812,7 +812,7 @@ impl WindowProxy {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct CreatorBrowsingContextInfo {
     /// Creator document URL.
-    url: Option<ServoUrl>,
+    url: Option<BrowserUrl>,
 
     /// Creator document origin.
     origin: Option<ImmutableOrigin>,

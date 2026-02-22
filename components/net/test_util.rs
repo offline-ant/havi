@@ -22,7 +22,7 @@ use hyper_util::rt::tokio::TokioIo;
 use net_traits::AsyncRuntime;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{self, TlsAcceptor};
 
@@ -78,7 +78,7 @@ impl Server {
     }
 }
 
-pub fn make_server<H>(handler: H) -> (Server, ServoUrl)
+pub fn make_server<H>(handler: H) -> (Server, BrowserUrl)
 where
     H: Fn(HyperRequest<Incoming>, &mut HyperResponse<BoxBody<Bytes, hyper::Error>>)
         + Send
@@ -98,7 +98,7 @@ where
         );
 
     let url_string = format!("http://localhost:{}", listener.local_addr().unwrap().port());
-    let url = ServoUrl::parse(&url_string).unwrap();
+    let url = BrowserUrl::parse(&url_string).unwrap();
 
     let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
@@ -174,7 +174,7 @@ fn load_private_key_from_file(
     }
 }
 
-pub fn make_ssl_server<H>(handler: H) -> (Server, ServoUrl)
+pub fn make_ssl_server<H>(handler: H) -> (Server, BrowserUrl)
 where
     H: Fn(HyperRequest<Incoming>, &mut HyperResponse<BoxBody<Bytes, hyper::Error>>)
         + Send
@@ -193,7 +193,7 @@ where
         );
 
     let url_string = format!("http://localhost:{}", listener.local_addr().unwrap().port());
-    let url = ServoUrl::parse(&url_string).unwrap();
+    let url = BrowserUrl::parse(&url_string).unwrap();
 
     let cert_path = Path::new("../../resources/self_signed_certificate_for_testing.crt")
         .canonicalize()

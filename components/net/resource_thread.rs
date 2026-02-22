@@ -44,7 +44,7 @@ use rustls_pki_types::CertificateDer;
 use rustls_pki_types::pem::PemObject;
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::async_runtime::{init_async_runtime, spawn_task};
@@ -756,7 +756,7 @@ impl CoreResourceManager {
 
     fn set_cookie_for_url(
         &mut self,
-        request: &ServoUrl,
+        request: &BrowserUrl,
         cookie: Cookie<'static>,
         source: CookieSource,
         http_state: &Arc<HttpState>,

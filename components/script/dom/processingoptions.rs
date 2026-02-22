@@ -22,7 +22,7 @@ use net_traits::{
 };
 pub use nom_rfc8288::complete::LinkDataOwned as LinkHeader;
 use nom_rfc8288::complete::link_lenient as parse_link_header;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use strum::IntoStaticStr;
 
 use crate::dom::bindings::inheritance::Castable;
@@ -84,7 +84,7 @@ pub(crate) struct LinkProcessingOptions {
     /// <https://html.spec.whatwg.org/multipage/#link-options-source-set>
     pub(crate) source_set: Option<()>,
     /// <https://html.spec.whatwg.org/multipage/#link-options-base-url>
-    pub(crate) base_url: ServoUrl,
+    pub(crate) base_url: BrowserUrl,
     /// <https://html.spec.whatwg.org/multipage/#link-options-origin>
     pub(crate) origin: ImmutableOrigin,
     pub(crate) insecure_requests_policy: InsecureRequestsPolicy,
@@ -189,7 +189,7 @@ impl LinkProcessingOptions {
         assert!(!self.href.is_empty());
 
         // Step 3. Let url be the result of encoding-parsing a URL given options's href, relative to options's base URL.
-        let Ok(url) = ServoUrl::parse_with_base(Some(&self.base_url), &self.href) else {
+        let Ok(url) = BrowserUrl::parse_with_base(Some(&self.base_url), &self.href) else {
             // Step 4. If url is failure, then return null.
             return None;
         };
@@ -455,7 +455,7 @@ pub(crate) struct LinkFetchContext {
     pub(crate) document: Trusted<Document>,
 
     /// The url being prefetched
-    pub(crate) url: ServoUrl,
+    pub(crate) url: BrowserUrl,
 
     /// The type of fetching we perform, used when report timings.
     pub(crate) type_: LinkFetchContextType,
@@ -547,7 +547,7 @@ impl FetchResponseListener for LinkFetchContext {
 }
 
 impl ResourceTimingListener for LinkFetchContext {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (self.type_.clone().into(), self.url.clone())
     }
 

@@ -9,7 +9,7 @@ use constellation_traits::{ScopeThings, WorkerScriptLoadOrigin};
 use devtools_traits::WorkerId;
 use dom_struct::dom_struct;
 use net_traits::request::Referrer;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use uuid::Uuid;
 
 use crate::dom::bindings::cell::DomRefCell;
@@ -34,7 +34,7 @@ pub(crate) struct ServiceWorkerRegistration {
     waiting: DomRefCell<Option<Dom<ServiceWorker>>>,
     navigation_preload: MutNullableDom<NavigationPreloadManager>,
     #[no_trace]
-    scope: ServoUrl,
+    scope: BrowserUrl,
     navigation_preload_enabled: Cell<bool>,
     navigation_preload_header_value: DomRefCell<Option<ByteString>>,
     update_via_cache: ServiceWorkerUpdateViaCache,
@@ -45,7 +45,7 @@ pub(crate) struct ServiceWorkerRegistration {
 
 impl ServiceWorkerRegistration {
     fn new_inherited(
-        scope: ServoUrl,
+        scope: BrowserUrl,
         registration_id: ServiceWorkerRegistrationId,
     ) -> ServiceWorkerRegistration {
         ServiceWorkerRegistration {
@@ -65,7 +65,7 @@ impl ServiceWorkerRegistration {
 
     pub(crate) fn new(
         global: &GlobalScope,
-        scope: ServoUrl,
+        scope: BrowserUrl,
         registration_id: ServiceWorkerRegistrationId,
         can_gc: CanGc,
     ) -> DomRoot<ServiceWorkerRegistration> {
@@ -113,7 +113,7 @@ impl ServiceWorkerRegistration {
         self.uninstalling.set(flag)
     }
 
-    pub(crate) fn create_scope_things(global: &GlobalScope, script_url: ServoUrl) -> ScopeThings {
+    pub(crate) fn create_scope_things(global: &GlobalScope, script_url: BrowserUrl) -> ScopeThings {
         let worker_load_origin = WorkerScriptLoadOrigin {
             referrer_url: match global.get_referrer() {
                 Referrer::Client(url) => Some(url),
@@ -149,7 +149,7 @@ impl ServiceWorkerRegistration {
     }
 }
 
-pub(crate) fn longest_prefix_match(stored_scope: &ServoUrl, potential_match: &ServoUrl) -> bool {
+pub(crate) fn longest_prefix_match(stored_scope: &BrowserUrl, potential_match: &BrowserUrl) -> bool {
     if stored_scope.origin() != potential_match.origin() {
         return false;
     }

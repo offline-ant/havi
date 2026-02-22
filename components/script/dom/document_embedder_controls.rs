@@ -24,7 +24,7 @@ use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use script_bindings::inheritance::Castable;
 use script_bindings::root::{Dom, DomRoot};
 use script_bindings::script_runtime::CanGc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use webrender_api::units::{DeviceIntRect, DevicePoint};
 
 use crate::dom::activation::Activatable;
@@ -287,8 +287,7 @@ impl DocumentEmbedderControls {
         if let Some(anchor_element) = anchor_element.as_ref() {
             info.flags.insert(ContextMenuElementInformationFlags::Link);
             info.link_url = anchor_element
-                .full_href_url_for_user_interface()
-                .map(ServoUrl::into_url);
+                .full_href_url_for_user_interface();
 
             items.extend(vec![
                 ContextMenuItem::Item {
@@ -308,8 +307,7 @@ impl DocumentEmbedderControls {
         if let Some(image_element) = image_element.as_ref() {
             info.flags.insert(ContextMenuElementInformationFlags::Image);
             info.image_url = image_element
-                .full_image_url_for_user_interface()
-                .map(ServoUrl::into_url);
+                .full_image_url_for_user_interface();
 
             items.extend(vec![
                 ContextMenuItem::Item {
@@ -424,7 +422,7 @@ impl ContextMenuNodes {
             window.send_to_embedder(EmbedderMsg::SetClipboardText(window.webview_id(), string));
         };
 
-        let open_url_in_new_webview = |url: ServoUrl| {
+        let open_url_in_new_webview = |url: BrowserUrl| {
             let Some(browsing_context) = document.browsing_context() else {
                 return;
             };
@@ -469,7 +467,7 @@ impl ContextMenuNodes {
                 let url_string = anchor_element
                     .full_href_url_for_user_interface()
                     .as_ref()
-                    .map(ServoUrl::to_string)
+                    .map(BrowserUrl::to_string)
                     .unwrap_or_else(|| anchor_element.Href().to_string());
                 set_clipboard_text(url_string);
             },
@@ -488,7 +486,7 @@ impl ContextMenuNodes {
                 let url_string = image_element
                     .full_image_url_for_user_interface()
                     .as_ref()
-                    .map(ServoUrl::to_string)
+                    .map(BrowserUrl::to_string)
                     .unwrap_or_else(|| image_element.CurrentSrc().to_string());
                 set_clipboard_text(url_string.to_string());
             },

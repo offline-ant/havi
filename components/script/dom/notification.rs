@@ -23,7 +23,7 @@ use net_traits::request::{Destination, RequestBuilder, RequestId};
 use net_traits::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
 use pixels::RasterImage;
 use rustc_hash::FxHashSet;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use uuid::Uuid;
 
 use super::bindings::cell::DomRefCell;
@@ -127,7 +127,7 @@ impl Notification {
         title: DOMString,
         options: RootedTraceableBox<NotificationOptions>,
         origin: ImmutableOrigin,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         fallback_timestamp: u64,
         proto: Option<HandleObject>,
     ) -> DomRoot<Self> {
@@ -156,7 +156,7 @@ impl Notification {
         title: DOMString,
         options: &RootedTraceableBox<NotificationOptions>,
         origin: ImmutableOrigin,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         fallback_timestamp: u64,
     ) -> Self {
         // TODO: missing call to https://html.spec.whatwg.org/multipage/#structuredserializeforstorage
@@ -171,21 +171,21 @@ impl Notification {
         // If options["image"] exists, then parse it using baseURL, and if that does not return failure,
         // set notification’s image URL to the return value. (Otherwise notification’s image URL is not set.)
         let image = options.image.as_ref().and_then(|image_url| {
-            ServoUrl::parse_with_base(Some(&base_url), image_url.as_ref())
+            BrowserUrl::parse_with_base(Some(&base_url), image_url.as_ref())
                 .map(|url| USVString::from(url.to_string()))
                 .ok()
         });
         // If options["icon"] exists, then parse it using baseURL, and if that does not return failure,
         // set notification’s icon URL to the return value. (Otherwise notification’s icon URL is not set.)
         let icon = options.icon.as_ref().and_then(|icon_url| {
-            ServoUrl::parse_with_base(Some(&base_url), icon_url.as_ref())
+            BrowserUrl::parse_with_base(Some(&base_url), icon_url.as_ref())
                 .map(|url| USVString::from(url.to_string()))
                 .ok()
         });
         // If options["badge"] exists, then parse it using baseURL, and if that does not return failure,
         // set notification’s badge URL to the return value. (Otherwise notification’s badge URL is not set.)
         let badge = options.badge.as_ref().and_then(|badge_url| {
-            ServoUrl::parse_with_base(Some(&base_url), badge_url.as_ref())
+            BrowserUrl::parse_with_base(Some(&base_url), badge_url.as_ref())
                 .map(|url| USVString::from(url.to_string()))
                 .ok()
         });
@@ -214,7 +214,7 @@ impl Notification {
                 // If entry["icon"] exists, then parse it using baseURL, and if that does not return failure
                 // set action’s icon URL to the return value. (Otherwise action’s icon URL remains null.)
                 icon_url: action.icon.as_ref().and_then(|icon_url| {
-                    ServoUrl::parse_with_base(Some(&base_url), icon_url.as_ref())
+                    BrowserUrl::parse_with_base(Some(&base_url), icon_url.as_ref())
                         .map(|url| USVString::from(url.to_string()))
                         .ok()
                 }),
@@ -309,15 +309,15 @@ impl Notification {
             icon_url: self
                 .icon
                 .as_ref()
-                .and_then(|icon| ServoUrl::parse(icon).ok()),
+                .and_then(|icon| BrowserUrl::parse(icon).ok()),
             badge_url: self
                 .badge
                 .as_ref()
-                .and_then(|badge| ServoUrl::parse(badge).ok()),
+                .and_then(|badge| BrowserUrl::parse(badge).ok()),
             image_url: self
                 .image
                 .as_ref()
-                .and_then(|image| ServoUrl::parse(image).ok()),
+                .and_then(|image| BrowserUrl::parse(image).ok()),
             actions: self
                 .actions
                 .iter()
@@ -327,7 +327,7 @@ impl Notification {
                     icon_url: action
                         .icon_url
                         .as_ref()
-                        .and_then(|icon| ServoUrl::parse(icon).ok()),
+                        .and_then(|icon| BrowserUrl::parse(icon).ok()),
                     icon_resource: icon_resource.clone(),
                 })
                 .collect(),
@@ -610,7 +610,7 @@ fn create_notification(
     title: DOMString,
     options: RootedTraceableBox<NotificationOptions>,
     origin: ImmutableOrigin,
-    base_url: ServoUrl,
+    base_url: BrowserUrl,
     fallback_timestamp: u64,
     proto: Option<HandleObject>,
 ) -> Fallible<DomRoot<Notification>> {
@@ -724,7 +724,7 @@ struct ResourceFetchListener {
     /// Request status that indicates whether this request failed, and the reason.
     status: Result<(), NetworkError>,
     /// Resource URL of this request.
-    url: ServoUrl,
+    url: BrowserUrl,
 }
 
 impl FetchResponseListener for ResourceFetchListener {
@@ -797,7 +797,7 @@ impl FetchResponseListener for ResourceFetchListener {
 }
 
 impl ResourceTimingListener for ResourceFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         (InitiatorType::Other, self.url.clone())
     }
 
@@ -807,7 +807,7 @@ impl ResourceTimingListener for ResourceFetchListener {
 }
 
 impl Notification {
-    fn build_resource_request(&self, url: &ServoUrl) -> RequestBuilder {
+    fn build_resource_request(&self, url: &BrowserUrl) -> RequestBuilder {
         let global = &self.global();
         create_a_potential_cors_request(
             None,
@@ -824,21 +824,21 @@ impl Notification {
     fn fetch_resources_and_show_when_ready(&self) {
         let mut pending_requests: Vec<(RequestBuilder, ResourceType)> = vec![];
         if let Some(image_url) = &self.image {
-            if let Ok(url) = ServoUrl::parse(image_url) {
+            if let Ok(url) = BrowserUrl::parse(image_url) {
                 let request = self.build_resource_request(&url);
                 self.pending_request_ids.borrow_mut().insert(request.id);
                 pending_requests.push((request, ResourceType::Image));
             }
         }
         if let Some(icon_url) = &self.icon {
-            if let Ok(url) = ServoUrl::parse(icon_url) {
+            if let Ok(url) = BrowserUrl::parse(icon_url) {
                 let request = self.build_resource_request(&url);
                 self.pending_request_ids.borrow_mut().insert(request.id);
                 pending_requests.push((request, ResourceType::Icon));
             }
         }
         if let Some(badge_url) = &self.badge {
-            if let Ok(url) = ServoUrl::parse(badge_url) {
+            if let Ok(url) = BrowserUrl::parse(badge_url) {
                 let request = self.build_resource_request(&url);
                 self.pending_request_ids.borrow_mut().insert(request.id);
                 pending_requests.push((request, ResourceType::Badge));
@@ -846,7 +846,7 @@ impl Notification {
         }
         for action in self.actions.iter() {
             if let Some(icon_url) = &action.icon_url {
-                if let Ok(url) = ServoUrl::parse(icon_url) {
+                if let Ok(url) = BrowserUrl::parse(icon_url) {
                     let request = self.build_resource_request(&url);
                     self.pending_request_ids.borrow_mut().insert(request.id);
                     pending_requests.push((request, ResourceType::ActionIcon(action.id.clone())));

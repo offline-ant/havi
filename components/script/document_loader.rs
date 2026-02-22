@@ -8,7 +8,7 @@
 
 use net_traits::request::RequestBuilder;
 use net_traits::{BoxedFetchCallback, ResourceThreads, fetch_async};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::root::Dom;
@@ -18,11 +18,11 @@ use crate::script_runtime::CanGc;
 
 #[derive(Clone, Debug, JSTraceable, MallocSizeOf, PartialEq)]
 pub(crate) enum LoadType {
-    Image(#[no_trace] ServoUrl),
-    Script(#[no_trace] ServoUrl),
-    Subframe(#[no_trace] ServoUrl),
-    Stylesheet(#[no_trace] ServoUrl),
-    PageSource(#[no_trace] ServoUrl),
+    Image(#[no_trace] BrowserUrl),
+    Script(#[no_trace] BrowserUrl),
+    Subframe(#[no_trace] BrowserUrl),
+    Stylesheet(#[no_trace] BrowserUrl),
+    PageSource(#[no_trace] BrowserUrl),
     Media,
 }
 
@@ -90,7 +90,7 @@ impl DocumentLoader {
 
     pub(crate) fn new_with_threads(
         resource_threads: ResourceThreads,
-        initial_load: Option<ServoUrl>,
+        initial_load: Option<BrowserUrl>,
     ) -> DocumentLoader {
         debug!("Initial blocking load {:?}.", initial_load);
         let initial_loads = initial_load.into_iter().map(LoadType::PageSource).collect();

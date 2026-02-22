@@ -28,7 +28,7 @@ use malloc_size_of::malloc_size_of_is_0;
 use net_traits::policy_container::PolicyContainer;
 use net_traits::request::{Destination, RequestBuilder, RequestMode};
 use rustc_hash::FxHashMap;
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::thread_state::{self, ThreadState};
 use swapper::{Swapper, swapper};
 use uuid::Uuid;
@@ -326,8 +326,8 @@ impl WorkletThreadPool {
         worklet_id: WorkletId,
         global_type: WorkletGlobalScopeType,
         origin: ImmutableOrigin,
-        base_url: ServoUrl,
-        script_url: ServoUrl,
+        base_url: BrowserUrl,
+        script_url: BrowserUrl,
         policy_container: PolicyContainer,
         credentials: RequestCredentials,
         pending_tasks_struct: PendingTasksStruct,
@@ -404,8 +404,8 @@ enum WorkletControl {
         worklet_id: WorkletId,
         global_type: WorkletGlobalScopeType,
         origin: ImmutableOrigin,
-        base_url: ServoUrl,
-        script_url: ServoUrl,
+        base_url: BrowserUrl,
+        script_url: BrowserUrl,
         policy_container: PolicyContainer,
         credentials: RequestCredentials,
         pending_tasks_struct: PendingTasksStruct,
@@ -639,7 +639,7 @@ impl WorkletThread {
         worklet_id: WorkletId,
         inherited_secure_context: Option<bool>,
         global_type: WorkletGlobalScopeType,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         cx: &mut js::context::JSContext,
     ) -> DomRoot<WorkletGlobalScope> {
         match self.global_scopes.entry(worklet_id) {
@@ -671,7 +671,7 @@ impl WorkletThread {
         global_scope: &WorkletGlobalScope,
         pipeline_id: PipelineId,
         origin: ImmutableOrigin,
-        script_url: ServoUrl,
+        script_url: BrowserUrl,
         policy_container: PolicyContainer,
         credentials: RequestCredentials,
         pending_tasks_struct: PendingTasksStruct,

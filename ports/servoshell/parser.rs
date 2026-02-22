@@ -5,14 +5,14 @@
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 use std::path::{Path, PathBuf};
 
-use servo::{ServoUrl, is_reg_domain};
+use servo::{BrowserUrl, is_reg_domain};
 
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
-pub fn parse_url_or_filename(cwd: &Path, input: &str) -> Result<ServoUrl, ()> {
-    match ServoUrl::parse(input) {
+pub fn parse_url_or_filename(cwd: &Path, input: &str) -> Result<BrowserUrl, ()> {
+    match BrowserUrl::parse(input) {
         Ok(url) => Ok(url),
         Err(url::ParseError::RelativeUrlWithoutBase) => {
-            url::Url::from_file_path(&*cwd.join(input)).map(ServoUrl::from_url)
+            url::Url::from_file_path(&*cwd.join(input)).map(BrowserUrl::from_url)
         },
         Err(_) => Err(()),
     }
@@ -24,7 +24,7 @@ pub fn get_default_url(
     cwd: impl AsRef<Path>,
     exists: impl FnOnce(&PathBuf) -> bool,
     preferences: &crate::prefs::ServoShellPreferences,
-) -> ServoUrl {
+) -> BrowserUrl {
     // If the url is not provided, we fallback to the homepage in prefs,
     // or a blank page in case the homepage is not set either.
     let mut new_url = None;
@@ -57,7 +57,7 @@ pub fn get_default_url(
     }
 
     let pref_url = parse_url_or_filename(cwd.as_ref(), &preferences.homepage).ok();
-    let blank_url = ServoUrl::parse("about:blank").ok();
+    let blank_url = BrowserUrl::parse("about:blank").ok();
 
     new_url.or(pref_url).or(blank_url).unwrap()
 }
@@ -66,37 +66,37 @@ pub fn get_default_url(
 ///
 /// If this is not a valid URL, try to "fix" it by adding a scheme or if all else fails,
 /// interpret the string as a search term.
-pub(crate) fn location_bar_input_to_url(request: &str, searchpage: &str) -> Option<ServoUrl> {
+pub(crate) fn location_bar_input_to_url(request: &str, searchpage: &str) -> Option<BrowserUrl> {
     let request = request.trim();
-    ServoUrl::parse(request)
+    BrowserUrl::parse(request)
         .ok()
         .or_else(|| try_as_file(request))
         .or_else(|| try_as_domain(request))
         .or_else(|| try_as_search_page(request, searchpage))
 }
 
-fn try_as_file(request: &str) -> Option<ServoUrl> {
+fn try_as_file(request: &str) -> Option<BrowserUrl> {
     if request.starts_with('/') {
-        return ServoUrl::parse(&format!("file://{}", request)).ok();
+        return BrowserUrl::parse(&format!("file://{}", request)).ok();
     }
     None
 }
 
-fn try_as_domain(request: &str) -> Option<ServoUrl> {
+fn try_as_domain(request: &str) -> Option<BrowserUrl> {
     fn is_domain_like(s: &str) -> bool {
         !s.starts_with('/') && s.contains('/') ||
             (!s.contains(' ') && !s.starts_with('.') && s.split('.').count() > 1)
     }
 
     if !request.contains(' ') && is_reg_domain(request) || is_domain_like(request) {
-        return ServoUrl::parse(&format!("https://{}", request)).ok();
+        return BrowserUrl::parse(&format!("https://{}", request)).ok();
     }
     None
 }
 
-fn try_as_search_page(request: &str, searchpage: &str) -> Option<ServoUrl> {
+fn try_as_search_page(request: &str, searchpage: &str) -> Option<BrowserUrl> {
     if request.is_empty() {
         return None;
     }
-    ServoUrl::parse(&searchpage.replace("%s", request)).ok()
+    BrowserUrl::parse(&searchpage.replace("%s", request)).ok()
 }

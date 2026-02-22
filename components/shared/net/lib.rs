@@ -29,7 +29,7 @@ use request::RequestId;
 use rustc_hash::FxHashMap;
 use rustls_pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
-use servo_url::{ImmutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::fetch::headers::determine_nosniff;
 use crate::filemanager_thread::FileManagerThreadMsg;
@@ -110,7 +110,7 @@ impl CustomResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CustomResponseMediator {
     pub response_chan: IpcSender<Option<CustomResponse>>,
-    pub load_url: ServoUrl,
+    pub load_url: BrowserUrl,
 }
 
 /// [Policies](https://w3c.github.io/webappsec-referrer-policy/#referrer-policy-states)
@@ -320,7 +320,7 @@ pub enum FilteredMetadata {
     Basic(Metadata),
     Cors(Metadata),
     Opaque,
-    OpaqueRedirect(ServoUrl),
+    OpaqueRedirect(BrowserUrl),
 }
 
 // FIXME: https://github.com/servo/servo/issues/34591
@@ -673,30 +673,30 @@ pub enum CoreResourceMsg {
     /// Initiate a fetch in response to processing a redirection
     FetchRedirect(RequestBuilder, ResponseInit, IpcSender<FetchResponseMsg>),
     /// Store a cookie for a given originating URL
-    SetCookieForUrl(ServoUrl, Serde<Cookie<'static>>, CookieSource),
+    SetCookieForUrl(BrowserUrl, Serde<Cookie<'static>>, CookieSource),
     /// Store a set of cookies for a given originating URL
-    SetCookiesForUrl(ServoUrl, Vec<Serde<Cookie<'static>>>, CookieSource),
+    SetCookiesForUrl(BrowserUrl, Vec<Serde<Cookie<'static>>>, CookieSource),
     SetCookieForUrlAsync(
         CookieStoreId,
-        ServoUrl,
+        BrowserUrl,
         Serde<Cookie<'static>>,
         CookieSource,
     ),
     /// Retrieve the stored cookies for a given URL
-    GetCookiesForUrl(ServoUrl, IpcSender<Option<String>>, CookieSource),
+    GetCookiesForUrl(BrowserUrl, IpcSender<Option<String>>, CookieSource),
     /// Get a cookie by name for a given originating URL
     GetCookiesDataForUrl(
-        ServoUrl,
+        BrowserUrl,
         IpcSender<Vec<Serde<Cookie<'static>>>>,
         CookieSource,
     ),
-    GetCookieDataForUrlAsync(CookieStoreId, ServoUrl, Option<String>),
-    GetAllCookieDataForUrlAsync(CookieStoreId, ServoUrl, Option<String>),
+    GetCookieDataForUrlAsync(CookieStoreId, BrowserUrl, Option<String>),
+    GetAllCookieDataForUrlAsync(CookieStoreId, BrowserUrl, Option<String>),
     DeleteCookiesForSites(Vec<String>, GenericSender<()>),
-    DeleteCookies(Option<ServoUrl>, Option<IpcSender<()>>),
-    DeleteCookie(ServoUrl, String),
-    DeleteCookieAsync(CookieStoreId, ServoUrl, String),
-    NewCookieListener(CookieStoreId, IpcSender<CookieAsyncResponse>, ServoUrl),
+    DeleteCookies(Option<BrowserUrl>, Option<IpcSender<()>>),
+    DeleteCookie(BrowserUrl, String),
+    DeleteCookieAsync(CookieStoreId, BrowserUrl, String),
+    NewCookieListener(CookieStoreId, IpcSender<CookieAsyncResponse>, BrowserUrl),
     RemoveCookieListener(CookieStoreId),
     ListCookies(GenericSender<Vec<SiteDescriptor>>),
     /// Get a history state by a given history state id
@@ -983,7 +983,7 @@ pub struct ResourceCorsData {
     /// CORS Preflight flag
     pub preflight: bool,
     /// Origin of CORS Request
-    pub origin: ServoUrl,
+    pub origin: BrowserUrl,
 }
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
@@ -1137,10 +1137,10 @@ impl ResourceFetchTiming {
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
 pub struct Metadata {
     /// Final URL after redirects.
-    pub final_url: ServoUrl,
+    pub final_url: BrowserUrl,
 
     /// Location URL from the response headers.
-    pub location_url: Option<Result<ServoUrl, String>>,
+    pub location_url: Option<Result<BrowserUrl, String>>,
 
     #[ignore_malloc_size_of = "Defined in hyper"]
     /// MIME type / subtype.
@@ -1160,7 +1160,7 @@ pub struct Metadata {
     pub https_state: HttpsState,
 
     /// Referrer Url
-    pub referrer: Option<ServoUrl>,
+    pub referrer: Option<BrowserUrl>,
 
     /// Referrer Policy of the Request used to obtain Response
     pub referrer_policy: ReferrerPolicy,
@@ -1187,7 +1187,7 @@ pub struct Metadata {
 
 impl Metadata {
     /// Metadata with defaults for everything optional.
-    pub fn default(url: ServoUrl) -> Self {
+    pub fn default(url: BrowserUrl) -> Self {
         Metadata {
             final_url: url,
             location_url: None,

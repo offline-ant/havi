@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use dom_struct::dom_struct;
 use html5ever::local_name;
 use servo_arc::Arc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::properties::{
     Importance, LonghandId, PropertyDeclarationBlock, PropertyId, ShorthandId,
@@ -169,13 +169,13 @@ impl CSSStyleOwner {
         }
     }
 
-    fn base_url(&self) -> ServoUrl {
+    fn base_url(&self) -> BrowserUrl {
         match *self {
             CSSStyleOwner::Null => {
                 unreachable!("Should never try to access base URL of CSStyleOwner::Null")
             },
             CSSStyleOwner::Element(ref el) => el.owner_document().base_url(),
-            CSSStyleOwner::CSSRule(ref rule, _) => ServoUrl::from({
+            CSSStyleOwner::CSSRule(ref rule, _) => BrowserUrl::from({
                 let guard = rule.shared_lock().read();
                 rule.parent_stylesheet()
                     .style_stylesheet()

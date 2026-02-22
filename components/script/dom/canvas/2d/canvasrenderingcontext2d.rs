@@ -9,7 +9,7 @@ use euclid::default::Size2D;
 use js::context::JSContext;
 use pixels::Snapshot;
 use script_bindings::reflector::AssociatedMemory;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use webrender_api::ImageKey;
 
 use super::canvas_state::CanvasState;
@@ -76,7 +76,7 @@ impl CanvasRenderingContext2D {
         .map(|context| reflect_dom_object(Box::new(context), global, can_gc))
     }
 
-    pub(crate) fn take_missing_image_urls(&self) -> Vec<ServoUrl> {
+    pub(crate) fn take_missing_image_urls(&self) -> Vec<BrowserUrl> {
         std::mem::take(&mut self.canvas_state.get_missing_image_urls().borrow_mut())
     }
 

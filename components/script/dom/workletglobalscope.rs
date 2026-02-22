@@ -17,7 +17,7 @@ use net_traits::ResourceThreads;
 use net_traits::image_cache::ImageCache;
 use profile_traits::{mem, time};
 use script_traits::Painter;
-use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
+use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use stylo_atoms::Atom;
 
@@ -43,7 +43,7 @@ pub(crate) struct WorkletGlobalScope {
     globalscope: GlobalScope,
     /// The base URL for this worklet.
     #[no_trace]
-    base_url: ServoUrl,
+    base_url: BrowserUrl,
     /// Sender back to the script thread
     to_script_thread_sender: Sender<MainThreadScriptMsg>,
     /// Worklet task executor
@@ -57,7 +57,7 @@ impl WorkletGlobalScope {
         scope_type: WorkletGlobalScopeType,
         webview_id: WebViewId,
         pipeline_id: PipelineId,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         inherited_secure_context: Option<bool>,
         executor: WorkletExecutor,
         init: &WorkletGlobalScopeInit,
@@ -96,7 +96,7 @@ impl WorkletGlobalScope {
     pub(crate) fn new_inherited(
         webview_id: WebViewId,
         pipeline_id: PipelineId,
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
         inherited_secure_context: Option<bool>,
         executor: WorkletExecutor,
         init: &WorkletGlobalScopeInit,
@@ -171,7 +171,7 @@ impl WorkletGlobalScope {
     }
 
     /// The base URL of this global.
-    pub(crate) fn base_url(&self) -> ServoUrl {
+    pub(crate) fn base_url(&self) -> BrowserUrl {
         self.base_url.clone()
     }
 

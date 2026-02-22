@@ -19,7 +19,7 @@ use net_traits::IncludeSubdomains;
 use net_traits::pub_domains::reg_suffix;
 use serde::{Deserialize, Serialize};
 use servo_config::pref;
-use servo_url::{Host, ServoUrl};
+use servo_url::{Host, BrowserUrl};
 use time::UtcDateTime;
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
@@ -200,7 +200,7 @@ impl HstsList {
     }
 
     /// Step 2.9 of <https://fetch.spec.whatwg.org/#concept-main-fetch>.
-    pub fn apply_hsts_rules(&self, url: &mut ServoUrl) {
+    pub fn apply_hsts_rules(&self, url: &mut BrowserUrl) {
         if url.scheme() != "http" && url.scheme() != "ws" {
             return;
         }
@@ -238,7 +238,7 @@ impl HstsList {
         }
     }
 
-    pub fn update_hsts_list_from_response(&mut self, url: &ServoUrl, headers: &HeaderMap) {
+    pub fn update_hsts_list_from_response(&mut self, url: &BrowserUrl, headers: &HeaderMap) {
         if url.scheme() != "https" && url.scheme() != "wss" {
             return;
         }

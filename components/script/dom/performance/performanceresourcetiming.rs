@@ -5,7 +5,7 @@
 use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
 use net_traits::ResourceFetchTiming;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use time::Duration;
 
 use super::performanceentry::{EntryType, PerformanceEntry};
@@ -78,7 +78,7 @@ pub(crate) struct PerformanceResourceTiming {
 // TODO(#21262): connect_end
 impl PerformanceResourceTiming {
     pub(crate) fn new_inherited(
-        url: ServoUrl,
+        url: BrowserUrl,
         initiator_type: InitiatorType,
         next_hop: Option<DOMString>,
         fetch_start: Option<CrossProcessInstant>,
@@ -118,7 +118,7 @@ impl PerformanceResourceTiming {
     // TODO fetch start should be in RFT
     #[cfg_attr(crown, expect(crown::unrooted_must_root))]
     fn from_resource_timing(
-        url: ServoUrl,
+        url: BrowserUrl,
         initiator_type: InitiatorType,
         next_hop: Option<DOMString>,
         resource_timing: &ResourceFetchTiming,
@@ -157,7 +157,7 @@ impl PerformanceResourceTiming {
 
     pub(crate) fn new(
         global: &GlobalScope,
-        url: ServoUrl,
+        url: BrowserUrl,
         initiator_type: InitiatorType,
         next_hop: Option<DOMString>,
         resource_timing: &ResourceFetchTiming,

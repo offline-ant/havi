@@ -40,7 +40,7 @@ use servo_media::player::audio::AudioRenderer;
 use servo_media::player::video::{VideoFrame, VideoFrameRenderer};
 use servo_media::player::{PlaybackState, Player, PlayerError, PlayerEvent, SeekLock, StreamType};
 use servo_media::{ClientContextId, ServoMedia, SupportsMediaType};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 use uuid::Uuid;
 use webrender_api::{
@@ -572,11 +572,11 @@ pub(crate) struct HTMLMediaElement {
     current_source_child: MutNullableDom<HTMLSourceElement>,
     /// URL of the media resource, if any.
     #[no_trace]
-    resource_url: DomRefCell<Option<ServoUrl>>,
+    resource_url: DomRefCell<Option<BrowserUrl>>,
     /// URL of the media resource, if the resource is set through the src_object attribute and it
     /// is a blob.
     #[no_trace]
-    blob_url: DomRefCell<Option<ServoUrl>>,
+    blob_url: DomRefCell<Option<BrowserUrl>>,
     /// <https://html.spec.whatwg.org/multipage/#dom-media-played>
     played: DomRefCell<TimeRangesContainer>,
     // https://html.spec.whatwg.org/multipage/#dom-media-audiotracks
@@ -1069,7 +1069,7 @@ impl HTMLMediaElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#concept-media-load-algorithm>
-    fn resource_selection_algorithm_sync(&self, base_url: ServoUrl, can_gc: CanGc) {
+    fn resource_selection_algorithm_sync(&self, base_url: BrowserUrl, can_gc: CanGc) {
         // TODO Step 5. If the media element's blocked-on-parser flag is false, then populate the
         // list of pending text tracks.
         // FIXME(ferjm): Implement blocked_on_parser logic
@@ -1158,7 +1158,7 @@ impl HTMLMediaElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#concept-media-load-algorithm>
-    fn load_from_src_attribute(&self, base_url: ServoUrl, src: &str) {
+    fn load_from_src_attribute(&self, base_url: BrowserUrl, src: &str) {
         self.load_state.set(LoadState::LoadingFromSrcAttribute);
 
         // Step 9.attribute.1. If the src attribute's value is the empty string, then end
@@ -1563,7 +1563,7 @@ impl HTMLMediaElement {
                         SrcObject::Blob(blob) => {
                             let blob_url = URL::CreateObjectURL(&self.global(), blob);
                             *self.blob_url.borrow_mut() =
-                                Some(ServoUrl::parse(&blob_url.str()).expect("infallible"));
+                                Some(BrowserUrl::parse(&blob_url.str()).expect("infallible"));
                             self.fetch_request(None, None);
                         },
                         SrcObject::MediaStream(stream) => {
@@ -3437,7 +3437,7 @@ pub(crate) enum MediaElementMicrotask {
         elem: DomRoot<HTMLMediaElement>,
         generation_id: u32,
         #[no_trace]
-        base_url: ServoUrl,
+        base_url: BrowserUrl,
     },
     PauseIfNotInDocument {
         elem: DomRoot<HTMLMediaElement>,
@@ -3515,7 +3515,7 @@ impl MicrotaskRunnable for MediaElementMicrotask {
 
 enum Resource {
     Object,
-    Url(ServoUrl),
+    Url(BrowserUrl),
 }
 
 #[derive(Debug, MallocSizeOf, PartialEq)]
@@ -3683,7 +3683,7 @@ struct HTMLMediaElementFetchListener {
     /// Time of last progress notification.
     next_progress_event: Instant,
     /// Url for the resource.
-    url: ServoUrl,
+    url: BrowserUrl,
     /// Expected content length of the media asset being fetched or played.
     expected_content_length: Option<u64>,
     /// Actual content length of the media asset was fetched.
@@ -3934,7 +3934,7 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
 }
 
 impl ResourceTimingListener for HTMLMediaElementFetchListener {
-    fn resource_timing_information(&self) -> (InitiatorType, ServoUrl) {
+    fn resource_timing_information(&self) -> (InitiatorType, BrowserUrl) {
         let initiator_type = InitiatorType::LocalName(
             self.element
                 .root()
@@ -3951,7 +3951,7 @@ impl ResourceTimingListener for HTMLMediaElementFetchListener {
 }
 
 impl HTMLMediaElementFetchListener {
-    fn new(element: &HTMLMediaElement, request_id: RequestId, url: ServoUrl, offset: u64) -> Self {
+    fn new(element: &HTMLMediaElement, request_id: RequestId, url: BrowserUrl, offset: u64) -> Self {
         Self {
             element: Trusted::new(element),
             generation_id: element.generation_id.get(),

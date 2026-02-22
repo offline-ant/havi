@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use http::Method;
 use http::header::HeaderName;
 use net_traits::request::{CredentialsMode, Origin, Request};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 /// Union type for CORS cache entries
 ///
@@ -45,7 +45,7 @@ impl HeaderOrMethod {
 #[derive(Clone, Debug)]
 pub struct CorsCacheEntry {
     pub origin: Origin,
-    pub url: ServoUrl,
+    pub url: BrowserUrl,
     pub max_age: Duration,
     pub credentials: bool,
     pub header_or_method: HeaderOrMethod,
@@ -55,7 +55,7 @@ pub struct CorsCacheEntry {
 impl CorsCacheEntry {
     fn new(
         origin: Origin,
-        url: ServoUrl,
+        url: BrowserUrl,
         max_age: Duration,
         credentials: bool,
         header_or_method: HeaderOrMethod,

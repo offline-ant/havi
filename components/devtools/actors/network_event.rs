@@ -20,7 +20,7 @@ use net_traits::fetch::headers::extract_mime_type_as_dataurl_mime;
 use net_traits::{CookieSource, TlsSecurityInfo};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::StreamId;
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
@@ -578,17 +578,17 @@ impl NetworkEventActor {
     fn request_fields(&self) -> Option<RequestFields> {
         let request = self.request.borrow();
         let request = request.as_ref()?;
-        let url = request.request.url.as_url();
-        let cookies = get_cookies_from_headers(&request.request.headers, &request.request.url);
+        let url = &request.request.url;
+        let cookies = get_cookies_from_headers(&request.request.headers, url);
 
-        // For HPPR URLs, show group/app instead of just host (group)
-        let remote_address = if url.scheme() == "hppr" || url.scheme().starts_with("hppr-") {
-            let host = url.host_str().unwrap_or("");
-            let app = url.path().trim_start_matches('/').split('/').next().unwrap_or("");
+        let remote_address = if let Some(data) = url.as_hppr() {
+            let addr = data.address();
+            let group = addr.group().unwrap_or_default();
+            let app = addr.app().unwrap_or_default();
             if app.is_empty() {
-                Some(host.into())
+                Some(group)
             } else {
-                Some(format!("{}/{}", host, app))
+                Some(format!("{}/{}", group, app))
             }
         } else {
             url.host_str().map(|a| a.into())
@@ -656,7 +656,7 @@ impl NetworkEventActor {
     }
 }
 
-fn get_cookies_from_headers(headers: &HeaderMap, url: &ServoUrl) -> Vec<CookieWrapper> {
+fn get_cookies_from_headers(headers: &HeaderMap, url: &BrowserUrl) -> Vec<CookieWrapper> {
     headers
         .get_all("set-cookie")
         .iter()
