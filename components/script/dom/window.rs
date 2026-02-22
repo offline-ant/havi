@@ -2733,13 +2733,15 @@ impl Window {
 
                 // Collect OpaqueNodes for all text nodes fully inside the range.
                 let mut interior_nodes = HashSet::new();
-                let doc_node = document.upcast::<Node>();
-                for node in start_node.following_nodes(doc_node) {
-                    if *node == *end_node {
-                        break;
-                    }
-                    if node.is::<crate::dom::text::Text>() {
-                        interior_nodes.insert(node.to_opaque());
+                if *start_node != *end_node {
+                    let doc_node = document.upcast::<Node>();
+                    for node in start_node.following_nodes(doc_node) {
+                        if *node == *end_node {
+                            break;
+                        }
+                        if node.is::<crate::dom::text::Text>() {
+                            interior_nodes.insert(node.to_opaque());
+                        }
                     }
                 }
 
