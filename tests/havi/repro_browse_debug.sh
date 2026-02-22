@@ -24,14 +24,14 @@ export SERVO_DEBUG_PORT="$DEVTOOLS_PORT"
 
 log "Waiting for Servo devtools..."
 for _ in {1..80}; do
-  if "$HAVI_ROOT/havi-webview-remote-cli" --timeout 2 eval "true" 2>/dev/null | grep -q '"ok"'; then
+  if "$HAVI_ROOT/havi-devtools-cli" --timeout 2 eval "true" 2>/dev/null | grep -q '"ok"'; then
     log "Servo ready"
     break
   fi
   sleep 0.1
 done
 
-DEBUGTOOL="$HAVI_ROOT/havi-webview-remote-cli"
+DEBUGTOOL="$HAVI_ROOT/havi-devtools-cli"
 echo "TITLE=$($DEBUGTOOL --text eval "document.title")"
 echo "URL=$($DEBUGTOOL --text eval "window.location.href")"
 echo "H1=$($DEBUGTOOL --text eval "document.querySelector('h1')?.textContent")"

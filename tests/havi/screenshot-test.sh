@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# screenshot-test.sh - Test havi-webview-remote-cli screenshot command
+# screenshot-test.sh - Test havi-devtools-cli screenshot command
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
@@ -27,7 +27,7 @@ log "Page loaded"
 
 # Take screenshot
 SCREENSHOT="/tmp/screenshot-test-$$.png"
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 "$debugtool" screenshot "$SCREENSHOT"
 
 # Verify file exists and is a valid PNG

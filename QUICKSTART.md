@@ -227,8 +227,8 @@ Start HAVI with DevTools port:
 Evaluate JS from terminal:
 
 ```bash
-./bin/havi-webview-remote-cli -p 6000 eval 'window.address.href'
-./bin/havi-webview-remote-cli -p 6000 eval 'document.packet && document.packet.hash'
+./bin/havi-devtools-cli -p 6000 eval 'window.address.href'
+./bin/havi-devtools-cli -p 6000 eval 'document.packet && document.packet.hash'
 ```
 
 ## What to read next

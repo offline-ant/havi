@@ -15,7 +15,7 @@ import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 start_servo "hppr://$TEST_GROUP/$TEST_APP/link-start.html"
 
 log "Testing link navigation..."
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 # Verify start page (HAVI disables window.location; use window.address)
 initial_url=$("$debugtool" --text eval 'window.address.href')

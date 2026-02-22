@@ -19,7 +19,7 @@ setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/nav-start.html"
 

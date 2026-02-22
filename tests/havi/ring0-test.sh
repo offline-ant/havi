@@ -10,7 +10,7 @@ start_server
 start_servo "havi:///"
 
 log "Testing ring0 API (havi:// origin, pre-fetched credentials)..."
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 # Run all tests in one persistent session (repl subcommand)
 output=$(printf '%s\n' \

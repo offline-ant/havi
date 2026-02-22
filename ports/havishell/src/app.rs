@@ -297,7 +297,7 @@ struct HaviServoDelegate;
 impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         eprintln!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
-        log!("DEVTOOLS_BIND=127.0.0.1:{} # havi-webview-remote-cli -p {}", port, port);
+        log!("DEVTOOLS_BIND=127.0.0.1:{} # havi-devtools-cli -p {}", port, port);
     }
 
     fn request_devtools_connection(&self, request: servo::AllowOrDenyRequest) {

@@ -7,7 +7,7 @@ FAIL_DIR := $(LOG_DIR)/.fail
 
 # Pre-warm uv cache before parallel test runs
 HAVI_ROOT := $(abspath ../..)
-_ := $(shell $(HAVI_ROOT)/havi-webview-remote-cli --help >/dev/null 2>&1 || true)
+_ := $(shell $(HAVI_ROOT)/havi-devtools-cli --help >/dev/null 2>&1 || true)
 
 .PHONY: test $(TESTS) summary
 

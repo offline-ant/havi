@@ -15,7 +15,7 @@ import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 start_servo "hppr://$TEST_GROUP/$TEST_APP/"
 
 log "Testing browse page structure..."
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 # Test page title contains "Index of"
 title=$("$debugtool" --text eval "document.title")

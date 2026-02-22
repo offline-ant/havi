@@ -1,12 +1,14 @@
-# havi-webview-remote-cli Reference
+# havi-devtools-cli Reference
 
 ## Synopsis
 
 ```bash
-havi-webview-remote-cli [--port N] [--timeout SEC] [--text] <command> [args]
+havi-devtools-cli [--port N] [--timeout SEC] [--text] <command> [args]
 ```
 
 Connects to a running HAVI instance through the DevTools protocol.
+Operates at the Servo webview level (DOM, JS, page coordinates).
+For Makepad UI input (mouse, keyboard, touch), use havi-makepad-cli.
 
 Default target: `localhost:${HAVI_DEBUG_PORT:-${SERVO_DEBUG_PORT:-6000}}`.
 
@@ -47,10 +49,9 @@ Default target: `localhost:${HAVI_DEBUG_PORT:-${SERVO_DEBUG_PORT:-6000}}`.
 ## Examples
 
 ```bash
-./bin/havi --devtools 6000 hppr://u/showcase/index.html
-./bin/havi-webview-remote-cli -p 6000 eval 'document.title'
-./bin/havi-webview-remote-cli -p 6000 eval --await \
+havi-devtools-cli -p 6000 eval 'document.title'
+havi-devtools-cli -p 6000 eval --await \
   'window.home.get("//u/demo/msg.txt").then(p => p.text())'
-./bin/havi-webview-remote-cli -p 6000 navigate 'hppr://u/showcase/index.html'
-./bin/havi-webview-remote-cli -p 6000 screenshot /tmp/havi.png
+havi-devtools-cli -p 6000 navigate 'hppr://u/showcase/index.html'
+havi-devtools-cli -p 6000 screenshot /tmp/havi.png
 ```

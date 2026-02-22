@@ -726,7 +726,7 @@ def _run_desktop(args: argparse.Namespace) -> int:
 def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
     """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
 
-    Creates a Unix socket so havi-remote-cli can connect.  JSON lines from
+    Creates a Unix socket so havi-makepad-cli can connect.  JSON lines from
     socket clients are forwarded to HAVI's stdin; JSON lines from HAVI's
     stdout are broadcast to all connected clients.
     """
@@ -824,9 +824,9 @@ def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
     print(f"\nHAVI_CONTROL={sock_path}")
     if dt:
         print(f"HAVI_DEVTOOLS={dt}")
-    print(f"# havi-remote-cli --socket {sock_path} screenshot /tmp/test.png")
+    print(f"# havi-makepad-cli --socket {sock_path} screenshot /tmp/test.png")
     if dt_port:
-        print(f"# havi-webview-remote-cli -p {dt_port} eval 'document.title'")
+        print(f"# havi-devtools-cli -p {dt_port} eval 'document.title'")
 
     # Main relay loop: accept client connections, relay lines to HAVI stdin.
     stdin_lock = threading.Lock()
@@ -939,7 +939,7 @@ def run(topdir: str) -> int:
                         help="Android package name (default: dev.makepad.havishell)")
         if name == "run":
             p.add_argument("--control", action="store_true",
-                            help="Launch with control socket for havi-remote-cli")
+                            help="Launch with control socket for havi-makepad-cli")
         p.add_argument("extra", nargs="*",
                         help="Extra arguments forwarded to cargo")
         p.set_defaults(func=handler)

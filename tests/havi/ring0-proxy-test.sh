@@ -22,7 +22,7 @@ HPPR_SIGNER='!ring0/init' $HPPR add "//repo/admin/ring1/testuser/LIST" \
 # Start servo on havi:///ring0
 start_servo "havi:///ring0"
 
-debugtool="$HAVI_ROOT/havi-webview-remote-cli"
+debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 # Verify the ring0 proxy page loads
 log "Verifying ring0 proxy page loads..."

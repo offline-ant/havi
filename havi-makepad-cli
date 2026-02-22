@@ -3,15 +3,16 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Drive a HAVI app via stdin/stdout JSON-line control socket.
+"""Drive HAVI's Makepad UI via the control socket.
 
 Connects to the Unix domain socket created by `mach-havi run --control`.
 Sends StudioToApp JSON lines, reads AppToStudio JSON lines.
-For webview-level JS eval, use havi-webview-remote-cli.
+
+All coordinates are in Makepad window space (0,0 = top-left of window).
+For webview-level interaction (JS eval, DOM), use havi-devtools-cli.
 """
 
-import argparse, json, mimetypes, os, socket, shutil
-import subprocess, sys, threading, time, queue
+import argparse, json, os, socket, subprocess, sys, threading, time, queue
 
 # ---------------------------------------------------------------------------
 # Makepad KeyCode variants (string names used directly in JSON)
@@ -120,8 +121,6 @@ def connect(args):
     if not path:
         sys.exit("error: no socket path. Use --socket or set HAVI_CONTROL.")
     return Connection(path)
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +288,6 @@ def cmd_screenshot(args, conn):
         print(json.dumps(resp or {"error": "timeout"}))
         sys.exit(1)
 
-    # Decode PNG from byte array and write to file.
-    # Response is tuple variant: {"Screenshot": [{"request_ids":..., "png":..., ...}]}
     sdata = resp["Screenshot"]
     if isinstance(sdata, list):
         sdata = sdata[0]
@@ -341,7 +338,6 @@ def cmd_dump(args, conn):
 
 def cmd_query(args, conn):
     global latest_dump, dump_origin
-    # Get a fresh dump first
     req_id = int(time.monotonic() * 1000) & 0xFFFFFFFF
     conn.send(mkv("WidgetTreeDump", {"request_id": req_id}))
     tick(conn)
@@ -419,101 +415,20 @@ def cmd_pipe(args, conn):
         pass
 
 # ---------------------------------------------------------------------------
-# Workflow commands (navigate, trust, publish, publish_dir)
-# ---------------------------------------------------------------------------
-
-def _run(cmd, **kwargs):
-    """Run a subprocess, exit on failure."""
-    r = subprocess.run(cmd, **kwargs)
-    if r.returncode != 0:
-        name = cmd[0] if isinstance(cmd, list) else cmd
-        sys.exit(f"error: {name} failed (exit {r.returncode})")
-    return r
-
-
-def _parse_coordinate(coord):
-    """Parse //group/app/location into (group, app, location)."""
-    if not coord.startswith("//"):
-        sys.exit(f"error: coordinate must start with //: {coord}")
-    parts = coord[2:].split("/", 2)
-    if len(parts) < 2:
-        sys.exit(f"error: coordinate must have at least group and app: {coord}")
-    return parts[0], parts[1], parts[2] if len(parts) > 2 else ""
-
-
-def _get_repo_vkey():
-    """Get repo-vkey from hppr hello (third /-separated field)."""
-    r = subprocess.run(["hppr", "hello"], capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"error: hppr hello failed: {r.stderr.strip()}")
-    parts = r.stdout.strip().split("/")
-    if len(parts) < 3:
-        sys.exit(f"error: unexpected hppr hello output: {r.stdout.strip()}")
-    return parts[2]
-
-
-def _debug_port(args):
-    """Resolve debug port from args or environment."""
-    port = getattr(args, "debug_port", None) or os.environ.get("HAVI_DEBUG_PORT")
-    if not port:
-        sys.exit("error: --debug-port or HAVI_DEBUG_PORT required")
-    return str(port)
-
-
-def _do_trust(group, app):
-    """Ensure site-trust exists for group/app. Idempotent."""
-    r = subprocess.run(["hppr", "headers", f"//{group}/{app}/site-trust/|"],
-                       capture_output=True, text=True)
-    if r.returncode == 0:
-        return
-    vkey = _get_repo_vkey()
-    _run(["hppr", "add", "--seal-by", "oldest",
-          f"//{group}/{app}/site-trust", "-H", f"Member: {vkey}"])
-
-
-def cmd_navigate(args, conn):
-    _run(["havi-webview-remote-cli", "-p", _debug_port(args), "navigate", args.url])
-
-
-def cmd_trust(args, conn):
-    _do_trust(args.group, args.app)
-
-
-def cmd_publish(args, conn):
-    content_type = mimetypes.guess_type(args.file)[0] or "application/octet-stream"
-    with open(args.file, "rb") as f:
-        _run(["hppr", "add", "--seal-by", "oldest",
-              "-H", f"Content-Type: {content_type}",
-              args.coordinate], stdin=f)
-    group, app, _ = _parse_coordinate(args.coordinate)
-    _do_trust(group, app)
-    _run(["havi-webview-remote-cli", "-p", _debug_port(args),
-          "navigate", f"hppr://{args.coordinate[2:]}"])
-
-
-def cmd_publish_dir(args, conn):
-    _run(["dir-pac", "--server-side", args.dir, args.coordinate])
-    group, app, _ = _parse_coordinate(args.coordinate)
-    _do_trust(group, app)
-    _run(["havi-webview-remote-cli", "-p", _debug_port(args),
-          "navigate", f"hppr://{group}/{app}/"])
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def main():
     p = argparse.ArgumentParser(
-        prog="havi-remote-cli",
-        description="Drive a HAVI app via control socket (JSON lines).")
+        prog="havi-makepad-cli",
+        description="Drive HAVI's Makepad UI via the control socket. "
+        "All coordinates are in Makepad window space. "
+        "For webview-level interaction, use havi-devtools-cli.")
     p.add_argument("--socket", "-s", default=None,
                    help="Path to Unix control socket (or set HAVI_CONTROL)")
-    p.add_argument("--debug-port", default=None,
-                   help="Devtools port for navigate (default: $HAVI_DEBUG_PORT)")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("click", help="Click at coordinates")
+    s = sub.add_parser("click", help="Click at window coordinates")
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
     s.set_defaults(func=cmd_click)
@@ -526,7 +441,7 @@ def main():
     s.add_argument("name")
     s.set_defaults(func=cmd_key)
 
-    s = sub.add_parser("mousedown", help="Mouse button down")
+    s = sub.add_parser("mousedown", help="Mouse button down at window coordinates")
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
     s.set_defaults(func=cmd_mousedown)
@@ -536,19 +451,19 @@ def main():
     s.add_argument("y", type=float, nargs="?", default=None)
     s.set_defaults(func=cmd_mouseup)
 
-    s = sub.add_parser("mousemove", help="Move mouse")
+    s = sub.add_parser("mousemove", help="Move mouse to window coordinates")
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
     s.set_defaults(func=cmd_mousemove)
 
-    s = sub.add_parser("touch", help="Touch event")
+    s = sub.add_parser("touch", help="Touch event at window coordinates")
     s.add_argument("id", type=int)
     s.add_argument("phase", choices=["start", "down", "stop", "up", "move", "stable"])
     s.add_argument("x", type=float)
     s.add_argument("y", type=float)
     s.set_defaults(func=cmd_touch)
 
-    s = sub.add_parser("screenshot", help="Take screenshot")
+    s = sub.add_parser("screenshot", help="Take screenshot of full window")
     s.add_argument("path")
     s.set_defaults(func=cmd_screenshot)
 
@@ -573,31 +488,10 @@ def main():
     s = sub.add_parser("pipe", help="Read commands from stdin")
     s.set_defaults(func=cmd_pipe)
 
-    s = sub.add_parser("navigate", help="Navigate HAVI to a URL")
-    s.add_argument("url")
-    s.set_defaults(func=cmd_navigate, needs_conn=False)
-
-    s = sub.add_parser("trust", help="Ensure site-trust for group/app")
-    s.add_argument("group")
-    s.add_argument("app")
-    s.set_defaults(func=cmd_trust, needs_conn=False)
-
-    s = sub.add_parser("publish", help="Store signed file, trust, navigate")
-    s.add_argument("coordinate")
-    s.add_argument("file")
-    s.set_defaults(func=cmd_publish, needs_conn=False)
-
-    s = sub.add_parser("publish-dir", help="Store directory tree, trust, navigate")
-    s.add_argument("coordinate")
-    s.add_argument("dir")
-    s.set_defaults(func=cmd_publish_dir, needs_conn=False)
-
     args = p.parse_args()
-    needs_conn = getattr(args, "needs_conn", True)
-    conn = connect(args) if needs_conn else None
+    conn = connect(args)
     args.func(args, conn)
-    if conn:
-        conn.close()
+    conn.close()
 
 
 if __name__ == "__main__":
