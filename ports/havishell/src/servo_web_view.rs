@@ -32,7 +32,6 @@ pub enum ServoWebViewAction {
     HoverOver { abs: DVec2 },
     HoverOut,
     Scroll { abs: DVec2, scroll: DVec2 },
-    ScrollStateUpdate { scroll_y: f64, content_height: f64, viewport_height: f64 },
     KeyDown { key_event: KeyEvent },
     KeyUp { key_event: KeyEvent },
     TextInput { input: String },

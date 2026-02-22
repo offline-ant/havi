@@ -5,7 +5,7 @@ use servo::{
     ImeEvent, Key, KeyState, KeyboardEvent,
     MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
     NamedKey, RenderingContext, TouchEventType, TouchId,
-    WebViewId,
+    WebViewId, percent_decode_jsonqa,
 };
 use servo::protocol_handler::ProtocolRegistry;
 use havi_protocols::embedded_hpprd::EmbeddedHpprd;
@@ -424,6 +424,12 @@ pub struct App {
     /// Whether a mouse drag is in progress (MouseDown sent to Servo).
     #[rust]
     is_mouse_dragging: bool,
+
+    // --- Tab state ---
+    #[rust]
+    scroll_y_estimate: f64,
+    #[rust]
+    content_height_estimate: f64,
 
     // --- Tab state ---
     #[rust]
@@ -873,7 +879,7 @@ impl App {
                     tab_bar_dirty = true;
                 }
                 if let Some(new_url) = tab.webview.url() {
-                    let new_url_str = decode_hppr_display(new_url.as_str());
+                    let new_url_str = percent_decode_jsonqa(new_url.as_str());
                     if new_url_str != tab.url {
                         tab.url = new_url_str;
                         tab_bar_dirty = true;
@@ -1273,6 +1279,8 @@ impl MatchEvent for App {
                 NavCommand::Forward => self.go_forward(),
                 NavCommand::Reload => self.reload(),
                 NavCommand::Navigate(url) => {
+                    self.scroll_y_estimate = 0.0;
+                    self.content_height_estimate = 0.0;
                     self.navigate(url);
                     // Update active tab URL
                     if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
@@ -1497,33 +1505,20 @@ impl MatchEvent for App {
                         self.send_input_event(servo::InputEvent::Wheel(
                             servo::WheelEvent::new(delta, pt.into()),
                         ));
-                        // Query scroll position from Servo for the overlay indicator.
-                        if let Some(webview) = self.active_webview() {
-                            webview.evaluate_javascript(
-                                "JSON.stringify({y:window.scrollY,h:document.documentElement.scrollHeight,v:window.innerHeight})",
-                                |result| {
-                                    if let Ok(servo::JSValue::String(json)) = result {
-                                        if let (Some(y), Some(h), Some(v)) = (
-                                            json_extract_f64(&json, "y"),
-                                            json_extract_f64(&json, "h"),
-                                            json_extract_f64(&json, "v"),
-                                        ) {
-                                            Cx::post_action(ServoWebViewAction::ScrollStateUpdate {
-                                                scroll_y: y,
-                                                content_height: h,
-                                                viewport_height: v,
-                                            });
-                                        }
-                                    }
-                                },
-                            );
+                        // Update local scroll estimate for the overlay indicator.
+                        // scroll.y is in logical pixels (negative = scroll down in Makepad).
+                        self.scroll_y_estimate = (self.scroll_y_estimate - scroll.y).max(0.0);
+                        // Use viewport size as rough content height estimate until we know better.
+                        let vp_h = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx).size.y;
+                        if self.content_height_estimate < vp_h {
+                            self.content_height_estimate = vp_h * 3.0; // rough initial guess
                         }
-                        handled_input = true;
-                    }
-
-                    ServoWebViewAction::ScrollStateUpdate { scroll_y, content_height, viewport_height } => {
+                        // Clamp scroll to content bounds
+                        let max_scroll = (self.content_height_estimate - vp_h).max(0.0);
+                        self.scroll_y_estimate = self.scroll_y_estimate.min(max_scroll);
                         self.ui.servo_web_view(cx, ids!(web_view))
-                            .set_scroll_state(cx, *scroll_y, *content_height, *viewport_height);
+                            .set_scroll_state(cx, self.scroll_y_estimate, self.content_height_estimate, vp_h);
+                        handled_input = true;
                     }
 
                     // ----- Keyboard events -----
@@ -1673,37 +1668,4 @@ impl AppMain for App {
     }
 }
 
-/// Decode percent-encoded JSONqa in HPPR URLs for address bar display.
-/// Mirrors `servo_url::hppr::percent_decode_jsonqa`.
-///
-/// Extract a numeric value from a simple JSON object string.
-/// Handles `{"key":123.4,...}` without pulling in a JSON parser.
-fn json_extract_f64(json: &str, key: &str) -> Option<f64> {
-    let pattern = format!("\"{}\":", key);
-    let start = json.find(&pattern)? + pattern.len();
-    let rest = &json[start..];
-    let end = rest.find(|c: char| c != '-' && c != '.' && !c.is_ascii_digit())?;
-    rest[..end].parse().ok()
-}
 
-/// Converts `%7B` → `{`, `%7D` → `}`, `%23` → `#` in the JSONqa suffix
-/// of hppr:// URLs so the address bar shows the readable form.
-fn decode_hppr_display(url: &str) -> String {
-    if !url.starts_with("hppr:") && !url.starts_with("hppr-") {
-        return url.to_owned();
-    }
-    let pos = url.find("%7B").or_else(|| url.find("%7b"));
-    match pos {
-        Some(idx) => {
-            let (prefix, suffix) = url.split_at(idx);
-            let decoded = suffix
-                .replace("%7B", "{")
-                .replace("%7D", "}")
-                .replace("%7b", "{")
-                .replace("%7d", "}")
-                .replace("%23", "#");
-            format!("{}{}", prefix, decoded)
-        },
-        None => url.to_owned(),
-    }
-}

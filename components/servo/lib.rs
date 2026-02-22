@@ -59,7 +59,7 @@ pub use servo_geometry::{
     DeviceIndependentIntRect, DeviceIndependentPixel, convert_rect_to_css_pixel,
 };
 pub use servo_url::ServoUrl;
-pub use servo_url::hppr::{HAVIAddress, via_url};
+pub use servo_url::hppr::{HAVIAddress, percent_decode_jsonqa, via_url};
 pub use style::Zero;
 pub use style_traits::CSSPixel;
 pub use webrender_api::units::{

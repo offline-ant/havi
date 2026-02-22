@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv --quiet run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["websockets"]
 # ///
 """Drive a Makepad app via the Studio bridge websocket.
 
@@ -9,7 +9,7 @@ Sends mouse, keyboard, touch input and takes screenshots.
 For webview-level JS eval, use havi-webview-remote-cli.
 """
 
-import argparse, hashlib, json, os, queue, re, shutil, socket, struct
+import argparse, json, queue, shutil
 import subprocess, sys, threading, time
 
 # ---------------------------------------------------------------------------
@@ -54,140 +54,38 @@ MODS = {"shift": False, "control": False, "alt": False, "logo": False}
 last_pos = [0.0, 0.0]
 
 # ---------------------------------------------------------------------------
-# Raw websocket over TCP (follows cargo-makepad studio.rs approach)
+# Websocket connection (uses websockets library)
 # ---------------------------------------------------------------------------
 
+import websockets.sync.client
+
 def ws_connect(host, port, path="/$studio_terminal"):
-    """Open a websocket connection. Returns (socket, reader_thread, rx_queue)."""
-    sock = socket.create_connection((host, port), timeout=10)
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-    import base64
-    ws_key = base64.b64encode(hashlib.sha1(b"havi-remote-cli").digest()).decode()
-    req = (
-        f"GET {path} HTTP/1.1\r\n"
-        f"Host: {host}:{port}\r\n"
-        f"Connection: Upgrade\r\n"
-        f"Upgrade: websocket\r\n"
-        f"Sec-WebSocket-Version: 13\r\n"
-        f"Sec-WebSocket-Key: {ws_key}\r\n"
-        f"\r\n"
+    """Open a websocket connection. Returns (ws, reader_thread, rx_queue)."""
+    ws = websockets.sync.client.connect(
+        f"ws://{host}:{port}{path}",
+        additional_headers={"Host": f"{host}:{port}"},
     )
-    sock.sendall(req.encode())
-
-    buf = b""
-    deadline = time.monotonic() + 5
-    while b"\r\n\r\n" not in buf:
-        if time.monotonic() > deadline:
-            raise TimeoutError("websocket handshake timeout")
-        chunk = sock.recv(4096)
-        if not chunk:
-            raise ConnectionError("closed during handshake")
-        buf += chunk
-
-    header_end = buf.index(b"\r\n\r\n") + 4
-    status_line = buf[:buf.index(b"\r\n")].decode()
-    if "101" not in status_line:
-        raise ConnectionError(f"upgrade rejected: {status_line}")
-    leftover = buf[header_end:]
-
     rx = queue.Queue()
-    reader = threading.Thread(target=_ws_reader, args=(sock, rx, leftover), daemon=True)
+    reader = threading.Thread(target=_ws_reader, args=(ws, rx), daemon=True)
     reader.start()
-    return sock, reader, rx
+    return ws, reader, rx
 
 
-def _ws_reader(sock, rx, leftover):
-    """Background: read websocket frames, put parsed JSON into rx queue."""
-    buf = bytearray(leftover)
+def _ws_reader(ws, rx):
+    """Background: read websocket messages, put parsed JSON into rx queue."""
     try:
-        while True:
-            while True:
-                frame = _try_parse_frame(buf)
-                if frame is not None:
-                    opcode, payload = frame
-                    if opcode in (0x1, 0x2):  # text or binary
-                        try:
-                            text = payload if isinstance(payload, str) else payload.decode("utf-8", errors="replace")
-                            rx.put(json.loads(text))
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            pass
-                    elif opcode == 0x8:
-                        return
-                    elif opcode == 0x9:
-                        _ws_send_pong(sock, payload)
-                    break
-                try:
-                    chunk = sock.recv(65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                buf.extend(chunk)
+        for msg in ws:
+            try:
+                rx.put(json.loads(msg))
+            except (json.JSONDecodeError, TypeError):
+                pass
     except Exception:
         pass
 
 
-def _try_parse_frame(buf):
-    """Parse one websocket frame from buf. Returns (opcode, payload) or None."""
-    if len(buf) < 2:
-        return None
-    b0, b1 = buf[0], buf[1]
-    opcode = b0 & 0x0F
-    masked = b1 & 0x80
-    payload_len = b1 & 0x7F
-    offset = 2
-    if payload_len == 126:
-        if len(buf) < 4: return None
-        payload_len = struct.unpack(">H", buf[2:4])[0]
-        offset = 4
-    elif payload_len == 127:
-        if len(buf) < 10: return None
-        payload_len = struct.unpack(">Q", buf[2:10])[0]
-        offset = 10
-    if masked:
-        mask_offset = offset
-        offset += 4
-    else:
-        mask_offset = None
-    if len(buf) < offset + payload_len:
-        return None
-    payload = bytes(buf[offset:offset + payload_len])
-    if mask_offset is not None:
-        mask = buf[mask_offset:mask_offset + 4]
-        payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    del buf[:offset + payload_len]
-    if opcode == 0x1:
-        payload = payload.decode("utf-8", errors="replace")
-    return (opcode, payload)
-
-
-def _ws_send_frame(sock, opcode, payload):
-    """Send a masked websocket frame."""
-    if isinstance(payload, str):
-        payload = payload.encode()
-    header = bytearray()
-    header.append(0x80 | opcode)
-    length = len(payload)
-    if length < 126:
-        header.append(0x80 | length)
-    elif length < 65536:
-        header.append(0x80 | 126)
-        header.extend(struct.pack(">H", length))
-    else:
-        header.append(0x80 | 127)
-        header.extend(struct.pack(">Q", length))
-    header.extend(b"\x00\x00\x00\x00")  # zero mask
-    sock.sendall(bytes(header) + payload)
-
-
-def _ws_send_pong(sock, payload):
-    _ws_send_frame(sock, 0xA, payload)
-
-
-def ws_send(sock, msg):
+def ws_send(ws, msg):
     """Send a JSON message."""
-    _ws_send_frame(sock, 0x1, json.dumps(msg))
+    ws.send(json.dumps(msg))
 
 
 def ws_recv(rx, match_fn=None, timeout=30):
@@ -205,9 +103,9 @@ def ws_recv(rx, match_fn=None, timeout=30):
             return msg
 
 
-def ws_send_recv(sock, rx, msg, match_fn=None, timeout=30):
+def ws_send_recv(ws, rx, msg, match_fn=None, timeout=30):
     """Send msg and wait for a matching response."""
-    ws_send(sock, msg)
+    ws_send(ws, msg)
     return ws_recv(rx, match_fn, timeout)
 
 # ---------------------------------------------------------------------------
@@ -222,8 +120,8 @@ def keycode_index(name):
         return KEYCODE_VARIANTS.index("Unknown")
 
 
-def discover_build_id(sock, rx):
-    resp = ws_send_recv(sock, rx, {"ListBuilds": []},
+def discover_build_id(ws, rx):
+    resp = ws_send_recv(ws, rx, {"ListBuilds": []},
                         match_fn=lambda m: "Builds" in m)
     if not resp:
         sys.exit("error: ListBuilds timeout")
@@ -239,72 +137,72 @@ def discover_build_id(sock, rx):
     sys.exit("error: no builds found")
 
 
-def get_build_id(args, sock, rx):
+def get_build_id(args, ws, rx):
     if args.build_id is not None:
         return args.build_id
-    return discover_build_id(sock, rx)
+    return discover_build_id(ws, rx)
 
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
-def cmd_click(args, sock, rx, bid):
+def cmd_click(args, ws, rx, bid):
     x, y = int(args.x), int(args.y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(sock, {"Click": {"build_id": bid, "x": x, "y": y}})
+    ws_send(ws, {"Click": {"build_id": bid, "x": x, "y": y}})
 
 
-def cmd_type(args, sock, rx, bid):
+def cmd_type(args, ws, rx, bid):
     text = " ".join(args.text)
-    ws_send(sock, {"TypeText": {"build_id": bid, "text": text}})
+    ws_send(ws, {"TypeText": {"build_id": bid, "text": text}})
 
 
-def cmd_key(args, sock, rx, bid):
+def cmd_key(args, ws, rx, bid):
     name = args.name
     if name.lower() == "enter":
-        ws_send(sock, {"Return": {"build_id": bid}})
+        ws_send(ws, {"Return": {"build_id": bid}})
         return
     idx = keycode_index(name)
     kd = {"key_code": idx, "is_repeat": False, "modifiers": MODS, "time": 0.0}
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg": {"KeyDown": [kd]}}})
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg": {"KeyDown": [kd]}}})
     char = name if len(name) == 1 else {"space": " "}.get(name.lower())
     if char:
-        ws_send(sock, {"StudioToApp": {"build_id": bid, "msg":
+        ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
             {"TextInput": [{"input": char, "replace_last": False, "was_paste": False}]}}})
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg": {"KeyUp": [kd]}}})
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg": {"KeyUp": [kd]}}})
 
 
-def cmd_mousedown(args, sock, rx, bid):
+def cmd_mousedown(args, ws, rx, bid):
     x, y = float(args.x), float(args.y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg":
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
         {"MouseDown": [{"button_raw_bits": 1, "x": x, "y": y,
                         "time": 0.0, "modifiers": MODS}]}}})
 
 
-def cmd_mouseup(args, sock, rx, bid):
+def cmd_mouseup(args, ws, rx, bid):
     x = float(args.x) if args.x is not None else last_pos[0]
     y = float(args.y) if args.y is not None else last_pos[1]
     last_pos[0], last_pos[1] = x, y
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg":
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
         {"MouseUp": [{"time": 0.0, "button_raw_bits": 1, "x": x, "y": y,
                       "modifiers": MODS}]}}})
 
 
-def cmd_mousemove(args, sock, rx, bid):
+def cmd_mousemove(args, ws, rx, bid):
     x, y = float(args.x), float(args.y)
     last_pos[0], last_pos[1] = x, y
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg":
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
         {"MouseMove": [{"time": 0.0, "x": x, "y": y, "modifiers": MODS}]}}})
 
 
-def cmd_touch(args, sock, rx, bid):
+def cmd_touch(args, ws, rx, bid):
     state_map = {"start": "Start", "down": "Start", "stop": "Stop",
                  "up": "Stop", "move": "Move", "stable": "Stable"}
     state_name = state_map.get(args.phase.lower())
     if not state_name:
         sys.exit(f"error: unknown touch phase: {args.phase}")
-    ws_send(sock, {"StudioToApp": {"build_id": bid, "msg":
+    ws_send(ws, {"StudioToApp": {"build_id": bid, "msg":
         {"TouchUpdate": [{"touches": [
             {"uid": args.id, "state": {state_name: []},
              "x": float(args.x), "y": float(args.y), "time": time.time(),
@@ -313,8 +211,8 @@ def cmd_touch(args, sock, rx, bid):
           "modifiers": MODS}]}}})
 
 
-def cmd_screenshot(args, sock, rx, bid):
-    resp = ws_send_recv(sock, rx,
+def cmd_screenshot(args, ws, rx, bid):
+    resp = ws_send_recv(ws, rx,
         {"Screenshot": {"build_id": bid, "kind_id": 0}},
         match_fn=lambda m: "Screenshot" in m, timeout=30)
     if not resp or "Screenshot" not in resp:
@@ -331,12 +229,12 @@ def cmd_screenshot(args, sock, rx, bid):
     print(json.dumps(resp))
 
 
-def cmd_sleep(args, sock, rx, bid):
+def cmd_sleep(args, ws, rx, bid):
     time.sleep(args.ms / 1000.0)
 
 
-def cmd_builds(args, sock, rx, bid):
-    resp = ws_send_recv(sock, rx, {"ListBuilds": []},
+def cmd_builds(args, ws, rx, bid):
+    resp = ws_send_recv(ws, rx, {"ListBuilds": []},
                         match_fn=lambda m: "Builds" in m)
     if not resp:
         sys.exit("error: ListBuilds timeout")
@@ -348,8 +246,8 @@ def cmd_builds(args, sock, rx, bid):
         print(f'{b["build_id"]} {b.get("package", "")} [{f}]')
 
 
-def cmd_dump(args, sock, rx, bid):
-    resp = ws_send_recv(sock, rx,
+def cmd_dump(args, ws, rx, bid):
+    resp = ws_send_recv(ws, rx,
         {"WidgetTreeDump": {"build_id": bid}},
         match_fn=lambda m: "WidgetTreeDump" in m, timeout=30)
     if not resp or "WidgetTreeDump" not in resp:
@@ -358,8 +256,8 @@ def cmd_dump(args, sock, rx, bid):
     print(resp["WidgetTreeDump"]["dump"])
 
 
-def cmd_query(args, sock, rx, bid):
-    resp = ws_send_recv(sock, rx,
+def cmd_query(args, ws, rx, bid):
+    resp = ws_send_recv(ws, rx,
         {"WidgetQuery": {"build_id": bid, "query": args.query}},
         match_fn=lambda m: "WidgetQuery" in m, timeout=30)
     if not resp or "WidgetQuery" not in resp:
@@ -369,42 +267,42 @@ def cmd_query(args, sock, rx, bid):
         print(r)
 
 
-def cmd_send(args, sock, rx, bid):
+def cmd_send(args, ws, rx, bid):
     msg = json.loads(args.json)
-    resp = ws_send_recv(sock, rx, msg, timeout=30)
+    resp = ws_send_recv(ws, rx, msg, timeout=30)
     if resp:
         print(json.dumps(resp))
 
 
-def cmd_pipe(args, sock, rx, bid):
+def cmd_pipe(args, ws, rx, bid):
     """Read commands from stdin, one per line. Space-separated."""
     dispatch = {
         "click": lambda parts: cmd_click(
-            argparse.Namespace(x=parts[0], y=parts[1]), sock, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
         "type": lambda parts: cmd_type(
-            argparse.Namespace(text=parts), sock, rx, bid),
+            argparse.Namespace(text=parts), ws, rx, bid),
         "key": lambda parts: cmd_key(
-            argparse.Namespace(name=parts[0]), sock, rx, bid),
+            argparse.Namespace(name=parts[0]), ws, rx, bid),
         "mousedown": lambda parts: cmd_mousedown(
-            argparse.Namespace(x=parts[0], y=parts[1]), sock, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
         "mouseup": lambda parts: cmd_mouseup(
             argparse.Namespace(x=parts[0] if parts else None,
-                               y=parts[1] if len(parts) > 1 else None), sock, rx, bid),
+                               y=parts[1] if len(parts) > 1 else None), ws, rx, bid),
         "mousemove": lambda parts: cmd_mousemove(
-            argparse.Namespace(x=parts[0], y=parts[1]), sock, rx, bid),
+            argparse.Namespace(x=parts[0], y=parts[1]), ws, rx, bid),
         "touch": lambda parts: cmd_touch(
             argparse.Namespace(id=int(parts[0]), phase=parts[1],
-                               x=parts[2], y=parts[3]), sock, rx, bid),
+                               x=parts[2], y=parts[3]), ws, rx, bid),
         "screenshot": lambda parts: cmd_screenshot(
-            argparse.Namespace(path=parts[0]), sock, rx, bid),
+            argparse.Namespace(path=parts[0]), ws, rx, bid),
         "sleep": lambda parts: cmd_sleep(
-            argparse.Namespace(ms=int(parts[0])), sock, rx, bid),
+            argparse.Namespace(ms=int(parts[0])), ws, rx, bid),
         "dump": lambda parts: cmd_dump(
-            argparse.Namespace(), sock, rx, bid),
+            argparse.Namespace(), ws, rx, bid),
         "query": lambda parts: cmd_query(
-            argparse.Namespace(query=" ".join(parts)), sock, rx, bid),
+            argparse.Namespace(query=" ".join(parts)), ws, rx, bid),
         "send": lambda parts: cmd_send(
-            argparse.Namespace(json=" ".join(parts)), sock, rx, bid),
+            argparse.Namespace(json=" ".join(parts)), ws, rx, bid),
     }
     try:
         for line in sys.stdin:
@@ -496,9 +394,9 @@ def main():
     s.set_defaults(func=cmd_pipe)
 
     args = p.parse_args()
-    sock, _reader, rx = ws_connect(args.host, args.port)
-    bid = get_build_id(args, sock, rx)
-    args.func(args, sock, rx, bid)
+    ws, _reader, rx = ws_connect(args.host, args.port)
+    bid = get_build_id(args, ws, rx)
+    args.func(args, ws, rx, bid)
 
 
 if __name__ == "__main__":
