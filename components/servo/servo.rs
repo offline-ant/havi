@@ -924,8 +924,9 @@ impl Servo {
         let filter = max(env_logger.filter(), con_logger.filter());
         let logger = BothLogger(env_logger, con_logger);
 
-        log::set_boxed_logger(Box::new(logger)).expect("Failed to set logger.");
-        log::set_max_level(filter);
+        if log::set_boxed_logger(Box::new(logger)).is_ok() {
+            log::set_max_level(filter);
+        }
     }
 
     pub fn create_memory_report(&self, snd: GenericCallback<MemoryReportResult>) {
@@ -1165,8 +1166,9 @@ fn set_logger(script_to_constellation_sender: ScriptToConstellationSender) {
     let filter = max(env_logger.filter(), con_logger.filter());
     let logger = BothLogger(env_logger, con_logger);
 
-    log::set_boxed_logger(Box::new(logger)).expect("Failed to set logger.");
-    log::set_max_level(filter);
+    if log::set_boxed_logger(Box::new(logger)).is_ok() {
+        log::set_max_level(filter);
+    }
 }
 
 /// Content process entry point.
