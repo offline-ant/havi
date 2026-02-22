@@ -2588,7 +2588,7 @@ impl HTMLInputElement {
         // Step 4. If color is failure, then set color to opaque black.
         let color = parse_color_value(
             &value.str(),
-            self.owner_document().url().as_url().to_owned(),
+            self.owner_document().url().into_url(),
         );
 
         // Step 5. Set element's value to the result of serializing a color well control color
@@ -2896,7 +2896,7 @@ impl HTMLInputElement {
             let current_value = self.Value();
             let current_color = parse_color_value(
                 &current_value.str(),
-                self.owner_document().url().as_url().to_owned(),
+                self.owner_document().url().into_url(),
             )
             .to_color_space(ColorSpace::Srgb);
             let current_color = RgbColor {

@@ -267,7 +267,8 @@ fn strip_url_for_use_as_referrer(mut url: BrowserUrl, origin_only: bool) -> Opti
         return None;
     }
     // Step 3-6
-    {
+    // HPPR URLs have no username, password, or fragment — skip mutation.
+    if url.as_web_url().is_some() {
         let url = url.as_mut_url();
         let _ = url.set_username("");
         let _ = url.set_password(None);

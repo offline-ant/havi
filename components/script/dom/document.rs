@@ -3348,7 +3348,7 @@ impl Document {
 
         // Step 5. Return the result of applying the URL parser to url, with baseURL and encoding.
         url::Url::options()
-            .base_url(Some(base_url.as_url()))
+            .base_url(base_url.as_web_url())
             .encoding_override(Some(&|input| {
                 servo_url::encoding::encode_as_url_query_string(input, encoding)
             }))

@@ -160,7 +160,6 @@ impl DetectingState {
             encoding_detector.feed(&self.buffered_bytes, is_at_end_of_file == AtEndOfFile::Yes);
             let url = document.url();
             let tld = url
-                .as_url()
                 .domain()
                 .and_then(|domain| domain.rsplit('.').next())
                 .map(|tld| tld.as_bytes());
