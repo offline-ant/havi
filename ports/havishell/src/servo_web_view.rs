@@ -32,6 +32,7 @@ pub enum ServoWebViewAction {
     HoverOver { abs: DVec2 },
     HoverOut,
     Scroll { abs: DVec2, scroll: DVec2 },
+    ScrollStateUpdate { scroll_y: f64, content_height: f64, viewport_height: f64 },
     KeyDown { key_event: KeyEvent },
     KeyUp { key_event: KeyEvent },
     TextInput { input: String },
@@ -63,6 +64,19 @@ pub struct ServoWebView {
     /// frame has been composited.
     #[rust]
     texture: Option<Texture>,
+
+    // --- Scroll indicator overlay ---
+    #[live]
+    draw_scroll_thumb: DrawColor,
+    #[rust]
+    scroll_y: f64,
+    #[rust]
+    content_height: f64,
+    #[rust]
+    viewport_height: f64,
+    /// Opacity for the scroll indicator (1.0 = visible, fades toward 0).
+    #[rust]
+    scroll_fade: f64,
 }
 
 impl Widget for ServoWebView {
@@ -171,7 +185,33 @@ impl Widget for ServoWebView {
             self.draw_bg.draw_vars.empty_texture(0);
         }
 
-        self.draw_bg.draw_walk(cx, walk);
+        let rect = self.draw_bg.draw_walk(cx, walk);
+
+        // Draw scroll indicator overlay
+        if self.scroll_fade > 0.0 && self.content_height > self.viewport_height {
+            let thumb_width = 4.0;
+            let margin_right = 2.0;
+            let widget_h = rect.size.y;
+            let ratio = self.viewport_height / self.content_height;
+            let thumb_h = (ratio * widget_h).max(20.0);
+            let scroll_range = self.content_height - self.viewport_height;
+            let thumb_y = if scroll_range > 0.0 {
+                (self.scroll_y / scroll_range) * (widget_h - thumb_h)
+            } else {
+                0.0
+            };
+            let alpha = (self.scroll_fade * 0.6) as f32;
+            self.draw_scroll_thumb.color = Vec4f { x: 0.5, y: 0.5, z: 0.5, w: alpha };
+            let thumb_rect = Rect {
+                pos: dvec2(
+                    rect.pos.x + rect.size.x - thumb_width - margin_right,
+                    rect.pos.y + thumb_y,
+                ),
+                size: dvec2(thumb_width, thumb_h),
+            };
+            self.draw_scroll_thumb.draw_abs(cx, thumb_rect);
+        }
+
         DrawStep::done()
     }
 }
@@ -210,5 +250,28 @@ impl ServoWebViewRef {
         } else {
             Area::Empty
         }
+    }
+
+    /// Update scroll state from a JS query result and trigger redraw.
+    pub fn set_scroll_state(&self, cx: &mut Cx, scroll_y: f64, content_height: f64, viewport_height: f64) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.scroll_y = scroll_y;
+            inner.content_height = content_height;
+            inner.viewport_height = viewport_height;
+            inner.scroll_fade = 1.0;
+            inner.redraw(cx);
+        }
+    }
+
+    /// Decay the scroll indicator opacity. Returns true if still visible.
+    pub fn tick_scroll_fade(&self, cx: &mut Cx, dt: f64) -> bool {
+        if let Some(mut inner) = self.borrow_mut() {
+            if inner.scroll_fade > 0.0 {
+                inner.scroll_fade = (inner.scroll_fade - dt * 2.0).max(0.0);
+                inner.redraw(cx);
+                return inner.scroll_fade > 0.0;
+            }
+        }
+        false
     }
 }

@@ -441,7 +441,7 @@ const MAX_IDLE_FRAMES: u32 = 10;
 /// Distance threshold (in logical pixels) to distinguish taps from scrolls.
 /// If the finger moves more than this distance from the initial touch point,
 /// the gesture is treated as a scroll; otherwise it's a tap (click).
-const TAP_DISTANCE_THRESHOLD: f64 = 10.0;
+const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
 /// Create a shared GL rendering context by extracting EGL handles from Makepad's
 /// platform-specific context. This context shares texture namespaces with Makepad,
@@ -1430,9 +1430,6 @@ impl MatchEvent for App {
                                         // Mouse drag — send MouseDown at original position
                                         self.is_mouse_dragging = true;
                                         let down_pt = self.point_to_device(cx, down_pos);
-                                        self.send_input_event(servo::InputEvent::MouseMove(
-                                            servo::MouseMoveEvent::new(down_pt.into()),
-                                        ));
                                         self.send_input_event(servo::InputEvent::MouseButton(
                                             MouseButtonEvent::new(
                                                 MouseButtonAction::Down,
@@ -1502,7 +1499,33 @@ impl MatchEvent for App {
                         self.send_input_event(servo::InputEvent::Wheel(
                             servo::WheelEvent::new(delta, pt.into()),
                         ));
+                        // Query scroll position from Servo for the overlay indicator.
+                        if let Some(webview) = self.active_webview() {
+                            webview.evaluate_javascript(
+                                "JSON.stringify({y:window.scrollY,h:document.documentElement.scrollHeight,v:window.innerHeight})",
+                                |result| {
+                                    if let Ok(servo::JSValue::String(json)) = result {
+                                        if let (Some(y), Some(h), Some(v)) = (
+                                            json_extract_f64(&json, "y"),
+                                            json_extract_f64(&json, "h"),
+                                            json_extract_f64(&json, "v"),
+                                        ) {
+                                            Cx::post_action(ServoWebViewAction::ScrollStateUpdate {
+                                                scroll_y: y,
+                                                content_height: h,
+                                                viewport_height: v,
+                                            });
+                                        }
+                                    }
+                                },
+                            );
+                        }
                         handled_input = true;
+                    }
+
+                    ServoWebViewAction::ScrollStateUpdate { scroll_y, content_height, viewport_height } => {
+                        self.ui.servo_web_view(cx, ids!(web_view))
+                            .set_scroll_state(cx, *scroll_y, *content_height, *viewport_height);
                     }
 
                     // ----- Keyboard events -----
@@ -1575,9 +1598,13 @@ impl AppMain for App {
         if let Some(_ne) = self.next_frame.is_event(event) {
             self.update_servo_and_texture(cx);
 
+            // Tick scroll fade animation
+            let scroll_fading = self.ui.servo_web_view(cx, ids!(web_view))
+                .tick_scroll_fade(cx, 1.0 / 60.0);
+
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
-            if self.idle_frames < MAX_IDLE_FRAMES {
+            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading {
                 self.next_frame = cx.new_next_frame();
                 cx.redraw_all();
             }
@@ -1651,6 +1678,16 @@ impl AppMain for App {
 /// Decode percent-encoded JSONqa in HPPR URLs for address bar display.
 /// Mirrors `servo_url::hppr::percent_decode_jsonqa`.
 ///
+/// Extract a numeric value from a simple JSON object string.
+/// Handles `{"key":123.4,...}` without pulling in a JSON parser.
+fn json_extract_f64(json: &str, key: &str) -> Option<f64> {
+    let pattern = format!("\"{}\":", key);
+    let start = json.find(&pattern)? + pattern.len();
+    let rest = &json[start..];
+    let end = rest.find(|c: char| c != '-' && c != '.' && !c.is_ascii_digit())?;
+    rest[..end].parse().ok()
+}
+
 /// Converts `%7B` → `{`, `%7D` → `}`, `%23` → `#` in the JSONqa suffix
 /// of hppr:// URLs so the address bar shows the readable form.
 fn decode_hppr_display(url: &str) -> String {
