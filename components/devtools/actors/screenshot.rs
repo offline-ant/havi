@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base::id::WebViewId;
+use rustc_hash::FxHashMap;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use embedder_traits::{EmbedderMsg, EmbedderProxy};
@@ -25,6 +26,8 @@ pub(crate) struct ScreenshotActor {
     embedder_proxy: EmbedderProxy,
     #[ignore_malloc_size_of = "Mutex"]
     active_webview: Arc<Mutex<Option<WebViewId>>>,
+    #[ignore_malloc_size_of = "Mutex"]
+    webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
 }
 
 impl ScreenshotActor {
@@ -32,11 +35,13 @@ impl ScreenshotActor {
         name: String,
         embedder_proxy: EmbedderProxy,
         active_webview: Arc<Mutex<Option<WebViewId>>>,
+        webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
     ) -> Self {
         Self {
             name,
             embedder_proxy,
             active_webview,
+            webviews_by_browser_id,
         }
     }
 }
@@ -51,12 +56,30 @@ impl Actor for ScreenshotActor {
         request: ClientRequest,
         _registry: &ActorRegistry,
         msg_type: &str,
-        _msg: &Map<String, Value>,
+        msg: &Map<String, Value>,
         _id: StreamId,
     ) -> Result<(), ActorError> {
         match msg_type {
             "capture" => {
-                let webview_id = {
+                let webview_id = if let Some(browser_id) = msg.get("browserId") {
+                    let browser_id = browser_id
+                        .as_u64()
+                        .ok_or(ActorError::BadParameterType)? as u32;
+                    let guard = self
+                        .webviews_by_browser_id
+                        .lock()
+                        .map_err(|_| ActorError::Internal)?;
+                    if let Some(id) = guard.get(&browser_id).copied() {
+                        id
+                    } else {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": "unknown browserId",
+                        });
+                        request.reply_final(&reply)?;
+                        return Ok(());
+                    }
+                } else {
                     let guard = self.active_webview.lock().map_err(|_| ActorError::Internal)?;
                     match *guard {
                         Some(id) => id,

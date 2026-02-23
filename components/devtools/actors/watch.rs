@@ -5,8 +5,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use base::id::WebViewId;
 use embedder_traits::{EmbedderMsg, EmbedderProxy};
 use malloc_size_of_derive::MallocSizeOf;
+use rustc_hash::FxHashMap;
 use serde_json::{Map, Value};
 
 use crate::StreamId;
@@ -19,20 +21,47 @@ pub(crate) struct WatchActor {
     #[ignore_malloc_size_of = "EmbedderProxy"]
     embedder_proxy: EmbedderProxy,
     #[ignore_malloc_size_of = "Mutex"]
-    mode: Arc<Mutex<String>>,
+    active_webview: Arc<Mutex<Option<WebViewId>>>,
+    #[ignore_malloc_size_of = "Mutex"]
+    webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
 }
 
 impl WatchActor {
-    pub fn new(name: String, embedder_proxy: EmbedderProxy, mode: Arc<Mutex<String>>) -> Self {
+    pub fn new(
+        name: String,
+        embedder_proxy: EmbedderProxy,
+        active_webview: Arc<Mutex<Option<WebViewId>>>,
+        webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
+    ) -> Self {
         Self {
             name,
             embedder_proxy,
-            mode,
+            active_webview,
+            webviews_by_browser_id,
         }
     }
 
     fn is_valid_mode(mode: &str) -> bool {
         matches!(mode, "off" | "notify" | "auto" | "dev")
+    }
+
+    fn resolve_webview_id(&self, msg: &Map<String, Value>) -> Result<WebViewId, ActorError> {
+        if let Some(browser_id) = msg.get("browserId") {
+            let browser_id = browser_id
+                .as_u64()
+                .ok_or(ActorError::BadParameterType)? as u32;
+            let guard = self
+                .webviews_by_browser_id
+                .lock()
+                .map_err(|_| ActorError::Internal)?;
+            return guard
+                .get(&browser_id)
+                .copied()
+                .ok_or(ActorError::MissingParameter);
+        }
+
+        let guard = self.active_webview.lock().map_err(|_| ActorError::Internal)?;
+        guard.ok_or(ActorError::MissingParameter)
     }
 }
 
@@ -51,14 +80,23 @@ impl Actor for WatchActor {
     ) -> Result<(), ActorError> {
         match msg_type {
             "getMode" => {
+                let webview_id = match self.resolve_webview_id(msg) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": "unknown browserId",
+                        });
+                        request.reply_final(&reply)?;
+                        return Ok(());
+                    }
+                };
                 let (tx, rx) = crossbeam_channel::bounded(1);
-                self.embedder_proxy.send(EmbedderMsg::WatchGetMode(tx));
+                self.embedder_proxy
+                    .send(EmbedderMsg::WatchGetMode(webview_id, tx));
 
                 match rx.recv_timeout(Duration::from_secs(5)) {
                     Ok(mode) => {
-                        if let Ok(mut guard) = self.mode.lock() {
-                            *guard = mode.clone();
-                        }
                         let reply = serde_json::json!({
                             "from": self.name,
                             "mode": mode,
@@ -66,20 +104,27 @@ impl Actor for WatchActor {
                         request.reply_final(&reply)?;
                     },
                     Err(_) => {
-                        let cached = self
-                            .mode
-                            .lock()
-                            .map(|guard| guard.clone())
-                            .unwrap_or_else(|_| "off".to_string());
                         let reply = serde_json::json!({
                             "from": self.name,
-                            "mode": cached,
+                            "error": "watch timeout",
                         });
                         request.reply_final(&reply)?;
                     },
                 }
             },
             "setMode" => {
+                let webview_id = match self.resolve_webview_id(msg) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": "unknown browserId",
+                        });
+                        request.reply_final(&reply)?;
+                        return Ok(());
+                    }
+                };
+
                 let mode = msg
                     .get("mode")
                     .ok_or(ActorError::MissingParameter)?
@@ -97,13 +142,10 @@ impl Actor for WatchActor {
 
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 self.embedder_proxy
-                    .send(EmbedderMsg::WatchSetMode(mode.to_string(), tx));
+                    .send(EmbedderMsg::WatchSetMode(webview_id, mode.to_string(), tx));
 
                 match rx.recv_timeout(Duration::from_secs(5)) {
                     Ok(mode) => {
-                        if let Ok(mut guard) = self.mode.lock() {
-                            *guard = mode.clone();
-                        }
                         let reply = serde_json::json!({
                             "from": self.name,
                             "mode": mode,

@@ -172,6 +172,8 @@ struct DevtoolsInstance {
     next_resource_id: u64,
     #[ignore_malloc_size_of = "Mutex"]
     active_webview: Arc<Mutex<Option<WebViewId>>>,
+    #[ignore_malloc_size_of = "Mutex"]
+    webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
 }
 
 impl DevtoolsInstance {
@@ -218,11 +220,14 @@ impl DevtoolsInstance {
         RootActor::register(&mut registry);
 
         let active_webview: Arc<Mutex<Option<WebViewId>>> = Arc::new(Mutex::new(None));
+        let webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>> =
+            Arc::new(Mutex::new(FxHashMap::default()));
         let screenshot_name = registry.new_name::<ScreenshotActor>();
         let screenshot_actor = ScreenshotActor::new(
             screenshot_name.clone(),
             embedder.clone(),
             active_webview.clone(),
+            webviews_by_browser_id.clone(),
         );
         registry.register(screenshot_actor);
 
@@ -230,7 +235,8 @@ impl DevtoolsInstance {
         let watch_actor = WatchActor::new(
             watch_name.clone(),
             embedder.clone(),
-            Arc::new(Mutex::new("off".to_string())),
+            active_webview.clone(),
+            webviews_by_browser_id.clone(),
         );
         registry.register(watch_actor);
 
@@ -253,6 +259,7 @@ impl DevtoolsInstance {
             connections: Default::default(),
             next_resource_id: 1,
             active_webview,
+            webviews_by_browser_id,
         };
 
         thread::Builder::new()
@@ -488,6 +495,9 @@ impl DevtoolsInstance {
         let devtools_browser_id = id_map.browser_id(webview_id);
         let devtools_browsing_context_id = id_map.browsing_context_id(browsing_context_id);
         let devtools_outer_window_id = id_map.outer_window_id(pipeline_id);
+        if let Ok(mut map) = self.webviews_by_browser_id.lock() {
+            map.insert(devtools_browser_id.value(), webview_id);
+        }
 
         let console_name = actors.new_name::<ConsoleActor>();
 

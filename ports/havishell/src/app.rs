@@ -295,10 +295,10 @@ pub enum MakepadServoAction {
     NewFrameReady { webview_id: WebViewId },
     /// A webview was closed by page content (window.close()).
     WebViewClosed { webview_id: WebViewId },
-    /// Request current watch mode from app state.
-    WatchGetMode { response_sender: Sender<String> },
-    /// Set watch mode in app state and return resulting mode.
-    WatchSetMode { mode: String, response_sender: Sender<String> },
+    /// Request current watch mode for a specific WebView from app state.
+    WatchGetMode { webview_id: WebViewId, response_sender: Sender<String> },
+    /// Set watch mode for a specific WebView in app state and return resulting mode.
+    WatchSetMode { webview_id: WebViewId, mode: String, response_sender: Sender<String> },
 }
 
 impl Default for MakepadServoAction {
@@ -373,13 +373,14 @@ impl servo::ServoDelegate for HaviServoDelegate {
         request.allow();
     }
 
-    fn watch_get_mode(&self, response_sender: crossbeam_channel::Sender<String>) {
-        Cx::post_action(MakepadServoAction::WatchGetMode { response_sender });
+    fn watch_get_mode(&self, webview_id: WebViewId, response_sender: crossbeam_channel::Sender<String>) {
+        Cx::post_action(MakepadServoAction::WatchGetMode { webview_id, response_sender });
         SignalToUI::set_ui_signal();
     }
 
-    fn watch_set_mode(&self, mode: String, response_sender: crossbeam_channel::Sender<String>) {
+    fn watch_set_mode(&self, webview_id: WebViewId, mode: String, response_sender: crossbeam_channel::Sender<String>) {
         Cx::post_action(MakepadServoAction::WatchSetMode {
+            webview_id,
             mode,
             response_sender,
         });
@@ -1292,29 +1293,37 @@ impl MatchEvent for App {
                         self.close_tab(cx, idx);
                     }
                 }
-                Some(MakepadServoAction::WatchGetMode { response_sender }) => {
+                Some(MakepadServoAction::WatchGetMode { webview_id, response_sender }) => {
                     let mode = self
-                        .tabs
-                        .get(self.active_tab_idx)
+                        .tab_index_for_webview(*webview_id)
+                        .and_then(|idx| self.tabs.get(idx))
                         .map(|tab| mode_to_wire(tab.watch.mode()))
                         .unwrap_or_else(|| "off".to_string());
                     let _ = response_sender.send(mode);
                 }
                 Some(MakepadServoAction::WatchSetMode {
+                    webview_id,
                     mode,
                     response_sender,
                 }) => {
+                    let tab_idx = self.tab_index_for_webview(*webview_id);
                     let new_mode = if let Some(mode) = mode_from_wire(mode) {
-                        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-                            tab.watch.set_mode(mode);
-                            self.ui.button(cx, ids!(watch_btn)).set_text(cx, mode.label());
-                            mode_to_wire(tab.watch.mode())
+                        if let Some(idx) = tab_idx {
+                            if let Some(tab) = self.tabs.get_mut(idx) {
+                                tab.watch.set_mode(mode);
+                                if idx == self.active_tab_idx {
+                                    self.ui.button(cx, ids!(watch_btn)).set_text(cx, mode.label());
+                                }
+                                mode_to_wire(tab.watch.mode())
+                            } else {
+                                "off".to_string()
+                            }
                         } else {
                             "off".to_string()
                         }
                     } else {
-                        self.tabs
-                            .get(self.active_tab_idx)
+                        tab_idx
+                            .and_then(|idx| self.tabs.get(idx))
                             .map(|tab| mode_to_wire(tab.watch.mode()))
                             .unwrap_or_else(|| "off".to_string())
                     };

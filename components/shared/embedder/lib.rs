@@ -607,12 +607,12 @@ pub enum EmbedderMsg {
         HpprControlRequest,
         GenericCallback<HpprControlResponse>,
     ),
-    /// Request current watch mode from embedder (havishell).
+    /// Request current watch mode for a specific WebView from embedder (havishell).
     #[serde(skip)]
-    WatchGetMode(Sender<String>),
-    /// Set watch mode in embedder (havishell) and return resulting mode.
+    WatchGetMode(WebViewId, Sender<String>),
+    /// Set watch mode for a specific WebView in embedder (havishell) and return resulting mode.
     #[serde(skip)]
-    WatchSetMode(String, Sender<String>),
+    WatchSetMode(WebViewId, String, Sender<String>),
     /// Request a screenshot from the devtools debugger.
     #[serde(skip)]
     TakeScreenshot(WebViewId, Sender<Result<image::RgbaImage, ScreenshotCaptureError>>),

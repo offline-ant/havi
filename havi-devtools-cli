@@ -491,12 +491,23 @@ def cmd_screenshot(args):
     client = RDPClient()
     try:
         client.connect("localhost", args.port, timeout=args.timeout)
+        tabs = list_tabs(client, args.timeout)
+        if not tabs:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
+        tab = select_tab(tabs, args.tab, args.text)
+        browser_id = tab.get("browserId")
+        if browser_id is None:
+            output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
+
         root = get_root(client, args.timeout)
         screenshot_actor = root.get("screenshotActor")
         if not screenshot_actor:
             output_error(args.text, EXIT_CONNECTION, "connection", "no screenshot actor available")
 
-        reply = client.send_receive({"to": screenshot_actor, "type": "capture"}, timeout=args.timeout)
+        reply = client.send_receive(
+            {"to": screenshot_actor, "type": "capture", "browserId": browser_id},
+            timeout=args.timeout,
+        )
         if not reply:
             output_error(args.text, EXIT_TIMEOUT, "timeout", "screenshot capture timed out")
         if "error" in reply:
@@ -527,16 +538,27 @@ def cmd_watch(args):
     client = RDPClient()
     try:
         client.connect("localhost", args.port, timeout=args.timeout)
+        tabs = list_tabs(client, args.timeout)
+        if not tabs:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
+        tab = select_tab(tabs, args.tab, args.text)
+        browser_id = tab.get("browserId")
+        if browser_id is None:
+            output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
+
         root = get_root(client, args.timeout)
         watch_actor = root.get("watchActor")
         if not watch_actor:
             output_error(args.text, EXIT_CONNECTION, "connection", "no watch actor available")
 
         if args.mode is None:
-            reply = client.send_receive({"to": watch_actor, "type": "getMode"}, timeout=args.timeout)
+            reply = client.send_receive(
+                {"to": watch_actor, "type": "getMode", "browserId": browser_id},
+                timeout=args.timeout,
+            )
         else:
             reply = client.send_receive(
-                {"to": watch_actor, "type": "setMode", "mode": args.mode},
+                {"to": watch_actor, "type": "setMode", "mode": args.mode, "browserId": browser_id},
                 timeout=args.timeout,
             )
 
@@ -648,10 +670,12 @@ def build_parser():
 
     ps = sub.add_parser("screenshot", help="Capture viewport screenshot as PNG")
     ps.add_argument("file", nargs="?", help="Output file (default: stdout)")
+    add_tab_arg(ps)
 
     pwatch = sub.add_parser("watch", help="Get or set watch mode")
     pwatch.add_argument("mode", nargs="?", choices=["off", "notify", "auto", "dev"],
                         help="Mode to set (omit to query)")
+    add_tab_arg(pwatch)
 
     return p
 
