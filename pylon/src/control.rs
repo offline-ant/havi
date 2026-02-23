@@ -333,9 +333,17 @@ async fn dispatch(
             let Some(name) = req.service.as_deref() else {
                 return Response::err(req.id, "missing 'service' field");
             };
-            match y.start_service(name, &req.args).await {
-                Ok(()) => Response::ok_empty(req.id),
-                Err(e) => Response::err(req.id, e),
+            if name == "hpprd" && !crate::services::hpprd::has_explicit_bind(&req.args) {
+                drop(y);
+                match crate::start_hpprd_auto(pylon, &req.args).await {
+                    Ok(()) => Response::ok_empty(req.id),
+                    Err(e) => Response::err(req.id, e),
+                }
+            } else {
+                match y.start_service(name, &req.args).await {
+                    Ok(()) => Response::ok_empty(req.id),
+                    Err(e) => Response::err(req.id, e),
+                }
             }
         },
         "stop" => {

@@ -25,9 +25,12 @@ pylon --repo <path> --port <port>
 ```
 
 Starts the pylon daemon. Binds a TCP control port (default: 4850) and
-auto-starts hpprd with `--path <path>`. Writes `<pid> <port>` to
-`<repo>/pylon.pid`. Refuses to start if another pylon is already running
-for the same repo.
+auto-starts hpprd with `--path <path>` plus an auto-selected bind in
+`127.0.0.1:14400..127.0.0.1:14450`.
+When no explicit hpprd bind/port is provided, pylon probes this range and
+picks the first free port to avoid cross-repo bind collisions. Writes
+`<pid> <port>` to `<repo>/pylon.pid`. Refuses to start if another pylon is
+already running for the same repo.
 
 Prints `PYLON_BIND=127.0.0.1:<port>` on startup.
 
@@ -68,6 +71,8 @@ pylon unlokid stop                 # stop unlokid
 - `--repo_path <path>`: repository directory (injected by pylon automatically)
 - `--bind <spec>`: bind spec (`host:port`, `ws+host:port`, `quib+host:port`, `udp+host:port`, `unix+/path`, `all+host:port`)
 - `--port <port>`: shorthand for `--bind 127.0.0.1:<port>`
+- default (no bind/port): first free port in `127.0.0.1:14400..14450`
+- if the range is exhausted, `hpprd start` fails with an explicit port-range error
 - `--phc <params>`: Argon2id PHC string (set via `HPPR_PHC` env)
 
 ### lokid Options
@@ -134,6 +139,9 @@ Event broadcast (unsolicited):
 {"event": "service_stopped", "service": "hpprd", "pid": 1234}
 {"event": "command", "cmd": "start", "service": "hpprd"}
 ```
+
+Events can arrive before the response to a request on the same connection.
+Clients must ignore event lines and wait for the matching response `id`.
 
 Command events are emitted for start, stop, mount, unmount, listen, unlisten,
 and shutdown.

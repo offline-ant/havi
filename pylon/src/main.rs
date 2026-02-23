@@ -144,7 +144,8 @@ fn send_command(
         },
     };
 
-    let mut req = serde_json::json!({"id": 1, "cmd": cmd});
+    let req_id = 1u64;
+    let mut req = serde_json::json!({"id": req_id, "cmd": cmd});
     if let Some(svc) = service {
         req["service"] = serde_json::json!(svc);
     }
@@ -162,23 +163,41 @@ fn send_command(
     stream.flush().unwrap();
 
     let mut reader = BufReader::new(&stream);
-    let mut resp_line = String::new();
-    reader.read_line(&mut resp_line).unwrap();
-
-    let resp: serde_json::Value = serde_json::from_str(&resp_line).unwrap_or_default();
-    if resp.get("ok") == Some(&serde_json::json!(true)) {
-        if let Some(data) = resp.get("data") {
-            println!("{}", serde_json::to_string_pretty(data).unwrap());
-        } else {
-            println!("ok");
+    loop {
+        let mut resp_line = String::new();
+        if reader.read_line(&mut resp_line).unwrap_or(0) == 0 {
+            eprintln!("error: connection closed");
+            std::process::exit(1);
         }
-    } else {
-        let err = resp
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown error");
-        eprintln!("error: {}", err);
-        std::process::exit(1);
+
+        let resp: serde_json::Value = match serde_json::from_str(&resp_line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // Ignore unsolicited events and unrelated responses.
+        if resp.get("event").is_some() {
+            continue;
+        }
+        if resp.get("id").and_then(|v| v.as_u64()) != Some(req_id) {
+            continue;
+        }
+
+        if resp.get("ok") == Some(&serde_json::json!(true)) {
+            if let Some(data) = resp.get("data") {
+                println!("{}", serde_json::to_string_pretty(data).unwrap());
+            } else {
+                println!("ok");
+            }
+        } else {
+            let err = resp
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            eprintln!("error: {}", err);
+            std::process::exit(1);
+        }
+        break;
     }
 }
 
