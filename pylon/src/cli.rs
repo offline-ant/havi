@@ -73,70 +73,30 @@ pub fn main(args: Vec<String>) {
             }
         },
 
-        // FUSE commands: pylon fuse <action> [mountpoint] [--args]
-        "fuse" => {
-            let action = positional.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
-                eprintln!("usage: pylon fuse <mount|unmount>");
-                std::process::exit(1);
-            });
-            match action {
-                "mount" => {
-                    let mut extra = parse_kv_args(&positional[2..]);
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra
-                            .entry("mountpoint".to_string())
-                            .or_insert_with(|| pos.clone());
-                    }
-                    send_command("fuse-mount", None, &extra, &repo_path);
-                },
-                "unmount" => {
-                    let mut extra = HashMap::new();
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra.insert("mountpoint".to_string(), pos.clone());
-                    }
-                    send_command("fuse-unmount", None, &extra, &repo_path);
-                },
-                other => {
-                    eprintln!("unknown fuse action: {}", other);
-                    std::process::exit(1);
-                },
+        // Mount commands: pylon mount [mountpoint] [--args]
+        "mount" => {
+            let mut extra = parse_kv_args(&positional[1..]);
+            if let Some(pos) = positional[1..].iter().find(|a| !a.starts_with('-')) {
+                extra
+                    .entry("mountpoint".to_string())
+                    .or_insert_with(|| pos.clone());
             }
+            send_command("mount", None, &extra, &repo_path);
         },
 
-        // FS commands (unified): pylon fs <action> [mountpoint] [--args]
-        "fs" => {
-            let action = positional.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
-                eprintln!("usage: pylon fs <mount|unmount>");
-                std::process::exit(1);
-            });
-            match action {
-                "mount" => {
-                    let mut extra = parse_kv_args(&positional[2..]);
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra
-                            .entry("mountpoint".to_string())
-                            .or_insert_with(|| pos.clone());
-                    }
-                    send_command("fs-mount", None, &extra, &repo_path);
-                },
-                "unmount" => {
-                    let mut extra = HashMap::new();
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra.insert("mountpoint".to_string(), pos.clone());
-                    }
-                    send_command("fs-unmount", None, &extra, &repo_path);
-                },
-                other => {
-                    eprintln!("unknown fs action: {}", other);
-                    std::process::exit(1);
-                },
+        // Unmount commands: pylon unmount [mountpoint]
+        "unmount" => {
+            let mut extra = HashMap::new();
+            if let Some(pos) = positional[1..].iter().find(|a| !a.starts_with('-')) {
+                extra.insert("mountpoint".to_string(), pos.clone());
             }
+            send_command("unmount", None, &extra, &repo_path);
         },
 
-        // NFS commands: pylon nfs <action> [mountpoint] [--args]
+        // NFS commands: pylon nfs <start|stop>
         "nfs" => {
             let action = positional.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
-                eprintln!("usage: pylon nfs <start|stop|mount|unmount>");
+                eprintln!("usage: pylon nfs <start|stop>");
                 std::process::exit(1);
             });
             match action {
@@ -146,22 +106,6 @@ pub fn main(args: Vec<String>) {
                 },
                 "stop" => {
                     send_command("stop", Some("hppr-nfs"), &HashMap::new(), &repo_path);
-                },
-                "mount" => {
-                    let mut extra = parse_kv_args(&positional[2..]);
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra
-                            .entry("mountpoint".to_string())
-                            .or_insert_with(|| pos.clone());
-                    }
-                    send_command("mount", None, &extra, &repo_path);
-                },
-                "unmount" => {
-                    let mut extra = HashMap::new();
-                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra.insert("mountpoint".to_string(), pos.clone());
-                    }
-                    send_command("unmount", None, &extra, &repo_path);
                 },
                 other => {
                     eprintln!("unknown nfs action: {}", other);
@@ -296,7 +240,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Global commands:");
     eprintln!("  pylon status                     Show all service status + mounts");
-    eprintln!("  pylon mounts                     List active NFS mounts");
+    eprintln!("  pylon mounts                     List active mounts");
     eprintln!("  pylon shutdown                   Stop all services and exit");
     eprintln!();
     eprintln!("Service commands:");
@@ -309,26 +253,18 @@ fn print_usage() {
     eprintln!("  pylon unlokid start [--k v]      Start unlokid");
     eprintln!("  pylon unlokid stop               Stop unlokid");
     eprintln!();
-    eprintln!("FS commands (unified, auto-selects FUSE on Linux, NFS elsewhere):");
-    eprintln!("  pylon fs mount [path] [--k v]    Mount filesystem");
-    eprintln!("  pylon fs unmount [path]          Unmount filesystem");
-    eprintln!();
-    eprintln!("FUSE commands (Linux only):");
-    eprintln!("  pylon fuse mount [path] [--k v]  Start hppr-fuse (mounts directly)");
-    eprintln!("  pylon fuse unmount [path]        Unmount + stop hppr-fuse");
+    eprintln!("Mount commands (auto-selects FUSE on Linux, NFS elsewhere):");
+    eprintln!("  pylon mount [path] [--k v]       Mount filesystem");
+    eprintln!("  pylon unmount [path]             Unmount filesystem");
     eprintln!();
     eprintln!("NFS commands:");
     eprintln!("  pylon nfs start [--k v]          Start hppr-nfs server");
     eprintln!("  pylon nfs stop                   Stop hppr-nfs server");
-    eprintln!("  pylon nfs mount [path] [--k v]   Start hppr-nfs + OS mount");
-    eprintln!("  pylon nfs unmount [path]         OS unmount");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  pylon hpprd start --repo_path /data/repo --bind 127.0.0.1:4777");
     eprintln!("  pylon hpprd listen --bind ws+127.0.0.1:4778");
     eprintln!("  pylon hpprd unlisten --bind ws:127.0.0.1:4778");
-    eprintln!("  pylon fs mount /mnt/hppr --root //u/");
-    eprintln!("  pylon fs unmount /mnt/hppr");
-    eprintln!("  pylon nfs mount /mnt/hppr --root //u/");
-    eprintln!("  pylon nfs unmount /mnt/hppr");
+    eprintln!("  pylon mount /mnt/hppr --root //u/");
+    eprintln!("  pylon unmount /mnt/hppr");
 }

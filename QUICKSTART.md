@@ -111,9 +111,9 @@ Import a local directory into home repo:
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
 export HPPR_SIGNER='!ring0/init'
-pylon nfs mount /mnt/hppr --root //u/showcase --rw --seal-with oldest
+pylon mount /mnt/hppr --root //u/showcase --rw --seal-with oldest
 cp -a showcase/. /mnt/hppr/
-pylon nfs unmount /mnt/hppr
+pylon unmount /mnt/hppr
 ```
 
 Open in HAVI address bar:
@@ -175,9 +175,9 @@ cat > /tmp/index.html <<'HTML'
 })();
 </script>
 HTML
-pylon nfs mount /mnt/hppr --root //u/demo/site --rw --seal-with oldest
+pylon mount /mnt/hppr --root //u/demo/site --rw --seal-with oldest
 cp -a /tmp/. /mnt/hppr/
-pylon nfs unmount /mnt/hppr
+pylon unmount /mnt/hppr
 ```
 
 Open:

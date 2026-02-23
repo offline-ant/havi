@@ -391,8 +391,7 @@ async fn dispatch(
 ) -> Response {
     // Emit command event for mutating commands
     match req.cmd.as_str() {
-        "start" | "stop" | "mount" | "unmount" | "listen" | "unlisten" | "shutdown"
-        | "fuse-mount" | "fuse-unmount" | "fs-mount" | "fs-unmount" => {
+        "start" | "stop" | "mount" | "unmount" | "listen" | "unlisten" | "shutdown" => {
             let mut ev = serde_json::json!({"event": "command", "cmd": req.cmd});
             if let Some(ref svc) = req.service {
                 ev["service"] = serde_json::json!(svc);
@@ -465,52 +464,13 @@ async fn dispatch(
             }
         },
         "mount" => {
-            // Mount needs to release the lock between polls so the state
-            // update loop can process hppr-nfs port events.
-            drop(y);
-            match mount_flow(pylon, &req.args).await {
-                Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
-                Err(e) => Response::err(req.id, e),
-            }
-        },
-        "unmount" => {
-            let mountpoint = req
-                .args
-                .get("mountpoint")
-                .and_then(|v| v.as_str())
-                .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
-            match crate::mount::unmount(mountpoint).await {
-                Ok(()) => Response::ok_empty(req.id),
-                Err(e) => Response::err(req.id, e),
-            }
-        },
-        "fuse-mount" => {
-            drop(y);
-            match fuse_mount_flow(pylon, &req.args).await {
-                Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
-                Err(e) => Response::err(req.id, e),
-            }
-        },
-        "fuse-unmount" => {
-            let mountpoint = req
-                .args
-                .get("mountpoint")
-                .and_then(|v| v.as_str())
-                .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
-            drop(y);
-            match fuse_unmount_flow(pylon, mountpoint).await {
-                Ok(()) => Response::ok_empty(req.id),
-                Err(e) => Response::err(req.id, e),
-            }
-        },
-        "fs-mount" => {
             drop(y);
             match fs_mount_flow(pylon, &req.args).await {
                 Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
                 Err(e) => Response::err(req.id, e),
             }
         },
-        "fs-unmount" => {
+        "unmount" => {
             let mountpoint = req
                 .args
                 .get("mountpoint")
