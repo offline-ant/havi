@@ -1,12 +1,12 @@
-//! OS-level mount/unmount for hppr-fs NFS.
+//! OS-level mount/unmount for hppr-nfs NFS.
 
 /// Default mountpoint.
 pub const DEFAULT_MOUNTPOINT: &str = "/mnt/hppr";
 
-/// Mount hppr-fs NFS share.
+/// Mount hppr-nfs NFS share.
 ///
-/// `bind` is the hppr-fs bind address (e.g. "127.0.0.1").
-/// `port` is the hppr-fs NFS port.
+/// `bind` is the hppr-nfs bind address (e.g. "127.0.0.1").
+/// `port` is the hppr-nfs NFS port.
 /// `mountpoint` is the local directory to mount on.
 pub async fn mount(bind: &str, port: u16, mountpoint: &str) -> Result<(), String> {
     // Create mountpoint if it doesn't exist

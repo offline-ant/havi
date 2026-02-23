@@ -1,4 +1,4 @@
-//! hppr-fs service definition.
+//! hppr-nfs service definition.
 
 use std::collections::HashMap;
 use super::{str_arg, bool_arg};
@@ -6,7 +6,7 @@ use super::{str_arg, bool_arg};
 pub fn resolve(
     args: &HashMap<String, serde_json::Value>,
 ) -> Result<super::ServiceCommand, String> {
-    let program = str_arg(args, "program").unwrap_or_else(|| "hppr-fs".to_string());
+    let program = str_arg(args, "program").unwrap_or_else(|| "hppr-nfs".to_string());
     let mut cmd_args = Vec::new();
     let env = HashMap::new();
 
@@ -34,5 +34,5 @@ pub fn resolve(
         cmd_args.push("--rw".to_string());
     }
 
-    Ok((program, cmd_args, env, "hppr-fs listening on ".to_string()))
+    Ok((program, cmd_args, env, "hppr-nfs listening on ".to_string()))
 }

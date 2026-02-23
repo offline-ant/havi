@@ -20,7 +20,7 @@ In packaged artifacts, specs are under `docs/spec/havi/` and `docs/spec/hppr/`.
 - `havi-cli` — Orchestrator (publish, trust, navigate)
 - `havi-makepad-cli` — Makepad UI control via Unix socket
 - `havi-devtools-cli` — DevTools protocol client
-- `hppr`, `hpprd`, `mkpac`, `ckpac`, `hppr-fs` — HPPR tooling
+- `hppr`, `hpprd`, `mkpac`, `ckpac`, `hppr-nfs` — HPPR tooling
 
 ## Start
 

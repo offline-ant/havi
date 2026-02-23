@@ -85,10 +85,10 @@ fn main() {
             match action {
                 "start" => {
                     let extra = parse_kv_args(&positional[2..]);
-                    send_command("start", Some("hppr-fs"), &extra, &repo_path);
+                    send_command("start", Some("hppr-nfs"), &extra, &repo_path);
                 },
                 "stop" => {
-                    send_command("stop", Some("hppr-fs"), &HashMap::new(), &repo_path);
+                    send_command("stop", Some("hppr-nfs"), &HashMap::new(), &repo_path);
                 },
                 "mount" => {
                     let mut extra = parse_kv_args(&positional[2..]);
@@ -253,9 +253,9 @@ fn print_usage() {
     eprintln!("  pylon unlokid stop               Stop unlokid");
     eprintln!();
     eprintln!("NFS commands:");
-    eprintln!("  pylon nfs start [--k v]          Start hppr-fs server");
-    eprintln!("  pylon nfs stop                   Stop hppr-fs server");
-    eprintln!("  pylon nfs mount [path] [--k v]   Start hppr-fs + OS mount");
+    eprintln!("  pylon nfs start [--k v]          Start hppr-nfs server");
+    eprintln!("  pylon nfs stop                   Stop hppr-nfs server");
+    eprintln!("  pylon nfs mount [path] [--k v]   Start hppr-nfs + OS mount");
     eprintln!("  pylon nfs unmount [path]         OS unmount");
     eprintln!();
     eprintln!("Examples:");

@@ -164,7 +164,7 @@ async fn handle_client(
     let _ = write_handle.await;
 }
 
-/// Mount flow: starts hppr-fs if needed, polls for port (releasing the lock
+/// Mount flow: starts hppr-nfs if needed, polls for port (releasing the lock
 /// between polls so the state update loop can process events), then runs the
 /// OS mount command.
 async fn mount_flow(
@@ -177,11 +177,11 @@ async fn mount_flow(
         .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT)
         .to_string();
 
-    // Start hppr-fs if stopped
+    // Start hppr-nfs if stopped
     {
         let mut y = pylon.lock().await;
-        if y.hppr_fs_stopped() {
-            y.start_service("hppr-fs", args).await?;
+        if y.hppr_nfs_stopped() {
+            y.start_service("hppr-nfs", args).await?;
         }
     }
 
@@ -190,14 +190,14 @@ async fn mount_flow(
     for _ in 0..30 {
         {
             let y = pylon.lock().await;
-            if let Some(p) = y.hppr_fs_port() {
+            if let Some(p) = y.hppr_nfs_port() {
                 port = Some(p);
                 break;
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    let port = port.ok_or("hppr-fs did not report a port")?;
+    let port = port.ok_or("hppr-nfs did not report a port")?;
 
     let bind = args
         .get("bind")
@@ -369,7 +369,7 @@ async fn dispatch(
         },
         "mount" => {
             // Mount needs to release the lock between polls so the state
-            // update loop can process hppr-fs port events.
+            // update loop can process hppr-nfs port events.
             drop(y);
             match mount_flow(&pylon, &req.args).await {
                 Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),

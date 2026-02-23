@@ -1,6 +1,6 @@
 //! pylon: HPPR service manager.
 //!
-//! Manages hpprd and satellite services (lokid, unlokid, hppr-fs) as child
+//! Manages hpprd and satellite services (lokid, unlokid, hppr-nfs) as child
 //! processes. Exposes a TCP JSON lines control protocol.
 //!
 //! Use as a library (in-process, e.g. from HAVI) or as a standalone binary.
@@ -92,7 +92,7 @@ impl Pylon {
             if let Some(ref addr) = self.hpprd_addr {
                 if !args.contains_key("home") {
                     match name {
-                        "hppr-fs" | "unlokid" => {
+                        "hppr-nfs" | "unlokid" => {
                             args.insert("home".to_string(), serde_json::json!(addr));
                         },
                         _ => {},
@@ -164,15 +164,15 @@ impl Pylon {
         self.services.get("hpprd").map_or(State::Stopped, |s| s.state)
     }
 
-    /// Get the hppr-fs port if running.
-    pub fn hppr_fs_port(&self) -> Option<u16> {
-        self.services.get("hppr-fs").and_then(|s| s.port)
+    /// Get the hppr-nfs port if running.
+    pub fn hppr_nfs_port(&self) -> Option<u16> {
+        self.services.get("hppr-nfs").and_then(|s| s.port)
     }
 
-    /// Is hppr-fs stopped?
-    pub fn hppr_fs_stopped(&self) -> bool {
+    /// Is hppr-nfs stopped?
+    pub fn hppr_nfs_stopped(&self) -> bool {
         self.services
-            .get("hppr-fs")
+            .get("hppr-nfs")
             .map_or(true, |s| s.state == State::Stopped)
     }
 
@@ -196,7 +196,7 @@ impl Pylon {
     /// Shutdown all services.
     pub async fn shutdown(&mut self) {
         // Stop in reverse dependency order: satellites first, then hpprd
-        for name in &["hppr-fs", "unlokid", "lokid", "hpprd"] {
+        for name in &["hppr-nfs", "unlokid", "lokid", "hpprd"] {
             if let Some(svc) = self.services.get_mut(*name) {
                 if svc.state != State::Stopped {
                     let _ = svc.stop().await;

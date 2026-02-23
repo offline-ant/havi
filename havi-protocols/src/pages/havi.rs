@@ -16,7 +16,7 @@
 //! - /ring2: Group membership management (stub)
 //! - /ring1: View account requests (stub)
 //! - /ring0: Ring0 proxy page for ring1 proxy requests
-//! - /services: Pylon service manager (start/stop hpprd, lokid, unlokid, hppr-fs)
+//! - /services: Pylon service manager (start/stop hpprd, lokid, unlokid, hppr-nfs)
 
 use crate::PageResponse;
 use crate::client::get_admin_credentials;
@@ -313,7 +313,7 @@ fn render_dashboard() -> String {
         <p><a href="havi:///ring2">Ring2</a> - Manage group membership</p>
         <p><a href="havi:///ring1">Ring1</a> - Manage ring1 accounts and requests</p>
         <p><a href="havi:///ring0">Ring0 Proxy</a> - Review and approve ring1 proxy requests</p>
-        <p><a href="havi:///services">Services</a> - Pylon service manager (hpprd, lokid, unlokid, hppr-fs)</p>
+        <p><a href="havi:///services">Services</a> - Pylon service manager (hpprd, lokid, unlokid, hppr-nfs)</p>
     </div>"#)
 }
 
@@ -785,7 +785,7 @@ fn render_services_page() -> String {
     <div class="card">
         <h2>Services</h2>
         <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            Managed services: hpprd, lokid, unlokid, hppr-fs.
+            Managed services: hpprd, lokid, unlokid, hppr-nfs.
         </p>
         <div id="servicesList"><p class="empty">Loading...</p></div>
         <div style="margin-top: 15px;">

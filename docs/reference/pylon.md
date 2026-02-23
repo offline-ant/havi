@@ -1,7 +1,7 @@
 # pylon Reference
 
 Service manager for the HPPR ecosystem. Manages hpprd and satellite services
-(lokid, unlokid, hppr-fs) as child processes. TCP JSON lines control protocol
+(lokid, unlokid, hppr-nfs) as child processes. TCP JSON lines control protocol
 on localhost.
 
 Each pylon instance is bound to one hpprd repository directory. The PID file
@@ -83,15 +83,15 @@ pylon unlokid stop                 # stop unlokid
 ## NFS Commands
 
 ```bash
-pylon nfs start [--k v]            # start hppr-fs server
-pylon nfs stop                     # stop hppr-fs server
-pylon nfs mount [<mountpoint>]     # start hppr-fs + OS mount
+pylon nfs start [--k v]            # start hppr-nfs server
+pylon nfs stop                     # stop hppr-nfs server
+pylon nfs mount [<mountpoint>]     # start hppr-nfs + OS mount
 pylon nfs unmount [<mountpoint>]   # OS unmount
 ```
 
 Default mountpoint: `/mnt/hppr`.
 
-### hppr-fs / mount Options
+### hppr-nfs / mount Options
 
 - `--home <addr>`: remote repository address
 - `--root <coordinate>`: root coordinate (default: `//'`)
@@ -99,7 +99,7 @@ Default mountpoint: `/mnt/hppr`.
 - `--signer <signer>`: authentication identity
 - `--rw`: enable write support
 
-`pylon nfs mount` starts hppr-fs if not already running, waits for the NFS
+`pylon nfs mount` starts hppr-nfs if not already running, waits for the NFS
 port, then executes the platform mount command.
 
 ## Control Protocol

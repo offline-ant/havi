@@ -128,7 +128,7 @@ impl ManagedService {
                         if let Some(rest) = line.strip_prefix(&pattern) {
                             // Extract port from pattern value.
                             // For HPPRD_LISTEN=tcp+host:port,quib+..., find first tcp+ entry.
-                            // For simpler patterns like "hppr-fs listening on host:port", parse directly.
+                            // For simpler patterns like "hppr-nfs listening on host:port", parse directly.
                             let port_str = rest
                                 .split(',')
                                 .find_map(|entry| entry.trim().strip_prefix("tcp+"))

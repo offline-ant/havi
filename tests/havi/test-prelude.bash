@@ -29,7 +29,7 @@ cargo build -q --manifest-path "$HPPR_ROOT/hpprd/Cargo.toml" --bin hpprd
 # hppr binaries from cargo build, shell tools from hppr/bin/
 export PATH="$HPPR_ROOT/target/debug:$HPPR_ROOT/bin:$PATH"
 HPPR="$HPPR_ROOT/target/debug/hppr"
-HPPR_FS="$HPPR_ROOT/target/debug/hppr-fs"
+HPPR_FS="$HPPR_ROOT/target/debug/hppr-nfs"
 
 echo "--- CLI versions ---"
 "$HAVI_ROOT/target/debug/havi" --version || true
@@ -201,7 +201,7 @@ setup_remote_acl() {
         $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
 }
 
-# Start hppr-fs, mount, and export FS_MNT / FS_PID / FS_PORT.
+# Start hppr-nfs, mount, and export FS_MNT / FS_PID / FS_PORT.
 # Call fs_unmount to clean up.
 # Usage: fs_mount <home> <signer> <root> [--seal-with <key>]
 fs_mount() {
@@ -229,7 +229,7 @@ fs_mount() {
         if ((i > 50)); then
             kill "$FS_PID" 2>/dev/null || true
             rm -rf "$FS_MNT"
-            echo "ERROR: hppr-fs did not start on port $FS_PORT" >&2
+            echo "ERROR: hppr-nfs did not start on port $FS_PORT" >&2
             return 1
         fi
     done
@@ -238,7 +238,7 @@ fs_mount() {
         "127.0.0.1:/" "$FS_MNT"
 }
 
-# Unmount and stop hppr-fs started by fs_mount.
+# Unmount and stop hppr-nfs started by fs_mount.
 fs_unmount() {
     sudo umount "$FS_MNT" 2>/dev/null || true
     kill "$FS_PID" 2>/dev/null || true
@@ -251,7 +251,7 @@ _pick_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
 }
 
-# Import content directory as sealed packets via hppr-fs mount + cp.
+# Import content directory as sealed packets via hppr-nfs mount + cp.
 import_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "$HPPR_HOME" "!ring0/init" "//$group/$app" --seal-with oldest
@@ -259,7 +259,7 @@ import_content() {
     fs_unmount
 }
 
-# Import content to remote repo via hppr-fs mount + cp.
+# Import content to remote repo via hppr-nfs mount + cp.
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "!ring0/init" "//$group/$app" --seal-with oldest
