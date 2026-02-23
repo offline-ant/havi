@@ -824,7 +824,8 @@ def _run_desktop_makepad_socket(cmd: list[str], env: dict[str, str]) -> int:
     client_bufs: dict[int, str] = {}  # fd -> partial line buffer
 
     # Wait for ReadyToStart from HAVI stdout.
-    ready = threading.Event()
+    ready = threading.Event()       # set on ReadyToStart OR stdout EOF
+    got_ready = threading.Event()   # set only on actual ReadyToStart
     havi_lines: list[str] = []
     stdout_lock = threading.Lock()
     devtools_addr: list[str] = []
@@ -842,6 +843,7 @@ def _run_desktop_makepad_socket(cmd: list[str], env: dict[str, str]) -> int:
             try:
                 msg = json.loads(line)
                 if isinstance(msg, dict) and "ReadyToStart" in msg:
+                    got_ready.set()
                     ready.set()
             except json.JSONDecodeError:
                 # Not JSON — might be stderr leak or log line.  Print it.
@@ -864,11 +866,27 @@ def _run_desktop_makepad_socket(cmd: list[str], env: dict[str, str]) -> int:
                     client_bufs.pop(id(c), None)
                     c.close()
 
+        # stdout EOF — HAVI process died. Unblock the wait.
+        ready.set()
+
     reader = threading.Thread(target=_read_havi_stdout, daemon=True)
     reader.start()
 
     ready.wait(timeout=30)
-    if not ready.is_set():
+
+    # Detect startup crash: process exited before sending ReadyToStart.
+    rc = havi_proc.poll()
+    if rc is not None and not got_ready.is_set():
+        print(f"[mach-havi] HAVI crashed during startup (exit code {rc})",
+              file=sys.stderr)
+        server.close()
+        try:
+            os.unlink(sock_path)
+        except FileNotFoundError:
+            pass
+        return rc
+
+    if not got_ready.is_set():
         print("[mach-havi] warning: HAVI did not send ReadyToStart within 30s",
               file=sys.stderr)
 
