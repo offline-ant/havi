@@ -282,6 +282,12 @@ def setup_desktop_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("CC", "clang")
     env.setdefault("CXX", "clang++")
+    # Match Makepad Studio's build_server which sets MAKEPAD=lines so that
+    # cfg(lines) is consistent between CLI builds and Studio builds.  Without
+    # this, switching between mach-havi build and Studio triggers a full
+    # rebuild because makepad-platform's build.rs declares
+    # cargo:rerun-if-env-changed=MAKEPAD.
+    env.setdefault("MAKEPAD", "lines")
     # Ensure XAUTHORITY is set so stdin-loop children can connect to XWayland.
     if "XAUTHORITY" not in env:
         xauth = _find_xauthority()
