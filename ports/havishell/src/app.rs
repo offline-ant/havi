@@ -849,6 +849,9 @@ impl App {
         // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
         self.ui.view(cx, ids!(caption_bar)).set_visible(cx, false);
 
+        // Hide macOS traffic light buttons — HAVI uses its own window controls
+        cx.push_unique_platform_op(CxOsOp::HideWindowButtons(CxWindowPool::id_zero()));
+
         // In Makepad Studio's RunView, window control buttons are meaningless —
         // the child process doesn't own a real window.
         if cx.in_makepad_studio {

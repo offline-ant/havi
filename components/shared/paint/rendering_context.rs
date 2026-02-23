@@ -1105,8 +1105,7 @@ const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
 const GL_BGRA: u32 = 0x80E1;
 #[cfg(target_os = "macos")]
 const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
-#[cfg(target_os = "macos")]
-const GL_STENCIL_INDEX8: u32 = 0x8D48;
+
 
 #[cfg(target_os = "macos")]
 #[expect(unsafe_code)]
@@ -1288,34 +1287,25 @@ impl MacosRenderingContext {
             0,
         );
 
-        // Depth renderbuffer
-        let depth = gleam_gl.gen_renderbuffers(1)[0];
-        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, depth);
-        gleam_gl.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, w, h);
+        // Combined depth+stencil renderbuffer (separate attachments are
+        // GL_FRAMEBUFFER_UNSUPPORTED with GL_TEXTURE_RECTANGLE on Intel GPUs)
+        let depth_stencil = gleam_gl.gen_renderbuffers(1)[0];
+        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, depth_stencil);
+        gleam_gl.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH24_STENCIL8, w, h);
         gleam_gl.framebuffer_renderbuffer(
             gl::FRAMEBUFFER,
-            gl::DEPTH_ATTACHMENT,
+            gl::DEPTH_STENCIL_ATTACHMENT,
             gl::RENDERBUFFER,
-            depth,
+            depth_stencil,
         );
-
-        // Stencil renderbuffer
-        let stencil = gleam_gl.gen_renderbuffers(1)[0];
-        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, stencil);
-        gleam_gl.renderbuffer_storage(gl::RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
-        gleam_gl.framebuffer_renderbuffer(
-            gl::FRAMEBUFFER,
-            gl::STENCIL_ATTACHMENT,
-            gl::RENDERBUFFER,
-            stencil,
-        );
+        let depth = depth_stencil;
+        let stencil = depth_stencil;
 
         // Check completeness
         let status = gleam_gl.check_frame_buffer_status(gl::FRAMEBUFFER);
         if status != gl::FRAMEBUFFER_COMPLETE {
-            warn!("MacosRenderingContext: FBO incomplete, status=0x{:x}", status);
             gleam_gl.delete_framebuffers(&[fbo]);
-            gleam_gl.delete_renderbuffers(&[depth, stencil]);
+            gleam_gl.delete_renderbuffers(&[depth]);
             gleam_gl.delete_textures(&[tex]);
             return Err(Error::Failed);
         }
@@ -1327,8 +1317,9 @@ impl MacosRenderingContext {
     fn delete_fbo_resources(&self) {
         self.gleam_gl
             .delete_framebuffers(&[self.fbo_id.get()]);
+        // depth_rbo and stencil_rbo are the same combined renderbuffer
         self.gleam_gl
-            .delete_renderbuffers(&[self.depth_rbo.get(), self.stencil_rbo.get()]);
+            .delete_renderbuffers(&[self.depth_rbo.get()]);
         self.gleam_gl
             .delete_textures(&[self.texture_id.get()]);
     }
