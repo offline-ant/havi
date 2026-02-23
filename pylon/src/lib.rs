@@ -13,12 +13,19 @@ pub mod service;
 pub mod services;
 
 mod libc {
+    // TODO: Windows: LockFileEx
     unsafe extern "C" {
-        pub fn kill(pid: i32, sig: i32) -> i32;
+        pub fn flock(fd: i32, operation: i32) -> i32;
     }
+    pub const LOCK_EX: i32 = 2;
+    pub const LOCK_NB: i32 = 4;
+    pub const EWOULDBLOCK: i32 = 11;
 }
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -238,12 +245,9 @@ async fn bind_control_port(port: Option<u16>) -> Result<tokio::net::TcpListener,
 /// If `port` is `None`, scans `DEFAULT_PORT..=DEFAULT_PORT_END` for a free
 /// port, falling back to a random OS-assigned port.
 pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
-    // Check for existing pylon process
-    if let Some((pid, _)) = read_pid_file(&repo_path) {
-        if process_alive(pid) {
-            return Err(format!("pylon already running (pid {})", pid));
-        }
-    }
+    // Acquire exclusive flock on PID file — prevents dual instances.
+    // The lock is held for the process lifetime via _pid_lock.
+    let _pid_lock = acquire_pid_lock(&repo_path)?;
 
     let listener = bind_control_port(port).await?;
     let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
@@ -305,13 +309,50 @@ pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn process_alive(pid: u32) -> bool {
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+/// Acquire exclusive flock on the PID file.
+///
+/// Returns the locked file handle. Keep it alive to maintain the lock —
+/// the kernel releases it automatically when the process exits (including
+/// SIGKILL).
+fn acquire_pid_lock(repo_path: &Path) -> Result<File, String> {
+    let _ = std::fs::create_dir_all(repo_path);
+    let pid_path = repo_path.join(PID_FILENAME);
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&pid_path)
+        .map_err(|e| format!("open PID file {}: {}", pid_path.display(), e))?;
+
+    let fd = file.as_raw_fd();
+    let result = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+
+    if result != 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            // Another pylon holds the lock — read PID for diagnostics
+            let content = std::fs::read_to_string(&pid_path).unwrap_or_default();
+            let pid = content.split_whitespace().next().unwrap_or("unknown");
+            return Err(format!("pylon already running (pid {})", pid));
+        }
+        return Err(format!("flock PID file: {}", err));
+    }
+
+    Ok(file)
 }
 
 fn write_pid_file(repo_path: &Path, pid: u32, port: u16) {
-    let _ = std::fs::create_dir_all(repo_path);
-    let _ = std::fs::write(repo_path.join(PID_FILENAME), format!("{} {}\n", pid, port));
+    let pid_path = repo_path.join(PID_FILENAME);
+    // Truncate and write — file is already locked by acquire_pid_lock.
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&pid_path)
+    {
+        let _ = writeln!(f, "{} {}", pid, port);
+    }
 }
 
 fn remove_pid_file(repo_path: &Path) {

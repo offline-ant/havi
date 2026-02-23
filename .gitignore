@@ -78,3 +78,4 @@ support/macos/Brewfile.lock.json
 # Justfiles
 justfile
 **/dist/
+/repo/
