@@ -14,22 +14,15 @@ use surfman::{
 };
 use webgl::webgl_thread::WebGLContextBusyMap;
 
-/// Bridge between the webrender::ExternalImage callbacks and the WebGLThreads.
-pub struct WebGLExternalImages {
-    webgl_threads: WebGLThreads,
-    surfman_device: Device,
-    surfman_context: Context,
-    swap_chains: SwapChains<WebGLContextId, Device>,
-    busy_webgl_context_map: WebGLContextBusyMap,
-    locked_front_buffers: FxHashMap<WebGLContextId, SurfaceTexture>,
+/// Surfman device and context for surface-to-texture import, created lazily
+/// to avoid disrupting the main GL context during painter initialization.
+struct SurfmanState {
+    device: Device,
+    context: Context,
 }
 
-impl WebGLExternalImages {
-    pub fn new(
-        webgl_threads: WebGLThreads,
-        swap_chains: SwapChains<WebGLContextId, Device>,
-        busy_webgl_context_map: WebGLContextBusyMap,
-    ) -> Self {
+impl SurfmanState {
+    fn new() -> Self {
         let connection = Connection::new()
             .expect("Failed to create surfman connection for WebGL texture sharing");
         let adapter = connection
@@ -53,14 +46,43 @@ impl WebGLExternalImages {
             .create_context(&context_descriptor, None)
             .expect("Failed to create surfman context");
 
+        Self { device, context }
+    }
+}
+
+impl Drop for SurfmanState {
+    fn drop(&mut self) {
+        let _ = self.device.destroy_context(&mut self.context);
+    }
+}
+
+/// Bridge between the webrender::ExternalImage callbacks and the WebGLThreads.
+pub struct WebGLExternalImages {
+    webgl_threads: WebGLThreads,
+    surfman: Option<SurfmanState>,
+    swap_chains: SwapChains<WebGLContextId, Device>,
+    busy_webgl_context_map: WebGLContextBusyMap,
+    locked_front_buffers: FxHashMap<WebGLContextId, SurfaceTexture>,
+}
+
+impl WebGLExternalImages {
+    pub fn new(
+        webgl_threads: WebGLThreads,
+        swap_chains: SwapChains<WebGLContextId, Device>,
+        busy_webgl_context_map: WebGLContextBusyMap,
+    ) -> Self {
         Self {
             webgl_threads,
-            surfman_device: device,
-            surfman_context: context,
+            surfman: None,
             swap_chains,
             busy_webgl_context_map,
             locked_front_buffers: FxHashMap::default(),
         }
+    }
+
+    /// Returns the surfman state, creating it on first use.
+    fn surfman(&mut self) -> &mut SurfmanState {
+        self.surfman.get_or_insert_with(SurfmanState::new)
     }
 
     fn lock_swap_chain(&mut self, id: WebGLContextId) -> Option<(u32, Size2D<i32>)> {
@@ -72,13 +94,14 @@ impl WebGLExternalImages {
         }
 
         let front_buffer = self.swap_chains.get(id)?.take_surface()?;
-        let SurfaceInfo { size, .. } = self.surfman_device.surface_info(&front_buffer);
-        let surface_texture = self
-            .surfman_device
-            .create_surface_texture(&mut self.surfman_context, front_buffer)
+        let surfman = self.surfman();
+        let SurfaceInfo { size, .. } = surfman.device.surface_info(&front_buffer);
+        let surface_texture = surfman
+            .device
+            .create_surface_texture(&mut surfman.context, front_buffer)
             .unwrap();
-        let gl_texture = self
-            .surfman_device
+        let gl_texture = surfman
+            .device
             .surface_texture_object(&surface_texture)
             .map(|tex| tex.0.get())
             .unwrap_or(0);
@@ -96,9 +119,10 @@ impl WebGLExternalImages {
         }
 
         let locked_front_buffer = self.locked_front_buffers.remove(&id)?;
-        let surface = self
-            .surfman_device
-            .destroy_surface_texture(&mut self.surfman_context, locked_front_buffer)
+        let surfman = self.surfman();
+        let surface = surfman
+            .device
+            .destroy_surface_texture(&mut surfman.context, locked_front_buffer)
             .map_err(|(error, _)| error)
             .ok()?;
 
@@ -110,14 +134,6 @@ impl WebGLExternalImages {
         let _ = self.webgl_threads.finished_rendering_to_context(id);
 
         Some(())
-    }
-}
-
-impl Drop for WebGLExternalImages {
-    fn drop(&mut self) {
-        let _ = self
-            .surfman_device
-            .destroy_context(&mut self.surfman_context);
     }
 }
 
