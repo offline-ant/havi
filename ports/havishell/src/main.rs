@@ -8,6 +8,14 @@ fn main() {
         return;
     }
 
+    // Pylon subcommand: `havi pylon [args...]`
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("pylon") {
+        env_logger::init();
+        pylon::cli::main(args[2..].to_vec());
+        return;
+    }
+
     // Single-instance check: if another HAVI is running, ask it to open a new tab.
     let url = std::env::var("HAVI_URL")
         .unwrap_or_else(|_| "hppr://u/web/index.html".to_string());

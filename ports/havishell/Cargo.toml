@@ -41,3 +41,5 @@ havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
 image = { workspace = true }
 gleam = { workspace = true }
+pylon = { path = "../../pylon" }
+env_logger = "0.11"

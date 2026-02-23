@@ -705,8 +705,8 @@ impl App {
                         Some(pylon_p)
                     },
                     None => {
-                        log!("[havishell] No hpprd available (set HAVI_HOME or install pylon)");
-                        None
+                        eprintln!("[havi] Fatal: cannot start pylon/hpprd. Set HAVI_HOME or check disk/port availability.");
+                        std::process::exit(1);
                     },
                 }
             },

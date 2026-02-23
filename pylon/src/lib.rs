@@ -5,6 +5,7 @@
 //!
 //! Use as a library (in-process, e.g. from HAVI) or as a standalone binary.
 
+pub mod cli;
 pub mod control;
 pub mod mount;
 pub mod protocol;

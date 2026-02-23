@@ -209,8 +209,10 @@ pub fn ensure_pylon(repo_path: &std::path::Path) -> Option<PylonClient> {
 
     // Start pylon as a background subprocess
     use std::process::{Command, Stdio};
-    let mut child = Command::new("pylon")
-        .arg("--repo")
+    let exe = std::env::current_exe().ok()?;
+    let mut child = Command::new(&exe)
+        .arg("pylon")
+        .arg("--path")
         .arg(repo_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

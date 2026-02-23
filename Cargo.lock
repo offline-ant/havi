@@ -3954,6 +3954,7 @@ name = "havishell"
 version = "0.1.0"
 dependencies = [
  "dpi",
+ "env_logger",
  "euclid",
  "gleam",
  "havi-protocols",
@@ -3963,6 +3964,7 @@ dependencies = [
  "libservo",
  "log",
  "makepad-widgets",
+ "pylon",
  "rustls",
  "url",
 ]
