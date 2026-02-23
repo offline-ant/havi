@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 /// CLI entry point. `args` are arguments after the program name.
 pub fn main(args: Vec<String>) {
-    // Extract --bind, --path, and --home from anywhere in args
+    // Extract leading global flags (--bind/--path/--home) before subcommand.
     let mut port: Option<u16> = None;
     let mut repo_path = PathBuf::from("./repo");
     let mut home: Option<String> = None;
@@ -44,8 +44,8 @@ pub fn main(args: Vec<String>) {
                 }
             },
             _ => {
-                positional.push(args[i].clone());
-                i += 1;
+                positional.extend_from_slice(&args[i..]);
+                break;
             },
         }
     }
