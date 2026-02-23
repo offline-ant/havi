@@ -16,6 +16,7 @@
 //! - /ring2: Group membership management (stub)
 //! - /ring1: View account requests (stub)
 //! - /ring0: Ring0 proxy page for ring1 proxy requests
+//! - /services: Pylon service manager (start/stop hpprd, lokid, unlokid, hppr-fs)
 
 use crate::PageResponse;
 use crate::client::get_admin_credentials;
@@ -29,6 +30,12 @@ pub async fn handle_request(url: &str) -> PageResponse {
     let path = path.trim_start_matches('/');
     let path = format!("/{}", path);
 
+    // Handle services API endpoint
+    if path.starts_with("/services/api") {
+        let json = handle_services_api(&path);
+        return PageResponse::new("application/json", json.into_bytes());
+    }
+
     let html = match path.as_str() {
         "/home" => render_home_page(),
         "/overview" | "/" | "" => render_dashboard(),
@@ -38,6 +45,7 @@ pub async fn handle_request(url: &str) -> PageResponse {
         "/ring2" => render_groups_page(),
         "/ring1" => render_accounts_page(),
         "/ring0" => render_ring0_proxy_page(),
+        "/services" => render_services_page(),
         _ => render_not_found(&path),
     };
 
@@ -280,6 +288,7 @@ fn render_nav(active: &str) -> String {
         ("havi:///ring2", "Ring2"),
         ("havi:///ring1", "Ring1"),
         ("havi:///ring0", "Ring0"),
+        ("havi:///services", "Services"),
     ];
 
     let links: Vec<String> = pages
@@ -304,6 +313,7 @@ fn render_dashboard() -> String {
         <p><a href="havi:///ring2">Ring2</a> - Manage group membership</p>
         <p><a href="havi:///ring1">Ring1</a> - Manage ring1 accounts and requests</p>
         <p><a href="havi:///ring0">Ring0 Proxy</a> - Review and approve ring1 proxy requests</p>
+        <p><a href="havi:///services">Services</a> - Pylon service manager (hpprd, lokid, unlokid, hppr-fs)</p>
     </div>"#)
 }
 
@@ -750,6 +760,103 @@ fn render_ring0_proxy_page() -> String {
     );
 
     render_admin_page("Ring0 Proxy", "Ring0", extra_css, &body)
+}
+
+/// Render the services page.
+fn render_services_page() -> String {
+    let services_js = include_str!("../js/havi-services.js");
+    let extra_css = r#"
+        .btn-small { padding: 6px 12px; font-size: 0.85em; }
+    "#;
+
+    let body = format!(r#"
+    <div id="message"></div>
+
+    <div class="card">
+        <h2>Pylon Status</h2>
+        <div class="status">
+            <div class="status-item">
+                <div class="status-value" id="pylonStatus">checking...</div>
+                <div class="status-label">Connection</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Services</h2>
+        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
+            Managed services: hpprd, lokid, unlokid, hppr-fs.
+        </p>
+        <div id="servicesList"><p class="empty">Loading...</p></div>
+        <div style="margin-top: 15px;">
+            <button onclick="location.reload()" class="secondary">Refresh</button>
+        </div>
+    </div>
+
+    <script>
+{services_js}
+    </script>"#,
+        services_js = services_js
+    );
+
+    render_admin_page("Services", "Services", extra_css, &body)
+}
+
+/// Handle services API requests (proxied to pylon).
+fn handle_services_api(path: &str) -> String {
+    // Parse query string from path
+    let query = path.split('?').nth(1).unwrap_or("");
+    let params: Vec<(&str, &str)> = query.split('&')
+        .filter_map(|p| p.split_once('='))
+        .collect();
+
+    let cmd = params.iter().find(|(k, _)| *k == "cmd").map(|(_, v)| *v).unwrap_or("status");
+    let service = params.iter().find(|(k, _)| *k == "service").map(|(_, v)| *v);
+
+    let mut client = match crate::pylon::PylonClient::try_connect() {
+        Some(c) => c,
+        None => {
+            return serde_json::json!({"error": "Pylon is not running. Start pylon first."}).to_string();
+        }
+    };
+
+    match cmd {
+        "status" => {
+            match client.status() {
+                Ok(services) => {
+                    let list: Vec<serde_json::Value> = services.iter().map(|s| {
+                        serde_json::json!({
+                            "name": s.name,
+                            "state": s.state,
+                            "pid": s.pid,
+                            "port": s.port,
+                        })
+                    }).collect();
+                    serde_json::json!({"services": list}).to_string()
+                }
+                Err(e) => serde_json::json!({"error": e}).to_string(),
+            }
+        }
+        "start" => {
+            let Some(name) = service else {
+                return serde_json::json!({"error": "missing service parameter"}).to_string();
+            };
+            match client.start_service(name) {
+                Ok(()) => serde_json::json!({"ok": true}).to_string(),
+                Err(e) => serde_json::json!({"error": e}).to_string(),
+            }
+        }
+        "stop" => {
+            let Some(name) = service else {
+                return serde_json::json!({"error": "missing service parameter"}).to_string();
+            };
+            match client.stop_service(name) {
+                Ok(()) => serde_json::json!({"ok": true}).to_string(),
+                Err(e) => serde_json::json!({"error": e}).to_string(),
+            }
+        }
+        _ => serde_json::json!({"error": format!("unknown command: {}", cmd)}).to_string(),
+    }
 }
 
 /// Render not found page.

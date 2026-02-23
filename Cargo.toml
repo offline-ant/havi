@@ -5,6 +5,7 @@ members = [
     "components/media/examples",
     "components/xpath",
     "havi-protocols",
+    "pylon",
     "ports/havishell",
     "ports/servoshell",
     "tests/unit/*",

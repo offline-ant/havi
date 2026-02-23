@@ -653,6 +653,16 @@ def _emulator_install_and_run(args: argparse.Namespace, target_triple: str) -> i
 
 def _build_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
+
+    # Build pylon first (separate crate in the workspace)
+    pylon_cmd = ["cargo", "build", "--manifest-path", str(HAVI_ROOT / "pylon" / "Cargo.toml")]
+    if args.release:
+        pylon_cmd.append("--release")
+    _log("pylon build", env=env, cmd=pylon_cmd)
+    ret = subprocess.call(pylon_cmd, env=env, cwd=str(HAVI_ROOT))
+    if ret != 0:
+        return ret
+
     cmd = ["cargo", "build", "--manifest-path", str(HAVISHELL_DIR / "Cargo.toml")]
     if args.release:
         cmd.append("--release")

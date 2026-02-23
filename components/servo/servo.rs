@@ -1141,7 +1141,7 @@ fn apply_hppr_log_env() {
     };
     let modules = [
         "hppr_packet", "hpprd", "hppr_client", "hsb3",
-        "servoshell::protocols::hppr", "servoshell::hpprd_client", "servoshell::embedded_hpprd",
+        "servoshell::protocols::hppr", "servoshell::hpprd_client",
         "net::watch_loader", "net::hppr_pool", "net::hppr_async_state",
     ];
     let hppr_directives: String = modules

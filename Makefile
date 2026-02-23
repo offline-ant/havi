@@ -31,6 +31,7 @@ dist-linux: $(DIST_LINUX)/havi
 $(DIST_LINUX)/havi: | $(DIST_LINUX)
 	$(MACH) build $(MACH_PROFILE_FLAG)
 	cp target/$(MACH_PROFILE_DIR)/havi $@
+	cp target/$(MACH_PROFILE_DIR)/pylon $(DIST_LINUX)/pylon
 
 $(DIST_LINUX):
 	mkdir -p $@

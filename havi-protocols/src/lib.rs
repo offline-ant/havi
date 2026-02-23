@@ -14,7 +14,7 @@ pub mod config;
 pub mod client;
 pub mod instance;
 pub mod credentials;
-pub mod embedded_hpprd;
+pub mod pylon;
 pub mod local_ip;
 pub mod page_shell;
 pub mod url;

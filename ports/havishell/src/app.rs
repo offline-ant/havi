@@ -6,7 +6,6 @@ use servo::{
     WebViewId,
 };
 use servo::protocol_handler::ProtocolRegistry;
-use havi_protocols::embedded_hpprd::{EmbeddedHpprd, HpprdMode};
 use havi_protocols::credentials::global_credential_store;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -429,8 +428,6 @@ pub struct App {
     ui: WidgetRef,
 
     #[rust]
-    _embedded_hpprd: Option<EmbeddedHpprd>,
-    #[rust]
     servo: Option<servo::Servo>,
     #[rust]
     rendering_context: Option<Rc<PlatformRenderingContext>>,
@@ -669,8 +666,8 @@ impl App {
             create_macos_rendering_setup(cx, width as usize, height as usize)
         };
 
-        // Determine repo target: HAVI_REPO env var (external) or embedded hpprd.
-        let embedded_hpprd = match std::env::var("HAVI_REPO").ok().filter(|v| !v.trim().is_empty()) {
+        // Determine repo target: HAVI_REPO env var or pylon.
+        let pylon_port = match std::env::var("HAVI_REPO").ok().filter(|v| !v.trim().is_empty()) {
             Some(value) => {
                 // External mode: parse "tcp+host:port" style spec.
                 let target = hppr_client::env_target::parse_via(&value)
@@ -680,30 +677,26 @@ impl App {
                 None
             },
             None => {
-                // Embedded mode: start local hpprd.
-                let repo_path = havi_protocols::config::repo_dir();
-                match EmbeddedHpprd::start(repo_path) {
-                    Ok(HpprdMode::Embedded(h)) => {
-                        let port = h.port();
+                // Use pylon (start if needed).
+                match havi_protocols::pylon::ensure_pylon()
+                    .and_then(|mut c| {
+                        let port = c.port;
+                        let hp = c.start_hpprd()?;
+                        Some((port, hp))
+                    })
+                {
+                    Some((pylon_p, hpprd_p)) => {
                         let target = hppr_client::ViaSpec::Net {
                             host: "127.0.0.1".to_string(),
-                            port,
+                            port: hpprd_p,
                             scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
                         };
                         hppr_client::set_repo_target(target);
-                        log!("[havishell] Embedded hpprd on localhost:{}", port);
-                        Some(h)
+                        log!("[havishell] Pylon hpprd on localhost:{}", hpprd_p);
+                        Some(pylon_p)
                     },
-                    Ok(HpprdMode::Reused { socket_path }) => {
-                        let target = hppr_client::ViaSpec::Unix {
-                            path: socket_path.clone().into(),
-                        };
-                        hppr_client::set_repo_target(target);
-                        log!("[havishell] Reusing existing hpprd via {}", socket_path);
-                        None
-                    },
-                    Err(e) => {
-                        log!("[havishell] Failed to start embedded hpprd: {}", e);
+                    None => {
+                        log!("[havishell] No hpprd available (set HAVI_REPO or install pylon)");
                         None
                     },
                 }
@@ -774,8 +767,6 @@ impl App {
             ),
         );
 
-        self._embedded_hpprd = embedded_hpprd;
-
         // Step 3: Create Servo instance with viewport_meta_enabled so that
         // <meta name="viewport" content="width=device-width"> tags are respected.
         let mut preferences = servo::Preferences::default();
@@ -837,7 +828,11 @@ impl App {
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &start_url_str);
 
         // Show repo mode indicator
-        let mode_text = if self._embedded_hpprd.is_some() { "embedded" } else { "connected" };
+        let mode_text = if pylon_port.is_some() {
+            "pylon"
+        } else {
+            "connected"
+        };
         self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, mode_text);
 
         // Set window title caption to "havi"
@@ -875,13 +870,8 @@ impl App {
         {
             let repo_dir = havi_protocols::config::repo_dir();
             eprintln!("HPPRD_REPO={}", repo_dir.display());
-            if let Some(ref h) = self._embedded_hpprd {
-                let port = h.port();
-                eprintln!("HPPRD_BIND=127.0.0.1:{}", port);
-                eprintln!("HPPRD_BIND_WS=127.0.0.1:{}", port + 1);
-                eprintln!("HPPRD_BIND_QUIB=127.0.0.1:{}", port.saturating_sub(1));
-                eprintln!("HPPRD_BIND_UDP=127.0.0.1:{}", port);
-                eprintln!("HPPRD_SOCK={}", repo_dir.join("hppr.sock").display());
+            if let Some(pp) = pylon_port {
+                eprintln!("PYLON=127.0.0.1:{}", pp);
             }
             eprintln!("HAVI_URL={}", start_url_str);
         }
