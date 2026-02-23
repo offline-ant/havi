@@ -17,13 +17,12 @@ Subcommands:
     screenshot [file]   Capture viewport screenshot as PNG
 
 Global options:
-    --port N, -p N      Devtools port (default: $HAVI_DEBUG_PORT or 6000)
+    --port N, -p N      Devtools port (default: $HAVI_DEVTOOLS or 6000)
     --timeout N         Timeout in seconds (default: 10)
     --text              Human-readable output instead of JSON
 
 Environment:
-    HAVI_DEBUG_PORT     Devtools port (preferred)
-    SERVO_DEBUG_PORT    Devtools port (fallback)
+    HAVI_DEVTOOLS       Devtools port or host:port
     DEBUG               Show debug output if set
 """
 
@@ -59,7 +58,11 @@ def debug(msg):
 
 
 def port_from_env():
-    return int(os.environ.get("HAVI_DEBUG_PORT") or os.environ.get("SERVO_DEBUG_PORT") or "6000")
+    val = os.environ.get("HAVI_DEVTOOLS", "6000")
+    # Accept "host:port" or bare "port"
+    if ":" in val:
+        val = val.rsplit(":", 1)[1]
+    return int(val)
 
 
 def output_ok(text_mode, value):
@@ -501,7 +504,7 @@ def build_parser():
         "For Makepad UI input (mouse, keyboard, touch), use havi-makepad-cli.",
     )
     p.add_argument("--port", "-p", type=int, default=port_from_env(),
-                   help="Devtools port (default: $HAVI_DEBUG_PORT or 6000)")
+                   help="Devtools port (default: from $HAVI_DEVTOOLS or 6000)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Timeout in seconds (default: 10)")
     p.add_argument("--text", action="store_true",

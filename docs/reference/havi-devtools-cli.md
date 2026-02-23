@@ -10,7 +10,7 @@ Connects to a running HAVI instance through the DevTools protocol.
 Operates at the Servo webview level (DOM, JS, page coordinates).
 For Makepad UI input (mouse, keyboard, touch), use havi-makepad-cli.
 
-Default target: `localhost:${HAVI_DEBUG_PORT:-${SERVO_DEBUG_PORT:-6000}}`.
+Default target: `localhost:${HAVI_DEVTOOLS:-6000}`.
 
 ## Global options
 

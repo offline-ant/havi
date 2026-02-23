@@ -11,7 +11,7 @@ lives in the repo directory, enforcing one pylon per repo.
 
 ```bash
 pylon                              # start daemon (repo: ./repo)
-pylon --repo <path>                # start daemon for specific repo
+pylon --path <path>                # start daemon for specific repo
 pylon [COMMAND]                    # send command to running daemon
 ```
 
@@ -19,12 +19,12 @@ pylon [COMMAND]                    # send command to running daemon
 
 ```bash
 pylon
-pylon --repo <path>
-pylon --port <port>
-pylon --repo <path> --port <port>
+pylon --path <path>
+pylon --bind [host:]port
+pylon --path <path> --bind [host:]port
 ```
 
-Starts the pylon daemon. Binds a TCP control port (default: 4850) and
+Starts the pylon daemon. Binds a TCP control port (default: 127.0.0.1:4850) and
 auto-starts hpprd with `--path <path>` plus an auto-selected bind in
 `127.0.0.1:14400..127.0.0.1:14450`.
 When no explicit hpprd bind/port is provided, pylon probes this range and
@@ -38,7 +38,7 @@ Auto-shuts down after 30 seconds with zero connected clients.
 
 ### Repo Path Resolution
 
-1. `--repo <path>` CLI argument
+1. `--path <path>` CLI argument
 2. Default: `./repo`
 
 ## Global Commands
@@ -78,11 +78,9 @@ pylon unlokid stop                 # stop unlokid
 ### lokid Options
 
 - `--key <signing-key>`: HSB3 signing key
-- `--port <port>`: listen port
 
 ### unlokid Options
 
-- `--port <port>`: listen port
 - `--shim <bool>`: enable shim mode
 
 ## NFS Commands
@@ -98,10 +96,9 @@ Default mountpoint: `/mnt/hppr`.
 
 ### hppr-fs / mount Options
 
-- `--repo <addr>`: remote repository address
+- `--home <addr>`: remote repository address
 - `--root <coordinate>`: root coordinate (default: `//'`)
-- `--port <port>`: NFS listen port
-- `--bind <addr>`: bind address (default: `127.0.0.1`)
+- `--bind [host:]port`: listen address (default: `127.0.0.1:2049`)
 - `--signer <signer>`: authentication identity
 - `--rw`: enable write support
 
@@ -169,7 +166,7 @@ HAVI connects to pylon on startup (spawning it if needed). A background reader
 thread holds the TCP connection open and receives service events. Startup
 sequence:
 
-1. Check `HAVI_REPO` env → use external endpoint directly
+1. Check `HAVI_HOME` env → use external endpoint directly
 2. Otherwise → find or spawn pylon for `~/.config/HAVI/repo/`
 3. Subscribe to event stream → update toolbar status on service changes
 
@@ -180,7 +177,7 @@ sequence:
 pylon
 
 # Start daemon for specific repo
-pylon --repo /data/myrepo
+pylon --path /data/myrepo
 
 # Check status
 pylon status

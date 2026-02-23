@@ -20,7 +20,7 @@ setup_remote_trust "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr-setup://$TEST_GROUP/$TEST_APP/{via:127.0.0.1:$REMOTE_PORT}"
 
-echo "MANUAL_READY SERVO_DEBUG_PORT=$SERVO_DEBUG_PORT LOCAL_PORT=$HPPR_PORT REMOTE_PORT=$REMOTE_PORT"
+echo "MANUAL_READY HAVI_DEVTOOLS=$HAVI_DEVTOOLS LOCAL_PORT=$HPPR_PORT REMOTE_PORT=$REMOTE_PORT"
 
 # keep process alive for interactive debugger calls
 # (cleanup trap runs when this script exits)

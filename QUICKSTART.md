@@ -124,7 +124,7 @@ You can also run against external repo:
 
 ```bash
 ./bin/hpprd --bind 127.0.0.1:4777
-HAVI_REPO=tcp+127.0.0.1:4777 ./bin/havi
+HAVI_HOME=tcp+127.0.0.1:4777 ./bin/havi
 ```
 
 ## Simple JS page using HPPR API

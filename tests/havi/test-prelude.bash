@@ -111,13 +111,13 @@ get_port() {
     fail "No available port"
 }
 
-# Parse HPPRD_BIND=from hpprd stdout file.
-# hpprd prints "HPPRD_BIND=<host>:<port>" on startup.
+# Parse TCP address from HPPRD_LISTEN= in hpprd stdout file.
+# hpprd prints "HPPRD_LISTEN=tcp+host:port,..." on startup.
 read_bind_addr() {
     local stdout_file="$1" max="${2:-50}"
     for _ in $(seq 1 "$max"); do
-        if grep -q '^HPPRD_BIND=' "$stdout_file" 2>/dev/null; then
-            sed -n 's/^HPPRD_BIND=//p' "$stdout_file"
+        if grep -q '^HPPRD_LISTEN=' "$stdout_file" 2>/dev/null; then
+            grep '^HPPRD_LISTEN=' "$stdout_file" | sed -n 's/.*tcp+\([^,]*\).*/\1/p'
             return 0
         fi
         sleep 0.1
@@ -140,7 +140,7 @@ start_server() {
     local bind_addr
     bind_addr=$(read_bind_addr "$stdout_file") || fail "hpprd failed to start"
 
-    export HAVI_REPO="tcp+$bind_addr"
+    export HAVI_HOME="tcp+$bind_addr"
     export HPPR_HOME="tcp+$bind_addr"
         HPPR_PORT="${bind_addr##*:}"
 
@@ -321,13 +321,13 @@ start_servo() {
     cd "$HAVI_ROOT"
 
     setsid env \
-        HAVI_REPO="tcp+127.0.0.1:$HPPR_PORT" \
-        HAVI_DEVTOOLS="$DEVTOOLS_PORT" \
+        HAVI_HOME="tcp+127.0.0.1:$HPPR_PORT" \
+        HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT" \
         HAVI_URL="$page" \
         "$havi_bin" &
     SERVO_PID=$!
 
-    export SERVO_DEBUG_PORT="$DEVTOOLS_PORT"
+    export HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT"
 
     # Wait for devtools to respond
     log "Waiting for Servo devtools..."

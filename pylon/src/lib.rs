@@ -87,13 +87,10 @@ impl Pylon {
         // Inject hpprd address for dependent services
         if name != "hpprd" {
             if let Some(ref addr) = self.hpprd_addr {
-                if !args.contains_key("repo") && !args.contains_key("pylon") {
+                if !args.contains_key("home") {
                     match name {
-                        "hppr-fs" => {
-                            args.insert("repo".to_string(), serde_json::json!(addr));
-                        },
-                        "unlokid" => {
-                            args.insert("pylon".to_string(), serde_json::json!(addr));
+                        "hppr-fs" | "unlokid" => {
+                            args.insert("home".to_string(), serde_json::json!(addr));
                         },
                         _ => {},
                     }

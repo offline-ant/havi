@@ -1,7 +1,7 @@
 //! lokid service definition.
 
 use std::collections::HashMap;
-use super::{str_arg, u16_arg, bool_arg};
+use super::{str_arg, bool_arg};
 
 pub fn resolve(
     args: &HashMap<String, serde_json::Value>,
@@ -13,11 +13,6 @@ pub fn resolve(
     let key = str_arg(args, "key").ok_or("lokid requires 'key' arg")?;
     cmd_args.push("--key".to_string());
     cmd_args.push(key);
-
-    if let Some(port) = u16_arg(args, "port") {
-        cmd_args.push("--port".to_string());
-        cmd_args.push(port.to_string());
-    }
 
     if let Some(bind) = str_arg(args, "bind") {
         cmd_args.push("--bind".to_string());

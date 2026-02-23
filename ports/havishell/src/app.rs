@@ -672,14 +672,14 @@ impl App {
             create_macos_rendering_setup(cx, width as usize, height as usize)
         };
 
-        // Determine repo target: HAVI_REPO env var or pylon.
-        let pylon_port = match std::env::var("HAVI_REPO").ok().filter(|v| !v.trim().is_empty()) {
+        // Determine repo target: HAVI_HOME env var or pylon.
+        let pylon_port = match std::env::var("HAVI_HOME").ok().filter(|v| !v.trim().is_empty()) {
             Some(value) => {
                 // External mode: parse "tcp+host:port" style spec.
                 let target = hppr_client::env_target::parse_via(&value)
-                    .expect("invalid HAVI_REPO value");
+                    .expect("invalid HAVI_HOME value");
                 hppr_client::set_repo_target(target);
-                log!("[havishell] External hpprd via HAVI_REPO={}", value);
+                log!("[havishell] External hpprd via HAVI_HOME={}", value);
                 None
             },
             None => {
@@ -705,7 +705,7 @@ impl App {
                         Some(pylon_p)
                     },
                     None => {
-                        log!("[havishell] No hpprd available (set HAVI_REPO or install pylon)");
+                        log!("[havishell] No hpprd available (set HAVI_HOME or install pylon)");
                         None
                     },
                 }

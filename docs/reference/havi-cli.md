@@ -28,7 +28,7 @@ and havi-devtools-cli, and provides built-in workflow commands.
 ## Environment
 
 - `HAVI_CONTROL` — Makepad control socket path (used by makepad subgroup)
-- `HAVI_DEBUG_PORT` or `HAVI_DEVTOOLS` — DevTools port (used by devtools subgroup and built-in commands)
+- `HAVI_DEVTOOLS` — DevTools port (used by devtools subgroup and built-in commands)
 
 ## Examples
 

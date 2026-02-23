@@ -31,7 +31,7 @@ In packaged artifacts, specs are under `docs/spec/havi/` and `docs/spec/hppr/`.
 Use external repo:
 
 ```bash
-HAVI_REPO=tcp+127.0.0.1:4777 ./bin/havi
+HAVI_HOME=tcp+127.0.0.1:4777 ./bin/havi
 ```
 
 For behavior details, read `docs/spec/havi/` and `docs/spec/hppr/`.

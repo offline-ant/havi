@@ -10,22 +10,26 @@ fn main() {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Extract --port and --repo from anywhere in args
+    // Extract --bind and --path from anywhere in args
     let mut port = pylon::DEFAULT_PORT;
     let mut repo_path = PathBuf::from("./repo");
     let mut positional = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--port" => {
+            "--bind" => {
                 if let Some(v) = args.get(i + 1) {
-                    port = v.parse().unwrap_or(pylon::DEFAULT_PORT);
+                    if let Some(pos) = v.rfind(':') {
+                        port = v[pos + 1..].parse().unwrap_or(pylon::DEFAULT_PORT);
+                    } else {
+                        port = v.parse().unwrap_or(pylon::DEFAULT_PORT);
+                    }
                     i += 2;
                 } else {
                     i += 1;
                 }
             },
-            "--repo" => {
+            "--path" => {
                 if let Some(v) = args.get(i + 1) {
                     repo_path = PathBuf::from(v);
                     i += 2;
@@ -227,10 +231,10 @@ fn print_usage() {
     eprintln!("Daemon mode:");
     eprintln!("  pylon                            Start the pylon daemon");
     eprintln!(
-        "  pylon --port <port>              Custom control port (default: {})",
+        "  pylon --bind [host:]<port>        Control address (default: 127.0.0.1:{})",
         pylon::DEFAULT_PORT
     );
-    eprintln!("  pylon --repo <path>              Repository path (default: ./repo)");
+    eprintln!("  pylon --path <path>              Repository path (default: ./repo)");
     eprintln!();
     eprintln!("Global commands:");
     eprintln!("  pylon status                     Show all service status + mounts");

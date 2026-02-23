@@ -60,10 +60,10 @@ def _get_repo_vkey():
 
 def _debug_port():
     """Resolve debug port from environment."""
-    port = os.environ.get("HAVI_DEBUG_PORT") or os.environ.get("HAVI_DEVTOOLS")
+    port = os.environ.get("HAVI_DEVTOOLS")
     if not port:
-        sys.exit("error: set HAVI_DEBUG_PORT or HAVI_DEVTOOLS")
-    # HAVI_DEVTOOLS is host:port, extract port
+        sys.exit("error: set HAVI_DEVTOOLS")
+    # HAVI_DEVTOOLS is host:port or bare port
     if ":" in port:
         port = port.rsplit(":", 1)[1]
     return str(port)

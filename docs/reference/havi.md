@@ -20,7 +20,7 @@ and exits.
 Environment variables:
 
 - `HAVI_HOME` — home directory for HAVI state (default: `~/.config/HAVI`)
-- `HAVI_REPO` — repo endpoint override, bypasses pylon
+- `HAVI_HOME` — repo endpoint override, bypasses pylon
   - `tcp+<host>[:<port>]`
   - `unix+<path>`
   - `path:<dir>`
@@ -30,7 +30,7 @@ Environment variables:
 
 ## Repository Connection
 
-When `HAVI_REPO` is set, HAVI connects directly to that endpoint.
+When `HAVI_HOME` is set, HAVI connects directly to that endpoint.
 
 Otherwise, HAVI uses [pylon](pylon.md):
 
@@ -66,7 +66,7 @@ havi
 havi hppr://u/showcase/index.html
 
 # Connect to external repo
-HAVI_REPO=tcp+127.0.0.1:4777 havi
+HAVI_HOME=tcp+127.0.0.1:4777 havi
 
 # Enable DevTools
 HAVI_DEVTOOLS=6080 havi

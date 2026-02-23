@@ -44,7 +44,7 @@ pub fn resolve(args: &HashMap<String, serde_json::Value>) -> Result<super::Servi
         env.insert("HPPR_PHC".to_string(), phc);
     }
 
-    Ok((program, cmd_args, env, "HPPRD_BIND=".to_string()))
+    Ok((program, cmd_args, env, "HPPRD_LISTEN=".to_string()))
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ impl ManagedService {
     ///
     /// `program` and `args` define the command. `env` sets extra environment
     /// variables. `port_pattern` is a prefix to look for in stdout to extract
-    /// the bound port (e.g. "HPPRD_BIND=").
+    /// the bound port (e.g. "HPPRD_LISTEN=").
     pub async fn start(
         &mut self,
         program: &str,
@@ -113,7 +113,7 @@ impl ManagedService {
                     log::info!("[{}] {}", name, line);
                     let _ = stdout_tx.send(line.clone());
 
-                    if let Some(listener_id) = parse_listener_add(&line) {
+                    for listener_id in parse_listener_add(&line) {
                         if let Ok(mut set) = listeners.lock() {
                             set.insert(listener_id);
                         }
@@ -126,8 +126,14 @@ impl ManagedService {
 
                     if port_found.is_none() {
                         if let Some(rest) = line.strip_prefix(&pattern) {
-                            // Extract port from "host:port" or just "port"
-                            let port_str = rest.rsplit(':').next().unwrap_or(rest);
+                            // Extract port from pattern value.
+                            // For HPPRD_LISTEN=tcp+host:port,quib+..., find first tcp+ entry.
+                            // For simpler patterns like "hppr-fs listening on host:port", parse directly.
+                            let port_str = rest
+                                .split(',')
+                                .find_map(|entry| entry.trim().strip_prefix("tcp+"))
+                                .unwrap_or(rest);
+                            let port_str = port_str.rsplit(':').next().unwrap_or(port_str);
                             let port_str = port_str.trim_end_matches('/').trim();
                             if let Ok(p) = port_str.parse::<u16>() {
                                 port_found = Some(p);
@@ -244,26 +250,40 @@ impl ManagedService {
     }
 }
 
-fn parse_listener_add(line: &str) -> Option<String> {
-    if let Some(rest) = line.strip_prefix("HPPRD_LISTEN=") {
-        return nonempty(rest).map(|id| id.to_string());
+/// Parse `HPPRD_LISTEN=` lines into listener IDs.
+///
+/// Startup format: `HPPRD_LISTEN=tcp+host:port,quib+host:port,...`
+/// Dynamic add: `HPPRD_LISTEN=tcp+host:port` (single entry)
+///
+/// Converts `scheme+addr` to `scheme:addr` for internal listener IDs.
+fn parse_listener_add(line: &str) -> Vec<String> {
+    let rest = match line.strip_prefix("HPPRD_LISTEN=") {
+        Some(r) => r.trim(),
+        None => return Vec::new(),
+    };
+    if rest.is_empty() {
+        return Vec::new();
     }
-    if let Some(rest) = line.strip_prefix("HPPRD_BIND=") {
-        return nonempty(rest).map(|addr| format!("tcp:{}", addr));
-    }
-    if let Some(rest) = line.strip_prefix("HPPRD_BIND_WS=") {
-        return nonempty(rest).map(|addr| format!("ws:{}", addr));
-    }
-    if let Some(rest) = line.strip_prefix("HPPRD_BIND_QUIB=") {
-        return nonempty(rest).map(|addr| format!("quib:{}", addr));
-    }
-    if let Some(rest) = line.strip_prefix("HPPRD_BIND_UDP=") {
-        return nonempty(rest).map(|addr| format!("udp:{}", addr));
-    }
-    if let Some(rest) = line.strip_prefix("HPPRD_SOCK=") {
-        return nonempty(rest).map(|path| format!("unix:{}", normalize_unix_path(path)));
-    }
-    None
+    rest.split(',')
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                return None;
+            }
+            // Convert scheme+addr to scheme:addr
+            if let Some(pos) = entry.find('+') {
+                let scheme = &entry[..pos];
+                let addr = &entry[pos + 1..];
+                if scheme == "unix" {
+                    Some(format!("unix:{}", normalize_unix_path(addr)))
+                } else {
+                    Some(format!("{}:{}", scheme, addr))
+                }
+            } else {
+                Some(entry.to_string())
+            }
+        })
+        .collect()
 }
 
 fn parse_listener_remove(line: &str) -> Option<String> {
