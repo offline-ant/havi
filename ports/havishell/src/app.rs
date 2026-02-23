@@ -494,6 +494,12 @@ pub struct App {
     // --- IPC single-instance listener ---
     #[rust]
     ipc_rx: Option<std::sync::mpsc::Receiver<havi_protocols::instance::IpcCommand>>,
+
+    // --- Pylon keepalive ---
+    /// Held open for the lifetime of the app so pylon's idle timer doesn't
+    /// trigger while HAVI is running.
+    #[rust]
+    _pylon: Option<havi_protocols::pylon::PylonClient>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.
@@ -680,9 +686,11 @@ impl App {
                 // Use pylon (start if needed).
                 match havi_protocols::pylon::ensure_pylon()
                     .and_then(|mut c| {
-                        let port = c.port;
                         let hp = c.start_hpprd()?;
-                        Some((port, hp))
+                        let pylon_p = c.port;
+                        // Keep pylon connection alive so idle timer doesn't fire.
+                        self._pylon = Some(c);
+                        Some((pylon_p, hp))
                     })
                 {
                     Some((pylon_p, hpprd_p)) => {
