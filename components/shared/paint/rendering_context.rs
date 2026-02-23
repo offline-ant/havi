@@ -1109,7 +1109,8 @@ const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
 const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
 #[cfg(target_os = "macos")]
-extern "C" {
+#[expect(unsafe_code)]
+unsafe extern "C" {
     fn dlopen(filename: *const i8, flags: i32) -> *mut std::ffi::c_void;
     fn dlsym(handle: *mut std::ffi::c_void, symbol: *const i8) -> *const std::ffi::c_void;
 }
@@ -1118,16 +1119,25 @@ extern "C" {
 const RTLD_LAZY: i32 = 1;
 
 #[cfg(target_os = "macos")]
+struct DlHandle(*mut std::ffi::c_void);
+#[cfg(target_os = "macos")]
+#[expect(unsafe_code)]
+unsafe impl Send for DlHandle {}
+#[cfg(target_os = "macos")]
+#[expect(unsafe_code)]
+unsafe impl Sync for DlHandle {}
+
+#[cfg(target_os = "macos")]
 #[expect(unsafe_code)]
 fn macos_gl_proc_address(name: &str) -> *const std::ffi::c_void {
     use std::sync::OnceLock;
-    static LIB: OnceLock<*mut std::ffi::c_void> = OnceLock::new();
-    let lib = *LIB.get_or_init(|| unsafe {
-        dlopen(
+    static LIB: OnceLock<DlHandle> = OnceLock::new();
+    let lib = LIB.get_or_init(|| unsafe {
+        DlHandle(dlopen(
             b"/System/Library/Frameworks/OpenGL.framework/OpenGL\0".as_ptr() as *const _,
             RTLD_LAZY,
-        )
-    });
+        ))
+    }).0;
     if lib.is_null() {
         return std::ptr::null();
     }
