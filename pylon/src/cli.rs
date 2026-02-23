@@ -7,9 +7,10 @@ use std::path::PathBuf;
 
 /// CLI entry point. `args` are arguments after the program name.
 pub fn main(args: Vec<String>) {
-    // Extract --bind and --path from anywhere in args
+    // Extract --bind, --path, and --home from anywhere in args
     let mut port: Option<u16> = None;
     let mut repo_path = PathBuf::from("./repo");
+    let mut home: Option<String> = None;
     let mut positional = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -34,6 +35,14 @@ pub fn main(args: Vec<String>) {
                     i += 1;
                 }
             },
+            "--home" => {
+                if let Some(v) = args.get(i + 1) {
+                    home = Some(v.clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            },
             _ => {
                 positional.push(args[i].clone());
                 i += 1;
@@ -42,7 +51,12 @@ pub fn main(args: Vec<String>) {
     }
 
     if positional.is_empty() {
-        run_daemon(port, repo_path);
+        let (mode, state_dir) = if let Some(addr) = home {
+            (crate::PylonMode::Remote { hpprd_addr: addr }, repo_path)
+        } else {
+            (crate::PylonMode::Local { repo_path: repo_path.clone() }, repo_path)
+        };
+        run_daemon(port, mode, state_dir);
         return;
     }
 
@@ -122,9 +136,9 @@ pub fn main(args: Vec<String>) {
     }
 }
 
-fn run_daemon(port: Option<u16>, repo_path: PathBuf) {
+fn run_daemon(port: Option<u16>, mode: crate::PylonMode, state_dir: PathBuf) {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    if let Err(e) = rt.block_on(crate::run(port, repo_path)) {
+    if let Err(e) = rt.block_on(crate::run(port, mode, state_dir)) {
         eprintln!("error: {}", e);
         std::process::exit(1);
     }
@@ -237,6 +251,7 @@ fn print_usage() {
         crate::DEFAULT_PORT_END
     );
     eprintln!("  pylon --path <path>              Repository path (default: ./repo)");
+    eprintln!("  pylon --home <addr>              Remote hpprd address (remote mode)");
     eprintln!();
     eprintln!("Global commands:");
     eprintln!("  pylon status                     Show all service status + mounts");

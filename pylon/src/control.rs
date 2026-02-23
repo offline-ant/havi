@@ -405,6 +405,7 @@ async fn dispatch(
     match req.cmd.as_str() {
         "status" => {
             let mut data = y.status();
+            let mode_name = y.mode_name().to_string();
             drop(y);
             let all_mounts = crate::mount::list_all_mounts().await;
             let mounts: Vec<_> = all_mounts
@@ -412,6 +413,7 @@ async fn dispatch(
                 .map(|(dev, mp, fs)| serde_json::json!({"device": dev, "mountpoint": mp, "fstype": fs}))
                 .collect();
             let obj = data.as_object_mut().unwrap();
+            obj.insert("mode".to_string(), serde_json::json!(mode_name));
             obj.insert("mounts".to_string(), serde_json::json!(mounts));
             obj.insert(
                 "user".to_string(),
@@ -444,6 +446,9 @@ async fn dispatch(
             }
         },
         "listen" => {
+            if matches!(y.mode, crate::PylonMode::Remote { .. }) {
+                return Response::err(req.id, "listen not available in remote mode");
+            }
             let Some(bind) = req.args.get("bind").and_then(|v| v.as_str()) else {
                 return Response::err(req.id, "missing args.bind");
             };
@@ -454,6 +459,9 @@ async fn dispatch(
             }
         },
         "unlisten" => {
+            if matches!(y.mode, crate::PylonMode::Remote { .. }) {
+                return Response::err(req.id, "unlisten not available in remote mode");
+            }
             let Some(bind) = req.args.get("bind").and_then(|v| v.as_str()) else {
                 return Response::err(req.id, "missing args.bind");
             };

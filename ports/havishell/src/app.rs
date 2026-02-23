@@ -672,43 +672,31 @@ impl App {
             create_macos_rendering_setup(cx, width as usize, height as usize)
         };
 
-        // Determine repo target: HAVI_HOME env var or pylon.
-        let pylon_port = match std::env::var("HAVI_HOME").ok().filter(|v| !v.trim().is_empty()) {
-            Some(value) => {
-                // External mode: parse "tcp+host:port" style spec.
-                let target = hppr_client::env_target::parse_via(&value)
-                    .expect("invalid HAVI_HOME value");
+        // Always go through pylon. HAVI_HOME selects remote mode.
+        let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
+        let repo_path = havi_protocols::config::repo_dir();
+        let pylon_port = match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref())
+            .and_then(|mut c| {
+                let hp = c.start_hpprd()?;
+                let pylon_p = c.port;
+                // Subscribe to events; reader thread keeps connection alive.
+                self.pylon_events = Some(c.subscribe());
+                Some((pylon_p, hp))
+            })
+        {
+            Some((pylon_p, hpprd_p)) => {
+                let target = hppr_client::ViaSpec::Net {
+                    host: "127.0.0.1".to_string(),
+                    port: hpprd_p,
+                    scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
+                };
                 hppr_client::set_repo_target(target);
-                log!("[havishell] External hpprd via HAVI_HOME={}", value);
-                None
+                log!("[havishell] Pylon hpprd on port {}", hpprd_p);
+                Some(pylon_p)
             },
             None => {
-                // Use pylon (start if needed).
-                let repo_path = havi_protocols::config::repo_dir();
-                match havi_protocols::pylon::ensure_pylon(&repo_path)
-                    .and_then(|mut c| {
-                        let hp = c.start_hpprd()?;
-                        let pylon_p = c.port;
-                        // Subscribe to events; reader thread keeps connection alive.
-                        self.pylon_events = Some(c.subscribe());
-                        Some((pylon_p, hp))
-                    })
-                {
-                    Some((pylon_p, hpprd_p)) => {
-                        let target = hppr_client::ViaSpec::Net {
-                            host: "127.0.0.1".to_string(),
-                            port: hpprd_p,
-                            scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
-                        };
-                        hppr_client::set_repo_target(target);
-                        log!("[havishell] Pylon hpprd on localhost:{}", hpprd_p);
-                        Some(pylon_p)
-                    },
-                    None => {
-                        eprintln!("[havi] Fatal: cannot start pylon/hpprd. Set HAVI_HOME or check disk/port availability.");
-                        std::process::exit(1);
-                    },
-                }
+                eprintln!("[havi] Fatal: cannot start pylon/hpprd. Check disk/port availability.");
+                std::process::exit(1);
             },
         };
 
@@ -837,12 +825,7 @@ impl App {
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &start_url_str);
 
         // Show repo mode indicator
-        let mode_text = if pylon_port.is_some() {
-            "pylon"
-        } else {
-            "connected"
-        };
-        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, mode_text);
+        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, "pylon");
 
         // Set window title caption to "havi"
         self.ui.widget(cx, ids!(caption_bar.caption_label.label)).set_text(cx, "havi");

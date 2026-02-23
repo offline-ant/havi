@@ -4,14 +4,19 @@ Service manager for the HPPR ecosystem. Manages hpprd and satellite services
 (lokid, unlokid, hppr-nfs, hppr-fuse) as child processes. TCP JSON lines
 control protocol on localhost.
 
-Each pylon instance is bound to one hpprd repository directory. The PID file
-lives in the repo directory, enforcing one pylon per repo.
+Pylon operates in two modes:
+
+- **Local mode** (default): owns and manages hpprd as a child process.
+  PID file lives in the repo directory, enforcing one pylon per repo.
+- **Remote mode** (`--home <via>`): connects to an external hpprd. Does not
+  manage hpprd lifecycle. Satellites run against the external endpoint.
 
 ## Synopsis
 
 ```bash
-pylon                              # start daemon (repo: ./repo)
+pylon                              # start daemon, local mode (repo: ./repo)
 pylon --path <path>                # start daemon for specific repo
+pylon --home <via>                 # start daemon, remote mode
 pylon [COMMAND]                    # send command to running daemon
 ```
 
@@ -20,19 +25,31 @@ pylon [COMMAND]                    # send command to running daemon
 ```bash
 pylon
 pylon --path <path>
+pylon --home <via>
 pylon --bind [host:]port
-pylon --path <path> --bind [host:]port
+pylon --path <path> --home <via> --bind [host:]port
 ```
 
 Starts the pylon daemon. Scans for a free TCP control port starting at 4850
 up to 4900, falling back to an OS-assigned random port if the range is
-exhausted. Auto-starts hpprd on its default port (4777). Writes
-`<pid> <port>` to `<repo>/pylon.pid`. Refuses to start if another pylon is
-already running for the same repo.
+exhausted. Writes `<pid> <port>` to `<repo>/pylon.pid`. Refuses to start if
+another pylon is already running for the same repo.
 
 Prints `PYLON_BIND=127.0.0.1:<port>` on startup.
 
 Auto-shuts down after 30 seconds with zero connected clients.
+
+### Local Mode
+
+Default. Pylon auto-starts hpprd on its default port (4777) and manages its
+full lifecycle: start, stop, listen, unlisten.
+
+### Remote Mode
+
+Activated by `--home <via>`. Pylon connects satellites to the external hpprd
+at `<via>`. The hpprd service is not managed — `pylon hpprd start`,
+`pylon hpprd stop`, `pylon hpprd listen`, and `pylon hpprd unlisten` are
+unavailable. Status reports the external endpoint instead of a managed process.
 
 ### Repo Path Resolution
 
@@ -47,19 +64,25 @@ pylon mounts                       # list active mounts
 pylon shutdown                     # stop all services and exit
 ```
 
-The `status` response includes a `"user"` field with the OS user running pylon.
-The `"mounts"` array lists active mounts, each with `"device"`,
-`"mountpoint"`, and `"fstype"` (`"nfs"` or `"fuse"`).
-When hpprd is running, `status.hpprd.listeners` lists active listener IDs
+The `status` response includes:
+
+- `"user"`: OS user running pylon
+- `"mode"`: `"local"` or `"remote"`
+- `"mounts"`: active mounts, each with `"device"`, `"mountpoint"`, `"fstype"`
+  (`"nfs"` or `"fuse"`)
+
+In local mode, `status.hpprd.listeners` lists active listener IDs
 (e.g. `tcp:127.0.0.1:4777`, `ws:127.0.0.1:4778`, `unix:/abs/path/hppr.sock`).
+
+In remote mode, `status.hpprd` reports the external endpoint.
 
 ## Service Commands
 
 ```bash
-pylon hpprd start [--k v]          # start hpprd
-pylon hpprd stop                   # stop hpprd
-pylon hpprd listen --bind <spec>   # add hpprd listener at runtime
-pylon hpprd unlisten --bind <id|spec>   # remove hpprd listener at runtime
+pylon hpprd start [--k v]          # start hpprd (local mode only)
+pylon hpprd stop                   # stop hpprd (local mode only)
+pylon hpprd listen --bind <spec>   # add hpprd listener (local mode only)
+pylon hpprd unlisten --bind <id|spec>   # remove hpprd listener (local mode only)
 pylon lokid start [--k v]          # start lokid
 pylon lokid stop                   # stop lokid
 pylon unlokid start [--k v]        # start unlokid
@@ -134,7 +157,7 @@ Request:
 Response:
 
 ```json
-{"id": 1, "ok": true, "data": {"user": "alice", "hpprd": {"state": "running", ...}, ...}}
+{"id": 1, "ok": true, "data": {"user": "alice", "mode": "local", "hpprd": {"state": "running", ...}, ...}}
 {"id": 2, "ok": true}
 {"id": 3, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
 {"id": 4, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
@@ -156,8 +179,8 @@ Clients must ignore event lines and wait for the matching response `id`.
 Command events are emitted for start, stop, mount, unmount, listen, unlisten,
 and shutdown.
 
-`listen`/`unlisten` are strict ACKed operations: pylon writes a JSON control
-line to hpprd stdin and waits for hpprd stdout markers:
+`listen`/`unlisten` are strict ACKed operations (local mode only): pylon
+writes a JSON control line to hpprd stdin and waits for hpprd stdout markers:
 
 - success: `HPPRD_LISTEN=<listener-id>` or `HPPRD_UNLISTEN=<listener-id>`
 - failure: `HPPRD_ERROR=<message>`
@@ -175,19 +198,21 @@ If the PID file exists and the process is alive, pylon refuses to start.
 
 ## HAVI Integration
 
-HAVI connects to pylon on startup (spawning it if needed). A background reader
-thread holds the TCP connection open and receives service events. Startup
-sequence:
+HAVI always connects through pylon. Startup sequence:
 
-1. Check `HAVI_HOME` env → use external endpoint directly
-2. Otherwise → find or spawn pylon for `~/.config/HAVI/repo/`
+1. Find or spawn pylon for `<config-dir>/repo/`
+2. If `HAVI_HOME` is set, pylon starts in remote mode (`--home <via>`)
 3. Subscribe to event stream → update toolbar status on service changes
+4. Background reader thread holds the TCP connection open
 
 ## Examples
 
 ```bash
-# Start daemon for default repo (auto-starts hpprd)
+# Start daemon, local mode (auto-starts hpprd)
 pylon
+
+# Start daemon, remote mode
+pylon --home tcp+10.0.0.5:4777
 
 # Start daemon for specific repo
 pylon --path /data/myrepo
@@ -201,10 +226,10 @@ pylon mount /mnt/hppr --root //u/
 # Unmount
 pylon unmount /mnt/hppr
 
-# Start hpprd on custom port
+# Start hpprd on custom port (local mode)
 pylon hpprd start --bind 127.0.0.1:4777
 
-# Add/remove listeners at runtime
+# Add/remove listeners at runtime (local mode)
 pylon hpprd listen --bind ws+127.0.0.1:4778
 pylon hpprd unlisten --bind ws:127.0.0.1:4778
 

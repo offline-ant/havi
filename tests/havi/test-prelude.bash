@@ -83,6 +83,12 @@ stop_pid() {
 cleanup() {
     local exit_code=$?
     stop_pid "${SERVO_PID:-}"
+    # Shut down pylon cleanly (stops satellites, exits immediately)
+    if [[ -n "${HAVI_PATH:-}" && -f "$HAVI_PATH/repo/pylon.pid" ]]; then
+        local pylon_port
+        pylon_port=$(awk '{print $2}' "$HAVI_PATH/repo/pylon.pid" 2>/dev/null || true)
+        [[ -n "$pylon_port" ]] && echo '{"id":1,"cmd":"shutdown"}' | nc -q0 127.0.0.1 "$pylon_port" 2>/dev/null || true
+    fi
     stop_pid "${HPPRD_PID:-}"
     stop_pid "${REMOTE_HPPRD_PID:-}"
     [[ -n "${TEMP_REPO:-}" && -d "$TEMP_REPO" ]] && rm -rf "$TEMP_REPO"
@@ -141,9 +147,12 @@ start_server() {
     local bind_addr
     bind_addr=$(read_bind_addr "$stdout_file") || fail "hpprd failed to start"
 
+    # HAVI_HOME selects remote mode (pylon connects to this hpprd).
+    # HAVI_PATH isolates config/pylon state per test.
     export HAVI_HOME="tcp+$bind_addr"
+    export HAVI_PATH="$TEMP_REPO/havi-config"
     export HPPR_HOME="tcp+$bind_addr"
-        HPPR_PORT="${bind_addr##*:}"
+    HPPR_PORT="${bind_addr##*:}"
 
     # Set up temp key storage
     HPPR_CONFIG_HOME_DIR=$(mktemp -d)

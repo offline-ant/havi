@@ -8,12 +8,40 @@ fn main() {
         return;
     }
 
-    // Pylon subcommand: `havi pylon [args...]`
+    // Parse HAVI-specific flags before Makepad takes over args.
     let args: Vec<String> = std::env::args().collect();
+
+    // Pylon subcommand: `havi pylon [args...]`
     if args.get(1).map(|s| s.as_str()) == Some("pylon") {
         env_logger::init();
         pylon::cli::main(args[2..].to_vec());
         return;
+    }
+
+    // Extract --path and --home flags, set env vars for downstream use.
+    {
+        let mut i = 1;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--path" => {
+                    if let Some(v) = args.get(i + 1) {
+                        std::env::set_var("HAVI_PATH", v);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                },
+                "--home" => {
+                    if let Some(v) = args.get(i + 1) {
+                        std::env::set_var("HAVI_HOME", v);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                },
+                _ => i += 1,
+            }
+        }
     }
 
     // Single-instance check: if another HAVI is running, ask it to open a new tab.

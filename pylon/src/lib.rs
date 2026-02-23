@@ -41,6 +41,15 @@ pub const DEFAULT_PORT_END: u16 = 4900;
 /// PID file location (relative to config dir).
 pub const PID_FILENAME: &str = "pylon.pid";
 
+/// Pylon operating mode.
+#[derive(Debug, Clone)]
+pub enum PylonMode {
+    /// Local mode: pylon owns and manages hpprd.
+    Local { repo_path: PathBuf },
+    /// Remote mode: pylon connects to an external hpprd.
+    Remote { hpprd_addr: String },
+}
+
 /// Owns all managed services.
 pub struct Pylon {
     services: HashMap<String, ManagedService>,
@@ -49,25 +58,45 @@ pub struct Pylon {
     /// hpprd address, set when hpprd starts. Used by other services.
     hpprd_addr: Option<String>,
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
-    /// Repository path for hpprd.
-    pub repo_path: PathBuf,
+    /// Operating mode.
+    pub mode: PylonMode,
 }
 
 impl Pylon {
     /// Create a new pylon instance.
-    pub fn new(repo_path: PathBuf) -> Self {
+    pub fn new(mode: PylonMode) -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let mut services = HashMap::new();
         for name in services::SERVICES {
             services.insert(name.to_string(), ManagedService::new(name));
         }
+        let hpprd_addr = match &mode {
+            PylonMode::Remote { hpprd_addr } => Some(hpprd_addr.clone()),
+            PylonMode::Local { .. } => None,
+        };
         Self {
             services,
             event_tx,
             event_rx: Some(event_rx),
-            hpprd_addr: None,
+            hpprd_addr,
             shutdown_tx: None,
-            repo_path,
+            mode,
+        }
+    }
+
+    /// Repository path (only available in Local mode).
+    pub fn repo_path(&self) -> Option<&Path> {
+        match &self.mode {
+            PylonMode::Local { repo_path } => Some(repo_path),
+            PylonMode::Remote { .. } => None,
+        }
+    }
+
+    /// Mode name for status reporting.
+    pub fn mode_name(&self) -> &str {
+        match &self.mode {
+            PylonMode::Local { .. } => "local",
+            PylonMode::Remote { .. } => "remote",
         }
     }
 
@@ -87,13 +116,18 @@ impl Pylon {
         name: &str,
         args: &HashMap<String, serde_json::Value>,
     ) -> Result<(), String> {
+        if name == "hpprd" && matches!(self.mode, PylonMode::Remote { .. }) {
+            return Err("hpprd is external in remote mode".to_string());
+        }
         let mut args = args.clone();
         // Inject repo_path for hpprd
         if name == "hpprd" && !args.contains_key("repo_path") {
-            args.insert(
-                "repo_path".to_string(),
-                serde_json::json!(self.repo_path.to_string_lossy()),
-            );
+            if let Some(rp) = self.repo_path() {
+                args.insert(
+                    "repo_path".to_string(),
+                    serde_json::json!(rp.to_string_lossy()),
+                );
+            }
         }
         // Inject hpprd address for dependent services
         if name != "hpprd" {
@@ -120,6 +154,9 @@ impl Pylon {
 
     /// Stop a service by name.
     pub async fn stop_service(&mut self, name: &str) -> Result<Option<i32>, String> {
+        if name == "hpprd" && matches!(self.mode, PylonMode::Remote { .. }) {
+            return Err("hpprd is external in remote mode".to_string());
+        }
         let svc = self
             .services
             .get_mut(name)
@@ -131,6 +168,15 @@ impl Pylon {
     pub fn status(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for (name, svc) in &self.services {
+            if name == "hpprd" {
+                if let PylonMode::Remote { ref hpprd_addr } = self.mode {
+                    map.insert(
+                        name.clone(),
+                        serde_json::json!({"state": "external", "addr": hpprd_addr}),
+                    );
+                    continue;
+                }
+            }
             let mut status = svc.status_json();
             if name == "hpprd" {
                 if let Some(obj) = status.as_object_mut() {
@@ -152,7 +198,8 @@ impl Pylon {
             if event.state == State::Running {
                 svc.pid = event.pid;
                 svc.port = event.port;
-                if event.name == "hpprd" {
+                // In remote mode, hpprd_addr is fixed.
+                if event.name == "hpprd" && matches!(self.mode, PylonMode::Local { .. }) {
                     if let Some(port) = event.port {
                         self.hpprd_addr = Some(format!("127.0.0.1:{}", port));
                     }
@@ -160,7 +207,7 @@ impl Pylon {
             } else if event.state == State::Stopped {
                 svc.pid = None;
                 svc.port = None;
-                if event.name == "hpprd" {
+                if event.name == "hpprd" && matches!(self.mode, PylonMode::Local { .. }) {
                     self.hpprd_addr = None;
                 }
             }
@@ -215,8 +262,12 @@ impl Pylon {
 
     /// Shutdown all services.
     pub async fn shutdown(&mut self) {
+        let is_remote = matches!(self.mode, PylonMode::Remote { .. });
         // Stop in reverse dependency order: satellites first, then hpprd
         for name in &["hppr-fuse", "hppr-nfs", "unlokid", "lokid", "hpprd"] {
+            if *name == "hpprd" && is_remote {
+                continue;
+            }
             if let Some(svc) = self.services.get_mut(*name) {
                 if svc.state != State::Stopped {
                     let _ = svc.stop().await;
@@ -256,19 +307,20 @@ async fn bind_control_port(port: Option<u16>) -> Result<tokio::net::TcpListener,
 /// Binds the control TCP port and processes commands until shutdown.
 /// If `port` is `None`, scans `DEFAULT_PORT..=DEFAULT_PORT_END` for a free
 /// port, falling back to a random OS-assigned port.
-pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
+pub async fn run(port: Option<u16>, mode: PylonMode, state_dir: PathBuf) -> Result<(), String> {
     // Acquire exclusive flock on PID file — prevents dual instances.
     // The lock is held for the process lifetime via _pid_lock.
-    let _pid_lock = acquire_pid_lock(&repo_path)?;
+    let _pid_lock = acquire_pid_lock(&state_dir)?;
 
     let listener = bind_control_port(port).await?;
     let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    write_pid_file(&repo_path, std::process::id(), actual_port);
+    write_pid_file(&state_dir, std::process::id(), actual_port);
     println!("PYLON_BIND=127.0.0.1:{}", actual_port);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let mut pylon_inner = Pylon::new(repo_path.clone());
+    let is_local = matches!(mode, PylonMode::Local { .. });
+    let mut pylon_inner = Pylon::new(mode);
     pylon_inner.set_shutdown(shutdown_tx);
     let event_rx = pylon_inner.take_event_rx().unwrap();
 
@@ -293,8 +345,8 @@ pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
         }
     });
 
-    // Auto-start hpprd on daemon launch.
-    {
+    // Auto-start hpprd on daemon launch (local mode only).
+    if is_local {
         let pylon_auto = Arc::clone(&pylon);
         tokio::spawn(async move {
             let mut y = pylon_auto.lock().await;
@@ -317,7 +369,7 @@ pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
 
     control::run(listener, pylon, broadcast_rx, shutdown_rx).await;
 
-    remove_pid_file(&repo_path);
+    remove_pid_file(&state_dir);
     Ok(())
 }
 

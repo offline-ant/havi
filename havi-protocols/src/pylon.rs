@@ -121,12 +121,23 @@ impl PylonClient {
         Ok(services)
     }
 
-    /// Get the hpprd port from pylon status. Returns None if hpprd is not running.
+    /// Get the hpprd port from pylon status.
+    ///
+    /// In local mode, returns the port from hpprd's running state.
+    /// In remote mode, parses the port from the external address.
     pub fn hpprd_port(&mut self) -> Option<u16> {
-        let services = self.status().ok()?;
-        services.iter()
-            .find(|s| s.name == "hpprd" && s.state == "running")
-            .and_then(|s| s.port)
+        let data = self.request("status", None).ok()?;
+        let hpprd = data.get("hpprd")?;
+        let state = hpprd.get("state")?.as_str()?;
+        match state {
+            "running" => hpprd.get("port")?.as_u64().map(|n| n as u16),
+            "external" => {
+                // Remote mode: parse port from addr "host:port"
+                let addr = hpprd.get("addr")?.as_str()?;
+                addr.rsplit(':').next()?.parse().ok()
+            },
+            _ => None,
+        }
     }
 
     /// Start a service.
@@ -180,13 +191,17 @@ impl PylonClient {
         rx
     }
 
-    /// Start hpprd via pylon and wait for its port. Retries status up to 10 times.
+    /// Ensure hpprd is available and return its port.
+    ///
+    /// In local mode, starts hpprd via pylon and polls for the port.
+    /// In remote mode, returns the external hpprd port immediately.
     pub fn start_hpprd(&mut self) -> Option<u16> {
-        // Already running?
+        // Already running or external?
         if let Some(port) = self.hpprd_port() {
             return Some(port);
         }
-        // Request start
+        // Request start (will fail in remote mode, which is fine —
+        // hpprd_port() already returned the external port above)
         let _ = self.start_service("hpprd");
         // Poll for port (hpprd needs time to bind)
         for _ in 0..10 {
@@ -200,8 +215,12 @@ impl PylonClient {
 }
 
 /// Ensure a pylon instance is running. Starts one as a subprocess if needed.
+///
+/// `home` selects remote mode: pylon connects satellites to an external hpprd
+/// at that address instead of spawning its own.
+///
 /// Returns a connected PylonClient.
-pub fn ensure_pylon(repo_path: &std::path::Path) -> Option<PylonClient> {
+pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> Option<PylonClient> {
     // Try existing pylon first
     if let Some(client) = PylonClient::try_connect(repo_path) {
         return Some(client);
@@ -210,10 +229,14 @@ pub fn ensure_pylon(repo_path: &std::path::Path) -> Option<PylonClient> {
     // Start pylon as a background subprocess
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?;
-    let mut child = Command::new(&exe)
-        .arg("pylon")
+    let mut cmd = Command::new(&exe);
+    cmd.arg("pylon")
         .arg("--path")
-        .arg(repo_path)
+        .arg(repo_path);
+    if let Some(addr) = home {
+        cmd.arg("--home").arg(addr);
+    }
+    let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
