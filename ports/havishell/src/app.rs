@@ -535,13 +535,21 @@ fn create_shared_rendering_context(
         .eglGetProcAddress
         .expect("eglGetProcAddress not available");
 
+    // Build EGL display info for gl_device (used by WebGL thread).
+    let display_info = servo::gl_device::egl::EglDisplayInfo {
+        display: opengl_cx.egl_display as *mut std::ffi::c_void,
+        config: opengl_cx.egl_config as *mut std::ffi::c_void,
+        share_context: opengl_cx.egl_context as *mut std::ffi::c_void,
+        get_proc_address: egl_get_proc_address,
+    };
+
     // SAFETY: Makepad's EGL context is current (ensured above). The GL function
     // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
         servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
             let c_name = std::ffi::CString::new(func_name).unwrap();
             egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-        })
+        }, Some(display_info))
     }
 }
 
@@ -563,13 +571,21 @@ fn create_shared_rendering_context(
         .eglGetProcAddress
         .expect("eglGetProcAddress not available");
 
+    // Build EGL display info for gl_device (used by WebGL thread).
+    let display_info = servo::gl_device::egl::EglDisplayInfo {
+        display: display.egl_display as *mut std::ffi::c_void,
+        config: display.egl_config as *mut std::ffi::c_void,
+        share_context: display.egl_context as *mut std::ffi::c_void,
+        get_proc_address: egl_get_proc_address,
+    };
+
     // SAFETY: Makepad's EGL context is current (ensured above). The GL function
     // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
         servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
             let c_name = std::ffi::CString::new(func_name).unwrap();
             egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-        })
+        }, Some(display_info))
     }
 }
 

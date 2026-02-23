@@ -19,6 +19,7 @@ use image::RgbaImage;
 use log::{debug, trace, warn};
 use raw_window_handle::{DisplayHandle, WindowHandle};
 pub use surfman::Error;
+use crate::gl_device::GlDisplayInfo;
 use surfman::chains::{PreserveBuffer, SwapChain};
 use surfman::{
     Adapter, Connection, Context, ContextAttributeFlags, ContextAttributes, Device, GLApi,
@@ -66,6 +67,11 @@ pub trait RenderingContext {
     /// Return the [`RefreshDriver`] for this [`RenderingContext`]. If `None` is returned,
     /// then the default timer-based [`RefreshDriver`] will be used.
     fn refresh_driver(&self) -> Option<Rc<dyn RefreshDriver>> {
+        None
+    }
+    /// Return GL display info for creating `GlDevice` instances (for WebGL).
+    /// Returns `None` for rendering contexts that don't provide GL display info.
+    fn gl_display_info(&self) -> Option<GlDisplayInfo> {
         None
     }
 }
@@ -880,6 +886,7 @@ pub struct MakepadRenderingContext {
     gleam_gl: Rc<dyn Gl>,
     glow_gl: Arc<glow::Context>,
     framebuffer: RefCell<Framebuffer>,
+    display_info: Option<GlDisplayInfo>,
 }
 
 impl MakepadRenderingContext {
@@ -895,6 +902,7 @@ impl MakepadRenderingContext {
     pub unsafe fn new_from_loader(
         size: PhysicalSize<u32>,
         gl_loader: &dyn Fn(&str) -> *const std::ffi::c_void,
+        display_info: Option<GlDisplayInfo>,
     ) -> Result<Self, Error> {
         debug!("MakepadRenderingContext (direct context): size={:?}", size);
 
@@ -912,6 +920,7 @@ impl MakepadRenderingContext {
             gleam_gl,
             glow_gl,
             framebuffer,
+            display_info,
         })
     }
 
@@ -984,6 +993,10 @@ impl RenderingContext for MakepadRenderingContext {
 
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
         self.framebuffer.borrow().read_to_image(source_rectangle)
+    }
+
+    fn gl_display_info(&self) -> Option<GlDisplayInfo> {
+        self.display_info.clone()
     }
 }
 

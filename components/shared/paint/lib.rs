@@ -19,10 +19,11 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use strum::IntoStaticStr;
 use style_traits::CSSPixel;
-use surfman::{Adapter, Connection};
+use gl_device::GlDisplayInfo;
 use webrender_api::{DocumentId, FontVariation};
 
 pub mod display_list;
+pub mod gl_device;
 pub mod largest_contentful_paint_candidate;
 pub mod rendering_context;
 pub mod viewport_description;
@@ -544,22 +545,24 @@ impl CrossProcessPaintApi {
     }
 }
 
+/// Per-painter GL display details, used to create `GlDevice` instances
+/// for WebGL context management.
 #[derive(Clone)]
-pub struct PainterSurfmanDetails {
-    pub connection: Connection,
-    pub adapter: Adapter,
+pub struct PainterGlDetails {
+    pub display_info: GlDisplayInfo,
 }
 
+/// Thread-safe map of `PainterId` to `PainterGlDetails`.
 #[derive(Clone, Default)]
-pub struct PainterSurfmanDetailsMap(Arc<Mutex<HashMap<PainterId, PainterSurfmanDetails>>>);
+pub struct PainterGlDetailsMap(Arc<Mutex<HashMap<PainterId, PainterGlDetails>>>);
 
-impl PainterSurfmanDetailsMap {
-    pub fn get(&self, painter_id: PainterId) -> Option<PainterSurfmanDetails> {
+impl PainterGlDetailsMap {
+    pub fn get(&self, painter_id: PainterId) -> Option<PainterGlDetails> {
         let map = self.0.lock().expect("poisoned");
         map.get(&painter_id).cloned()
     }
 
-    pub fn insert(&self, painter_id: PainterId, details: PainterSurfmanDetails) {
+    pub fn insert(&self, painter_id: PainterId, details: PainterGlDetails) {
         let mut map = self.0.lock().expect("poisoned");
         let existing = map.insert(painter_id, details);
         assert!(existing.is_none())

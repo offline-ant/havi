@@ -37,17 +37,14 @@ use half::f16;
 use itertools::Itertools;
 use log::{debug, error, trace, warn};
 use paint_api::{
-    CrossProcessPaintApi, PainterSurfmanDetailsMap, SerializableImageData,
+    CrossProcessPaintApi, PainterGlDetailsMap, SerializableImageData,
     WebRenderExternalImageIdManager, WebRenderImageHandlerType,
 };
+use paint_api::gl_device::{GlDevice, GlContext, GlApi, GlVersion, GlSurfaceInfo, GlContextAttributes};
+use paint_api::gl_device::swap_chain::SwapChains;
 use parking_lot::RwLock;
 use pixels::{self, PixelFormat, SnapshotAlphaMode, unmultiply_inplace};
 use rustc_hash::FxHashMap;
-use surfman::chains::{PreserveBuffer, SwapChains, SwapChainsAPI};
-use surfman::{
-    self, Context, ContextAttributeFlags, ContextAttributes, Device, GLVersion, SurfaceAccess,
-    SurfaceInfo, SurfaceType,
-};
 use webrender_api::units::DeviceIntSize;
 use webrender_api::{
     ExternalImageData, ExternalImageId, ExternalImageType, ImageBufferKind, ImageDescriptor,
@@ -64,6 +61,16 @@ fn native_uniform_location(location: i32) -> Option<NativeUniformLocation> {
     location.try_into().ok().map(NativeUniformLocation)
 }
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct ContextAttributeFlags: u8 {
+        const ALPHA = 1 << 0;
+        const DEPTH = 1 << 1;
+        const STENCIL = 1 << 2;
+        const COMPATIBILITY_PROFILE = 1 << 3;
+    }
+}
+
 /// A map which tracks whether a given WebGL context is "busy" ie whether WebRender has
 /// currently taken a surface from its [`SwapChain`] for rendering purposes. Contexts will
 /// only be deleted once no WebRender instance is using it for rendering. This ensures
@@ -71,9 +78,9 @@ fn native_uniform_location(location: i32) -> Option<NativeUniformLocation> {
 pub type WebGLContextBusyMap = Arc<RwLock<HashMap<WebGLContextId, usize>>>;
 
 pub(crate) struct GLContextData {
-    pub(crate) ctx: Context,
+    pub(crate) ctx: GlContext,
     pub(crate) gl: Rc<glow::Context>,
-    device: Rc<Device>,
+    device: Rc<GlDevice>,
     state: GLState,
     attributes: GLContextAttributes,
     /// The context should be removed, but the [`WebGLThread`] is currently waiting on
@@ -84,7 +91,7 @@ pub(crate) struct GLContextData {
 #[derive(Debug)]
 pub struct GLState {
     _webgl_version: WebGLVersion,
-    _gl_version: GLVersion,
+    _gl_version: GlVersion,
     requested_flags: ContextAttributeFlags,
     // This is the WebGL view of the color mask
     // The GL view may be different: if the GL context supports alpha
@@ -194,7 +201,7 @@ impl GLState {
 impl Default for GLState {
     fn default() -> GLState {
         GLState {
-            _gl_version: GLVersion { major: 1, minor: 0 },
+            _gl_version: GlVersion { major: 1, minor: 0 },
             _webgl_version: WebGLVersion::WebGL1,
             requested_flags: ContextAttributeFlags::empty(),
             color_write_mask: [true, true, true, true],
@@ -217,7 +224,7 @@ impl Default for GLState {
 /// a set of WebGLContexts living in the same thread.
 pub(crate) struct WebGLThread {
     /// The GPU device.
-    device_map: HashMap<PainterId, Rc<Device>>,
+    device_map: HashMap<PainterId, Rc<GlDevice>>,
     /// Channel used to generate/update or delete `ImageKey`s.
     paint_api: CrossProcessPaintApi,
     /// Map of live WebGLContexts.
@@ -234,9 +241,9 @@ pub(crate) struct WebGLThread {
     /// The receiver that should be used to send WebGL messages for processing.
     sender: GenericSender<WebGLMsg>,
     /// The swap chains used by webrender
-    webrender_swap_chains: SwapChains<WebGLContextId, Device>,
-    /// The per-painter details of the underlying surfman connection.
-    painter_surfman_details_map: PainterSurfmanDetailsMap,
+    webrender_swap_chains: SwapChains<WebGLContextId>,
+    /// The per-painter GL display details.
+    painter_gl_details_map: PainterGlDetailsMap,
     /// A usage map used to delay the deletion of WebGL contexts until all WebRender
     /// rendering is finished, so that any existing `Surface`s can be properly released.
     busy_webgl_context_map: WebGLContextBusyMap,
@@ -252,8 +259,8 @@ pub(crate) struct WebGLThreadInit {
     pub external_image_id_manager: WebRenderExternalImageIdManager,
     pub sender: GenericSender<WebGLMsg>,
     pub receiver: GenericReceiver<WebGLMsg>,
-    pub webrender_swap_chains: SwapChains<WebGLContextId, Device>,
-    pub painter_surfman_details_map: PainterSurfmanDetailsMap,
+    pub webrender_swap_chains: SwapChains<WebGLContextId>,
+    pub painter_gl_details_map: PainterGlDetailsMap,
     pub busy_webgl_context_map: WebGLContextBusyMap,
     #[cfg(feature = "webxr")]
     pub webxr_init: WebXRBridgeInit,
@@ -271,7 +278,7 @@ impl WebGLThread {
             sender,
             receiver,
             webrender_swap_chains,
-            painter_surfman_details_map,
+            painter_gl_details_map,
             busy_webgl_context_map,
             #[cfg(feature = "webxr")]
             webxr_init,
@@ -287,7 +294,7 @@ impl WebGLThread {
             sender,
             receiver: receiver.route_preserving_errors(),
             webrender_swap_chains,
-            painter_surfman_details_map,
+            painter_gl_details_map,
             busy_webgl_context_map,
             #[cfg(feature = "webxr")]
             webxr_bridge: Some(WebXRBridge::new(webxr_init)),
@@ -406,18 +413,15 @@ impl WebGLThread {
         false
     }
 
-    fn get_or_create_device_for_painter(&mut self, painter_id: PainterId) -> Rc<Device> {
+    fn get_or_create_device_for_painter(&mut self, painter_id: PainterId) -> Rc<GlDevice> {
         self.device_map
             .entry(painter_id)
             .or_insert_with(|| {
-                let surfman_details = self
-                    .painter_surfman_details_map
+                let gl_details = self
+                    .painter_gl_details_map
                     .get(painter_id)
-                    .expect("no surfman details found for painter");
-                let device = surfman_details
-                    .connection
-                    .create_device(&surfman_details.adapter)
-                    .expect("Couldn't open WebGL device!");
+                    .expect("no GL details found for painter");
+                let device = GlDevice::new(&gl_details.display_info);
 
                 Rc::new(device)
             })
@@ -460,7 +464,8 @@ impl WebGLThread {
         self.webxr_bridge.replace(webxr_bridge);
     }
 
-    fn device_for_context(&self, context_id: WebGLContextId) -> Rc<Device> {
+    #[cfg(feature = "webxr")]
+    fn device_for_context(&self, context_id: WebGLContextId) -> Rc<GlDevice> {
         self.maybe_device_for_context(context_id)
             .expect("Should be called with a valid WebGLContextId")
     }
@@ -468,10 +473,11 @@ impl WebGLThread {
     /// A function like `Self::device_for_context`, except that it does not panic if the context
     /// cannot be found. This is useful for WebXR, which might try to access WebGL contexts after
     /// they have been cleaned up.
+    #[cfg(feature = "webxr")]
     pub(crate) fn maybe_device_for_context(
         &self,
         context_id: WebGLContextId,
-    ) -> Option<Rc<Device>> {
+    ) -> Option<Rc<GlDevice>> {
         self.contexts
             .get(&context_id)
             .map(|context| context.device.clone())
@@ -517,58 +523,38 @@ impl WebGLThread {
         // Creating a new GLContext may make the current bound context_id dirty.
         // Clear it to ensure that  make_current() is called in subsequent commands.
         self.bound_context_id = None;
-        let painter_surfman_details = self
-            .painter_surfman_details_map
-            .get(painter_id)
-            .expect("PainterSurfmanDetails not found for PainterId");
-        let api_type = match painter_surfman_details.connection.gl_api() {
-            surfman::GLApi::GL => GlType::Gl,
-            surfman::GLApi::GLES => GlType::Gles,
+
+        let device = self.get_or_create_device_for_painter(painter_id);
+        let api_type = match device.gl_api() {
+            GlApi::GL => GlType::Gl,
+            GlApi::GLES => GlType::Gles,
         };
 
         let requested_flags =
-            attributes.to_surfman_context_attribute_flags(webgl_version, api_type);
+            attributes.to_context_attribute_flags(webgl_version, api_type);
         // Some GL implementations seem to only allow famebuffers
         // to have alpha, depth and stencil if their creating context does.
         // WebGL requires all contexts to be able to create framebuffers with
         // alpha, depth and stencil. So we always create a context with them,
         // and fake not having them if requested.
-        let flags = requested_flags |
-            ContextAttributeFlags::ALPHA |
-            ContextAttributeFlags::DEPTH |
-            ContextAttributeFlags::STENCIL;
-        let context_attributes = &ContextAttributes {
-            version: webgl_version.to_surfman_version(api_type),
-            flags,
+        let gl_attrs = GlContextAttributes {
+            version: webgl_gl_version(webgl_version, api_type),
+            alpha: true,
+            depth: true,
+            stencil: true,
         };
-
-        let device = self.get_or_create_device_for_painter(painter_id);
-        let context_descriptor = device
-            .create_context_descriptor(context_attributes)
-            .map_err(|err| format!("Failed to create context descriptor: {:?}", err))?;
 
         let safe_size = Size2D::new(
             requested_size.width.min(SAFE_VIEWPORT_DIMS[0]).max(1),
             requested_size.height.min(SAFE_VIEWPORT_DIMS[1]).max(1),
         );
-        let surface_type = SurfaceType::Generic {
-            size: safe_size.to_i32(),
-        };
-        let surface_access = self.surface_access();
 
-        let mut ctx = device
-            .create_context(&context_descriptor, None)
-            .map_err(|err| format!("Failed to create the GL context: {:?}", err))?;
-        let surface = device
-            .create_surface(&ctx, surface_access, surface_type)
-            .map_err(|err| format!("Failed to create the initial surface: {:?}", err))?;
+        let mut ctx = device.create_context(&gl_attrs, None);
+        device.make_context_current(&ctx);
+        let surface = device.create_surface(&ctx, safe_size.to_i32());
         device
             .bind_surface_to_context(&mut ctx, surface)
-            .map_err(|err| format!("Failed to bind initial surface: {:?}", err))?;
-        // https://github.com/pcwalton/surfman/issues/7
-        device
-            .make_context_current(&ctx)
-            .map_err(|err| format!("Failed to make new context current: {:?}", err))?;
+            .map_err(|err| format!("Failed to bind initial surface: {}", err))?;
 
         let context_id = WebGLContextId(
             self.external_image_id_manager
@@ -576,51 +562,27 @@ impl WebGLThread {
                 .0,
         );
 
-        self.webrender_swap_chains
-            .create_attached_swap_chain(context_id, &*device, &mut ctx, surface_access)
-            .map_err(|err| format!("Failed to create swap chain: {:?}", err))?;
+        let swap_chain = self.webrender_swap_chains
+            .create(context_id, ctx.gl(), safe_size.to_i32());
 
-        let swap_chain = self
-            .webrender_swap_chains
-            .get(context_id)
-            .expect("Failed to get the swap chain");
+        debug!("Created webgl context {:?}", context_id);
 
-        debug!(
-            "Created webgl context {:?}/{:?}",
-            context_id,
-            device.context_id(&ctx),
-        );
-
-        let gl = unsafe {
-            Rc::new(match api_type {
-                GlType::Gl => glow::Context::from_loader_function(|symbol_name| {
-                    device.get_proc_address(&ctx, symbol_name)
-                }),
-                GlType::Gles => glow::Context::from_loader_function(|symbol_name| {
-                    device.get_proc_address(&ctx, symbol_name)
-                }),
-            })
-        };
+        let gl = ctx.gl_rc();
 
         let limits = GLLimits::detect(&gl, webgl_version);
 
         let size = clamp_viewport(&gl, requested_size);
         if safe_size != size {
             debug!("Resizing swap chain from {:?} to {:?}", safe_size, size);
-            swap_chain
-                .resize(&device, &mut ctx, size.to_i32())
-                .map_err(|err| format!("Failed to resize swap chain: {:?}", err))?;
+            swap_chain.resize(ctx.gl(), size.to_i32());
         }
 
-        let descriptor = device.context_descriptor(&ctx);
-        let descriptor_attributes = device.context_descriptor_attributes(&descriptor);
-        let gl_version = descriptor_attributes.version;
+        let gl_version = gl_attrs.version;
         let has_alpha = requested_flags.contains(ContextAttributeFlags::ALPHA);
 
-        device.make_context_current(&ctx).unwrap();
+        device.make_context_current(&ctx);
         let framebuffer = device
             .context_surface_info(&ctx)
-            .map_err(|err| format!("Failed to get context surface info: {:?}", err))?
             .ok_or_else(|| "Failed to get context surface info".to_string())?
             .framebuffer_object;
 
@@ -701,18 +663,14 @@ impl WebGLThread {
             FramebufferRebindingInfo::detect(&data.device, &data.ctx, &data.gl);
 
         // Resize the swap chains
-        if let Some(swap_chain) = self.webrender_swap_chains.get(context_id) {
+        if let Some(swap_chain) = self.webrender_swap_chains.get(&context_id) {
             let alpha = data
                 .state
                 .requested_flags
                 .contains(ContextAttributeFlags::ALPHA);
             let clear_color = [0.0, 0.0, 0.0, !alpha as i32 as f32];
-            swap_chain
-                .resize(&data.device, &mut data.ctx, size.to_i32())
-                .map_err(|err| format!("Failed to resize swap chain: {:?}", err))?;
-            swap_chain
-                .clear_surface(&data.device, &mut data.ctx, &data.gl, clear_color)
-                .map_err(|err| format!("Failed to clear resized swap chain: {:?}", err))?;
+            swap_chain.resize(data.ctx.gl(), size.to_i32());
+            swap_chain.clear_surface(data.ctx.gl(), clear_color);
         } else {
             error!("Failed to find swap chain");
         }
@@ -798,11 +756,10 @@ impl WebGLThread {
 
         // Destroy the swap chains
         self.webrender_swap_chains
-            .destroy(context_id, &data.device, &mut data.ctx)
-            .unwrap();
+            .destroy(&context_id, data.ctx.gl());
 
         // Destroy the context
-        data.device.destroy_context(&mut data.ctx).unwrap();
+        data.device.destroy_context(&mut data.ctx);
 
         // Removing a GLContext may make the current bound context_id dirty.
         self.bound_context_id = None;
@@ -836,21 +793,14 @@ impl WebGLThread {
             debug!("Getting swap chain for {:?}", context_id);
             let swap_chain = self
                 .webrender_swap_chains
-                .get(context_id)
+                .get(&context_id)
                 .expect("Where's the swap chain?");
 
             debug!("Swapping {:?}", context_id);
-            swap_chain
-                .swap_buffers(
-                    &data.device,
-                    &mut data.ctx,
-                    if data.attributes.preserve_drawing_buffer {
-                        PreserveBuffer::Yes(&data.gl)
-                    } else {
-                        PreserveBuffer::No
-                    },
-                )
-                .unwrap();
+            swap_chain.swap_buffers(
+                data.gl.as_ref(),
+                data.attributes.preserve_drawing_buffer,
+            );
             debug_assert_eq!(unsafe { data.gl.get_error() }, gl::NO_ERROR);
 
             if !data.attributes.preserve_drawing_buffer {
@@ -860,9 +810,7 @@ impl WebGLThread {
                     .requested_flags
                     .contains(ContextAttributeFlags::ALPHA);
                 let clear_color = [0.0, 0.0, 0.0, !alpha as i32 as f32];
-                swap_chain
-                    .clear_surface(&data.device, &mut data.ctx, &data.gl, clear_color)
-                    .unwrap();
+                swap_chain.clear_surface(&data.gl, clear_color);
                 debug_assert_eq!(unsafe { data.gl.get_error() }, gl::NO_ERROR);
             }
 
@@ -871,19 +819,16 @@ impl WebGLThread {
             framebuffer_rebinding_info.apply(&data.device, &data.ctx, &data.gl);
             debug_assert_eq!(unsafe { data.gl.get_error() }, gl::NO_ERROR);
 
-            let SurfaceInfo {
+            let GlSurfaceInfo {
                 size,
                 framebuffer_object,
-                id,
-                ..
             } = data
                 .device
                 .context_surface_info(&data.ctx)
-                .unwrap()
                 .unwrap();
             debug!(
-                "... rebound framebuffer {:?}, new back buffer surface is {:?}",
-                framebuffer_object, id
+                "... rebound framebuffer {:?}",
+                framebuffer_object
             );
 
             let has_alpha = data
@@ -892,11 +837,6 @@ impl WebGLThread {
                 .contains(ContextAttributeFlags::ALPHA);
             self.update_webrender_image_for_context(context_id, size, has_alpha, canvas_epoch);
         }
-    }
-
-    /// Which access mode to use
-    fn surface_access(&self) -> SurfaceAccess {
-        SurfaceAccess::GPUOnly
     }
 
     /// Gets a reference to a Context for a given WebGLContextId and makes it current if required.
@@ -908,7 +848,7 @@ impl WebGLThread {
 
         if let Some(data) = data {
             if Some(context_id) != self.bound_context_id {
-                data.device.make_context_current(&data.ctx).unwrap();
+                data.device.make_context_current(&data.ctx);
                 self.bound_context_id = Some(context_id);
             }
         }
@@ -924,7 +864,7 @@ impl WebGLThread {
         let data = self.contexts.get_mut(&context_id);
         if let Some(ref data) = data {
             if Some(context_id) != self.bound_context_id {
-                data.device.make_context_current(&data.ctx).unwrap();
+                data.device.make_context_current(&data.ctx);
                 self.bound_context_id = Some(context_id);
             }
         }
@@ -958,12 +898,7 @@ impl WebGLThread {
 
     /// Helper function to create a `ImageData::External` instance.
     fn external_image_data(&self, context_id: WebGLContextId) -> SerializableImageData {
-        // TODO(pcwalton): Add `GL_TEXTURE_EXTERNAL_OES`?
-        let device = self.device_for_context(context_id);
-        let image_buffer_kind = match device.surface_gl_texture_target() {
-            gl::TEXTURE_RECTANGLE => ImageBufferKind::TextureRect,
-            _ => ImageBufferKind::Texture2D,
-        };
+        let image_buffer_kind = ImageBufferKind::Texture2D;
 
         let data = ExternalImageData {
             id: ExternalImageId(context_id.0),
@@ -1039,8 +974,8 @@ pub struct WebGLImpl;
 
 impl WebGLImpl {
     pub fn apply(
-        device: &Device,
-        ctx: &Context,
+        device: &GlDevice,
+        ctx: &GlContext,
         gl: &Gl,
         state: &mut GLState,
         attributes: &GLContextAttributes,
@@ -1834,7 +1769,6 @@ impl WebGLImpl {
             WebGLCommand::DrawingBufferWidth(ref sender) => {
                 let size = device
                     .context_surface_info(ctx)
-                    .unwrap()
                     .expect("Where's the front buffer?")
                     .size;
                 sender.send(size.width).unwrap()
@@ -1842,7 +1776,6 @@ impl WebGLImpl {
             WebGLCommand::DrawingBufferHeight(ref sender) => {
                 let size = device
                     .context_surface_info(ctx)
-                    .unwrap()
                     .expect("Where's the front buffer?")
                     .size;
                 sender.send(size.height).unwrap()
@@ -2769,8 +2702,8 @@ impl WebGLImpl {
         gl: &Gl,
         target: u32,
         request: WebGLFramebufferBindingRequest,
-        ctx: &Context,
-        device: &Device,
+        ctx: &GlContext,
+        device: &GlDevice,
         state: &mut GLState,
     ) {
         let id = match request {
@@ -2778,7 +2711,6 @@ impl WebGLImpl {
             WebGLFramebufferBindingRequest::Default => {
                 device
                     .context_surface_info(ctx)
-                    .unwrap()
                     .expect("No surface attached!")
                     .framebuffer_object
             },
@@ -3205,35 +3137,26 @@ fn clamp_viewport(gl: &Gl, size: Size2D<u32>) -> Size2D<u32> {
     )
 }
 
-trait ToSurfmanVersion {
-    fn to_surfman_version(self, api_type: GlType) -> GLVersion;
-}
-
-impl ToSurfmanVersion for WebGLVersion {
-    fn to_surfman_version(self, api_type: GlType) -> GLVersion {
-        if api_type == GlType::Gles {
-            return GLVersion::new(3, 0);
-        }
-        match self {
-            // We make use of GL_PACK_PIXEL_BUFFER, which needs at least GL2.1
-            // We make use of compatibility mode, which needs at most GL3.0
-            WebGLVersion::WebGL1 => GLVersion::new(2, 1),
-            // The WebGL2 conformance tests use std140 layout, which needs at GL3.1
-            WebGLVersion::WebGL2 => GLVersion::new(3, 2),
-        }
+fn webgl_gl_version(webgl_version: WebGLVersion, api_type: GlType) -> GlVersion {
+    if api_type == GlType::Gles {
+        return GlVersion { major: 3, minor: 0 };
+    }
+    match webgl_version {
+        WebGLVersion::WebGL1 => GlVersion { major: 2, minor: 1 },
+        WebGLVersion::WebGL2 => GlVersion { major: 3, minor: 2 },
     }
 }
 
-trait SurfmanContextAttributeFlagsConvert {
-    fn to_surfman_context_attribute_flags(
+trait ContextAttributeFlagsConvert {
+    fn to_context_attribute_flags(
         &self,
         webgl_version: WebGLVersion,
         api_type: GlType,
     ) -> ContextAttributeFlags;
 }
 
-impl SurfmanContextAttributeFlagsConvert for GLContextAttributes {
-    fn to_surfman_context_attribute_flags(
+impl ContextAttributeFlagsConvert for GLContextAttributes {
+    fn to_context_attribute_flags(
         &self,
         webgl_version: WebGLVersion,
         api_type: GlType,
@@ -3262,14 +3185,13 @@ struct FramebufferRebindingInfo {
 }
 
 impl FramebufferRebindingInfo {
-    fn detect(device: &Device, context: &Context, gl: &Gl) -> FramebufferRebindingInfo {
+    fn detect(device: &GlDevice, context: &GlContext, gl: &Gl) -> FramebufferRebindingInfo {
         unsafe {
             let read_framebuffer = gl.get_parameter_framebuffer(gl::READ_FRAMEBUFFER_BINDING);
             let draw_framebuffer = gl.get_parameter_framebuffer(gl::DRAW_FRAMEBUFFER_BINDING);
 
             let context_surface_framebuffer = device
                 .context_surface_info(context)
-                .unwrap()
                 .unwrap()
                 .framebuffer_object;
 
@@ -3288,14 +3210,13 @@ impl FramebufferRebindingInfo {
         }
     }
 
-    fn apply(self, device: &Device, context: &Context, gl: &Gl) {
+    fn apply(self, device: &GlDevice, context: &GlContext, gl: &Gl) {
         if self.flags.is_empty() {
             return;
         }
 
         let context_surface_framebuffer = device
             .context_surface_info(context)
-            .unwrap()
             .unwrap()
             .framebuffer_object;
         if self

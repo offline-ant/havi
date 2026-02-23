@@ -26,7 +26,7 @@ use ipc_channel::ipc::{self};
 use log::{debug, warn};
 use paint_api::rendering_context::RenderingContext;
 use paint_api::{
-    PaintMessage, PaintProxy, PainterSurfmanDetails, PainterSurfmanDetailsMap,
+    PaintMessage, PaintProxy, PainterGlDetails, PainterGlDetailsMap,
     WebRenderExternalImageIdManager, WebViewTrait,
 };
 use profile_traits::mem::{
@@ -37,8 +37,7 @@ use profile_traits::time::{self as profile_time};
 use servo_config::pref;
 use servo_geometry::DeviceIndependentPixel;
 use style_traits::CSSPixel;
-use surfman::{Connection, Device};
-use surfman::chains::SwapChains;
+use paint_api::gl_device::swap_chain::SwapChains;
 use webgl::WebGLComm;
 use webgl::webgl_thread::WebGLContextBusyMap;
 #[cfg(feature = "webgpu")]
@@ -106,9 +105,9 @@ pub struct Paint {
     /// The [`WebRenderExternalImageIdManager`] used to generate new `ExternalImageId`s.
     webrender_external_image_id_manager: WebRenderExternalImageIdManager,
 
-    /// A [`HashMap`] of [`PainterId`] to the Surfaman types (`Device`, `Adapter`) that
+    /// A [`HashMap`] of [`PainterId`] to the GL display details that
     /// are specific to a particular [`Painter`].
-    pub(crate) painter_surfman_details_map: PainterSurfmanDetailsMap,
+    pub(crate) painter_gl_details_map: PainterGlDetailsMap,
 
     /// A [`HashMap`] of `WebGLContextId` to a usage count. This count indicates when
     /// WebRender is still rendering the context. This is used to ensure properly clean
@@ -119,7 +118,7 @@ pub struct Paint {
     webgl_threads: WebGLThreads,
 
     /// The shared [`SwapChains`] used by [`WebGLThreads`] for this renderer.
-    pub(crate) swap_chains: SwapChains<WebGLContextId, Device>,
+    pub(crate) swap_chains: SwapChains<WebGLContextId>,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
@@ -165,7 +164,7 @@ impl Paint {
         );
 
         let webrender_external_image_id_manager = WebRenderExternalImageIdManager::default();
-        let painter_surfman_details_map = PainterSurfmanDetailsMap::default();
+        let painter_gl_details_map = PainterGlDetailsMap::default();
         let WebGLComm {
             webgl_threads,
             swap_chains,
@@ -175,7 +174,7 @@ impl Paint {
         } = WebGLComm::new(
             state.paint_proxy.cross_process_paint_api.clone(),
             webrender_external_image_id_manager.clone(),
-            painter_surfman_details_map.clone(),
+            painter_gl_details_map.clone(),
         );
 
         // Create the WebXR main thread
@@ -206,7 +205,7 @@ impl Paint {
             swap_chains,
             time_profiler_chan: state.time_profiler_chan,
             _mem_profiler_registration: registration,
-            painter_surfman_details_map,
+            painter_gl_details_map,
             busy_webgl_contexts_map: busy_webgl_context_map,
             #[cfg(feature = "webxr")]
             webxr_main_thread: RefCell::new(webxr_main_thread),
@@ -231,17 +230,12 @@ impl Paint {
         }
 
         let painter = Painter::new(rendering_context.clone(), self);
-        let connection = Connection::new()
-            .expect("Failed to create surfman connection for WebGL");
-        let adapter = connection
-            .create_adapter()
-            .expect("Failed to create surfman adapter for WebGL");
-        let painter_surfman_details = PainterSurfmanDetails {
-            connection,
-            adapter,
-        };
-        self.painter_surfman_details_map
-            .insert(painter.painter_id, painter_surfman_details);
+        let display_info = rendering_context
+            .gl_display_info()
+            .expect("RenderingContext must provide gl_display_info for WebGL");
+        let painter_gl_details = PainterGlDetails { display_info };
+        self.painter_gl_details_map
+            .insert(painter.painter_id, painter_gl_details);
 
         let painter_id = painter.painter_id;
         self.painters.push(Rc::new(RefCell::new(painter)));
@@ -251,7 +245,7 @@ impl Paint {
     fn remove_painter(&mut self, painter_id: PainterId) {
         self.painters
             .retain(|painter| painter.borrow().painter_id != painter_id);
-        self.painter_surfman_details_map.remove(painter_id);
+        self.painter_gl_details_map.remove(painter_id);
     }
 
     pub(crate) fn maybe_painter<'a>(&'a self, painter_id: PainterId) -> Option<Ref<'a, Painter>> {

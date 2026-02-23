@@ -4,9 +4,8 @@
 
 use canvas_traits::webgl::{WebGLContextId, WebGLMsg, WebGLThreads, webgl_channel};
 use log::debug;
-use paint_api::{CrossProcessPaintApi, PainterSurfmanDetailsMap, WebRenderExternalImageIdManager};
-use surfman::Device;
-use surfman::chains::SwapChains;
+use paint_api::{CrossProcessPaintApi, PainterGlDetailsMap, WebRenderExternalImageIdManager};
+use paint_api::gl_device::swap_chain::SwapChains;
 #[cfg(feature = "webxr")]
 use webxr::SurfmanGL as WebXRSurfman;
 #[cfg(feature = "webxr")]
@@ -16,7 +15,7 @@ use crate::webgl_thread::{WebGLContextBusyMap, WebGLThread, WebGLThreadInit};
 
 pub struct WebGLComm {
     pub webgl_threads: WebGLThreads,
-    pub swap_chains: SwapChains<WebGLContextId, Device>,
+    pub swap_chains: SwapChains<WebGLContextId>,
     pub busy_webgl_context_map: WebGLContextBusyMap,
     #[cfg(feature = "webxr")]
     pub webxr_layer_grand_manager: WebXRLayerGrandManager<WebXRSurfman>,
@@ -27,7 +26,7 @@ impl WebGLComm {
     pub fn new(
         paint_api: CrossProcessPaintApi,
         external_image_id_manager: WebRenderExternalImageIdManager,
-        painter_surfman_details_map: PainterSurfmanDetailsMap,
+        painter_gl_details_map: PainterGlDetailsMap,
     ) -> WebGLComm {
         debug!("WebGLThreads::new()");
         let (sender, receiver) = webgl_channel::<WebGLMsg>().unwrap();
@@ -46,7 +45,7 @@ impl WebGLComm {
             sender: sender.clone(),
             receiver,
             webrender_swap_chains: swap_chains.clone(),
-            painter_surfman_details_map,
+            painter_gl_details_map,
             busy_webgl_context_map: busy_webgl_context_map.clone(),
             #[cfg(feature = "webxr")]
             webxr_init,
