@@ -218,7 +218,18 @@ def get_target(client, tab_actor, timeout):
     return client.send_receive({"to": tab_actor, "type": "getTarget"}, timeout=timeout) or {}
 
 
-def connect_for_console(port, timeout, text_mode=False):
+def select_tab(tabs, tab_index, text_mode=False):
+    if tab_index < 0 or tab_index >= len(tabs):
+        output_error(
+            text_mode,
+            EXIT_USAGE,
+            "usage",
+            f"tab index out of range: {tab_index} (tabs: 0..{max(0, len(tabs)-1)})",
+        )
+    return tabs[tab_index]
+
+
+def connect_for_console(port, timeout, text_mode=False, tab_index=0):
     client = RDPClient()
     try:
         client.connect("localhost", port, timeout=timeout)
@@ -230,7 +241,8 @@ def connect_for_console(port, timeout, text_mode=False):
         client.disconnect()
         output_error(text_mode, EXIT_CONNECTION, "connection", "no tabs open")
 
-    target = get_target(client, tabs[0]["actor"], timeout)
+    tab = select_tab(tabs, tab_index, text_mode)
+    target = get_target(client, tab["actor"], timeout)
     target_actor_id = target.get("actor")
     console_actor_id = target.get("consoleActor") or target.get("console")
     if not target_actor_id or not console_actor_id:
@@ -400,7 +412,9 @@ def cmd_eval(args):
     if not js:
         output_error(args.text, EXIT_USAGE, "usage", "no javascript provided")
 
-    client, _target_actor_id, console_actor_id = connect_for_console(args.port, args.timeout, args.text)
+    client, _target_actor_id, console_actor_id = connect_for_console(
+        args.port, args.timeout, args.text, args.tab
+    )
     try:
         eval_fn = evaluate_js_await if getattr(args, "await_promise", False) else evaluate_js
         result = eval_fn(client, console_actor_id, js, timeout=args.timeout)
@@ -416,7 +430,9 @@ def cmd_eval(args):
 
 
 def cmd_navigate(args):
-    client, target_actor_id, console_actor_id = connect_for_console(args.port, args.timeout, args.text)
+    client, target_actor_id, console_actor_id = connect_for_console(
+        args.port, args.timeout, args.text, args.tab
+    )
     nav_events = []
     client.add_event_listener(target_actor_id, EVENT_TAB_NAVIGATED, lambda data: nav_events.append(data))
 
@@ -449,7 +465,9 @@ def cmd_navigate(args):
 
 
 def cmd_wait_for(args):
-    client, _target_actor_id, console_actor_id = connect_for_console(args.port, args.timeout, args.text)
+    client, _target_actor_id, console_actor_id = connect_for_console(
+        args.port, args.timeout, args.text, args.tab
+    )
     deadline = time.time() + args.timeout
     interval = max(1, args.interval) / 1000.0
 
@@ -535,7 +553,9 @@ def cmd_watch(args):
 
 
 def cmd_events(args):
-    client, target_actor_id, console_actor_id = connect_for_console(args.port, args.timeout, args.text)
+    client, target_actor_id, console_actor_id = connect_for_console(
+        args.port, args.timeout, args.text, args.tab
+    )
     setup_streaming_listeners(client, target_actor_id, console_actor_id)
     print(json.dumps({"event": "ready"}), flush=True)
     try:
@@ -548,7 +568,9 @@ def cmd_events(args):
 
 
 def cmd_repl(args):
-    client, target_actor_id, console_actor_id = connect_for_console(args.port, args.timeout, args.text)
+    client, target_actor_id, console_actor_id = connect_for_console(
+        args.port, args.timeout, args.text, args.tab
+    )
     setup_streaming_listeners(client, target_actor_id, console_actor_id)
     print(json.dumps({"event": "ready"}), flush=True)
 
@@ -578,6 +600,15 @@ def cmd_repl(args):
 # CLI
 # ---------------------------------------------------------------------------
 
+def add_tab_arg(parser):
+    parser.add_argument(
+        "--tab",
+        type=int,
+        default=0,
+        help="Tab index from 'tabs' output (default: 0)",
+    )
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="havi-devtools-cli",
@@ -598,17 +629,22 @@ def build_parser():
     pe.add_argument("js", nargs="?", help="JavaScript to evaluate (reads stdin if omitted)")
     pe.add_argument("--await", dest="await_promise", action="store_true",
                     help="Await Promise results before returning")
+    add_tab_arg(pe)
 
     pn = sub.add_parser("navigate", help="Navigate to URL and wait for load")
     pn.add_argument("url", help="URL to navigate to")
+    add_tab_arg(pn)
 
     pw = sub.add_parser("wait-for", help="Poll expression until truthy")
     pw.add_argument("expr", help="JavaScript expression to poll")
     pw.add_argument("--interval", type=int, default=100,
                     help="Poll interval in ms (default: 100)")
+    add_tab_arg(pw)
 
-    sub.add_parser("events", help="Stream browser events as JSONL")
-    sub.add_parser("repl", help="Interactive eval session (stdin line-by-line)")
+    pevents = sub.add_parser("events", help="Stream browser events as JSONL")
+    add_tab_arg(pevents)
+    prepl = sub.add_parser("repl", help="Interactive eval session (stdin line-by-line)")
+    add_tab_arg(prepl)
 
     ps = sub.add_parser("screenshot", help="Capture viewport screenshot as PNG")
     ps.add_argument("file", nargs="?", help="Output file (default: stdout)")
