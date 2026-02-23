@@ -14,12 +14,12 @@ All coordinates are in Makepad window space (0,0 = top-left of window).
 For webview-level interaction (JS eval, DOM, page coordinates), use
 havi-devtools-cli.
 
-Start HAVI with `./mach-havi run --control` to enable control mode. The
-socket path is printed as `HAVI_CONTROL=<path>`.
+Start HAVI with `./mach-havi run --makepad-socket` to enable the event socket.
+The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
 
 ## Global options
 
-- `-s, --socket PATH` — Unix control socket path (default: `$HAVI_CONTROL`)
+- `-s, --socket PATH` — Unix event socket path (default: `$HAVI_MAKEPAD_SOCKET`)
 
 ## Commands
 
@@ -58,23 +58,23 @@ socket path is printed as `HAVI_CONTROL=<path>`.
 Communication uses Makepad's `StudioToApp` / `AppToStudio` JSON
 serialization over the Unix socket. Each message is one JSON line.
 
-`mach-havi --control` relays between the socket and HAVI's stdin/stdout.
+`mach-havi --makepad-socket` relays between the socket and HAVI's stdin/stdout.
 Multiple clients can connect simultaneously.
 
 ## Examples
 
 ```bash
 # Take a screenshot
-havi-makepad-cli -s $HAVI_CONTROL screenshot /tmp/out.png
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET screenshot /tmp/out.png
 
 # Click the address bar
-havi-makepad-cli -s $HAVI_CONTROL click 400 55
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET click 400 55
 
 # Widget tree
-havi-makepad-cli -s $HAVI_CONTROL dump
-havi-makepad-cli -s $HAVI_CONTROL query id:address_bar
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET dump
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET query id:address_bar
 
 # Pipe mode
 echo -e "click 200 120\nsleep 500\nscreenshot /tmp/out.png" | \
-  havi-makepad-cli -s $HAVI_CONTROL pipe
+  havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET pipe
 ```

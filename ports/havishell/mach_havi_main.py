@@ -766,8 +766,8 @@ def _run_desktop(args: argparse.Namespace) -> int:
     if args.extra:
         cmd.extend(args.extra)
 
-    if getattr(args, "control", False):
-        return _run_desktop_control(cmd, env)
+    if getattr(args, "makepad_socket", False):
+        return _run_desktop_makepad_socket(cmd, env)
 
     _log("desktop run", env=env, cmd=cmd)
     try:
@@ -776,7 +776,7 @@ def _run_desktop(args: argparse.Namespace) -> int:
         return 130
 
 
-def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
+def _run_desktop_makepad_socket(cmd: list[str], env: dict[str, str]) -> int:
     """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
 
     Creates a Unix socket so havi-makepad-cli can connect.  JSON lines from
@@ -787,7 +787,7 @@ def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
     import socket as sock_mod
     import tempfile
 
-    sock_path = os.path.join(tempfile.gettempdir(), f"havi-control-{os.getpid()}.sock")
+    sock_path = os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
 
     # Clean up stale socket file.
     try:
@@ -801,15 +801,15 @@ def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
     server.listen(8)
     server.setblocking(False)
 
-    # Tell HAVI to use stdin/stdout control mode.
-    env["HAVI_CONTROL"] = "1"
+    # Tell HAVI to use stdin/stdout event injection mode.
+    env["HAVI_MAKEPAD_EVENTS"] = "1"
 
     # Forward Wayland/display env to HAVI.
     for var in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY"):
         if var in os.environ and var not in env:
             env[var] = os.environ[var]
 
-    _log("desktop run (control)", cmd=cmd)
+    _log("desktop run (makepad-socket)", cmd=cmd)
     havi_proc = subprocess.Popen(
         cmd, env=env, stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=None,  # stderr passes through
@@ -874,7 +874,7 @@ def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:
 
     dt = devtools_addr[0] if devtools_addr else ""
     dt_port = dt.rsplit(":", 1)[-1] if dt else ""
-    print(f"\nHAVI_CONTROL={sock_path}")
+    print(f"\nHAVI_MAKEPAD_SOCKET={sock_path}")
     if dt:
         print(f"HAVI_DEVTOOLS={dt}")
     print(f"# havi-makepad-cli --socket {sock_path} screenshot /tmp/test.png")
@@ -995,8 +995,8 @@ def run(topdir: str) -> int:
         p.add_argument("--package-name", default=None,
                         help="Android package name (default: dev.makepad.havishell)")
         if name == "run":
-            p.add_argument("--control", action="store_true",
-                            help="Launch with control socket for havi-makepad-cli")
+            p.add_argument("--makepad-socket", action="store_true",
+                            help="Launch with Makepad event socket for havi-makepad-cli")
         p.add_argument("extra", nargs="*",
                         help="Extra arguments forwarded to cargo")
         p.set_defaults(func=handler)

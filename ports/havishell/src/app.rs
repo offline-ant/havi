@@ -891,7 +891,7 @@ impl App {
         // Control mode: stdin/stdout JSON protocol.
         // Skip when running inside Makepad Studio's RunView — stdin is already
         // used by the Studio WebSocket protocol.
-        if std::env::var("HAVI_CONTROL").is_ok() && !cx.in_makepad_studio {
+        if std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() && !cx.in_makepad_studio {
             Cx::set_studio_stdout_mode(true);
             cx.in_makepad_studio = true;
 
@@ -910,7 +910,7 @@ impl App {
                             SignalToUI::set_ui_signal();
                         }
                         Err(e) => {
-                            eprintln!("[havi-control] parse error: {:?} for: {}", e, line);
+                            eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
                         }
                     }
                 }

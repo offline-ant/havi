@@ -118,10 +118,10 @@ class Connection:
 
 
 def connect(args):
-    """Open connection from --socket arg or HAVI_CONTROL env."""
-    path = getattr(args, "socket", None) or os.environ.get("HAVI_CONTROL")
+    """Open connection from --socket arg or HAVI_MAKEPAD_SOCKET env."""
+    path = getattr(args, "socket", None) or os.environ.get("HAVI_MAKEPAD_SOCKET")
     if not path:
-        sys.exit("error: no socket path. Use --socket or set HAVI_CONTROL.")
+        sys.exit("error: no socket path. Use --socket or set HAVI_MAKEPAD_SOCKET.")
     return Connection(path)
 
 
@@ -433,7 +433,7 @@ def main():
         "All coordinates are in Makepad window space. "
         "For webview-level interaction, use havi-devtools-cli.")
     p.add_argument("--socket", "-s", default=None,
-                   help="Path to Unix control socket (or set HAVI_CONTROL)")
+                   help="Path to Unix control socket (or set HAVI_MAKEPAD_SOCKET)")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("click", help="Click at window coordinates")
