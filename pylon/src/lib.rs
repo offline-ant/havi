@@ -53,6 +53,8 @@ pub enum PylonMode {
 /// Owns all managed services.
 pub struct Pylon {
     services: HashMap<String, ManagedService>,
+    /// One hppr-fuse process per mountpoint.
+    fuse_services: HashMap<String, ManagedService>,
     event_tx: mpsc::UnboundedSender<ServiceEvent>,
     event_rx: Option<mpsc::UnboundedReceiver<ServiceEvent>>,
     /// hpprd address, set when hpprd starts. Used by other services.
@@ -76,6 +78,7 @@ impl Pylon {
         };
         Self {
             services,
+            fuse_services: HashMap::new(),
             event_tx,
             event_rx: Some(event_rx),
             hpprd_addr,
@@ -177,7 +180,31 @@ impl Pylon {
                     continue;
                 }
             }
-            let mut status = svc.status_json();
+            let mut status = if name == "hppr-fuse" {
+                let mut running = 0usize;
+                let mut starting = 0usize;
+                let mut any_pid = None;
+                for svc in self.fuse_services.values() {
+                    match svc.state {
+                        State::Running => running += 1,
+                        State::Starting => starting += 1,
+                        _ => {},
+                    }
+                    if any_pid.is_none() {
+                        any_pid = svc.pid;
+                    }
+                }
+                let state = if running > 0 {
+                    State::Running
+                } else if starting > 0 {
+                    State::Starting
+                } else {
+                    State::Stopped
+                };
+                serde_json::json!({"state": state, "pid": any_pid, "port": null, "count": self.fuse_services.len()})
+            } else {
+                svc.status_json()
+            };
             if name == "hpprd" {
                 if let Some(obj) = status.as_object_mut() {
                     obj.insert(
@@ -211,6 +238,26 @@ impl Pylon {
                     self.hpprd_addr = None;
                 }
             }
+            return;
+        }
+
+        if let Some((mountpoint, svc)) = self
+            .fuse_services
+            .iter_mut()
+            .find(|(_, svc)| svc.name == event.name)
+        {
+            svc.state = event.state;
+            if event.state == State::Running {
+                svc.pid = event.pid;
+                svc.port = event.port;
+            } else if event.state == State::Stopped {
+                svc.pid = None;
+                svc.port = None;
+            }
+            if event.state == State::Stopped {
+                let key = mountpoint.clone();
+                let _ = self.fuse_services.remove(&key);
+            }
         }
     }
 
@@ -231,11 +278,55 @@ impl Pylon {
             .is_none_or(|s| s.state == State::Stopped)
     }
 
-    /// Is hppr-fuse stopped?
-    pub fn hppr_fuse_stopped(&self) -> bool {
-        self.services
-            .get("hppr-fuse")
+    /// Is hppr-fuse stopped for this mountpoint?
+    pub fn hppr_fuse_mount_stopped(&self, mountpoint: &str) -> bool {
+        self.fuse_services
+            .get(mountpoint)
             .is_none_or(|s| s.state == State::Stopped)
+    }
+
+    /// Start hppr-fuse for one mountpoint.
+    pub async fn start_hppr_fuse_mount(
+        &mut self,
+        mountpoint: &str,
+        args: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), String> {
+        if !self.hppr_fuse_mount_stopped(mountpoint) {
+            return Err(format!("hppr-fuse already running for {}", mountpoint));
+        }
+
+        let mut svc_args = args.clone();
+        svc_args.insert("mountpoint".to_string(), serde_json::json!(mountpoint));
+
+        if let Some(ref addr) = self.hpprd_addr {
+            if !svc_args.contains_key("home") {
+                svc_args.insert("home".to_string(), serde_json::json!(addr));
+            }
+        }
+
+        let (program, cmd_args, env, pattern) = services::resolve("hppr-fuse", &svc_args)?;
+        let svc_name = format!("hppr-fuse@{}", mountpoint);
+        let svc = self
+            .fuse_services
+            .entry(mountpoint.to_string())
+            .or_insert_with(|| ManagedService::new(&svc_name));
+        svc.start(&program, &cmd_args, &env, &pattern, self.event_tx.clone())
+            .await
+    }
+
+    /// Stop hppr-fuse for one mountpoint.
+    pub async fn stop_hppr_fuse_mount(&mut self, mountpoint: &str) -> Result<Option<i32>, String> {
+        if let Some(svc) = self.fuse_services.get_mut(mountpoint) {
+            return svc.stop().await;
+        }
+        Ok(None)
+    }
+
+    /// Get hppr-fuse state for one mountpoint.
+    pub fn hppr_fuse_mount_state(&self, mountpoint: &str) -> State {
+        self.fuse_services
+            .get(mountpoint)
+            .map_or(State::Stopped, |s| s.state)
     }
 
     /// Get a service's current state.
@@ -264,7 +355,11 @@ impl Pylon {
     pub async fn shutdown(&mut self) {
         let is_remote = matches!(self.mode, PylonMode::Remote { .. });
         // Stop in reverse dependency order: satellites first, then hpprd
-        for name in &["hppr-fuse", "hppr-nfs", "unlokid", "lokid", "hpprd"] {
+        let fuse_mounts: Vec<String> = self.fuse_services.keys().cloned().collect();
+        for mountpoint in fuse_mounts {
+            let _ = self.stop_hppr_fuse_mount(&mountpoint).await;
+        }
+        for name in &["hppr-nfs", "unlokid", "lokid", "hpprd"] {
             if *name == "hpprd" && is_remote {
                 continue;
             }

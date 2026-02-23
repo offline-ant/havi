@@ -230,27 +230,20 @@ async fn fuse_mount_flow(
             .await
             .map_err(|e| format!("create {}: {}", mountpoint, e))?;
 
-        // Inject mountpoint into args for the service
-        let mut svc_args = args.clone();
-        svc_args
-            .entry("mountpoint".to_string())
-            .or_insert_with(|| serde_json::json!(&mountpoint));
-
-        // Start hppr-fuse if stopped
+        // Start hppr-fuse for this mountpoint.
         {
             let mut y = pylon.lock().await;
-            if y.hppr_fuse_stopped() {
-                y.start_service("hppr-fuse", &svc_args).await?;
-            } else {
-                return Err("hppr-fuse is already running".to_string());
+            if !y.hppr_fuse_mount_stopped(&mountpoint) {
+                return Err(format!("hppr-fuse already running for {}", mountpoint));
             }
+            y.start_hppr_fuse_mount(&mountpoint, args).await?;
         }
 
-        // Poll for running state
+        // Poll for running state of this mountpoint.
         for _ in 0..50 {
             {
                 let y = pylon.lock().await;
-                match y.service_state("hppr-fuse") {
+                match y.hppr_fuse_mount_state(&mountpoint) {
                     crate::service::State::Running => return Ok(mountpoint),
                     crate::service::State::Stopped => {
                         return Err("hppr-fuse exited unexpectedly".to_string());
@@ -272,11 +265,9 @@ async fn fuse_unmount_flow(
     // fusermount3 -u causes hppr-fuse to exit cleanly
     crate::mount::fuse_unmount(mountpoint).await?;
 
-    // Stop the service (it may already be exiting)
+    // Stop the service for this mountpoint (it may already be exiting)
     let mut y = pylon.lock().await;
-    if !y.hppr_fuse_stopped() {
-        let _ = y.stop_service("hppr-fuse").await;
-    }
+    let _ = y.stop_hppr_fuse_mount(mountpoint).await;
     Ok(())
 }
 

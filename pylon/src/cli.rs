@@ -171,7 +171,7 @@ fn send_command(
     if !args.is_empty() {
         let obj: serde_json::Map<String, serde_json::Value> = args
             .iter()
-            .map(|(k, v)| (k.clone(), serde_json::json!(v)))
+            .map(|(k, v)| (k.clone(), parse_arg_value(v)))
             .collect();
         req["args"] = serde_json::Value::Object(obj);
     }
@@ -220,6 +220,19 @@ fn send_command(
     }
 }
 
+fn parse_arg_value(raw: &str) -> serde_json::Value {
+    if raw.eq_ignore_ascii_case("true") {
+        return serde_json::Value::Bool(true);
+    }
+    if raw.eq_ignore_ascii_case("false") {
+        return serde_json::Value::Bool(false);
+    }
+    if let Ok(n) = raw.parse::<i64>() {
+        return serde_json::json!(n);
+    }
+    serde_json::Value::String(raw.to_string())
+}
+
 fn parse_kv_args(args: &[String]) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let mut i = 0;
@@ -227,12 +240,14 @@ fn parse_kv_args(args: &[String]) -> HashMap<String, String> {
         let arg = &args[i];
         if let Some(key) = arg.strip_prefix("--") {
             if let Some(val) = args.get(i + 1) {
-                map.insert(key.to_string(), val.to_string());
-                i += 2;
-            } else {
-                map.insert(key.to_string(), "true".to_string());
-                i += 1;
+                if !val.starts_with("--") {
+                    map.insert(key.to_string(), val.to_string());
+                    i += 2;
+                    continue;
+                }
             }
+            map.insert(key.to_string(), "true".to_string());
+            i += 1;
         } else {
             i += 1;
         }
