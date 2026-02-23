@@ -495,11 +495,11 @@ pub struct App {
     #[rust]
     ipc_rx: Option<std::sync::mpsc::Receiver<havi_protocols::instance::IpcCommand>>,
 
-    // --- Pylon keepalive ---
-    /// Held open for the lifetime of the app so pylon's idle timer doesn't
-    /// trigger while HAVI is running.
+    // --- Pylon event stream ---
+    /// Receives pylon service events. The background reader thread keeps the
+    /// TCP connection alive (preventing pylon idle shutdown).
     #[rust]
-    _pylon: Option<havi_protocols::pylon::PylonClient>,
+    pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.
@@ -684,12 +684,13 @@ impl App {
             },
             None => {
                 // Use pylon (start if needed).
-                match havi_protocols::pylon::ensure_pylon()
+                let repo_path = havi_protocols::config::repo_dir();
+                match havi_protocols::pylon::ensure_pylon(&repo_path)
                     .and_then(|mut c| {
                         let hp = c.start_hpprd()?;
                         let pylon_p = c.port;
-                        // Keep pylon connection alive so idle timer doesn't fire.
-                        self._pylon = Some(c);
+                        // Subscribe to events; reader thread keeps connection alive.
+                        self.pylon_events = Some(c.subscribe());
                         Some((pylon_p, hp))
                     })
                 {
@@ -1294,6 +1295,20 @@ impl AppMain for App {
 
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
+            // Drain pylon events and update toolbar status
+            if let Some(ref rx) = self.pylon_events {
+                while let Ok(ev) = rx.try_recv() {
+                    let label = match (ev.event.as_str(), ev.service.as_deref()) {
+                        ("service_started", Some(svc)) => format!("pylon: {} ●", svc),
+                        ("service_stopped", Some(svc)) => format!("pylon: {} ○", svc),
+                        _ => String::new(),
+                    };
+                    if !label.is_empty() {
+                        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, &label);
+                    }
+                }
+            }
+
             self.update_servo_and_texture(cx);
 
             // Tick scroll fade animation

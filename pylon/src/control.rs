@@ -78,9 +78,10 @@ pub async fn run(
                         client_count.fetch_add(1, Ordering::Relaxed);
                         let pylon = Arc::clone(&pylon);
                         let event_rx = event_tx.subscribe();
+                        let ev_tx = event_tx.clone();
                         let cc = Arc::clone(&client_count);
                         tokio::spawn(async move {
-                            handle_client(stream, pylon, event_rx).await;
+                            handle_client(stream, pylon, event_rx, ev_tx).await;
                             cc.fetch_sub(1, Ordering::Relaxed);
                             log::info!("control client disconnected: {}", addr);
                         });
@@ -101,6 +102,7 @@ async fn handle_client(
     stream: TcpStream,
     pylon: Arc<Mutex<Pylon>>,
     mut event_rx: broadcast::Receiver<String>,
+    event_tx: broadcast::Sender<String>,
 ) {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -142,7 +144,7 @@ async fn handle_client(
             }
         };
 
-        let resp = dispatch(&pylon, req).await;
+        let resp = dispatch(&pylon, req, &event_tx).await;
         let msg = serde_json::to_string(&resp).unwrap_or_default() + "\n";
         if write_tx.send(msg).is_err() {
             break;
@@ -195,7 +197,19 @@ async fn mount_flow(
     Ok(mountpoint)
 }
 
-async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request) -> Response {
+async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast::Sender<String>) -> Response {
+    // Emit command event for mutating commands
+    match req.cmd.as_str() {
+        "start" | "stop" | "mount" | "unmount" | "shutdown" => {
+            let mut ev = serde_json::json!({"event": "command", "cmd": req.cmd});
+            if let Some(ref svc) = req.service {
+                ev["service"] = serde_json::json!(svc);
+            }
+            let _ = event_tx.send(serde_json::to_string(&ev).unwrap() + "\n");
+        }
+        _ => {}
+    }
+
     let mut y = pylon.lock().await;
     match req.cmd.as_str() {
         "status" => {
@@ -205,8 +219,9 @@ async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request) -> Response {
             let mounts: Vec<_> = nfs_mounts.iter()
                 .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
                 .collect();
-            data.as_object_mut().unwrap()
-                .insert("mounts".to_string(), serde_json::json!(mounts));
+            let obj = data.as_object_mut().unwrap();
+            obj.insert("mounts".to_string(), serde_json::json!(mounts));
+            obj.insert("user".to_string(), serde_json::json!(std::env::var("USER").unwrap_or_default()));
             Response::ok(req.id, data)
         }
         "list" => {

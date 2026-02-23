@@ -813,7 +813,7 @@ fn handle_services_api(path: &str) -> String {
     let cmd = params.iter().find(|(k, _)| *k == "cmd").map(|(_, v)| *v).unwrap_or("status");
     let service = params.iter().find(|(k, _)| *k == "service").map(|(_, v)| *v);
 
-    let mut client = match crate::pylon::PylonClient::try_connect() {
+    let mut client = match crate::pylon::PylonClient::try_connect(&crate::config::repo_dir()) {
         Some(c) => c,
         None => {
             return serde_json::json!({"error": "Pylon is not running. Start pylon first."}).to_string();

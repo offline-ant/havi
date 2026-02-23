@@ -11,7 +11,14 @@ pub mod protocol;
 pub mod service;
 pub mod services;
 
+mod libc {
+    extern "C" {
+        pub fn kill(pid: i32, sig: i32) -> i32;
+    }
+}
+
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -20,8 +27,8 @@ use service::{ManagedService, ServiceEvent, State};
 /// Default control port.
 pub const DEFAULT_PORT: u16 = 4850;
 
-/// Port file location (relative to config dir).
-pub const PORT_FILENAME: &str = "pylon.port";
+/// PID file location (relative to config dir).
+pub const PID_FILENAME: &str = "pylon.pid";
 
 /// Owns all managed services.
 pub struct Pylon {
@@ -31,15 +38,13 @@ pub struct Pylon {
     /// hpprd address, set when hpprd starts. Used by other services.
     hpprd_addr: Option<String>,
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
-}
-
-impl Default for Pylon {
-    fn default() -> Self { Self::new() }
+    /// Repository path for hpprd.
+    pub repo_path: PathBuf,
 }
 
 impl Pylon {
     /// Create a new pylon instance.
-    pub fn new() -> Self {
+    pub fn new(repo_path: PathBuf) -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let mut services = HashMap::new();
         for name in services::SERVICES {
@@ -51,6 +56,7 @@ impl Pylon {
             event_rx: Some(event_rx),
             hpprd_addr: None,
             shutdown_tx: None,
+            repo_path,
         }
     }
 
@@ -70,8 +76,12 @@ impl Pylon {
         name: &str,
         args: &HashMap<String, serde_json::Value>,
     ) -> Result<(), String> {
-        // Inject hpprd address for dependent services
         let mut args = args.clone();
+        // Inject repo_path for hpprd
+        if name == "hpprd" && !args.contains_key("repo_path") {
+            args.insert("repo_path".to_string(), serde_json::json!(self.repo_path.to_string_lossy()));
+        }
+        // Inject hpprd address for dependent services
         if name != "hpprd" {
             if let Some(ref addr) = self.hpprd_addr {
                 if !args.contains_key("repo") && !args.contains_key("pylon") {
@@ -155,18 +165,25 @@ impl Pylon {
 /// Run pylon as a standalone daemon.
 ///
 /// Binds the control TCP port and processes commands until shutdown.
-pub async fn run(port: u16) -> Result<(), String> {
+pub async fn run(port: u16, repo_path: PathBuf) -> Result<(), String> {
+    // Check for existing pylon process
+    if let Some((pid, _)) = read_pid_file(&repo_path) {
+        if process_alive(pid) {
+            return Err(format!("pylon already running (pid {})", pid));
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
         .map_err(|e| format!("bind 127.0.0.1:{}: {}", port, e))?;
 
     let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
-    write_port_file(actual_port);
+    write_pid_file(&repo_path, std::process::id(), actual_port);
     println!("PYLON_BIND=127.0.0.1:{}", actual_port);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let mut pylon_inner = Pylon::new();
+    let mut pylon_inner = Pylon::new(repo_path.clone());
     pylon_inner.set_shutdown(shutdown_tx);
     let event_rx = pylon_inner.take_event_rx().unwrap();
 
@@ -215,32 +232,28 @@ pub async fn run(port: u16) -> Result<(), String> {
 
     control::run(listener, pylon, broadcast_rx, shutdown_rx).await;
 
-    remove_port_file();
+    remove_pid_file(&repo_path);
     Ok(())
 }
 
-fn config_dir() -> std::path::PathBuf {
-    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
-        std::path::PathBuf::from(dir).join("pylon")
-    } else if let Ok(home) = std::env::var("HOME") {
-        std::path::PathBuf::from(home).join(".config").join("pylon")
-    } else {
-        std::path::PathBuf::from("/tmp/hppr")
-    }
+fn process_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-fn write_port_file(port: u16) {
-    let dir = config_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(dir.join(PORT_FILENAME), port.to_string());
+fn write_pid_file(repo_path: &Path, pid: u32, port: u16) {
+    let _ = std::fs::create_dir_all(repo_path);
+    let _ = std::fs::write(repo_path.join(PID_FILENAME), format!("{} {}\n", pid, port));
 }
 
-fn remove_port_file() {
-    let _ = std::fs::remove_file(config_dir().join(PORT_FILENAME));
+fn remove_pid_file(repo_path: &Path) {
+    let _ = std::fs::remove_file(repo_path.join(PID_FILENAME));
 }
 
-/// Read the pylon port from the port file. Returns None if not found.
-pub fn read_port_file() -> Option<u16> {
-    let path = config_dir().join(PORT_FILENAME);
-    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+/// Read the pylon PID file. Returns `(pid, port)` if found.
+pub fn read_pid_file(repo_path: &Path) -> Option<(u32, u16)> {
+    let content = std::fs::read_to_string(repo_path.join(PID_FILENAME)).ok()?;
+    let mut parts = content.trim().split(' ');
+    let pid: u32 = parts.next()?.parse().ok()?;
+    let port: u16 = parts.next()?.parse().ok()?;
+    Some((pid, port))
 }

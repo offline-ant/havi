@@ -9,12 +9,11 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-/// Port file name within config dir.
-const PORT_FILENAME: &str = "pylon.port";
+/// PID file name within repo directory.
+const PID_FILENAME: &str = "pylon.pid";
 
 /// Connection to a running pylon instance.
 pub struct PylonClient {
@@ -32,11 +31,20 @@ pub struct ServiceStatus {
     pub port: Option<u16>,
 }
 
+/// Event broadcast from pylon.
+#[derive(Debug, Clone)]
+pub struct PylonEvent {
+    pub event: String,
+    pub service: Option<String>,
+    pub pid: Option<u32>,
+    pub port: Option<u16>,
+}
+
 impl PylonClient {
     /// Try to connect to a running pylon by reading the port file.
     /// Returns None if pylon is not running or unreachable.
-    pub fn try_connect() -> Option<Self> {
-        let port = read_port_file()?;
+    pub fn try_connect(repo_path: &std::path::Path) -> Option<Self> {
+        let (_, port) = read_pid_file(repo_path)?;
         Self::connect(port).ok()
     }
 
@@ -133,6 +141,45 @@ impl PylonClient {
         Ok(())
     }
 
+    /// Subscribe to pylon events. Consumes the client and spawns a reader thread.
+    /// The TCP connection stays open (preventing pylon idle shutdown).
+    /// Returns a receiver for events.
+    pub fn subscribe(self) -> std::sync::mpsc::Receiver<PylonEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut stream = self.stream;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match stream.read_line(&mut line) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        // Parse event JSON
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                            if let Some(event) = val.get("event").and_then(|v| v.as_str()) {
+                                let ev = PylonEvent {
+                                    event: event.to_string(),
+                                    service: val.get("service").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                                    pid: val.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32),
+                                    port: val.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
+                                };
+                                if tx.send(ev).is_err() {
+                                    break; // Receiver dropped
+                                }
+                            }
+                        }
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {
+                        continue; // Read timeout, keep going
+                    }
+                    Err(_) => break, // Connection error
+                }
+            }
+        });
+        rx
+    }
+
     /// Start hpprd via pylon and wait for its port. Retries status up to 10 times.
     pub fn start_hpprd(&mut self) -> Option<u16> {
         // Already running?
@@ -154,15 +201,17 @@ impl PylonClient {
 
 /// Ensure a pylon instance is running. Starts one as a subprocess if needed.
 /// Returns a connected PylonClient.
-pub fn ensure_pylon() -> Option<PylonClient> {
+pub fn ensure_pylon(repo_path: &std::path::Path) -> Option<PylonClient> {
     // Try existing pylon first
-    if let Some(client) = PylonClient::try_connect() {
+    if let Some(client) = PylonClient::try_connect(repo_path) {
         return Some(client);
     }
 
     // Start pylon as a background subprocess
     use std::process::{Command, Stdio};
     let mut child = Command::new("pylon")
+        .arg("--repo")
+        .arg(repo_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -186,19 +235,11 @@ pub fn ensure_pylon() -> Option<PylonClient> {
     None
 }
 
-/// Read pylon port from config file.
-fn read_port_file() -> Option<u16> {
-    let path = pylon_port_path();
-    std::fs::read_to_string(path).ok()?.trim().parse().ok()
-}
-
-/// Path to the pylon port file.
-fn pylon_port_path() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
-        PathBuf::from(dir).join("pylon").join(PORT_FILENAME)
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".config").join("pylon").join(PORT_FILENAME)
-    } else {
-        PathBuf::from("/tmp/hppr").join(PORT_FILENAME)
-    }
+/// Read pylon PID file from repo directory. Returns (pid, port).
+pub fn read_pid_file(repo_path: &std::path::Path) -> Option<(u32, u16)> {
+    let content = std::fs::read_to_string(repo_path.join(PID_FILENAME)).ok()?;
+    let mut parts = content.trim().split(' ');
+    let pid: u32 = parts.next()?.parse().ok()?;
+    let port: u16 = parts.next()?.parse().ok()?;
+    Some((pid, port))
 }

@@ -3,39 +3,57 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::path::PathBuf;
 
 fn main() {
     env_logger::init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    if args.is_empty() {
-        run_daemon(pylon::DEFAULT_PORT);
+    // Extract --port and --repo from anywhere in args
+    let mut port = pylon::DEFAULT_PORT;
+    let mut repo_path = PathBuf::from("./repo");
+    let mut positional = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--port" => {
+                if let Some(v) = args.get(i + 1) {
+                    port = v.parse().unwrap_or(pylon::DEFAULT_PORT);
+                    i += 2;
+                } else { i += 1; }
+            }
+            "--repo" => {
+                if let Some(v) = args.get(i + 1) {
+                    repo_path = PathBuf::from(v);
+                    i += 2;
+                } else { i += 1; }
+            }
+            _ => { positional.push(args[i].clone()); i += 1; }
+        }
+    }
+
+    if positional.is_empty() {
+        run_daemon(port, repo_path);
         return;
     }
 
-    match args[0].as_str() {
+    match positional[0].as_str() {
         "--help" | "-h" => print_usage(),
-        "--port" => {
-            let port: u16 = args.get(1)
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(pylon::DEFAULT_PORT);
-            run_daemon(port);
-        }
 
         // Global commands
-        "status" => send_command("status", None, &HashMap::new()),
-        "mounts" => send_command("mounts", None, &HashMap::new()),
-        "shutdown" => send_command("shutdown", None, &HashMap::new()),
+        "status" => send_command("status", None, &HashMap::new(), &repo_path),
+        "mounts" => send_command("mounts", None, &HashMap::new(), &repo_path),
+        "shutdown" => send_command("shutdown", None, &HashMap::new(), &repo_path),
 
         // Service commands: pylon <service> <action> [args]
         "hpprd" | "lokid" | "unlokid" => {
-            let service = &args[0];
-            let action = args.get(1).map(|s| s.as_str()).unwrap_or("start");
-            let extra = parse_kv_args(&args[2..]);
+            let service = &positional[0];
+            let action = positional.get(1).map(|s| s.as_str()).unwrap_or("start");
+            let extra = parse_kv_args(&positional[2..]);
             match action {
-                "start" => send_command("start", Some(service), &extra),
-                "stop" => send_command("stop", Some(service), &HashMap::new()),
+                "start" => send_command("start", Some(service), &extra, &repo_path),
+                "stop" => send_command("stop", Some(service), &HashMap::new(), &repo_path),
                 other => {
                     eprintln!("unknown action for {}: {}", service, other);
                     std::process::exit(1);
@@ -45,33 +63,31 @@ fn main() {
 
         // NFS commands: pylon nfs <action> [mountpoint] [--args]
         "nfs" => {
-            let action = args.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
+            let action = positional.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
                 eprintln!("usage: pylon nfs <start|stop|mount|unmount>");
                 std::process::exit(1);
             });
             match action {
                 "start" => {
-                    let extra = parse_kv_args(&args[2..]);
-                    send_command("start", Some("hppr-fs"), &extra);
+                    let extra = parse_kv_args(&positional[2..]);
+                    send_command("start", Some("hppr-fs"), &extra, &repo_path);
                 }
                 "stop" => {
-                    send_command("stop", Some("hppr-fs"), &HashMap::new());
+                    send_command("stop", Some("hppr-fs"), &HashMap::new(), &repo_path);
                 }
                 "mount" => {
-                    let mut extra = parse_kv_args(&args[2..]);
-                    // First non-flag arg is mountpoint
-                    if let Some(pos) = args[2..].iter().find(|a| !a.starts_with('-')) {
+                    let mut extra = parse_kv_args(&positional[2..]);
+                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
                         extra.entry("mountpoint".to_string()).or_insert_with(|| pos.clone());
                     }
-                    send_command("mount", None, &extra);
+                    send_command("mount", None, &extra, &repo_path);
                 }
                 "unmount" => {
                     let mut extra = HashMap::new();
-                    // First non-flag arg is mountpoint
-                    if let Some(pos) = args[2..].iter().find(|a| !a.starts_with('-')) {
+                    if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
                         extra.insert("mountpoint".to_string(), pos.clone());
                     }
-                    send_command("unmount", None, &extra);
+                    send_command("unmount", None, &extra, &repo_path);
                 }
                 other => {
                     eprintln!("unknown nfs action: {}", other);
@@ -88,16 +104,16 @@ fn main() {
     }
 }
 
-fn run_daemon(port: u16) {
+fn run_daemon(port: u16, repo_path: PathBuf) {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    if let Err(e) = rt.block_on(pylon::run(port)) {
+    if let Err(e) = rt.block_on(pylon::run(port, repo_path)) {
         eprintln!("error: {}", e);
         std::process::exit(1);
     }
 }
 
-fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>) {
-    let port = pylon::read_port_file().unwrap_or(pylon::DEFAULT_PORT);
+fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>, repo_path: &std::path::Path) {
+    let port = pylon::read_pid_file(repo_path).map(|(_, p)| p).unwrap_or(pylon::DEFAULT_PORT);
     let addr = format!("127.0.0.1:{}", port);
 
     let mut stream = match TcpStream::connect(&addr) {
@@ -168,6 +184,7 @@ fn print_usage() {
     eprintln!("Daemon mode:");
     eprintln!("  pylon                            Start the pylon daemon");
     eprintln!("  pylon --port <port>              Custom control port (default: {})", pylon::DEFAULT_PORT);
+    eprintln!("  pylon --repo <path>              Repository path (default: ./repo)");
     eprintln!();
     eprintln!("Global commands:");
     eprintln!("  pylon status                     Show all service status + mounts");
