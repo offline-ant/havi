@@ -1,19 +1,15 @@
-use euclid::Scale;
-use makepad_widgets::*;
-use servo::{
-    DeviceIndependentPixel, DevicePixel,
-    RenderingContext,
-    WebViewId,
-};
-use servo::protocol_handler::ProtocolRegistry;
-use havi_protocols::credentials::global_credential_store;
-use std::rc::Rc;
 use crossbeam_channel::Sender;
-use std::sync::Arc;
-use std::sync::mpsc;
+use euclid::Scale;
+use havi_protocols::credentials::global_credential_store;
+use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::makepad_platform::thread::SignalToUI;
-use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
+use makepad_widgets::*;
+use servo::protocol_handler::ProtocolRegistry;
+use servo::{DeviceIndependentPixel, DevicePixel, RenderingContext, WebViewId};
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::mpsc;
 
 /// Platform-specific rendering context type.
 /// On Linux/Android: MakepadRenderingContext (shared EGL context).
@@ -29,7 +25,7 @@ mod navigation;
 mod tabs;
 
 use navigation::NavCommand;
-use tabs::{TabInfo, HOME_URL, title_from_url, next_tab_live_id};
+use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};
@@ -288,17 +284,34 @@ pub enum MakepadServoAction {
     None,
     Wake,
     /// A webview's page title changed.
-    TitleChanged { webview_id: WebViewId, title: Option<String> },
+    TitleChanged {
+        webview_id: WebViewId,
+        title: Option<String>,
+    },
     /// A webview's URL changed.
-    UrlChanged { webview_id: WebViewId, url: String },
+    UrlChanged {
+        webview_id: WebViewId,
+        url: String,
+    },
     /// A webview has new content to paint.
-    NewFrameReady { webview_id: WebViewId },
+    NewFrameReady {
+        webview_id: WebViewId,
+    },
     /// A webview was closed by page content (window.close()).
-    WebViewClosed { webview_id: WebViewId },
+    WebViewClosed {
+        webview_id: WebViewId,
+    },
     /// Request current watch mode for a specific WebView from app state.
-    WatchGetMode { webview_id: WebViewId, response_sender: Sender<String> },
+    WatchGetMode {
+        webview_id: WebViewId,
+        response_sender: Sender<String>,
+    },
     /// Set watch mode for a specific WebView in app state and return resulting mode.
-    WatchSetMode { webview_id: WebViewId, mode: String, response_sender: Sender<String> },
+    WatchSetMode {
+        webview_id: WebViewId,
+        mode: String,
+        response_sender: Sender<String>,
+    },
 }
 
 impl Default for MakepadServoAction {
@@ -366,19 +379,35 @@ struct HaviServoDelegate;
 impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         eprintln!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
-        log!("DEVTOOLS_BIND=127.0.0.1:{} # havi-devtools-cli -p {}", port, port);
+        log!(
+            "DEVTOOLS_BIND=127.0.0.1:{} # havi-devtools-cli -p {}",
+            port,
+            port
+        );
     }
 
     fn request_devtools_connection(&self, request: servo::AllowOrDenyRequest) {
         request.allow();
     }
 
-    fn watch_get_mode(&self, webview_id: WebViewId, response_sender: crossbeam_channel::Sender<String>) {
-        Cx::post_action(MakepadServoAction::WatchGetMode { webview_id, response_sender });
+    fn watch_get_mode(
+        &self,
+        webview_id: WebViewId,
+        response_sender: crossbeam_channel::Sender<String>,
+    ) {
+        Cx::post_action(MakepadServoAction::WatchGetMode {
+            webview_id,
+            response_sender,
+        });
         SignalToUI::set_ui_signal();
     }
 
-    fn watch_set_mode(&self, webview_id: WebViewId, mode: String, response_sender: crossbeam_channel::Sender<String>) {
+    fn watch_set_mode(
+        &self,
+        webview_id: WebViewId,
+        mode: String,
+        response_sender: crossbeam_channel::Sender<String>,
+    ) {
         Cx::post_action(MakepadServoAction::WatchSetMode {
             webview_id,
             mode,
@@ -397,10 +426,7 @@ struct ResourceReader;
 impl servo::resources::ResourceReaderMethods for ResourceReader {
     #[cfg(not(target_os = "android"))]
     fn read(&self, file: servo::resources::Resource) -> Vec<u8> {
-        let mut path = std::env::current_exe()
-            .unwrap()
-            .canonicalize()
-            .unwrap();
+        let mut path = std::env::current_exe().unwrap().canonicalize().unwrap();
         while path.pop() {
             path.push("resources");
             if path.is_dir() {
@@ -422,9 +448,7 @@ impl servo::resources::ResourceReaderMethods for ResourceReader {
             Resource::BadCertHTML => &include_bytes!("../resources/servo/badcert.html")[..],
             Resource::NetErrorHTML => &include_bytes!("../resources/servo/neterror.html")[..],
             Resource::BrokenImageIcon => &include_bytes!("../resources/servo/rippy.png")[..],
-            Resource::DomainList => {
-                &include_bytes!("../resources/servo/public_domains.txt")[..]
-            },
+            Resource::DomainList => &include_bytes!("../resources/servo/public_domains.txt")[..],
             Resource::BluetoothBlocklist => {
                 &include_bytes!("../resources/servo/gatt_blocklist.txt")[..]
             },
@@ -542,8 +566,14 @@ pub struct App {
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
 
     /// Shared HPPR watch connection pool.
+    /// Field order matters: this is dropped before `havi_runtime` during App teardown.
     #[rust]
     watch_pool: Option<havi_protocols::watch::WatchPool>,
+
+    /// Dedicated runtime for UI-owned async tasks (watch connections).
+    /// Declared after `watch_pool` so watch tasks are aborted before runtime teardown.
+    #[rust]
+    havi_runtime: Option<tokio::runtime::Runtime>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.
@@ -590,10 +620,14 @@ fn create_shared_rendering_context(
     // SAFETY: Makepad's EGL context is current (ensured above). The GL function
     // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
-        servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
-            let c_name = std::ffi::CString::new(func_name).unwrap();
-            egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-        }, Some(display_info))
+        servo::MakepadRenderingContext::new_from_loader(
+            size,
+            &|func_name: &str| {
+                let c_name = std::ffi::CString::new(func_name).unwrap();
+                egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
+            },
+            Some(display_info),
+        )
     }
 }
 
@@ -626,10 +660,14 @@ fn create_shared_rendering_context(
     // SAFETY: Makepad's EGL context is current (ensured above). The GL function
     // pointers loaded via eglGetProcAddress are valid for this context.
     unsafe {
-        servo::MakepadRenderingContext::new_from_loader(size, &|func_name: &str| {
-            let c_name = std::ffi::CString::new(func_name).unwrap();
-            egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-        }, Some(display_info))
+        servo::MakepadRenderingContext::new_from_loader(
+            size,
+            &|func_name: &str| {
+                let c_name = std::ffi::CString::new(func_name).unwrap();
+                egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
+            },
+            Some(display_info),
+        )
     }
 }
 
@@ -663,8 +701,7 @@ fn create_macos_rendering_setup(
     width: usize,
     height: usize,
 ) -> (Texture, Rc<servo::MacosRenderingContext>) {
-    let (texture, iosurface_ref, _iosurface_id) =
-        cx.create_iosurface_render_texture(width, height);
+    let (texture, iosurface_ref, _iosurface_id) = cx.create_iosurface_render_texture(width, height);
     let size = dpi::PhysicalSize::new(width as u32, height as u32);
     // SAFETY: iosurface_ref is valid — it was just created by Makepad and is kept
     // alive by the returned Texture (which holds it via CxOsTexture.iosurface).
@@ -714,23 +751,23 @@ impl App {
         // - macOS: CGL context + IOSurface bridge to Metal
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let (texture, rendering_context) = {
-            let (texture, gl_texture_id) = cx.create_gl_render_texture(width as usize, height as usize);
+            let (texture, gl_texture_id) =
+                cx.create_gl_render_texture(width as usize, height as usize);
             let size = dpi::PhysicalSize::new(width, height);
             let rendering_context = match create_shared_rendering_context(cx, size) {
                 Ok(rc) => Rc::new(rc),
                 Err(e) => {
                     log!("[havishell] FAILED to create rendering context: {:?}", e);
                     return;
-                }
+                },
             };
             rendering_context.set_external_texture(gl_texture_id, size);
             restore_makepad_gl_context(cx);
             (texture, rendering_context)
         };
         #[cfg(target_os = "macos")]
-        let (texture, rendering_context) = {
-            create_macos_rendering_setup(cx, width as usize, height as usize)
-        };
+        let (texture, rendering_context) =
+            { create_macos_rendering_setup(cx, width as usize, height as usize) };
 
         // Always go through pylon. HAVI_HOME selects remote mode.
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
@@ -742,8 +779,7 @@ impl App {
                 // Subscribe to events; reader thread keeps connection alive.
                 self.pylon_events = Some(c.subscribe());
                 Some((pylon_p, hp))
-            })
-        {
+            }) {
             Some((pylon_p, hpprd_p)) => {
                 let target = hppr_client::ViaSpec::Net {
                     host: "127.0.0.1".to_string(),
@@ -760,8 +796,22 @@ impl App {
             },
         };
 
-        // Initialize watch pool for live-reload support
+        // Create dedicated HAVI runtime and initialize watch pool for live-reload support.
+        // This runtime is owned by App and is independent from Servo/Net runtime ownership.
+        let watch_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("havi-watch")
+            .build()
+            .expect("failed to create HAVI watch runtime");
+        self.havi_runtime = Some(watch_runtime);
+        let watch_runtime_handle = self
+            .havi_runtime
+            .as_ref()
+            .expect("HAVI watch runtime must exist before watch pool")
+            .handle()
+            .clone();
         self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
+            watch_runtime_handle,
             SignalToUI::set_ui_signal,
         ));
 
@@ -797,11 +847,17 @@ impl App {
         let mut protocol_registry = ProtocolRegistry::default();
         let _ = protocol_registry.register(
             "hppr",
-            crate::protocols::hppr::HpprHandler::new(hppr_handler.clone(), credential_store.clone()),
+            crate::protocols::hppr::HpprHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
         );
         let _ = protocol_registry.register(
             "havi",
-            crate::protocols::havi::HaviHandler::new(hppr_handler.clone(), credential_store.clone()),
+            crate::protocols::havi::HaviHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
         );
         let _ = protocol_registry.register(
             "hppr-browse",
@@ -854,8 +910,7 @@ impl App {
         servo.setup_logging();
 
         // Step 4: Create first WebView with proper HiDPI scale factor.
-        let start_url_str = std::env::var("HAVI_URL")
-            .unwrap_or_else(|_| HOME_URL.to_string());
+        let start_url_str = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
         let url = servo::BrowserUrl::parse(&start_url_str).unwrap();
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
@@ -888,13 +943,19 @@ impl App {
         }
 
         // Set initial URL in the text input
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &start_url_str);
+        self.ui
+            .text_input(cx, ids!(url_input))
+            .set_text(cx, &start_url_str);
 
         // Show repo mode indicator
-        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, "pylon");
+        self.ui
+            .label(cx, ids!(repo_mode_label))
+            .set_text(cx, "pylon");
 
         // Set window title caption to "havi"
-        self.ui.widget(cx, ids!(caption_bar.caption_label.label)).set_text(cx, "havi");
+        self.ui
+            .widget(cx, ids!(caption_bar.caption_label.label))
+            .set_text(cx, "havi");
 
         // Sync tab bar UI
         self.sync_tab_bar(cx);
@@ -908,7 +969,9 @@ impl App {
         // In Makepad Studio's RunView, window control buttons are meaningless —
         // the child process doesn't own a real window.
         if cx.in_makepad_studio {
-            self.ui.view(cx, ids!(window_controls)).set_visible(cx, false);
+            self.ui
+                .view(cx, ids!(window_controls))
+                .set_visible(cx, false);
         }
 
         // Start HAVI IPC listener for single-instance support
@@ -952,15 +1015,19 @@ impl App {
                 let reader = std::io::BufReader::new(stdin.lock());
                 for line in reader.lines() {
                     let Ok(line) = line else { break };
-                    if line.is_empty() { continue; }
+                    if line.is_empty() {
+                        continue;
+                    }
                     match StudioToApp::deserialize_json(&line) {
                         Ok(msg) => {
-                            if tx.send(msg).is_err() { break; }
+                            if tx.send(msg).is_err() {
+                                break;
+                            }
                             SignalToUI::set_ui_signal();
-                        }
+                        },
                         Err(e) => {
                             eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
-                        }
+                        },
                     }
                 }
             });
@@ -1065,7 +1132,9 @@ impl App {
         {
             let mut tab_bar_dirty = false;
             for tab in &mut self.tabs {
-                let new_title = tab.webview.page_title()
+                let new_title = tab
+                    .webview
+                    .page_title()
                     .unwrap_or_else(|| title_from_url(&tab.url));
                 if new_title != tab.title {
                     tab.title = new_title;
@@ -1136,7 +1205,6 @@ impl App {
             }
         }
     }
-
 }
 
 impl MatchEvent for App {
@@ -1166,7 +1234,9 @@ impl MatchEvent for App {
             if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
                 let next = tab.watch.mode().next();
                 tab.watch.set_mode(next);
-                self.ui.button(cx, ids!(watch_btn)).set_text(cx, next.label());
+                self.ui
+                    .button(cx, ids!(watch_btn))
+                    .set_text(cx, next.label());
             }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
@@ -1192,7 +1262,9 @@ impl MatchEvent for App {
             cx.push_unique_platform_op(CxOsOp::MinimizeWindow(CxWindowPool::id_zero()));
         }
         if self.ui.button(cx, ids!(win_max)).clicked(actions) {
-            let is_fs = cx.windows[CxWindowPool::id_zero()].window_geom.is_fullscreen;
+            let is_fs = cx.windows[CxWindowPool::id_zero()]
+                .window_geom
+                .is_fullscreen;
             if is_fs {
                 cx.push_unique_platform_op(CxOsOp::RestoreWindow(CxWindowPool::id_zero()));
             } else {
@@ -1242,7 +1314,7 @@ impl MatchEvent for App {
                     if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
                         tab.url = url.clone();
                     }
-                }
+                },
             }
         }
 
@@ -1254,16 +1326,17 @@ impl MatchEvent for App {
                     self.idle_frames = 0;
                     self.next_frame = cx.new_next_frame();
                     cx.redraw_all();
-                }
+                },
                 Some(MakepadServoAction::TitleChanged { webview_id, title }) => {
                     let webview_id = *webview_id;
                     let title = title.clone();
                     if let Some(idx) = self.tab_index_for_webview(webview_id) {
-                        self.tabs[idx].title = title.clone()
+                        self.tabs[idx].title = title
+                            .clone()
                             .unwrap_or_else(|| title_from_url(&self.tabs[idx].url));
                         self.sync_tab_bar(cx);
                     }
-                }
+                },
                 Some(MakepadServoAction::UrlChanged { webview_id, url }) => {
                     let webview_id = *webview_id;
                     let url = url.clone();
@@ -1274,11 +1347,13 @@ impl MatchEvent for App {
                             self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
                         }
                     }
-                }
+                },
                 Some(MakepadServoAction::NewFrameReady { webview_id }) => {
                     let webview_id = *webview_id;
                     // Only repaint if the active webview has new content
-                    if self.tabs.get(self.active_tab_idx)
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
                         self.needs_paint = true;
@@ -1286,21 +1361,24 @@ impl MatchEvent for App {
                         self.next_frame = cx.new_next_frame();
                         cx.redraw_all();
                     }
-                }
+                },
                 Some(MakepadServoAction::WebViewClosed { webview_id }) => {
                     let webview_id = *webview_id;
                     if let Some(idx) = self.tab_index_for_webview(webview_id) {
                         self.close_tab(cx, idx);
                     }
-                }
-                Some(MakepadServoAction::WatchGetMode { webview_id, response_sender }) => {
+                },
+                Some(MakepadServoAction::WatchGetMode {
+                    webview_id,
+                    response_sender,
+                }) => {
                     let mode = self
                         .tab_index_for_webview(*webview_id)
                         .and_then(|idx| self.tabs.get(idx))
                         .map(|tab| mode_to_wire(tab.watch.mode()))
                         .unwrap_or_else(|| "off".to_string());
                     let _ = response_sender.send(mode);
-                }
+                },
                 Some(MakepadServoAction::WatchSetMode {
                     webview_id,
                     mode,
@@ -1312,7 +1390,9 @@ impl MatchEvent for App {
                             if let Some(tab) = self.tabs.get_mut(idx) {
                                 tab.watch.set_mode(mode);
                                 if idx == self.active_tab_idx {
-                                    self.ui.button(cx, ids!(watch_btn)).set_text(cx, mode.label());
+                                    self.ui
+                                        .button(cx, ids!(watch_btn))
+                                        .set_text(cx, mode.label());
                                 }
                                 mode_to_wire(tab.watch.mode())
                             } else {
@@ -1328,8 +1408,8 @@ impl MatchEvent for App {
                             .unwrap_or_else(|| "off".to_string())
                     };
                     let _ = response_sender.send(new_mode);
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
@@ -1361,7 +1441,7 @@ impl AppMain for App {
                     match cmd {
                         havi_protocols::instance::IpcCommand::Open { url } => {
                             ipc_urls.push(url);
-                        }
+                        },
                     }
                 }
             }
@@ -1398,7 +1478,9 @@ impl AppMain for App {
                         _ => String::new(),
                     };
                     if !label.is_empty() {
-                        self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, &label);
+                        self.ui
+                            .label(cx, ids!(repo_mode_label))
+                            .set_text(cx, &label);
                     }
                 }
             }
@@ -1418,25 +1500,25 @@ impl AppMain for App {
                 havi_protocols::watch::WatchAction::Reload => {
                     self.reload();
                     self.needs_paint = true;
-                }
+                },
                 havi_protocols::watch::WatchAction::ChangeDetected => {
                     cx.redraw_all();
-                }
-                havi_protocols::watch::WatchAction::None => {}
+                },
+                havi_protocols::watch::WatchAction::None => {},
             }
 
             self.update_servo_and_texture(cx);
 
             // Tick scroll fade animation
-            let scroll_fading = self.ui.servo_web_view(cx, ids!(web_view))
+            let scroll_fading = self
+                .ui
+                .servo_web_view(cx, ids!(web_view))
                 .tick_scroll_fade(cx, 1.0 / 60.0);
 
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
             // Keep running in control mode so stdin messages are polled.
-            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading
-                || Cx::has_studio_web_socket()
-            {
+            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading || Cx::has_studio_web_socket() {
                 self.next_frame = cx.new_next_frame();
                 cx.redraw_all();
             }
@@ -1482,7 +1564,9 @@ impl AppMain for App {
                     // Check each tab
                     if let Some(tab_bar) = self.ui.view(cx, ids!(tab_bar)).borrow() {
                         for (child_id, child_widget) in tab_bar.children.iter() {
-                            if *child_id == live_id!(tab_template) { continue; }
+                            if *child_id == live_id!(tab_template) {
+                                continue;
+                            }
                             let r = child_widget.area().rect(cx);
                             if r.contains(dvec2(dq.abs.x, dq.abs.y)) {
                                 over_interactive = true;
@@ -1506,6 +1590,3 @@ impl AppMain for App {
         self.ui.handle_event(cx, event, &mut Scope::empty());
     }
 }
-
-
-

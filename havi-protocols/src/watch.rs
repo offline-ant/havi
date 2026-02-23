@@ -69,14 +69,24 @@ pub struct WatchConn {
     subscribers: Arc<Mutex<Vec<std::sync::mpsc::Sender<String>>>>,
 }
 
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 impl WatchConn {
     /// Spawn a new watch connection for the given `//group/app/` prefix.
-    fn spawn(group_app: &str, wake_fn: fn()) -> Self {
+    fn spawn(group_app: &str, runtime: &tokio::runtime::Handle, wake_fn: fn()) -> Self {
         let subscribers: Arc<Mutex<Vec<std::sync::mpsc::Sender<String>>>> =
             Arc::new(Mutex::new(Vec::new()));
         let subs = subscribers.clone();
         let urc = format!("{}/", group_app); // trailing slash for prefix watch
-        let task = tokio::spawn(async move {
+        let runtime = runtime.clone();
+        let stream_runtime = runtime.clone();
+        let task = runtime.spawn(async move {
             let (ring1_name, token) = get_admin_credentials();
             let signer = hppr_client::Signer::ring1_adhoc(&ring1_name, &token);
             let endpoint = hppr_client::repo_endpoint();
@@ -85,10 +95,12 @@ impl WatchConn {
                 Err(e) => {
                     log::error!("watch: invalid repo endpoint '{}': {}", endpoint, e);
                     return;
-                }
+                },
             };
             let (events_tx, mut events_rx) = tokio::sync::mpsc::channel::<String>(64);
-            tokio::spawn(hppr_client::watch_stream(addr, signer, urc, events_tx));
+            let stream_task =
+                stream_runtime.spawn(hppr_client::watch_stream(addr, signer, urc, events_tx));
+            let _stream_task_guard = AbortOnDrop(stream_task);
             while let Some(line) = events_rx.recv().await {
                 let mut subs = subs.lock().unwrap();
                 subs.retain(|tx| tx.send(line.clone()).is_ok());
@@ -123,14 +135,16 @@ impl Drop for WatchConn {
 
 /// Pool of shared watch connections keyed by `//group/app/`.
 pub struct WatchPool {
+    runtime: tokio::runtime::Handle,
     conns: HashMap<String, Weak<WatchConn>>,
     wake_fn: fn(),
 }
 
 impl WatchPool {
-    /// Create a new pool with the given wake function.
-    pub fn new(wake_fn: fn()) -> Self {
+    /// Create a new pool with explicit runtime ownership from HAVI.
+    pub fn new(runtime: tokio::runtime::Handle, wake_fn: fn()) -> Self {
         Self {
+            runtime,
             conns: HashMap::new(),
             wake_fn,
         }
@@ -147,8 +161,9 @@ impl WatchPool {
         // Clean dead entries opportunistically
         self.conns.retain(|_, w| w.strong_count() > 0);
         // Spawn new connection
-        let conn = Arc::new(WatchConn::spawn(group_app, self.wake_fn));
-        self.conns.insert(group_app.to_string(), Arc::downgrade(&conn));
+        let conn = Arc::new(WatchConn::spawn(group_app, &self.runtime, self.wake_fn));
+        self.conns
+            .insert(group_app.to_string(), Arc::downgrade(&conn));
         conn
     }
 }
@@ -216,7 +231,7 @@ impl WatchHandle {
             None => {
                 self.stop();
                 return;
-            }
+            },
         };
 
         // If already watching the right group/app, just update the URC
@@ -255,7 +270,7 @@ impl WatchHandle {
                         Some(urc) => line.contains(urc),
                         None => false,
                     }
-                }
+                },
             };
             if matches {
                 let new_action = match self.mode {
@@ -297,4 +312,29 @@ fn extract_group_app_and_urc(url: &str) -> Option<(String, String)> {
     let group_app = format!("//{}/{}", parts.group, parts.app);
     let urc = addr.urc_string();
     Some((group_app, urc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_or_create_does_not_require_current_tokio_context() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        let handle = runtime.handle().clone();
+        let mut pool = WatchPool::new(handle, || {});
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let conn = pool.get_or_create("//group/app");
+            let _rx = conn.subscribe();
+        }));
+
+        assert!(
+            result.is_ok(),
+            "watch pool should not panic without tokio::spawn context"
+        );
+    }
 }
