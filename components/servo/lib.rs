@@ -49,6 +49,8 @@ pub use paint_api::rendering_context::{
     MakepadRenderingContext, OffscreenRenderingContext, RenderingContext, SoftwareRenderingContext,
     WindowRenderingContext,
 };
+#[cfg(target_os = "macos")]
+pub use paint_api::rendering_context::MacosRenderingContext;
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
 pub use resources;

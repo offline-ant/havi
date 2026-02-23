@@ -7352,6 +7352,7 @@ version = "0.0.1"
 dependencies = [
  "base",
  "bitflags 2.11.0",
+ "cgl",
  "crossbeam-channel",
  "dpi",
  "embedder_traits",
@@ -9384,6 +9385,7 @@ dependencies = [
  "hppr-packet",
  "malloc_size_of_derive",
  "serde",
+ "serde_json",
  "servo_arc",
  "servo_malloc_size_of",
  "url",

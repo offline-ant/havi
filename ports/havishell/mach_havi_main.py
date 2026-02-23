@@ -760,7 +760,10 @@ def _run_desktop(args: argparse.Namespace) -> int:
         return _run_desktop_control(cmd, env)
 
     _log("desktop run", env=env, cmd=cmd)
-    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+    try:
+        return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+    except KeyboardInterrupt:
+        return 130
 
 
 def _run_desktop_control(cmd: list[str], env: dict[str, str]) -> int:

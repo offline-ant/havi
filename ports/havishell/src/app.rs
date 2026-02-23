@@ -15,6 +15,14 @@ use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::makepad_platform::thread::SignalToUI;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 
+/// Platform-specific rendering context type.
+/// On Linux/Android: MakepadRenderingContext (shared EGL context).
+/// On macOS: MacosRenderingContext (CGL + IOSurface bridge to Metal).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+type PlatformRenderingContext = servo::MakepadRenderingContext;
+#[cfg(target_os = "macos")]
+type PlatformRenderingContext = servo::MacosRenderingContext;
+
 mod context_menu;
 mod input_handling;
 mod navigation;
@@ -425,7 +433,7 @@ pub struct App {
     #[rust]
     servo: Option<servo::Servo>,
     #[rust]
-    rendering_context: Option<Rc<servo::MakepadRenderingContext>>,
+    rendering_context: Option<Rc<PlatformRenderingContext>>,
     #[rust]
     texture: Option<Texture>,
     #[rust]
@@ -580,6 +588,30 @@ fn restore_makepad_gl_context(cx: &mut Cx) {
     }
 }
 
+/// On macOS, Makepad uses Metal — no GL context to restore.
+#[cfg(target_os = "macos")]
+fn restore_makepad_gl_context(_cx: &mut Cx) {}
+
+/// On macOS, create a CGL rendering context that renders into an IOSurface.
+/// The IOSurface is created by Makepad and shared with Metal for display.
+#[cfg(target_os = "macos")]
+fn create_macos_rendering_setup(
+    cx: &mut Cx,
+    width: usize,
+    height: usize,
+) -> (Texture, Rc<servo::MacosRenderingContext>) {
+    let (texture, iosurface_ref, _iosurface_id) =
+        cx.create_iosurface_render_texture(width, height);
+    let size = dpi::PhysicalSize::new(width as u32, height as u32);
+    // SAFETY: iosurface_ref is valid — it was just created by Makepad and is kept
+    // alive by the returned Texture (which holds it via CxOsTexture.iosurface).
+    let rc = unsafe {
+        servo::MacosRenderingContext::new(size, iosurface_ref)
+            .expect("Failed to create macOS CGL rendering context")
+    };
+    (texture, Rc::new(rc))
+}
+
 impl App {
     fn init_servo(&mut self, cx: &mut Cx) {
         if self.initialized {
@@ -614,30 +646,28 @@ impl App {
         let height = ((inner.y * self.dpi_factor) as u32).max(64);
         self.content_size = (width as usize, height as usize);
 
-        // Create a rendering context with a GL context that shares textures with Makepad's.
-        // This enables zero-copy texture sharing: Servo renders to an FBO texture that
-        // Makepad can directly bind and draw without any GPU→CPU→GPU roundtrip.
-        // Step 1: Create Makepad-owned render texture FIRST (physical pixel dimensions).
-        let (texture, gl_texture_id) = cx.create_gl_render_texture(width as usize, height as usize);
-
-        // Step 2: Extract EGL handles and create the shared rendering context.
-        // Platform-specific: Linux uses OpenglCx with Wayland/X11, Android uses CxAndroidDisplay.
-        let size = dpi::PhysicalSize::new(width, height);
-        let rendering_context = match create_shared_rendering_context(cx, size) {
-            Ok(rc) => Rc::new(rc),
-            Err(e) => {
-                log!("[havishell] FAILED to create rendering context: {:?}", e);
-                return;
-            }
+        // Create rendering context + texture. Platform-specific:
+        // - Linux/Android: shared EGL context, Makepad-owned GL texture
+        // - macOS: CGL context + IOSurface bridge to Metal
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let (texture, rendering_context) = {
+            let (texture, gl_texture_id) = cx.create_gl_render_texture(width as usize, height as usize);
+            let size = dpi::PhysicalSize::new(width, height);
+            let rendering_context = match create_shared_rendering_context(cx, size) {
+                Ok(rc) => Rc::new(rc),
+                Err(e) => {
+                    log!("[havishell] FAILED to create rendering context: {:?}", e);
+                    return;
+                }
+            };
+            rendering_context.set_external_texture(gl_texture_id, size);
+            restore_makepad_gl_context(cx);
+            (texture, rendering_context)
         };
-
-        // Switch the rendering context to use Makepad's texture as its render target
-        rendering_context.set_external_texture(gl_texture_id, size);
-
-        // Restore Makepad's GL context after creating the shared context.
-        // create_shared_rendering_context + set_external_texture leave Servo's
-        // context current; Makepad needs its own context for subsequent draw passes.
-        restore_makepad_gl_context(cx);
+        #[cfg(target_os = "macos")]
+        let (texture, rendering_context) = {
+            create_macos_rendering_setup(cx, width as usize, height as usize)
+        };
 
         // Determine repo target: HAVI_REPO env var (external) or embedded hpprd.
         let embedded_hpprd = match std::env::var("HAVI_REPO").ok().filter(|v| !v.trim().is_empty()) {
@@ -932,20 +962,31 @@ impl App {
             tab.webview.resize(phys_size);
         }
 
-        // Create a new Makepad-owned texture at the new size.
-        // The old texture is dropped and Makepad cleans up its GL resources.
-        let (texture, gl_texture_id) =
-            cx.create_gl_render_texture(new_width as usize, new_height as usize);
-
-        // Tell Servo's rendering context to render into the new texture
-        if let Some(rc) = &self.rendering_context {
-            rc.set_external_texture(gl_texture_id, phys_size);
-            // Restore Makepad's context after set_external_texture (which uses Servo's context)
-            restore_makepad_gl_context(cx);
+        // Create new texture and rebind the rendering context.
+        // Platform-specific: Linux/Android uses shared GL texture,
+        // macOS uses IOSurface bridge.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let (texture, gl_texture_id) =
+                cx.create_gl_render_texture(new_width as usize, new_height as usize);
+            if let Some(rc) = &self.rendering_context {
+                rc.set_external_texture(gl_texture_id, phys_size);
+                restore_makepad_gl_context(cx);
+            }
+            self.texture = Some(texture);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let (texture, iosurface_ref, _iosurface_id) =
+                cx.create_iosurface_render_texture(new_width as usize, new_height as usize);
+            if let Some(rc) = &self.rendering_context {
+                // SAFETY: iosurface_ref is valid, owned by the new texture.
+                unsafe { rc.rebind_iosurface(iosurface_ref, phys_size) };
+            }
+            self.texture = Some(texture);
         }
 
         // Assign new texture to ServoWebView widget
-        self.texture = Some(texture);
         if let Some(texture) = &self.texture {
             self.ui
                 .servo_web_view(cx, ids!(web_view))

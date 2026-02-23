@@ -1095,6 +1095,343 @@ impl RenderingContext for MakepadRenderingContext {
     }
 }
 
+// ---------------------------------------------------------------------------
+// macOS IOSurface-backed CGL rendering context
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
+#[cfg(target_os = "macos")]
+const GL_BGRA: u32 = 0x80E1;
+#[cfg(target_os = "macos")]
+const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
+#[cfg(target_os = "macos")]
+const GL_STENCIL_INDEX8: u32 = 0x8D48;
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn dlopen(filename: *const i8, flags: i32) -> *mut std::ffi::c_void;
+    fn dlsym(handle: *mut std::ffi::c_void, symbol: *const i8) -> *const std::ffi::c_void;
+}
+
+#[cfg(target_os = "macos")]
+const RTLD_LAZY: i32 = 1;
+
+#[cfg(target_os = "macos")]
+#[expect(unsafe_code)]
+fn macos_gl_proc_address(name: &str) -> *const std::ffi::c_void {
+    use std::sync::OnceLock;
+    static LIB: OnceLock<*mut std::ffi::c_void> = OnceLock::new();
+    let lib = *LIB.get_or_init(|| unsafe {
+        dlopen(
+            b"/System/Library/Frameworks/OpenGL.framework/OpenGL\0".as_ptr() as *const _,
+            RTLD_LAZY,
+        )
+    });
+    if lib.is_null() {
+        return std::ptr::null();
+    }
+    let c_name = std::ffi::CString::new(name).unwrap();
+    unsafe { dlsym(lib, c_name.as_ptr()) }
+}
+
+/// A [`RenderingContext`] for macOS that creates a CGL context rendering into an
+/// IOSurface-backed FBO. The IOSurface is created and owned by Makepad (via Metal);
+/// CGL renders into it via `CGLTexImageIOSurface2D`, and Makepad's Metal reads the
+/// same IOSurface for zero-copy display.
+#[cfg(target_os = "macos")]
+pub struct MacosRenderingContext {
+    cgl_context: cgl::CGLContextObj,
+    pixel_format: cgl::CGLPixelFormatObj,
+    gleam_gl: Rc<dyn Gl>,
+    glow_gl: Arc<glow::Context>,
+    size: Cell<PhysicalSize<u32>>,
+    fbo_id: Cell<u32>,
+    texture_id: Cell<u32>,
+    depth_rbo: Cell<u32>,
+    stencil_rbo: Cell<u32>,
+}
+
+#[cfg(target_os = "macos")]
+impl MacosRenderingContext {
+    /// Create a new `MacosRenderingContext` that renders into the given IOSurface.
+    ///
+    /// # Safety
+    /// `iosurface_ref` must be a valid `IOSurfaceRef` that remains alive for the
+    /// duration of rendering. The IOSurface is owned by Makepad.
+    #[expect(unsafe_code)]
+    pub unsafe fn new(
+        size: PhysicalSize<u32>,
+        iosurface_ref: *mut std::ffi::c_void,
+    ) -> Result<Self, Error> {
+        debug!("MacosRenderingContext: size={:?}", size);
+
+        // 1. Create CGL pixel format
+        let attributes: [cgl::CGLPixelFormatAttribute; 9] = [
+            cgl::kCGLPFAOpenGLProfile,
+            0x3200, // GL 3.2 Core
+            cgl::kCGLPFAAlphaSize,
+            8,
+            cgl::kCGLPFADepthSize,
+            24,
+            cgl::kCGLPFAStencilSize,
+            8,
+            0, // null terminator
+        ];
+        let mut pixel_format: cgl::CGLPixelFormatObj = std::ptr::null_mut();
+        let mut num_formats: i32 = 0;
+        let err = unsafe {
+            cgl::CGLChoosePixelFormat(attributes.as_ptr(), &mut pixel_format, &mut num_formats)
+        };
+        if err != cgl::kCGLNoError {
+            return Err(Error::Failed);
+        }
+
+        // 2. Create CGL context
+        let mut cgl_context: cgl::CGLContextObj = std::ptr::null_mut();
+        let err =
+            unsafe { cgl::CGLCreateContext(pixel_format, std::ptr::null_mut(), &mut cgl_context) };
+        if err != cgl::kCGLNoError {
+            unsafe { cgl::CGLReleasePixelFormat(pixel_format) };
+            return Err(Error::Failed);
+        }
+
+        // 3. Make current
+        let err = unsafe { cgl::CGLSetCurrentContext(cgl_context) };
+        if err != cgl::kCGLNoError {
+            unsafe {
+                cgl::CGLDestroyContext(cgl_context);
+                cgl::CGLReleasePixelFormat(pixel_format);
+            }
+            return Err(Error::Failed);
+        }
+
+        // 4. Load GL functions
+        let gleam_gl: Rc<dyn Gl> =
+            unsafe { gl::GlFns::load_with(|name| macos_gl_proc_address(name)) };
+        let glow_gl = unsafe {
+            Arc::new(glow::Context::from_loader_function(|name| {
+                macos_gl_proc_address(name)
+            }))
+        };
+
+        // 5-9. Create FBO resources bound to IOSurface
+        let (tex, fbo, depth, stencil) =
+            unsafe { Self::create_fbo_resources(&gleam_gl, cgl_context, iosurface_ref, size)? };
+
+        Ok(MacosRenderingContext {
+            cgl_context,
+            pixel_format,
+            gleam_gl,
+            glow_gl,
+            size: Cell::new(size),
+            fbo_id: Cell::new(fbo),
+            texture_id: Cell::new(tex),
+            depth_rbo: Cell::new(depth),
+            stencil_rbo: Cell::new(stencil),
+        })
+    }
+
+    /// Create texture + FBO + renderbuffers bound to the given IOSurface.
+    /// CGL context must be current.
+    #[expect(unsafe_code)]
+    unsafe fn create_fbo_resources(
+        gleam_gl: &Rc<dyn Gl>,
+        cgl_context: cgl::CGLContextObj,
+        iosurface_ref: *mut std::ffi::c_void,
+        size: PhysicalSize<u32>,
+    ) -> Result<(u32, u32, u32, u32), Error> {
+        let w = size.width as i32;
+        let h = size.height as i32;
+
+        // Create texture
+        let tex = gleam_gl.gen_textures(1)[0];
+        gleam_gl.bind_texture(GL_TEXTURE_RECTANGLE, tex);
+
+        // Bind IOSurface to texture
+        let err = unsafe {
+            cgl::CGLTexImageIOSurface2D(
+                cgl_context,
+                GL_TEXTURE_RECTANGLE,
+                gl::RGBA as u32,
+                w,
+                h,
+                GL_BGRA,
+                GL_UNSIGNED_INT_8_8_8_8_REV,
+                iosurface_ref as cgl::IOSurfaceRef,
+                0,
+            )
+        };
+        if err != cgl::kCGLNoError {
+            gleam_gl.delete_textures(&[tex]);
+            return Err(Error::Failed);
+        }
+
+        // Create FBO
+        let fbo = gleam_gl.gen_framebuffers(1)[0];
+        gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
+        gleam_gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            GL_TEXTURE_RECTANGLE,
+            tex,
+            0,
+        );
+
+        // Depth renderbuffer
+        let depth = gleam_gl.gen_renderbuffers(1)[0];
+        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, depth);
+        gleam_gl.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT24, w, h);
+        gleam_gl.framebuffer_renderbuffer(
+            gl::FRAMEBUFFER,
+            gl::DEPTH_ATTACHMENT,
+            gl::RENDERBUFFER,
+            depth,
+        );
+
+        // Stencil renderbuffer
+        let stencil = gleam_gl.gen_renderbuffers(1)[0];
+        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, stencil);
+        gleam_gl.renderbuffer_storage(gl::RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+        gleam_gl.framebuffer_renderbuffer(
+            gl::FRAMEBUFFER,
+            gl::STENCIL_ATTACHMENT,
+            gl::RENDERBUFFER,
+            stencil,
+        );
+
+        // Check completeness
+        let status = gleam_gl.check_frame_buffer_status(gl::FRAMEBUFFER);
+        if status != gl::FRAMEBUFFER_COMPLETE {
+            warn!("MacosRenderingContext: FBO incomplete, status=0x{:x}", status);
+            gleam_gl.delete_framebuffers(&[fbo]);
+            gleam_gl.delete_renderbuffers(&[depth, stencil]);
+            gleam_gl.delete_textures(&[tex]);
+            return Err(Error::Failed);
+        }
+
+        Ok((tex, fbo, depth, stencil))
+    }
+
+    /// Delete the current FBO resources (texture, renderbuffers, FBO).
+    fn delete_fbo_resources(&self) {
+        self.gleam_gl
+            .delete_framebuffers(&[self.fbo_id.get()]);
+        self.gleam_gl
+            .delete_renderbuffers(&[self.depth_rbo.get(), self.stencil_rbo.get()]);
+        self.gleam_gl
+            .delete_textures(&[self.texture_id.get()]);
+    }
+
+    /// Rebind to a new IOSurface at a new size. Destroys old FBO resources and
+    /// creates new ones.
+    ///
+    /// # Safety
+    /// `iosurface_ref` must be a valid `IOSurfaceRef`. CGL context will be made current.
+    #[expect(unsafe_code)]
+    pub unsafe fn rebind_iosurface(
+        &self,
+        iosurface_ref: *mut std::ffi::c_void,
+        size: PhysicalSize<u32>,
+    ) {
+        unsafe { cgl::CGLSetCurrentContext(self.cgl_context) };
+        self.delete_fbo_resources();
+
+        match unsafe {
+            Self::create_fbo_resources(&self.gleam_gl, self.cgl_context, iosurface_ref, size)
+        } {
+            Ok((tex, fbo, depth, stencil)) => {
+                self.texture_id.set(tex);
+                self.fbo_id.set(fbo);
+                self.depth_rbo.set(depth);
+                self.stencil_rbo.set(stencil);
+                self.size.set(size);
+            },
+            Err(e) => {
+                warn!("MacosRenderingContext::rebind_iosurface failed: {:?}", e);
+            },
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl RenderingContext for MacosRenderingContext {
+    fn prepare_for_rendering(&self) {
+        let _ = self.make_current();
+        self.gleam_gl
+            .bind_framebuffer(gl::FRAMEBUFFER, self.fbo_id.get());
+    }
+
+    fn present(&self) {
+        self.gleam_gl.flush();
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    }
+
+    #[expect(unsafe_code)]
+    fn make_current(&self) -> Result<(), Error> {
+        let err = unsafe { cgl::CGLSetCurrentContext(self.cgl_context) };
+        if err != cgl::kCGLNoError {
+            return Err(surfman::Error::MakeCurrentFailed(
+                surfman::WindowingApiError::Failed,
+            ));
+        }
+        Ok(())
+    }
+
+    fn size(&self) -> PhysicalSize<u32> {
+        self.size.get()
+    }
+
+    fn resize(&self, _size: PhysicalSize<u32>) {
+        // No-op: resize is done via rebind_iosurface from the caller.
+    }
+
+    fn gleam_gl_api(&self) -> Rc<dyn gleam::gl::Gl> {
+        self.gleam_gl.clone()
+    }
+
+    fn glow_gl_api(&self) -> Arc<glow::Context> {
+        self.glow_gl.clone()
+    }
+
+    fn connection(&self) -> Option<Connection> {
+        None
+    }
+
+    fn create_texture(
+        &self,
+        _surface: Surface,
+    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
+        None
+    }
+
+    fn destroy_texture(&self, _surface_texture: SurfaceTexture) -> Option<Surface> {
+        None
+    }
+
+    #[expect(unsafe_code)]
+    fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
+        let _ = self.make_current();
+        self.gleam_gl
+            .bind_framebuffer(gl::FRAMEBUFFER, self.fbo_id.get());
+        Framebuffer::read_framebuffer_to_image(&self.gleam_gl, self.fbo_id.get(), source_rectangle)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacosRenderingContext {
+    #[expect(unsafe_code)]
+    fn drop(&mut self) {
+        unsafe { cgl::CGLSetCurrentContext(self.cgl_context) };
+        self.delete_fbo_resources();
+        unsafe {
+            cgl::CGLSetCurrentContext(std::ptr::null_mut());
+            cgl::CGLDestroyContext(self.cgl_context);
+            cgl::CGLReleasePixelFormat(self.pixel_format);
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use dpi::PhysicalSize;
