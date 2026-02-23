@@ -3953,6 +3953,7 @@ dependencies = [
 name = "havishell"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "dpi",
  "env_logger",
  "euclid",

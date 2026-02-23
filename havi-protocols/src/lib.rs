@@ -19,6 +19,7 @@ pub mod local_ip;
 pub mod page_shell;
 pub mod url;
 pub mod util;
+pub mod watch;
 pub mod pages;
 
 /// Response from a protocol page handler.

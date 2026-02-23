@@ -706,6 +706,12 @@ impl ServoInner {
                         .handle_control_operation(webview, request);
                 }
             },
+            EmbedderMsg::WatchGetMode(sender) => {
+                self.delegate.borrow().watch_get_mode(sender);
+            },
+            EmbedderMsg::WatchSetMode(mode, sender) => {
+                self.delegate.borrow().watch_set_mode(mode, sender);
+            },
             EmbedderMsg::TakeScreenshot(webview_id, sender) => {
                 if let Some(webview) = self.get_webview_handle(webview_id) {
                     webview.take_screenshot(None, move |result| {

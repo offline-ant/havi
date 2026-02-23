@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 use base::generic_channel;
+use crossbeam_channel::Sender;
 use embedder_traits::{ConsoleLogLevel, Notification};
 
 use crate::webview_delegate::{AllowOrDenyRequest, WebResourceLoad};
@@ -42,6 +43,16 @@ pub trait ServoDelegate {
     /// A console message was logged by content not associated with a specific [`WebView`].
     /// <https://developer.mozilla.org/en-US/docs/Web/API/Console_API>
     fn show_console_message(&self, _level: ConsoleLogLevel, _message: String) {}
+
+    /// Request current watch mode from embedder state.
+    fn watch_get_mode(&self, response_sender: Sender<String>) {
+        let _ = response_sender.send("off".to_string());
+    }
+
+    /// Set watch mode in embedder state and return resulting mode.
+    fn watch_set_mode(&self, mode: String, response_sender: Sender<String>) {
+        let _ = response_sender.send(mode);
+    }
 }
 
 pub(crate) struct DefaultServoDelegate;

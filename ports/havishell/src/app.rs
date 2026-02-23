@@ -8,6 +8,7 @@ use servo::{
 use servo::protocol_handler::ProtocolRegistry;
 use havi_protocols::credentials::global_credential_store;
 use std::rc::Rc;
+use crossbeam_channel::Sender;
 use std::sync::Arc;
 use std::sync::mpsc;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
@@ -182,6 +183,7 @@ script_mod! {
 
                         go_btn := Button{ text: "Go" }
                         edit_btn := Button{ text: "✏" }
+                        watch_btn := Button{ text: "W:Off" }
                         share_btn := Button{ text: "🔗" }
                         home_btn := Button{ text: "⌂" }
 
@@ -261,6 +263,26 @@ script_mod! {
 // Actions
 // ---------------------------------------------------------------------------
 
+fn mode_from_wire(mode: &str) -> Option<havi_protocols::watch::WatchMode> {
+    match mode {
+        "off" => Some(havi_protocols::watch::WatchMode::Off),
+        "notify" => Some(havi_protocols::watch::WatchMode::Notify),
+        "auto" => Some(havi_protocols::watch::WatchMode::Auto),
+        "dev" => Some(havi_protocols::watch::WatchMode::Dev),
+        _ => None,
+    }
+}
+
+fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
+    match mode {
+        havi_protocols::watch::WatchMode::Off => "off",
+        havi_protocols::watch::WatchMode::Notify => "notify",
+        havi_protocols::watch::WatchMode::Auto => "auto",
+        havi_protocols::watch::WatchMode::Dev => "dev",
+    }
+    .to_string()
+}
+
 #[derive(Clone, Debug)]
 pub enum MakepadServoAction {
     None,
@@ -273,6 +295,10 @@ pub enum MakepadServoAction {
     NewFrameReady { webview_id: WebViewId },
     /// A webview was closed by page content (window.close()).
     WebViewClosed { webview_id: WebViewId },
+    /// Request current watch mode from app state.
+    WatchGetMode { response_sender: Sender<String> },
+    /// Set watch mode in app state and return resulting mode.
+    WatchSetMode { mode: String, response_sender: Sender<String> },
 }
 
 impl Default for MakepadServoAction {
@@ -345,6 +371,19 @@ impl servo::ServoDelegate for HaviServoDelegate {
 
     fn request_devtools_connection(&self, request: servo::AllowOrDenyRequest) {
         request.allow();
+    }
+
+    fn watch_get_mode(&self, response_sender: crossbeam_channel::Sender<String>) {
+        Cx::post_action(MakepadServoAction::WatchGetMode { response_sender });
+        SignalToUI::set_ui_signal();
+    }
+
+    fn watch_set_mode(&self, mode: String, response_sender: crossbeam_channel::Sender<String>) {
+        Cx::post_action(MakepadServoAction::WatchSetMode {
+            mode,
+            response_sender,
+        });
+        SignalToUI::set_ui_signal();
     }
 }
 
@@ -500,6 +539,10 @@ pub struct App {
     /// TCP connection alive (preventing pylon idle shutdown).
     #[rust]
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
+
+    /// Shared HPPR watch connection pool.
+    #[rust]
+    watch_pool: Option<havi_protocols::watch::WatchPool>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.
@@ -716,6 +759,11 @@ impl App {
             },
         };
 
+        // Initialize watch pool for live-reload support
+        self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
+            SignalToUI::set_ui_signal,
+        ));
+
         // Initialize HPPR protocol handlers
         let hppr_handler = {
             let target = hppr_client::repo_target().clone();
@@ -823,6 +871,7 @@ impl App {
             title: title_from_url(&start_url_str),
             url: start_url_str.clone(),
             widget_id: next_tab_live_id(),
+            watch: Default::default(),
         });
         self.active_tab_idx = 0;
 
@@ -1112,6 +1161,13 @@ impl MatchEvent for App {
                 nav_action = Some(NavCommand::Navigate(edit_url));
             }
         }
+        if self.ui.button(cx, ids!(watch_btn)).clicked(actions) {
+            if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+                let next = tab.watch.mode().next();
+                tab.watch.set_mode(next);
+                self.ui.button(cx, ids!(watch_btn)).set_text(cx, next.label());
+            }
+        }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
             // Copy current URL to clipboard
             let url_text = self.ui.text_input(cx, ids!(url_input)).text();
@@ -1212,6 +1268,7 @@ impl MatchEvent for App {
                     let url = url.clone();
                     if let Some(idx) = self.tab_index_for_webview(webview_id) {
                         self.tabs[idx].url = url.clone();
+                        self.tabs[idx].watch.clear_change_detected();
                         if idx == self.active_tab_idx {
                             self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
                         }
@@ -1234,6 +1291,34 @@ impl MatchEvent for App {
                     if let Some(idx) = self.tab_index_for_webview(webview_id) {
                         self.close_tab(cx, idx);
                     }
+                }
+                Some(MakepadServoAction::WatchGetMode { response_sender }) => {
+                    let mode = self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map(|tab| mode_to_wire(tab.watch.mode()))
+                        .unwrap_or_else(|| "off".to_string());
+                    let _ = response_sender.send(mode);
+                }
+                Some(MakepadServoAction::WatchSetMode {
+                    mode,
+                    response_sender,
+                }) => {
+                    let new_mode = if let Some(mode) = mode_from_wire(mode) {
+                        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+                            tab.watch.set_mode(mode);
+                            self.ui.button(cx, ids!(watch_btn)).set_text(cx, mode.label());
+                            mode_to_wire(tab.watch.mode())
+                        } else {
+                            "off".to_string()
+                        }
+                    } else {
+                        self.tabs
+                            .get(self.active_tab_idx)
+                            .map(|tab| mode_to_wire(tab.watch.mode()))
+                            .unwrap_or_else(|| "off".to_string())
+                    };
+                    let _ = response_sender.send(new_mode);
                 }
                 _ => {}
             }
@@ -1280,6 +1365,7 @@ impl AppMain for App {
                         title: title_from_url(&url),
                         url: url.clone(),
                         widget_id: next_tab_live_id(),
+                        watch: Default::default(),
                     });
                     self.active_tab_idx = self.tabs.len() - 1;
                     self.activate_tab_webview(self.active_tab_idx);
@@ -1306,6 +1392,28 @@ impl AppMain for App {
                         self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, &label);
                     }
                 }
+            }
+
+            // Poll HPPR watch events for active tab
+            let watch_action = if let Some(pool) = &mut self.watch_pool {
+                if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+                    tab.watch.reconcile(&tab.url, pool);
+                    tab.watch.poll()
+                } else {
+                    havi_protocols::watch::WatchAction::None
+                }
+            } else {
+                havi_protocols::watch::WatchAction::None
+            };
+            match watch_action {
+                havi_protocols::watch::WatchAction::Reload => {
+                    self.reload();
+                    self.needs_paint = true;
+                }
+                havi_protocols::watch::WatchAction::ChangeDetected => {
+                    cx.redraw_all();
+                }
+                havi_protocols::watch::WatchAction::None => {}
             }
 
             self.update_servo_and_texture(cx);

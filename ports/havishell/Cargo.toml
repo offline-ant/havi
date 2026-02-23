@@ -43,3 +43,4 @@ image = { workspace = true }
 gleam = { workspace = true }
 pylon = { path = "../../pylon" }
 env_logger = "0.11"
+crossbeam-channel = { workspace = true }

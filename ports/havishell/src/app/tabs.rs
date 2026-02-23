@@ -29,6 +29,8 @@ pub(super) struct TabInfo {
     pub(super) url: String,
     /// LiveId used as the key in tab_bar View.children.
     pub(super) widget_id: LiveId,
+    /// Per-tab HPPR watch state.
+    pub(super) watch: havi_protocols::watch::WatchHandle,
 }
 
 impl App {
@@ -209,6 +211,7 @@ impl App {
             title: title_from_url(HOME_URL),
             url: HOME_URL.to_string(),
             widget_id: next_tab_live_id(),
+            watch: Default::default(),
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
@@ -250,6 +253,8 @@ impl App {
         self.activate_tab_webview(idx);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.ui.button(cx, ids!(watch_btn))
+            .set_text(cx, self.tabs[idx].watch.mode().label());
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }

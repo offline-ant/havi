@@ -52,6 +52,7 @@ pub(crate) struct GlobalActors {
     perf_actor: String,
     preference_actor: String,
     pub(crate) screenshot_actor: String,
+    pub(crate) watch_actor: String,
 }
 
 #[derive(Serialize)]
@@ -294,6 +295,7 @@ impl RootActor {
                 perf_actor: perf.name(),
                 preference_actor: preference.name(),
                 screenshot_actor: String::new(),
+                watch_actor: String::new(),
             }),
             process: process.name(),
             ..Default::default()

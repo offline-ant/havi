@@ -51,6 +51,7 @@ use crate::actors::pause::PauseActor;
 use crate::actors::root::RootActor;
 use crate::actors::screenshot::ScreenshotActor;
 use crate::actors::source::SourceActor;
+use crate::actors::watch::WatchActor;
 use crate::actors::thread::{ThreadActor, ThreadInterruptedReply, WhyMsg};
 use crate::actors::watcher::WatcherActor;
 use crate::actors::worker::{WorkerActor, WorkerType};
@@ -81,6 +82,7 @@ mod actors {
     pub mod root;
     pub mod screenshot;
     pub mod source;
+    pub mod watch;
     pub mod stylesheets;
     pub mod tab;
     pub mod thread;
@@ -224,10 +226,19 @@ impl DevtoolsInstance {
         );
         registry.register(screenshot_actor);
 
-        // Store screenshot actor name on the root actor
+        let watch_name = registry.new_name::<WatchActor>();
+        let watch_actor = WatchActor::new(
+            watch_name.clone(),
+            embedder.clone(),
+            Arc::new(Mutex::new("off".to_string())),
+        );
+        registry.register(watch_actor);
+
+        // Store global actor names on the root actor
         {
             let root = registry.find::<RootActor>("root");
             root.global_actors.borrow_mut().screenshot_actor = screenshot_name;
+            root.global_actors.borrow_mut().watch_actor = watch_name;
         }
 
         let instance = Self {
