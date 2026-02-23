@@ -1,6 +1,7 @@
 //! Service process management.
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -53,6 +54,18 @@ impl ManagedService {
         }
     }
 
+    fn reset_runtime_state(&mut self) {
+        self.state = State::Stopped;
+        self.pid = None;
+        self.port = None;
+        self.child = None;
+        self.stdin = None;
+        self.stdout_tx = None;
+        if let Ok(mut listeners) = self.listeners.lock() {
+            listeners.clear();
+        }
+    }
+
     /// Start the service as a child process.
     ///
     /// `program` and `args` define the command. `env` sets extra environment
@@ -87,9 +100,13 @@ impl ManagedService {
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("spawn {}: {}", program, e))?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                self.reset_runtime_state();
+                return Err(format_spawn_error(&self.name, program, args, &e));
+            },
+        };
         let pid = child.id();
         self.pid = pid;
 
@@ -203,15 +220,7 @@ impl ManagedService {
             None
         };
 
-        self.child = None;
-        self.stdin = None;
-        self.stdout_tx = None;
-        self.state = State::Stopped;
-        self.pid = None;
-        self.port = None;
-        if let Ok(mut listeners) = self.listeners.lock() {
-            listeners.clear();
-        }
+        self.reset_runtime_state();
 
         Ok(exit_code)
     }
@@ -250,6 +259,72 @@ impl ManagedService {
             .map(|set| set.iter().cloned().collect())
             .unwrap_or_default()
     }
+}
+
+fn format_spawn_error(
+    service: &str,
+    program: &str,
+    args: &[String],
+    error: &std::io::Error,
+) -> String {
+    let args_json = serde_json::to_string(args).unwrap_or_else(|_| "[]".to_string());
+    let resolved_program = describe_program_resolution(program);
+    let cwd = std::env::current_dir()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    let path_snapshot = truncate_for_log(
+        &std::env::var("PATH").unwrap_or_else(|_| "<unset>".to_string()),
+        512,
+    );
+    let hint = spawn_hint(program, error.kind());
+
+    format!(
+        "service start failed: service={} program={} resolved_program={} args={} cwd={} PATH={} error={} hint={}",
+        service, program, resolved_program, args_json, cwd, path_snapshot, error, hint,
+    )
+}
+
+fn spawn_hint(program: &str, error_kind: std::io::ErrorKind) -> String {
+    if error_kind == std::io::ErrorKind::NotFound {
+        return format!(
+            "ensure '{}' is installed or reachable via PATH; in this repo use hack/{} or pass args.program",
+            program, program
+        );
+    }
+    "check executable permissions and runtime environment".to_string()
+}
+
+fn describe_program_resolution(program: &str) -> String {
+    let path = Path::new(program);
+    if path.components().count() > 1 {
+        if path.exists() {
+            return path.display().to_string();
+        }
+        return format!("{} (missing)", path.display());
+    }
+
+    match resolve_program_on_path(program) {
+        Some(path) => path.display().to_string(),
+        None => format!("{} (not found on PATH)", program),
+    }
+}
+
+fn resolve_program_on_path(program: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for ch in value.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if value.chars().count() > max_chars {
+        out.push('…');
+    }
+    out
 }
 
 /// Parse `HPPRD_LISTEN=` lines into listener IDs.
@@ -320,6 +395,46 @@ fn state_str(s: State) -> &'static str {
         State::Starting => "starting",
         State::Running => "running",
         State::Stopping => "stopping",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn start_spawn_error_resets_service_state() {
+        let mut svc = ManagedService::new("hppr-fuse");
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let err = svc
+            .start(
+                "/definitely/missing/hppr-fuse",
+                &[],
+                &HashMap::new(),
+                "hppr-fuse mounted on ",
+                event_tx,
+            )
+            .await
+            .expect_err("spawn should fail");
+
+        assert_eq!(svc.state, State::Stopped);
+        assert!(svc.pid.is_none());
+        assert!(svc.port.is_none());
+        assert!(svc.child.is_none());
+        assert!(svc.stdin.is_none());
+        assert!(svc.stdout_tx.is_none());
+        assert!(err.contains("service start failed:"));
+        assert!(err.contains("service=hppr-fuse"));
+        assert!(err.contains("program=/definitely/missing/hppr-fuse"));
+        assert!(err.contains("resolved_program=/definitely/missing/hppr-fuse (missing)"));
+        assert!(err.contains("PATH="));
+        assert!(err.contains("hint=ensure '/definitely/missing/hppr-fuse' is installed"));
+    }
+
+    #[test]
+    fn describe_program_resolution_reports_missing_path_programs() {
+        let description = describe_program_resolution("/definitely/missing/hppr-fuse");
+        assert_eq!(description, "/definitely/missing/hppr-fuse (missing)");
     }
 }
 
