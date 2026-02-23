@@ -5,7 +5,7 @@
 //! HPPR configuration paths for HAVI browser.
 //!
 //! Config directory resolution:
-//! 1. `$HAVI_PATH` (if set)
+//! 1. `$HAVI_CONFIG` (if set)
 //! 2. `~/.config/HAVI/` (via `dirs::config_dir()`)
 //! 3. `/tmp/HAVI/` (fallback)
 //!
@@ -15,10 +15,10 @@ use std::path::PathBuf;
 
 /// Root configuration directory for HAVI.
 ///
-/// Desktop: $HAVI_PATH, ~/.config/HAVI/, /tmp/HAVI/
-/// Mobile: $HAVI_PATH, /data/local/tmp/HAVI/ (Android), /tmp/HAVI/ (fallback)
+/// Desktop: $HAVI_CONFIG, ~/.config/HAVI/, /tmp/HAVI/
+/// Mobile: $HAVI_CONFIG, /data/local/tmp/HAVI/ (Android), /tmp/HAVI/ (fallback)
 pub fn config_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("HAVI_PATH") {
+    if let Ok(path) = std::env::var("HAVI_CONFIG") {
         return PathBuf::from(path);
     }
 

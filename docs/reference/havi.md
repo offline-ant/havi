@@ -24,7 +24,7 @@ and exits.
 
 Environment variables:
 
-- `HAVI_PATH` — config directory override (default: `~/.config/HAVI`).
+- `HAVI_CONFIG` — config directory override (default: `~/.config/HAVI`).
   CLI `--path` takes precedence.
 - `HAVI_HOME` — remote hpprd endpoint. When set, pylon starts in remote
   mode. CLI `--home` takes precedence. Formats:

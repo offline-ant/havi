@@ -25,7 +25,7 @@ fn main() {
             match args[i].as_str() {
                 "--path" => {
                     if let Some(v) = args.get(i + 1) {
-                        std::env::set_var("HAVI_PATH", v);
+                        std::env::set_var("HAVI_CONFIG", v);
                         i += 2;
                     } else {
                         i += 1;
