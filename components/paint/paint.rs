@@ -37,7 +37,7 @@ use profile_traits::time::{self as profile_time};
 use servo_config::pref;
 use servo_geometry::DeviceIndependentPixel;
 use style_traits::CSSPixel;
-use surfman::Device;
+use surfman::{Connection, Device};
 use surfman::chains::SwapChains;
 use webgl::WebGLComm;
 use webgl::webgl_thread::WebGLContextBusyMap;
@@ -231,16 +231,17 @@ impl Paint {
         }
 
         let painter = Painter::new(rendering_context.clone(), self);
-        if let Some(connection) = rendering_context.connection() {
-            if let Ok(adapter) = connection.create_adapter() {
-                let painter_surfman_details = PainterSurfmanDetails {
-                    connection,
-                    adapter,
-                };
-                self.painter_surfman_details_map
-                    .insert(painter.painter_id, painter_surfman_details);
-            }
-        }
+        let connection = Connection::new()
+            .expect("Failed to create surfman connection for WebGL");
+        let adapter = connection
+            .create_adapter()
+            .expect("Failed to create surfman adapter for WebGL");
+        let painter_surfman_details = PainterSurfmanDetails {
+            connection,
+            adapter,
+        };
+        self.painter_surfman_details_map
+            .insert(painter.painter_id, painter_surfman_details);
 
         let painter_id = painter.painter_id;
         self.painters.push(Rc::new(RefCell::new(painter)));

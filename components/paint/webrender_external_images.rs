@@ -2,22 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::rc::Rc;
-
 use canvas_traits::webgl::{WebGLContextId, WebGLThreads};
 use euclid::default::Size2D;
 use log::debug;
-use paint_api::rendering_context::RenderingContext;
 use paint_api::{ExternalImageSource, WebRenderExternalImageApi};
 use rustc_hash::FxHashMap;
 use surfman::chains::{SwapChainAPI, SwapChains, SwapChainsAPI};
-use surfman::{Device, SurfaceTexture};
+use surfman::{
+    Connection, Context, ContextAttributeFlags, ContextAttributes, Device, GLApi, SurfaceInfo,
+    SurfaceTexture,
+};
 use webgl::webgl_thread::WebGLContextBusyMap;
 
 /// Bridge between the webrender::ExternalImage callbacks and the WebGLThreads.
 pub struct WebGLExternalImages {
     webgl_threads: WebGLThreads,
-    rendering_context: Rc<dyn RenderingContext>,
+    surfman_device: Device,
+    surfman_context: Context,
     swap_chains: SwapChains<WebGLContextId, Device>,
     busy_webgl_context_map: WebGLContextBusyMap,
     locked_front_buffers: FxHashMap<WebGLContextId, SurfaceTexture>,
@@ -26,13 +27,36 @@ pub struct WebGLExternalImages {
 impl WebGLExternalImages {
     pub fn new(
         webgl_threads: WebGLThreads,
-        rendering_context: Rc<dyn RenderingContext>,
         swap_chains: SwapChains<WebGLContextId, Device>,
         busy_webgl_context_map: WebGLContextBusyMap,
     ) -> Self {
+        let connection = Connection::new()
+            .expect("Failed to create surfman connection for WebGL texture sharing");
+        let adapter = connection
+            .create_adapter()
+            .expect("Failed to create surfman adapter");
+        let device = connection
+            .create_device(&adapter)
+            .expect("Failed to create surfman device");
+
+        let flags = ContextAttributeFlags::ALPHA
+            | ContextAttributeFlags::DEPTH
+            | ContextAttributeFlags::STENCIL;
+        let version = match connection.gl_api() {
+            GLApi::GLES => surfman::GLVersion { major: 3, minor: 0 },
+            GLApi::GL => surfman::GLVersion { major: 3, minor: 2 },
+        };
+        let context_descriptor = device
+            .create_context_descriptor(&ContextAttributes { flags, version })
+            .expect("Failed to create surfman context descriptor");
+        let context = device
+            .create_context(&context_descriptor, None)
+            .expect("Failed to create surfman context");
+
         Self {
             webgl_threads,
-            rendering_context,
+            surfman_device: device,
+            surfman_context: context,
             swap_chains,
             busy_webgl_context_map,
             locked_front_buffers: FxHashMap::default(),
@@ -48,8 +72,16 @@ impl WebGLExternalImages {
         }
 
         let front_buffer = self.swap_chains.get(id)?.take_surface()?;
-        let (surface_texture, gl_texture, size) =
-            self.rendering_context.create_texture(front_buffer)?;
+        let SurfaceInfo { size, .. } = self.surfman_device.surface_info(&front_buffer);
+        let surface_texture = self
+            .surfman_device
+            .create_surface_texture(&mut self.surfman_context, front_buffer)
+            .unwrap();
+        let gl_texture = self
+            .surfman_device
+            .surface_texture_object(&surface_texture)
+            .map(|tex| tex.0.get())
+            .unwrap_or(0);
         self.locked_front_buffers.insert(id, surface_texture);
 
         Some((gl_texture, size))
@@ -64,18 +96,28 @@ impl WebGLExternalImages {
         }
 
         let locked_front_buffer = self.locked_front_buffers.remove(&id)?;
-        let locked_front_buffer = self
-            .rendering_context
-            .destroy_texture(locked_front_buffer)?;
+        let surface = self
+            .surfman_device
+            .destroy_surface_texture(&mut self.surfman_context, locked_front_buffer)
+            .map_err(|(error, _)| error)
+            .ok()?;
 
         self.swap_chains
             .get(id)
             .expect("Should always have a SwapChain for a busy WebGLContext")
-            .recycle_surface(locked_front_buffer);
+            .recycle_surface(surface);
 
         let _ = self.webgl_threads.finished_rendering_to_context(id);
 
         Some(())
+    }
+}
+
+impl Drop for WebGLExternalImages {
+    fn drop(&mut self) {
+        let _ = self
+            .surfman_device
+            .destroy_context(&mut self.surfman_context);
     }
 }
 

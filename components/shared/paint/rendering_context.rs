@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use dpi::PhysicalSize;
 use embedder_traits::RefreshDriver;
-use euclid::default::{Rect, Size2D as UntypedSize2D};
+use euclid::default::Rect;
 use euclid::{Point2D, Size2D};
 use gleam::gl::{self, Gl};
 use glow::NativeFramebuffer;
@@ -22,7 +22,7 @@ pub use surfman::Error;
 use surfman::chains::{PreserveBuffer, SwapChain};
 use surfman::{
     Adapter, Connection, Context, ContextAttributeFlags, ContextAttributes, Device, GLApi,
-    NativeContext, NativeWidget, Surface, SurfaceAccess, SurfaceInfo, SurfaceTexture, SurfaceType,
+    NativeContext, NativeWidget, Surface, SurfaceAccess, SurfaceType,
 };
 use webrender_api::units::{DeviceIntRect, DevicePixel};
 
@@ -63,22 +63,6 @@ pub trait RenderingContext {
     fn gleam_gl_api(&self) -> Rc<dyn gleam::gl::Gl>;
     /// Returns the OpenGL or GLES API.
     fn glow_gl_api(&self) -> Arc<glow::Context>;
-    /// Creates a texture from a given surface and returns the surface texture,
-    /// the OpenGL texture object, and the size of the surface. Default to `None`.
-    fn create_texture(
-        &self,
-        _surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        None
-    }
-    /// Destroys the texture and returns the surface. Default to `None`.
-    fn destroy_texture(&self, _surface_texture: SurfaceTexture) -> Option<Surface> {
-        None
-    }
-    /// The connection to the display server for WebGL. Default to `None`.
-    fn connection(&self) -> Option<Connection> {
-        None
-    }
     /// Return the [`RefreshDriver`] for this [`RenderingContext`]. If `None` is returned,
     /// then the default timer-based [`RefreshDriver`] will be used.
     fn refresh_driver(&self) -> Option<Rc<dyn RefreshDriver>> {
@@ -252,39 +236,6 @@ impl SurfmanRenderingContext {
         device.make_context_current(context)
     }
 
-    fn create_texture(
-        &self,
-        surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        let device = &self.device.borrow();
-        let context = &mut self.context.borrow_mut();
-        let SurfaceInfo {
-            id: front_buffer_id,
-            size,
-            ..
-        } = device.surface_info(&surface);
-        debug!("... getting texture for surface {:?}", front_buffer_id);
-        let surface_texture = device.create_surface_texture(context, surface).unwrap();
-        let gl_texture = device
-            .surface_texture_object(&surface_texture)
-            .map(|tex| tex.0.get())
-            .unwrap_or(0);
-        Some((surface_texture, gl_texture, size))
-    }
-
-    fn destroy_texture(&self, surface_texture: SurfaceTexture) -> Option<Surface> {
-        let device = &self.device.borrow();
-        let context = &mut self.context.borrow_mut();
-        device
-            .destroy_surface_texture(context, surface_texture)
-            .map_err(|(error, _)| error)
-            .ok()
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        Some(self.device.borrow().connection())
-    }
-
     fn refresh_driver(&self) -> Option<Rc<dyn RefreshDriver>> {
         self.refresh_driver.clone()
     }
@@ -376,20 +327,6 @@ impl RenderingContext for SoftwareRenderingContext {
         self.surfman_rendering_info.glow_gl.clone()
     }
 
-    fn create_texture(
-        &self,
-        surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        self.surfman_rendering_info.create_texture(surface)
-    }
-
-    fn destroy_texture(&self, surface_texture: SurfaceTexture) -> Option<Surface> {
-        self.surfman_rendering_info.destroy_texture(surface_texture)
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        self.surfman_rendering_info.connection()
-    }
 }
 
 /// A [`RenderingContext`] that uses the `surfman` library to render to a
@@ -553,21 +490,6 @@ impl RenderingContext for WindowRenderingContext {
 
     fn glow_gl_api(&self) -> Arc<glow::Context> {
         self.surfman_context.glow_gl.clone()
-    }
-
-    fn create_texture(
-        &self,
-        surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        self.surfman_context.create_texture(surface)
-    }
-
-    fn destroy_texture(&self, surface_texture: SurfaceTexture) -> Option<Surface> {
-        self.surfman_context.destroy_texture(surface_texture)
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        self.surfman_context.connection()
     }
 
     fn refresh_driver(&self) -> Option<Rc<dyn RefreshDriver>> {
@@ -931,21 +853,6 @@ impl RenderingContext for OffscreenRenderingContext {
         self.parent_context.glow_gl_api()
     }
 
-    fn create_texture(
-        &self,
-        surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        self.parent_context.create_texture(surface)
-    }
-
-    fn destroy_texture(&self, surface_texture: SurfaceTexture) -> Option<Surface> {
-        self.parent_context.destroy_texture(surface_texture)
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        self.parent_context.connection()
-    }
-
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
         self.framebuffer.borrow().read_to_image(source_rectangle)
     }
@@ -1073,21 +980,6 @@ impl RenderingContext for MakepadRenderingContext {
 
     fn glow_gl_api(&self) -> Arc<glow::Context> {
         self.glow_gl.clone()
-    }
-
-    fn create_texture(
-        &self,
-        _surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        None
-    }
-
-    fn destroy_texture(&self, _surface_texture: SurfaceTexture) -> Option<Surface> {
-        None
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        None
     }
 
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
@@ -1393,21 +1285,6 @@ impl RenderingContext for MacosRenderingContext {
 
     fn glow_gl_api(&self) -> Arc<glow::Context> {
         self.glow_gl.clone()
-    }
-
-    fn connection(&self) -> Option<Connection> {
-        None
-    }
-
-    fn create_texture(
-        &self,
-        _surface: Surface,
-    ) -> Option<(SurfaceTexture, u32, UntypedSize2D<i32>)> {
-        None
-    }
-
-    fn destroy_texture(&self, _surface_texture: SurfaceTexture) -> Option<Surface> {
-        None
     }
 
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
