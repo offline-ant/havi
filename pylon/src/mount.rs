@@ -45,9 +45,43 @@ pub async fn unmount(mountpoint: &str) -> Result<(), String> {
     }
 }
 
+/// Unmount a FUSE mountpoint using fusermount3.
+pub async fn fuse_unmount(mountpoint: &str) -> Result<(), String> {
+    let output = tokio::process::Command::new("fusermount3")
+        .args(["-u", mountpoint])
+        .output()
+        .await
+        .map_err(|e| format!("fusermount3: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        // UTF-8 Lossy: OS command stderr, display only
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("fusermount3 -u failed: {}", stderr.trim()))
+    }
+}
+
 /// Query active NFS mounts from the OS. Returns list of (device, mountpoint).
 pub async fn list_nfs_mounts() -> Vec<(String, String)> {
     os_list_nfs_mounts().await.unwrap_or_default()
+}
+
+/// Query active FUSE mounts (hppr-fuse). Returns list of (device, mountpoint).
+pub async fn list_fuse_mounts() -> Vec<(String, String)> {
+    os_list_fuse_mounts().await.unwrap_or_default()
+}
+
+/// Query all filesystem mounts (NFS + FUSE). Returns list of (device, mountpoint, fstype).
+pub async fn list_all_mounts() -> Vec<(String, String, String)> {
+    let mut all = Vec::new();
+    for (dev, mp) in list_nfs_mounts().await {
+        all.push((dev, mp, "nfs".to_string()));
+    }
+    for (dev, mp) in list_fuse_mounts().await {
+        all.push((dev, mp, "fuse".to_string()));
+    }
+    all
 }
 
 #[cfg(target_os = "linux")]
@@ -96,6 +130,25 @@ async fn os_list_nfs_mounts() -> Result<Vec<(String, String)>, String> {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 async fn os_list_nfs_mounts() -> Result<Vec<(String, String)>, String> {
+    Ok(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+async fn os_list_fuse_mounts() -> Result<Vec<(String, String)>, String> {
+    let data = tokio::fs::read_to_string("/proc/mounts").await
+        .map_err(|e| format!("read /proc/mounts: {}", e))?;
+    let mut mounts = Vec::new();
+    for line in data.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() >= 3 && (fields[2] == "fuse" || fields[2] == "fuse.hppr" || fields[2] == "fuse.hppr-fuse") {
+            mounts.push((fields[0].to_string(), fields[1].to_string()));
+        }
+    }
+    Ok(mounts)
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn os_list_fuse_mounts() -> Result<Vec<(String, String)>, String> {
     Ok(Vec::new())
 }
 

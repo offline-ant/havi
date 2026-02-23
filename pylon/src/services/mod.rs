@@ -4,6 +4,7 @@ pub mod hpprd;
 pub mod lokid;
 pub mod unlokid;
 pub mod hppr_nfs;
+pub mod hppr_fuse;
 
 use std::collections::HashMap;
 
@@ -20,12 +21,13 @@ pub fn resolve(
         "lokid" => lokid::resolve(args),
         "unlokid" => unlokid::resolve(args),
         "hppr-nfs" => hppr_nfs::resolve(args),
+        "hppr-fuse" => hppr_fuse::resolve(args),
         _ => Err(format!("unknown service: {}", name)),
     }
 }
 
 /// Known service names.
-pub const SERVICES: &[&str] = &["hpprd", "lokid", "unlokid", "hppr-nfs"];
+pub const SERVICES: &[&str] = &["hpprd", "lokid", "unlokid", "hppr-nfs", "hppr-fuse"];
 
 fn str_arg(args: &HashMap<String, serde_json::Value>, key: &str) -> Option<String> {
     args.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())

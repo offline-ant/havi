@@ -100,7 +100,7 @@ impl Pylon {
             if let Some(ref addr) = self.hpprd_addr {
                 if !args.contains_key("home") {
                     match name {
-                        "hppr-nfs" | "unlokid" => {
+                        "hppr-nfs" | "hppr-fuse" | "unlokid" => {
                             args.insert("home".to_string(), serde_json::json!(addr));
                         },
                         _ => {},
@@ -181,7 +181,19 @@ impl Pylon {
     pub fn hppr_nfs_stopped(&self) -> bool {
         self.services
             .get("hppr-nfs")
-            .map_or(true, |s| s.state == State::Stopped)
+            .is_none_or(|s| s.state == State::Stopped)
+    }
+
+    /// Is hppr-fuse stopped?
+    pub fn hppr_fuse_stopped(&self) -> bool {
+        self.services
+            .get("hppr-fuse")
+            .is_none_or(|s| s.state == State::Stopped)
+    }
+
+    /// Get a service's current state.
+    pub fn service_state(&self, name: &str) -> State {
+        self.services.get(name).map_or(State::Stopped, |s| s.state)
     }
 
     /// Get hpprd stdin/stdout control handles.
@@ -204,7 +216,7 @@ impl Pylon {
     /// Shutdown all services.
     pub async fn shutdown(&mut self) {
         // Stop in reverse dependency order: satellites first, then hpprd
-        for name in &["hppr-nfs", "unlokid", "lokid", "hpprd"] {
+        for name in &["hppr-fuse", "hppr-nfs", "unlokid", "lokid", "hpprd"] {
             if let Some(svc) = self.services.get_mut(*name) {
                 if svc.state != State::Stopped {
                     let _ = svc.stop().await;

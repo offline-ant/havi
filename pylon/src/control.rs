@@ -208,6 +208,102 @@ async fn mount_flow(
     Ok(mountpoint)
 }
 
+/// FUSE mount flow: starts hppr-fuse (which mounts directly on startup) and
+/// waits for the ready indicator.
+async fn fuse_mount_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    args: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<String, String> {
+    #[cfg(not(target_os = "linux"))]
+    return Err("hppr-fuse is Linux-only".to_string());
+
+    #[cfg(target_os = "linux")]
+    {
+        let mountpoint = args
+            .get("mountpoint")
+            .and_then(|v| v.as_str())
+            .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT)
+            .to_string();
+
+        // Create mountpoint directory
+        tokio::fs::create_dir_all(&mountpoint)
+            .await
+            .map_err(|e| format!("create {}: {}", mountpoint, e))?;
+
+        // Inject mountpoint into args for the service
+        let mut svc_args = args.clone();
+        svc_args
+            .entry("mountpoint".to_string())
+            .or_insert_with(|| serde_json::json!(&mountpoint));
+
+        // Start hppr-fuse if stopped
+        {
+            let mut y = pylon.lock().await;
+            if y.hppr_fuse_stopped() {
+                y.start_service("hppr-fuse", &svc_args).await?;
+            } else {
+                return Err("hppr-fuse is already running".to_string());
+            }
+        }
+
+        // Poll for running state
+        for _ in 0..50 {
+            {
+                let y = pylon.lock().await;
+                match y.service_state("hppr-fuse") {
+                    crate::service::State::Running => return Ok(mountpoint),
+                    crate::service::State::Stopped => {
+                        return Err("hppr-fuse exited unexpectedly".to_string());
+                    },
+                    _ => {},
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        Err("hppr-fuse did not become ready".to_string())
+    }
+}
+
+/// FUSE unmount flow: fusermount3 -u, then stop the service.
+async fn fuse_unmount_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    mountpoint: &str,
+) -> Result<(), String> {
+    // fusermount3 -u causes hppr-fuse to exit cleanly
+    crate::mount::fuse_unmount(mountpoint).await?;
+
+    // Stop the service (it may already be exiting)
+    let mut y = pylon.lock().await;
+    if !y.hppr_fuse_stopped() {
+        let _ = y.stop_service("hppr-fuse").await;
+    }
+    Ok(())
+}
+
+/// Unified FS mount: FUSE on Linux, NFS on macOS/Windows.
+async fn fs_mount_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    args: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<String, String> {
+    if cfg!(target_os = "linux") {
+        fuse_mount_flow(pylon, args).await
+    } else {
+        mount_flow(pylon, args).await
+    }
+}
+
+/// Unified FS unmount: FUSE on Linux, NFS on macOS/Windows.
+async fn fs_unmount_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    mountpoint: &str,
+) -> Result<(), String> {
+    if cfg!(target_os = "linux") {
+        fuse_unmount_flow(pylon, mountpoint).await
+    } else {
+        crate::mount::unmount(mountpoint).await
+    }
+}
+
 async fn hpprd_listener_flow(
     pylon: &Arc<Mutex<Pylon>>,
     cmd: &str,
@@ -295,7 +391,8 @@ async fn dispatch(
 ) -> Response {
     // Emit command event for mutating commands
     match req.cmd.as_str() {
-        "start" | "stop" | "mount" | "unmount" | "listen" | "unlisten" | "shutdown" => {
+        "start" | "stop" | "mount" | "unmount" | "listen" | "unlisten" | "shutdown"
+        | "fuse-mount" | "fuse-unmount" | "fs-mount" | "fs-unmount" => {
             let mut ev = serde_json::json!({"event": "command", "cmd": req.cmd});
             if let Some(ref svc) = req.service {
                 ev["service"] = serde_json::json!(svc);
@@ -310,10 +407,10 @@ async fn dispatch(
         "status" => {
             let mut data = y.status();
             drop(y);
-            let nfs_mounts = crate::mount::list_nfs_mounts().await;
-            let mounts: Vec<_> = nfs_mounts
+            let all_mounts = crate::mount::list_all_mounts().await;
+            let mounts: Vec<_> = all_mounts
                 .iter()
-                .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
+                .map(|(dev, mp, fs)| serde_json::json!({"device": dev, "mountpoint": mp, "fstype": fs}))
                 .collect();
             let obj = data.as_object_mut().unwrap();
             obj.insert("mounts".to_string(), serde_json::json!(mounts));
@@ -371,7 +468,7 @@ async fn dispatch(
             // Mount needs to release the lock between polls so the state
             // update loop can process hppr-nfs port events.
             drop(y);
-            match mount_flow(&pylon, &req.args).await {
+            match mount_flow(pylon, &req.args).await {
                 Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
                 Err(e) => Response::err(req.id, e),
             }
@@ -387,12 +484,50 @@ async fn dispatch(
                 Err(e) => Response::err(req.id, e),
             }
         },
+        "fuse-mount" => {
+            drop(y);
+            match fuse_mount_flow(pylon, &req.args).await {
+                Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
+        "fuse-unmount" => {
+            let mountpoint = req
+                .args
+                .get("mountpoint")
+                .and_then(|v| v.as_str())
+                .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
+            drop(y);
+            match fuse_unmount_flow(pylon, mountpoint).await {
+                Ok(()) => Response::ok_empty(req.id),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
+        "fs-mount" => {
+            drop(y);
+            match fs_mount_flow(pylon, &req.args).await {
+                Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
+        "fs-unmount" => {
+            let mountpoint = req
+                .args
+                .get("mountpoint")
+                .and_then(|v| v.as_str())
+                .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
+            drop(y);
+            match fs_unmount_flow(pylon, mountpoint).await {
+                Ok(()) => Response::ok_empty(req.id),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
         "mounts" => {
             drop(y);
-            let nfs_mounts = crate::mount::list_nfs_mounts().await;
-            let mounts: Vec<_> = nfs_mounts
+            let all_mounts = crate::mount::list_all_mounts().await;
+            let mounts: Vec<_> = all_mounts
                 .iter()
-                .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
+                .map(|(dev, mp, fs)| serde_json::json!({"device": dev, "mountpoint": mp, "fstype": fs}))
                 .collect();
             Response::ok(req.id, serde_json::json!(mounts))
         },

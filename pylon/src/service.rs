@@ -107,6 +107,7 @@ impl ManagedService {
         let listeners = Arc::clone(&self.listeners);
         tokio::spawn(async move {
             let mut port_found = None;
+            let mut ready_sent = false;
             if let Some(stdout) = stdout {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -124,27 +125,28 @@ impl ManagedService {
                         }
                     }
 
-                    if port_found.is_none() {
+                    if port_found.is_none() && !ready_sent {
                         if let Some(rest) = line.strip_prefix(&pattern) {
                             // Extract port from pattern value.
                             // For HPPRD_LISTEN=tcp+host:port,quib+..., find first tcp+ entry.
                             // For simpler patterns like "hppr-nfs listening on host:port", parse directly.
+                            // For hppr-fuse, the value is a path — port stays None.
                             let port_str = rest
                                 .split(',')
                                 .find_map(|entry| entry.trim().strip_prefix("tcp+"))
                                 .unwrap_or(rest);
                             let port_str = port_str.rsplit(':').next().unwrap_or(port_str);
                             let port_str = port_str.trim_end_matches('/').trim();
-                            if let Ok(p) = port_str.parse::<u16>() {
-                                port_found = Some(p);
-                                let _ = event_tx.send(ServiceEvent {
-                                    name: name.clone(),
-                                    state: State::Running,
-                                    pid,
-                                    port: Some(p),
-                                    exit_code: None,
-                                });
-                            }
+                            let port = port_str.parse::<u16>().ok();
+                            port_found = port;
+                            ready_sent = true;
+                            let _ = event_tx.send(ServiceEvent {
+                                name: name.clone(),
+                                state: State::Running,
+                                pid,
+                                port,
+                                exit_code: None,
+                            });
                         }
                     }
                 }

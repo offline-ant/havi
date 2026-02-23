@@ -1,8 +1,8 @@
 # pylon Reference
 
 Service manager for the HPPR ecosystem. Manages hpprd and satellite services
-(lokid, unlokid, hppr-nfs) as child processes. TCP JSON lines control protocol
-on localhost.
+(lokid, unlokid, hppr-nfs, hppr-fuse) as child processes. TCP JSON lines
+control protocol on localhost.
 
 Each pylon instance is bound to one hpprd repository directory. The PID file
 lives in the repo directory, enforcing one pylon per repo.
@@ -42,12 +42,14 @@ Auto-shuts down after 30 seconds with zero connected clients.
 ## Global Commands
 
 ```bash
-pylon status                       # service status + NFS mounts + user
-pylon mounts                       # list active NFS mounts
+pylon status                       # service status + mounts + user
+pylon mounts                       # list active mounts (NFS + FUSE)
 pylon shutdown                     # stop all services and exit
 ```
 
 The `status` response includes a `"user"` field with the OS user running pylon.
+The `"mounts"` array includes NFS and FUSE mounts, each with `"device"`,
+`"mountpoint"`, and `"fstype"` (`"nfs"` or `"fuse"`).
 When hpprd is running, `status.hpprd.listeners` lists active listener IDs
 (e.g. `tcp:127.0.0.1:4777`, `ws:127.0.0.1:4778`, `unix:/abs/path/hppr.sock`).
 
@@ -80,6 +82,40 @@ pylon unlokid stop                 # stop unlokid
 
 - `--shim <bool>`: enable shim mode
 
+## FS Commands (Unified)
+
+```bash
+pylon fs mount [<mountpoint>] [--k v]   # mount filesystem (auto-selects backend)
+pylon fs unmount [<mountpoint>]         # unmount filesystem
+```
+
+On Linux, delegates to FUSE. On macOS/Windows, delegates to NFS.
+
+Default mountpoint: `/mnt/hppr`.
+
+## FUSE Commands (Linux Only)
+
+```bash
+pylon fuse mount [<mountpoint>] [--k v]   # start hppr-fuse (mounts directly)
+pylon fuse unmount [<mountpoint>]         # unmount + stop hppr-fuse
+```
+
+`pylon fuse mount` starts hppr-fuse, which mounts the FUSE filesystem directly
+on startup. No separate OS mount step is needed. Waits for hppr-fuse to report
+ready before returning.
+
+`pylon fuse unmount` runs `fusermount3 -u` then stops the hppr-fuse process.
+
+Errors on non-Linux platforms.
+
+### hppr-fuse / fuse mount Options
+
+- `--home <addr>`: remote repository address
+- `--root <coordinate>`: root coordinate (default: `//`)
+- `--signer <signer>`: authentication identity (default: `anyone`)
+- `--rw`: enable write support
+- `--seal_with <mode>`: seal mode for writes
+
 ## NFS Commands
 
 ```bash
@@ -91,7 +127,7 @@ pylon nfs unmount [<mountpoint>]   # OS unmount
 
 Default mountpoint: `/mnt/hppr`.
 
-### hppr-nfs / mount Options
+### hppr-nfs / nfs mount Options
 
 - `--home <addr>`: remote repository address
 - `--root <coordinate>`: root coordinate (default: `//'`)
@@ -114,6 +150,10 @@ Request:
 {"id": 3, "cmd": "listen", "args": {"bind": "ws+127.0.0.1:4778"}}
 {"id": 4, "cmd": "unlisten", "args": {"bind": "ws:127.0.0.1:4778"}}
 {"id": 5, "cmd": "mount", "args": {"mountpoint": "/mnt/hppr"}}
+{"id": 6, "cmd": "fuse-mount", "args": {"mountpoint": "/mnt/hppr", "root": "//u/"}}
+{"id": 7, "cmd": "fuse-unmount", "args": {"mountpoint": "/mnt/hppr"}}
+{"id": 8, "cmd": "fs-mount", "args": {"mountpoint": "/mnt/hppr"}}
+{"id": 9, "cmd": "fs-unmount", "args": {"mountpoint": "/mnt/hppr"}}
 ```
 
 Response:
@@ -124,6 +164,8 @@ Response:
 {"id": 3, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
 {"id": 4, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
 {"id": 5, "ok": false, "error": "mount failed: ..."}
+{"id": 6, "ok": true, "data": {"mountpoint": "/mnt/hppr"}}
+{"id": 8, "ok": true, "data": {"mountpoint": "/mnt/hppr"}}
 ```
 
 Event broadcast (unsolicited):
@@ -137,8 +179,8 @@ Event broadcast (unsolicited):
 Events can arrive before the response to a request on the same connection.
 Clients must ignore event lines and wait for the matching response `id`.
 
-Command events are emitted for start, stop, mount, unmount, listen, unlisten,
-and shutdown.
+Command events are emitted for start, stop, mount, unmount, fuse-mount,
+fuse-unmount, fs-mount, fs-unmount, listen, unlisten, and shutdown.
 
 `listen`/`unlisten` are strict ACKed operations: pylon writes a JSON control
 line to hpprd stdin and waits for hpprd stdout markers:
@@ -179,10 +221,18 @@ pylon --path /data/myrepo
 # Check status
 pylon status
 
-# Mount repository as NFS filesystem
-pylon nfs mount /mnt/hppr --root //u/
+# Mount filesystem (auto-selects FUSE on Linux, NFS elsewhere)
+pylon fs mount /mnt/hppr --root //u/
 
 # Unmount
+pylon fs unmount /mnt/hppr
+
+# FUSE mount explicitly (Linux only)
+pylon fuse mount /mnt/hppr --root //u/
+pylon fuse unmount /mnt/hppr
+
+# NFS mount explicitly
+pylon nfs mount /mnt/hppr --root //u/
 pylon nfs unmount /mnt/hppr
 
 # Start hpprd on custom port
