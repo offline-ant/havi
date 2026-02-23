@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::sync::mpsc;
 
 use crate::protocol::{Event, Request, Response};
-use crate::Yard;
+use crate::Pylon;
 
 /// Idle timeout: shut down if no clients connect within this duration.
 const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -20,8 +20,8 @@ const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Run the control server on the given listener.
 pub async fn run(
     listener: TcpListener,
-    yard: Arc<Mutex<Yard>>,
-    mut yard_events: mpsc::UnboundedReceiver<crate::service::ServiceEvent>,
+    pylon: Arc<Mutex<Pylon>>,
+    mut pylon_events: mpsc::UnboundedReceiver<crate::service::ServiceEvent>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     let (event_tx, _) = broadcast::channel::<String>(64);
@@ -30,7 +30,7 @@ pub async fn run(
     // Forward service events to broadcast channel
     let event_tx2 = event_tx.clone();
     tokio::spawn(async move {
-        while let Some(svc_event) = yard_events.recv().await {
+        while let Some(svc_event) = pylon_events.recv().await {
             let event = Event {
                 event: match svc_event.state {
                     crate::service::State::Running => "service_started".to_string(),
@@ -49,7 +49,7 @@ pub async fn run(
     });
 
     // Idle shutdown timer: if no clients for IDLE_TIMEOUT, shut down.
-    let idle_yard = Arc::clone(&yard);
+    let idle_pylon = Arc::clone(&pylon);
     let idle_count = Arc::clone(&client_count);
     tokio::spawn(async move {
         // Grace period: don't check immediately on startup.
@@ -61,7 +61,7 @@ pub async fn run(
                 tokio::time::sleep(IDLE_TIMEOUT).await;
                 if idle_count.load(Ordering::Relaxed) == 0 {
                     log::info!("no clients for {}s, shutting down", IDLE_TIMEOUT.as_secs());
-                    let mut y = idle_yard.lock().await;
+                    let mut y = idle_pylon.lock().await;
                     y.shutdown().await;
                     break;
                 }
@@ -76,11 +76,11 @@ pub async fn run(
                     Ok((stream, addr)) => {
                         log::info!("control client connected: {}", addr);
                         client_count.fetch_add(1, Ordering::Relaxed);
-                        let yard = Arc::clone(&yard);
+                        let pylon = Arc::clone(&pylon);
                         let event_rx = event_tx.subscribe();
                         let cc = Arc::clone(&client_count);
                         tokio::spawn(async move {
-                            handle_client(stream, yard, event_rx).await;
+                            handle_client(stream, pylon, event_rx).await;
                             cc.fetch_sub(1, Ordering::Relaxed);
                             log::info!("control client disconnected: {}", addr);
                         });
@@ -99,7 +99,7 @@ pub async fn run(
 
 async fn handle_client(
     stream: TcpStream,
-    yard: Arc<Mutex<Yard>>,
+    pylon: Arc<Mutex<Pylon>>,
     mut event_rx: broadcast::Receiver<String>,
 ) {
     let (reader, mut writer) = stream.into_split();
@@ -142,7 +142,7 @@ async fn handle_client(
             }
         };
 
-        let resp = dispatch(&yard, req).await;
+        let resp = dispatch(&pylon, req).await;
         let msg = serde_json::to_string(&resp).unwrap_or_default() + "\n";
         if write_tx.send(msg).is_err() {
             break;
@@ -153,11 +153,60 @@ async fn handle_client(
     let _ = write_handle.await;
 }
 
-async fn dispatch(yard: &Arc<Mutex<Yard>>, req: Request) -> Response {
-    let mut y = yard.lock().await;
+/// Mount flow: starts hppr-fs if needed, polls for port (releasing the lock
+/// between polls so the state update loop can process events), then runs the
+/// OS mount command.
+async fn mount_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    args: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<String, String> {
+    let mountpoint = args.get("mountpoint")
+        .and_then(|v| v.as_str())
+        .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT)
+        .to_string();
+
+    // Start hppr-fs if stopped
+    {
+        let mut y = pylon.lock().await;
+        if y.hppr_fs_stopped() {
+            y.start_service("hppr-fs", args).await?;
+        }
+    }
+
+    // Poll for port, releasing lock between attempts
+    let mut port = None;
+    for _ in 0..30 {
+        {
+            let y = pylon.lock().await;
+            if let Some(p) = y.hppr_fs_port() {
+                port = Some(p);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let port = port.ok_or("hppr-fs did not report a port")?;
+
+    let bind = args.get("bind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("127.0.0.1");
+
+    crate::mount::mount(bind, port, &mountpoint).await?;
+    Ok(mountpoint)
+}
+
+async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request) -> Response {
+    let mut y = pylon.lock().await;
     match req.cmd.as_str() {
         "status" => {
-            let data = y.status();
+            let mut data = y.status();
+            drop(y);
+            let nfs_mounts = crate::mount::list_nfs_mounts().await;
+            let mounts: Vec<_> = nfs_mounts.iter()
+                .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
+                .collect();
+            data.as_object_mut().unwrap()
+                .insert("mounts".to_string(), serde_json::json!(mounts));
             Response::ok(req.id, data)
         }
         "list" => {
@@ -182,6 +231,32 @@ async fn dispatch(yard: &Arc<Mutex<Yard>>, req: Request) -> Response {
                 Ok(_) => Response::ok_empty(req.id),
                 Err(e) => Response::err(req.id, e),
             }
+        }
+        "mount" => {
+            // Mount needs to release the lock between polls so the state
+            // update loop can process hppr-fs port events.
+            drop(y);
+            match mount_flow(&pylon, &req.args).await {
+                Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
+                Err(e) => Response::err(req.id, e),
+            }
+        }
+        "unmount" => {
+            let mountpoint = req.args.get("mountpoint")
+                .and_then(|v| v.as_str())
+                .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
+            match crate::mount::unmount(mountpoint).await {
+                Ok(()) => Response::ok_empty(req.id),
+                Err(e) => Response::err(req.id, e),
+            }
+        }
+        "mounts" => {
+            drop(y);
+            let nfs_mounts = crate::mount::list_nfs_mounts().await;
+            let mounts: Vec<_> = nfs_mounts.iter()
+                .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
+                .collect();
+            Response::ok(req.id, serde_json::json!(mounts))
         }
         "shutdown" => {
             y.shutdown().await;

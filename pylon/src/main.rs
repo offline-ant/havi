@@ -10,7 +10,6 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     if args.is_empty() {
-        // Daemon mode
         run_daemon(pylon::DEFAULT_PORT);
         return;
     }
@@ -23,18 +22,64 @@ fn main() {
                 .unwrap_or(pylon::DEFAULT_PORT);
             run_daemon(port);
         }
+
+        // Global commands
         "status" => send_command("status", None, &HashMap::new()),
-        "list" => send_command("list", None, &HashMap::new()),
+        "mounts" => send_command("mounts", None, &HashMap::new()),
         "shutdown" => send_command("shutdown", None, &HashMap::new()),
-        "start" => {
-            let service = args.get(1).map(|s| s.as_str());
+
+        // Service commands: pylon <service> <action> [args]
+        "hpprd" | "lokid" | "unlokid" => {
+            let service = &args[0];
+            let action = args.get(1).map(|s| s.as_str()).unwrap_or("start");
             let extra = parse_kv_args(&args[2..]);
-            send_command("start", service, &extra);
+            match action {
+                "start" => send_command("start", Some(service), &extra),
+                "stop" => send_command("stop", Some(service), &HashMap::new()),
+                other => {
+                    eprintln!("unknown action for {}: {}", service, other);
+                    std::process::exit(1);
+                }
+            }
         }
-        "stop" => {
-            let service = args.get(1).map(|s| s.as_str());
-            send_command("stop", service, &HashMap::new());
+
+        // NFS commands: pylon nfs <action> [mountpoint] [--args]
+        "nfs" => {
+            let action = args.get(1).map(|s| s.as_str()).unwrap_or_else(|| {
+                eprintln!("usage: pylon nfs <start|stop|mount|unmount>");
+                std::process::exit(1);
+            });
+            match action {
+                "start" => {
+                    let extra = parse_kv_args(&args[2..]);
+                    send_command("start", Some("hppr-fs"), &extra);
+                }
+                "stop" => {
+                    send_command("stop", Some("hppr-fs"), &HashMap::new());
+                }
+                "mount" => {
+                    let mut extra = parse_kv_args(&args[2..]);
+                    // First non-flag arg is mountpoint
+                    if let Some(pos) = args[2..].iter().find(|a| !a.starts_with('-')) {
+                        extra.entry("mountpoint".to_string()).or_insert_with(|| pos.clone());
+                    }
+                    send_command("mount", None, &extra);
+                }
+                "unmount" => {
+                    let mut extra = HashMap::new();
+                    // First non-flag arg is mountpoint
+                    if let Some(pos) = args[2..].iter().find(|a| !a.starts_with('-')) {
+                        extra.insert("mountpoint".to_string(), pos.clone());
+                    }
+                    send_command("unmount", None, &extra);
+                }
+                other => {
+                    eprintln!("unknown nfs action: {}", other);
+                    std::process::exit(1);
+                }
+            }
         }
+
         other => {
             eprintln!("unknown command: {}", other);
             print_usage();
@@ -58,7 +103,7 @@ fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>
     let mut stream = match TcpStream::connect(&addr) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("cannot connect to yard at {}: {}", addr, e);
+            eprintln!("cannot connect to pylon at {}: {}", addr, e);
             std::process::exit(1);
         }
     };
@@ -79,7 +124,6 @@ fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>
     stream.write_all(line.as_bytes()).unwrap();
     stream.flush().unwrap();
 
-    // Read one response
     let mut reader = BufReader::new(&stream);
     let mut resp_line = String::new();
     reader.read_line(&mut resp_line).unwrap();
@@ -121,22 +165,31 @@ fn parse_kv_args(args: &[String]) -> HashMap<String, String> {
 fn print_usage() {
     eprintln!("Usage: pylon [COMMAND]");
     eprintln!();
-    eprintln!("Daemon mode (no command):");
-    eprintln!("  pylon                Start the yard daemon");
-    eprintln!("  pylon --port <port>  Start on custom control port (default: {})", pylon::DEFAULT_PORT);
+    eprintln!("Daemon mode:");
+    eprintln!("  pylon                            Start the pylon daemon");
+    eprintln!("  pylon --port <port>              Custom control port (default: {})", pylon::DEFAULT_PORT);
     eprintln!();
-    eprintln!("Client commands:");
-    eprintln!("  pylon status                     Show all service status");
-    eprintln!("  pylon list                       List available services");
-    eprintln!("  pylon start <service> [--k v]    Start a service");
-    eprintln!("  pylon stop <service>             Stop a service");
+    eprintln!("Global commands:");
+    eprintln!("  pylon status                     Show all service status + mounts");
+    eprintln!("  pylon mounts                     List active NFS mounts");
     eprintln!("  pylon shutdown                   Stop all services and exit");
     eprintln!();
-    eprintln!("Services: hpprd, lokid, unlokid, hppr-fs");
+    eprintln!("Service commands:");
+    eprintln!("  pylon hpprd start [--k v]        Start hpprd");
+    eprintln!("  pylon hpprd stop                 Stop hpprd");
+    eprintln!("  pylon lokid start [--k v]        Start lokid");
+    eprintln!("  pylon lokid stop                 Stop lokid");
+    eprintln!("  pylon unlokid start [--k v]      Start unlokid");
+    eprintln!("  pylon unlokid stop               Stop unlokid");
+    eprintln!();
+    eprintln!("NFS commands:");
+    eprintln!("  pylon nfs start [--k v]          Start hppr-fs server");
+    eprintln!("  pylon nfs stop                   Stop hppr-fs server");
+    eprintln!("  pylon nfs mount [path] [--k v]   Start hppr-fs + OS mount");
+    eprintln!("  pylon nfs unmount [path]         OS unmount");
     eprintln!();
     eprintln!("Examples:");
-    eprintln!("  pylon start hpprd --repo_path /data/repo --bind 127.0.0.1:4777");
-    eprintln!("  pylon start lokid --key '&.xxx.H3' --port 4780");
-    eprintln!("  pylon start unlokid --port 8080 --shim true");
-    eprintln!("  pylon start hppr-fs --port 2049 --root //u/");
+    eprintln!("  pylon hpprd start --repo_path /data/repo --bind 127.0.0.1:4777");
+    eprintln!("  pylon nfs mount /mnt/hppr --root //u/");
+    eprintln!("  pylon nfs unmount /mnt/hppr");
 }

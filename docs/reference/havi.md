@@ -3,7 +3,7 @@
 ## Synopsis
 
 ```bash
-havi [OPTIONS] [URL]
+havi [URL]
 ```
 
 Launches the HAVI browser.
@@ -12,45 +12,62 @@ Launches the HAVI browser.
   `hppr-sandbox://`, `hppr-browse://`, `hppr-editor://`, `havi://`).
 - If `URL` is omitted, HAVI opens `havi:///overview`.
 
-## Runtime configuration
+If another HAVI instance is already running, sends the URL to it via IPC
+and exits.
+
+## Runtime Configuration
 
 Environment variables:
 
 - `HAVI_HOME` — home directory for HAVI state (default: `~/.config/HAVI`)
-- `HAVI_REPO` — repo endpoint override
+- `HAVI_REPO` — repo endpoint override, bypasses pylon
   - `tcp+<host>[:<port>]`
   - `unix+<path>`
   - `path:<dir>`
+- `HAVI_URL` — override startup URL
+- `HAVI_DEVTOOLS` — enable DevTools server (`<port>` or `<host>:<port>`)
+- `HAVI_CONTROL` — enable control socket (JSON lines over stdin/stdout)
 
-When `HAVI_REPO` is unset, HAVI runs an embedded repo at
-`$HAVI_HOME/repo`.
+## Repository Connection
 
-## Common options
+When `HAVI_REPO` is set, HAVI connects directly to that endpoint.
 
-- `--devtools <port>`: enable DevTools server on the given port.
+Otherwise, HAVI uses [pylon](pylon.md):
 
-For full shell options inherited from the underlying browser shell, run:
+1. Connect to running pylon (via `~/.config/pylon/pylon.port`)
+2. If no pylon found, spawn `pylon` as a subprocess
+3. Request hpprd start via pylon, poll for hpprd port
+4. Hold pylon connection open for app lifetime
 
-```bash
-havi --help
+## Single-Instance
+
+HAVI listens on `~/.config/HAVI/havi.sock` (Unix socket). A second `havi`
+invocation detects the running instance, sends the URL, and exits. The
+running instance opens a new tab.
+
+## Startup Output
+
+HAVI prints eval-compatible environment on stderr:
+
+```
+HPPRD_REPO=/path/to/repo
+PYLON=127.0.0.1:4850
+HAVI_URL=havi:///overview
+HAVI_DEVTOOLS=127.0.0.1:6080
 ```
 
 ## Examples
 
-Start with embedded home repo:
-
 ```bash
-./bin/havi
-```
+# Start with pylon-managed hpprd
+havi
 
-Start against external repo:
+# Open a specific page
+havi hppr://u/showcase/index.html
 
-```bash
-HAVI_REPO=tcp+127.0.0.1:4777 ./bin/havi
-```
+# Connect to external repo
+HAVI_REPO=tcp+127.0.0.1:4777 havi
 
-Start with DevTools and open a page:
-
-```bash
-./bin/havi --devtools 6000 hppr://u/showcase/index.html
+# Enable DevTools
+HAVI_DEVTOOLS=6080 havi
 ```

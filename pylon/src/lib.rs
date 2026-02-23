@@ -6,6 +6,7 @@
 //! Use as a library (in-process, e.g. from HAVI) or as a standalone binary.
 
 pub mod control;
+pub mod mount;
 pub mod protocol;
 pub mod service;
 pub mod services;
@@ -22,8 +23,8 @@ pub const DEFAULT_PORT: u16 = 4850;
 /// Port file location (relative to config dir).
 pub const PORT_FILENAME: &str = "pylon.port";
 
-/// The yard: owns all managed services.
-pub struct Yard {
+/// Owns all managed services.
+pub struct Pylon {
     services: HashMap<String, ManagedService>,
     event_tx: mpsc::UnboundedSender<ServiceEvent>,
     event_rx: Option<mpsc::UnboundedReceiver<ServiceEvent>>,
@@ -32,12 +33,12 @@ pub struct Yard {
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
-impl Default for Yard {
+impl Default for Pylon {
     fn default() -> Self { Self::new() }
 }
 
-impl Yard {
-    /// Create a new yard.
+impl Pylon {
+    /// Create a new pylon instance.
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let mut services = HashMap::new();
@@ -125,6 +126,16 @@ impl Yard {
         }
     }
 
+    /// Get the hppr-fs port if running.
+    pub fn hppr_fs_port(&self) -> Option<u16> {
+        self.services.get("hppr-fs").and_then(|s| s.port)
+    }
+
+    /// Is hppr-fs stopped?
+    pub fn hppr_fs_stopped(&self) -> bool {
+        self.services.get("hppr-fs").map_or(true, |s| s.state == State::Stopped)
+    }
+
     /// Shutdown all services.
     pub async fn shutdown(&mut self) {
         // Stop in reverse dependency order: satellites first, then hpprd
@@ -141,7 +152,7 @@ impl Yard {
     }
 }
 
-/// Run the yard as a standalone daemon.
+/// Run pylon as a standalone daemon.
 ///
 /// Binds the control TCP port and processes commands until shutdown.
 pub async fn run(port: u16) -> Result<(), String> {
@@ -155,15 +166,15 @@ pub async fn run(port: u16) -> Result<(), String> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let mut yard_inner = Yard::new();
-    yard_inner.set_shutdown(shutdown_tx);
-    let event_rx = yard_inner.take_event_rx().unwrap();
+    let mut pylon_inner = Pylon::new();
+    pylon_inner.set_shutdown(shutdown_tx);
+    let event_rx = pylon_inner.take_event_rx().unwrap();
 
     // Split event_rx: one for state updates, one for control broadcast
     let (state_tx, mut state_rx) = mpsc::unbounded_channel();
     let (broadcast_tx, broadcast_rx) = mpsc::unbounded_channel();
 
-    let yard = std::sync::Arc::new(tokio::sync::Mutex::new(yard_inner));
+    let pylon = std::sync::Arc::new(tokio::sync::Mutex::new(pylon_inner));
 
     // Forward events to both channels
     tokio::spawn(async move {
@@ -182,9 +193,9 @@ pub async fn run(port: u16) -> Result<(), String> {
 
     // Auto-start hpprd on daemon launch.
     {
-        let yard3 = Arc::clone(&yard);
+        let pylon_auto = Arc::clone(&pylon);
         tokio::spawn(async move {
-            let mut y = yard3.lock().await;
+            let mut y = pylon_auto.lock().await;
             if let Err(e) = y.start_service("hpprd", &HashMap::new()).await {
                 log::warn!("auto-start hpprd failed: {}", e);
             }
@@ -193,16 +204,16 @@ pub async fn run(port: u16) -> Result<(), String> {
 
     // State update loop
     {
-        let yard2 = std::sync::Arc::clone(&yard);
+        let pylon_state = std::sync::Arc::clone(&pylon);
         tokio::spawn(async move {
             while let Some(event) = state_rx.recv().await {
-                let mut y = yard2.lock().await;
+                let mut y = pylon_state.lock().await;
                 y.handle_event(&event);
             }
         });
     }
 
-    control::run(listener, yard, broadcast_rx, shutdown_rx).await;
+    control::run(listener, pylon, broadcast_rx, shutdown_rx).await;
 
     remove_port_file();
     Ok(())
@@ -228,7 +239,7 @@ fn remove_port_file() {
     let _ = std::fs::remove_file(config_dir().join(PORT_FILENAME));
 }
 
-/// Read the yard port from the port file. Returns None if not found.
+/// Read the pylon port from the port file. Returns None if not found.
 pub fn read_port_file() -> Option<u16> {
     let path = config_dir().join(PORT_FILENAME);
     std::fs::read_to_string(path).ok()?.trim().parse().ok()
