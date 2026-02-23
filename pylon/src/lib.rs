@@ -12,7 +12,7 @@ pub mod service;
 pub mod services;
 
 mod libc {
-    extern "C" {
+    unsafe extern "C" {
         pub fn kill(pid: i32, sig: i32) -> i32;
     }
 }
@@ -79,29 +79,43 @@ impl Pylon {
         let mut args = args.clone();
         // Inject repo_path for hpprd
         if name == "hpprd" && !args.contains_key("repo_path") {
-            args.insert("repo_path".to_string(), serde_json::json!(self.repo_path.to_string_lossy()));
+            args.insert(
+                "repo_path".to_string(),
+                serde_json::json!(self.repo_path.to_string_lossy()),
+            );
         }
         // Inject hpprd address for dependent services
         if name != "hpprd" {
             if let Some(ref addr) = self.hpprd_addr {
                 if !args.contains_key("repo") && !args.contains_key("pylon") {
                     match name {
-                        "hppr-fs" => { args.insert("repo".to_string(), serde_json::json!(addr)); }
-                        "unlokid" => { args.insert("pylon".to_string(), serde_json::json!(addr)); }
-                        _ => {}
+                        "hppr-fs" => {
+                            args.insert("repo".to_string(), serde_json::json!(addr));
+                        },
+                        "unlokid" => {
+                            args.insert("pylon".to_string(), serde_json::json!(addr));
+                        },
+                        _ => {},
                     }
                 }
             }
         }
 
         let (program, cmd_args, env, pattern) = services::resolve(name, &args)?;
-        let svc = self.services.get_mut(name).ok_or_else(|| format!("unknown service: {}", name))?;
-        svc.start(&program, &cmd_args, &env, &pattern, self.event_tx.clone()).await
+        let svc = self
+            .services
+            .get_mut(name)
+            .ok_or_else(|| format!("unknown service: {}", name))?;
+        svc.start(&program, &cmd_args, &env, &pattern, self.event_tx.clone())
+            .await
     }
 
     /// Stop a service by name.
     pub async fn stop_service(&mut self, name: &str) -> Result<Option<i32>, String> {
-        let svc = self.services.get_mut(name).ok_or_else(|| format!("unknown service: {}", name))?;
+        let svc = self
+            .services
+            .get_mut(name)
+            .ok_or_else(|| format!("unknown service: {}", name))?;
         svc.stop().await
     }
 
@@ -109,7 +123,16 @@ impl Pylon {
     pub fn status(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for (name, svc) in &self.services {
-            map.insert(name.clone(), svc.status_json());
+            let mut status = svc.status_json();
+            if name == "hpprd" {
+                if let Some(obj) = status.as_object_mut() {
+                    obj.insert(
+                        "listeners".to_string(),
+                        serde_json::json!(svc.listener_snapshot()),
+                    );
+                }
+            }
+            map.insert(name.clone(), status);
         }
         serde_json::Value::Object(map)
     }
@@ -143,7 +166,26 @@ impl Pylon {
 
     /// Is hppr-fs stopped?
     pub fn hppr_fs_stopped(&self) -> bool {
-        self.services.get("hppr-fs").map_or(true, |s| s.state == State::Stopped)
+        self.services
+            .get("hppr-fs")
+            .map_or(true, |s| s.state == State::Stopped)
+    }
+
+    /// Get hpprd stdin/stdout control handles.
+    pub fn hpprd_control_handles(
+        &self,
+    ) -> Result<
+        (
+            std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+            tokio::sync::broadcast::Receiver<String>,
+        ),
+        String,
+    > {
+        let svc = self
+            .services
+            .get("hpprd")
+            .ok_or_else(|| "unknown service: hpprd".to_string())?;
+        svc.control_handles()
     }
 
     /// Shutdown all services.

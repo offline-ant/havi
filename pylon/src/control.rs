@@ -7,15 +7,21 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 
 use tokio::sync::mpsc;
 
-use crate::protocol::{Event, Request, Response};
 use crate::Pylon;
+use crate::protocol::{Event, Request, Response};
 
 /// Idle timeout: shut down if no clients connect within this duration.
 const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Wait limit for hpprd stdin control command ACK/ERROR.
+const HPPRD_CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Additional wait window to collect batched HPPRD_LISTEN/HPPRD_UNLISTEN lines.
+const HPPRD_BATCH_WINDOW: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Run the control server on the given listener.
 pub async fn run(
@@ -35,7 +41,10 @@ pub async fn run(
                 event: match svc_event.state {
                     crate::service::State::Running => "service_started".to_string(),
                     crate::service::State::Stopped => "service_stopped".to_string(),
-                    _ => format!("service_{}", serde_json::to_value(svc_event.state).unwrap_or_default()),
+                    _ => format!(
+                        "service_{}",
+                        serde_json::to_value(svc_event.state).unwrap_or_default()
+                    ),
                 },
                 service: svc_event.name,
                 pid: svc_event.pid,
@@ -141,7 +150,7 @@ async fn handle_client(
                 let msg = serde_json::to_string(&resp).unwrap_or_default() + "\n";
                 let _ = write_tx.send(msg);
                 continue;
-            }
+            },
         };
 
         let resp = dispatch(&pylon, req, &event_tx).await;
@@ -162,7 +171,8 @@ async fn mount_flow(
     pylon: &Arc<Mutex<Pylon>>,
     args: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<String, String> {
-    let mountpoint = args.get("mountpoint")
+    let mountpoint = args
+        .get("mountpoint")
         .and_then(|v| v.as_str())
         .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT)
         .to_string();
@@ -189,7 +199,8 @@ async fn mount_flow(
     }
     let port = port.ok_or("hppr-fs did not report a port")?;
 
-    let bind = args.get("bind")
+    let bind = args
+        .get("bind")
         .and_then(|v| v.as_str())
         .unwrap_or("127.0.0.1");
 
@@ -197,17 +208,101 @@ async fn mount_flow(
     Ok(mountpoint)
 }
 
-async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast::Sender<String>) -> Response {
+async fn hpprd_listener_flow(
+    pylon: &Arc<Mutex<Pylon>>,
+    cmd: &str,
+    bind: &str,
+) -> Result<Vec<String>, String> {
+    let (stdin, mut stdout_rx) = {
+        let y = pylon.lock().await;
+        y.hpprd_control_handles()?
+    };
+
+    let request = serde_json::json!({"cmd": cmd, "bind": bind}).to_string() + "\n";
+    {
+        let mut stdin = stdin.lock().await;
+        stdin
+            .write_all(request.as_bytes())
+            .await
+            .map_err(|e| format!("hpprd stdin write failed: {}", e))?;
+        stdin
+            .flush()
+            .await
+            .map_err(|e| format!("hpprd stdin flush failed: {}", e))?;
+    }
+
+    let expected_prefix = match cmd {
+        "listen" => "HPPRD_LISTEN=",
+        "unlisten" => "HPPRD_UNLISTEN=",
+        _ => return Err(format!("unsupported hpprd listener cmd: {}", cmd)),
+    };
+
+    let mut matches = Vec::new();
+
+    let first = tokio::time::timeout(HPPRD_CONTROL_TIMEOUT, async {
+        loop {
+            match stdout_rx.recv().await {
+                Ok(line) => {
+                    if let Some(err) = line.strip_prefix("HPPRD_ERROR=") {
+                        return Err(err.trim().to_string());
+                    }
+                    if let Some(id) = line.strip_prefix(expected_prefix) {
+                        return Ok(id.trim().to_string());
+                    }
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    return Err("hpprd stdout closed".to_string());
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    continue;
+                },
+            }
+        }
+    })
+    .await
+    .map_err(|_| "hpprd control timeout".to_string())??;
+
+    matches.push(first);
+
+    loop {
+        let next = tokio::time::timeout(HPPRD_BATCH_WINDOW, stdout_rx.recv()).await;
+        let Ok(result) = next else {
+            break;
+        };
+        match result {
+            Ok(line) => {
+                if let Some(err) = line.strip_prefix("HPPRD_ERROR=") {
+                    return Err(err.trim().to_string());
+                }
+                if let Some(id) = line.strip_prefix(expected_prefix) {
+                    matches.push(id.trim().to_string());
+                }
+            },
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                return Err("hpprd stdout closed".to_string());
+            },
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+        }
+    }
+
+    Ok(matches)
+}
+
+async fn dispatch(
+    pylon: &Arc<Mutex<Pylon>>,
+    req: Request,
+    event_tx: &broadcast::Sender<String>,
+) -> Response {
     // Emit command event for mutating commands
     match req.cmd.as_str() {
-        "start" | "stop" | "mount" | "unmount" | "shutdown" => {
+        "start" | "stop" | "mount" | "unmount" | "listen" | "unlisten" | "shutdown" => {
             let mut ev = serde_json::json!({"event": "command", "cmd": req.cmd});
             if let Some(ref svc) = req.service {
                 ev["service"] = serde_json::json!(svc);
             }
             let _ = event_tx.send(serde_json::to_string(&ev).unwrap() + "\n");
-        }
-        _ => {}
+        },
+        _ => {},
     }
 
     let mut y = pylon.lock().await;
@@ -216,19 +311,24 @@ async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast:
             let mut data = y.status();
             drop(y);
             let nfs_mounts = crate::mount::list_nfs_mounts().await;
-            let mounts: Vec<_> = nfs_mounts.iter()
+            let mounts: Vec<_> = nfs_mounts
+                .iter()
                 .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
                 .collect();
             let obj = data.as_object_mut().unwrap();
             obj.insert("mounts".to_string(), serde_json::json!(mounts));
-            obj.insert("user".to_string(), serde_json::json!(std::env::var("USER").unwrap_or_default()));
+            obj.insert(
+                "user".to_string(),
+                serde_json::json!(std::env::var("USER").unwrap_or_default()),
+            );
             Response::ok(req.id, data)
-        }
-        "list" => {
-            Response::ok(req.id, serde_json::json!({
+        },
+        "list" => Response::ok(
+            req.id,
+            serde_json::json!({
                 "services": crate::services::SERVICES,
-            }))
-        }
+            }),
+        ),
         "start" => {
             let Some(name) = req.service.as_deref() else {
                 return Response::err(req.id, "missing 'service' field");
@@ -237,7 +337,7 @@ async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast:
                 Ok(()) => Response::ok_empty(req.id),
                 Err(e) => Response::err(req.id, e),
             }
-        }
+        },
         "stop" => {
             let Some(name) = req.service.as_deref() else {
                 return Response::err(req.id, "missing 'service' field");
@@ -246,7 +346,27 @@ async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast:
                 Ok(_) => Response::ok_empty(req.id),
                 Err(e) => Response::err(req.id, e),
             }
-        }
+        },
+        "listen" => {
+            let Some(bind) = req.args.get("bind").and_then(|v| v.as_str()) else {
+                return Response::err(req.id, "missing args.bind");
+            };
+            drop(y);
+            match hpprd_listener_flow(pylon, "listen", bind).await {
+                Ok(listeners) => Response::ok(req.id, serde_json::json!({"listeners": listeners})),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
+        "unlisten" => {
+            let Some(bind) = req.args.get("bind").and_then(|v| v.as_str()) else {
+                return Response::err(req.id, "missing args.bind");
+            };
+            drop(y);
+            match hpprd_listener_flow(pylon, "unlisten", bind).await {
+                Ok(listeners) => Response::ok(req.id, serde_json::json!({"listeners": listeners})),
+                Err(e) => Response::err(req.id, e),
+            }
+        },
         "mount" => {
             // Mount needs to release the lock between polls so the state
             // update loop can process hppr-fs port events.
@@ -255,28 +375,31 @@ async fn dispatch(pylon: &Arc<Mutex<Pylon>>, req: Request, event_tx: &broadcast:
                 Ok(mp) => Response::ok(req.id, serde_json::json!({"mountpoint": mp})),
                 Err(e) => Response::err(req.id, e),
             }
-        }
+        },
         "unmount" => {
-            let mountpoint = req.args.get("mountpoint")
+            let mountpoint = req
+                .args
+                .get("mountpoint")
                 .and_then(|v| v.as_str())
                 .unwrap_or(crate::mount::DEFAULT_MOUNTPOINT);
             match crate::mount::unmount(mountpoint).await {
                 Ok(()) => Response::ok_empty(req.id),
                 Err(e) => Response::err(req.id, e),
             }
-        }
+        },
         "mounts" => {
             drop(y);
             let nfs_mounts = crate::mount::list_nfs_mounts().await;
-            let mounts: Vec<_> = nfs_mounts.iter()
+            let mounts: Vec<_> = nfs_mounts
+                .iter()
                 .map(|(dev, mp)| serde_json::json!({"device": dev, "mountpoint": mp}))
                 .collect();
             Response::ok(req.id, serde_json::json!(mounts))
-        }
+        },
         "shutdown" => {
             y.shutdown().await;
             Response::ok_empty(req.id)
-        }
+        },
         other => Response::err(req.id, format!("unknown command: {}", other)),
     }
 }

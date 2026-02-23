@@ -25,7 +25,7 @@ pylon --repo <path> --port <port>
 ```
 
 Starts the pylon daemon. Binds a TCP control port (default: 4850) and
-auto-starts hpprd with `--repo <path>`. Writes `<pid> <port>` to
+auto-starts hpprd with `--path <path>`. Writes `<pid> <port>` to
 `<repo>/pylon.pid`. Refuses to start if another pylon is already running
 for the same repo.
 
@@ -47,12 +47,16 @@ pylon shutdown                     # stop all services and exit
 ```
 
 The `status` response includes a `"user"` field with the OS user running pylon.
+When hpprd is running, `status.hpprd.listeners` lists active listener IDs
+(e.g. `tcp:127.0.0.1:4777`, `ws:127.0.0.1:4778`, `unix:/abs/path/hppr.sock`).
 
 ## Service Commands
 
 ```bash
 pylon hpprd start [--k v]          # start hpprd
 pylon hpprd stop                   # stop hpprd
+pylon hpprd listen --bind <spec>   # add hpprd listener at runtime
+pylon hpprd unlisten --bind <id|spec>   # remove hpprd listener at runtime
 pylon lokid start [--k v]          # start lokid
 pylon lokid stop                   # stop lokid
 pylon unlokid start [--k v]        # start unlokid
@@ -62,7 +66,7 @@ pylon unlokid stop                 # stop unlokid
 ### hpprd Options
 
 - `--repo_path <path>`: repository directory (injected by pylon automatically)
-- `--bind <host:port>`: bind address
+- `--bind <spec>`: bind spec (`host:port`, `ws+host:port`, `quib+host:port`, `udp+host:port`, `unix+/path`, `all+host:port`)
 - `--port <port>`: shorthand for `--bind 127.0.0.1:<port>`
 - `--phc <params>`: Argon2id PHC string (set via `HPPR_PHC` env)
 
@@ -108,7 +112,9 @@ Request:
 ```json
 {"id": 1, "cmd": "status"}
 {"id": 2, "cmd": "start", "service": "hpprd", "args": {"bind": "127.0.0.1:4777"}}
-{"id": 3, "cmd": "mount", "args": {"mountpoint": "/mnt/hppr"}}
+{"id": 3, "cmd": "listen", "args": {"bind": "ws+127.0.0.1:4778"}}
+{"id": 4, "cmd": "unlisten", "args": {"bind": "ws:127.0.0.1:4778"}}
+{"id": 5, "cmd": "mount", "args": {"mountpoint": "/mnt/hppr"}}
 ```
 
 Response:
@@ -116,7 +122,9 @@ Response:
 ```json
 {"id": 1, "ok": true, "data": {"user": "alice", "hpprd": {"state": "running", ...}, ...}}
 {"id": 2, "ok": true}
-{"id": 3, "ok": false, "error": "mount failed: ..."}
+{"id": 3, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
+{"id": 4, "ok": true, "data": {"listeners": ["ws:127.0.0.1:4778"]}}
+{"id": 5, "ok": false, "error": "mount failed: ..."}
 ```
 
 Event broadcast (unsolicited):
@@ -127,7 +135,16 @@ Event broadcast (unsolicited):
 {"event": "command", "cmd": "start", "service": "hpprd"}
 ```
 
-Command events are emitted for start, stop, mount, unmount, and shutdown.
+Command events are emitted for start, stop, mount, unmount, listen, unlisten,
+and shutdown.
+
+`listen`/`unlisten` are strict ACKed operations: pylon writes a JSON control
+line to hpprd stdin and waits for hpprd stdout markers:
+
+- success: `HPPRD_LISTEN=<listener-id>` or `HPPRD_UNLISTEN=<listener-id>`
+- failure: `HPPRD_ERROR=<message>`
+
+If hpprd does not ACK within the control timeout, pylon returns an error.
 
 ## PID File
 
@@ -168,6 +185,10 @@ pylon nfs unmount /mnt/hppr
 
 # Start hpprd on custom port
 pylon hpprd start --bind 127.0.0.1:4777
+
+# Add/remove listeners at runtime
+pylon hpprd listen --bind ws+127.0.0.1:4778
+pylon hpprd unlisten --bind ws:127.0.0.1:4778
 
 # Stop everything
 pylon shutdown

@@ -21,15 +21,22 @@ fn main() {
                 if let Some(v) = args.get(i + 1) {
                     port = v.parse().unwrap_or(pylon::DEFAULT_PORT);
                     i += 2;
-                } else { i += 1; }
-            }
+                } else {
+                    i += 1;
+                }
+            },
             "--repo" => {
                 if let Some(v) = args.get(i + 1) {
                     repo_path = PathBuf::from(v);
                     i += 2;
-                } else { i += 1; }
-            }
-            _ => { positional.push(args[i].clone()); i += 1; }
+                } else {
+                    i += 1;
+                }
+            },
+            _ => {
+                positional.push(args[i].clone());
+                i += 1;
+            },
         }
     }
 
@@ -54,12 +61,16 @@ fn main() {
             match action {
                 "start" => send_command("start", Some(service), &extra, &repo_path),
                 "stop" => send_command("stop", Some(service), &HashMap::new(), &repo_path),
+                "listen" if service == "hpprd" => send_command("listen", None, &extra, &repo_path),
+                "unlisten" if service == "hpprd" => {
+                    send_command("unlisten", None, &extra, &repo_path)
+                },
                 other => {
                     eprintln!("unknown action for {}: {}", service, other);
                     std::process::exit(1);
-                }
+                },
             }
-        }
+        },
 
         // NFS commands: pylon nfs <action> [mountpoint] [--args]
         "nfs" => {
@@ -71,36 +82,38 @@ fn main() {
                 "start" => {
                     let extra = parse_kv_args(&positional[2..]);
                     send_command("start", Some("hppr-fs"), &extra, &repo_path);
-                }
+                },
                 "stop" => {
                     send_command("stop", Some("hppr-fs"), &HashMap::new(), &repo_path);
-                }
+                },
                 "mount" => {
                     let mut extra = parse_kv_args(&positional[2..]);
                     if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
-                        extra.entry("mountpoint".to_string()).or_insert_with(|| pos.clone());
+                        extra
+                            .entry("mountpoint".to_string())
+                            .or_insert_with(|| pos.clone());
                     }
                     send_command("mount", None, &extra, &repo_path);
-                }
+                },
                 "unmount" => {
                     let mut extra = HashMap::new();
                     if let Some(pos) = positional[2..].iter().find(|a| !a.starts_with('-')) {
                         extra.insert("mountpoint".to_string(), pos.clone());
                     }
                     send_command("unmount", None, &extra, &repo_path);
-                }
+                },
                 other => {
                     eprintln!("unknown nfs action: {}", other);
                     std::process::exit(1);
-                }
+                },
             }
-        }
+        },
 
         other => {
             eprintln!("unknown command: {}", other);
             print_usage();
             std::process::exit(1);
-        }
+        },
     }
 }
 
@@ -112,8 +125,15 @@ fn run_daemon(port: u16, repo_path: PathBuf) {
     }
 }
 
-fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>, repo_path: &std::path::Path) {
-    let port = pylon::read_pid_file(repo_path).map(|(_, p)| p).unwrap_or(pylon::DEFAULT_PORT);
+fn send_command(
+    cmd: &str,
+    service: Option<&str>,
+    args: &HashMap<String, String>,
+    repo_path: &std::path::Path,
+) {
+    let port = pylon::read_pid_file(repo_path)
+        .map(|(_, p)| p)
+        .unwrap_or(pylon::DEFAULT_PORT);
     let addr = format!("127.0.0.1:{}", port);
 
     let mut stream = match TcpStream::connect(&addr) {
@@ -121,7 +141,7 @@ fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>
         Err(e) => {
             eprintln!("cannot connect to pylon at {}: {}", addr, e);
             std::process::exit(1);
-        }
+        },
     };
 
     let mut req = serde_json::json!({"id": 1, "cmd": cmd});
@@ -129,7 +149,8 @@ fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>
         req["service"] = serde_json::json!(svc);
     }
     if !args.is_empty() {
-        let obj: serde_json::Map<String, serde_json::Value> = args.iter()
+        let obj: serde_json::Map<String, serde_json::Value> = args
+            .iter()
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
         req["args"] = serde_json::Value::Object(obj);
@@ -152,7 +173,10 @@ fn send_command(cmd: &str, service: Option<&str>, args: &HashMap<String, String>
             println!("ok");
         }
     } else {
-        let err = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        let err = resp
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
         eprintln!("error: {}", err);
         std::process::exit(1);
     }
@@ -183,7 +207,10 @@ fn print_usage() {
     eprintln!();
     eprintln!("Daemon mode:");
     eprintln!("  pylon                            Start the pylon daemon");
-    eprintln!("  pylon --port <port>              Custom control port (default: {})", pylon::DEFAULT_PORT);
+    eprintln!(
+        "  pylon --port <port>              Custom control port (default: {})",
+        pylon::DEFAULT_PORT
+    );
     eprintln!("  pylon --repo <path>              Repository path (default: ./repo)");
     eprintln!();
     eprintln!("Global commands:");
@@ -194,6 +221,8 @@ fn print_usage() {
     eprintln!("Service commands:");
     eprintln!("  pylon hpprd start [--k v]        Start hpprd");
     eprintln!("  pylon hpprd stop                 Stop hpprd");
+    eprintln!("  pylon hpprd listen --bind <spec> Add hpprd listener at runtime");
+    eprintln!("  pylon hpprd unlisten --bind <id|spec> Remove hpprd listener");
     eprintln!("  pylon lokid start [--k v]        Start lokid");
     eprintln!("  pylon lokid stop                 Stop lokid");
     eprintln!("  pylon unlokid start [--k v]      Start unlokid");
@@ -207,6 +236,8 @@ fn print_usage() {
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  pylon hpprd start --repo_path /data/repo --bind 127.0.0.1:4777");
+    eprintln!("  pylon hpprd listen --bind ws+127.0.0.1:4778");
+    eprintln!("  pylon hpprd unlisten --bind ws:127.0.0.1:4778");
     eprintln!("  pylon nfs mount /mnt/hppr --root //u/");
     eprintln!("  pylon nfs unmount /mnt/hppr");
 }
