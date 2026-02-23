@@ -24,11 +24,9 @@ pylon --bind [host:]port
 pylon --path <path> --bind [host:]port
 ```
 
-Starts the pylon daemon. Binds a TCP control port (default: 127.0.0.1:4850) and
-auto-starts hpprd with `--path <path>` plus an auto-selected bind in
-`127.0.0.1:14400..127.0.0.1:14450`.
-When no explicit hpprd bind/port is provided, pylon probes this range and
-picks the first free port to avoid cross-repo bind collisions. Writes
+Starts the pylon daemon. Scans for a free TCP control port starting at 4850
+up to 4900, falling back to an OS-assigned random port if the range is
+exhausted. Auto-starts hpprd on its default port (4777). Writes
 `<pid> <port>` to `<repo>/pylon.pid`. Refuses to start if another pylon is
 already running for the same repo.
 
@@ -71,8 +69,7 @@ pylon unlokid stop                 # stop unlokid
 - `--repo_path <path>`: repository directory (injected by pylon automatically)
 - `--bind <spec>`: bind spec (`host:port`, `ws+host:port`, `quib+host:port`, `udp+host:port`, `unix+/path`, `all+host:port`)
 - `--port <port>`: shorthand for `--bind 127.0.0.1:<port>`
-- default (no bind/port): first free port in `127.0.0.1:14400..14450`
-- if the range is exhausted, `hpprd start` fails with an explicit port-range error
+- default (no bind/port): `127.0.0.1:4777`
 - `--phc <params>`: Argon2id PHC string (set via `HPPR_PHC` env)
 
 ### lokid Options

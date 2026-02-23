@@ -3,15 +3,8 @@
 use super::{str_arg, u16_arg};
 use std::collections::HashMap;
 
-/// First port in the auto-allocation range.
-pub const DEFAULT_PORT_START: u16 = 14400;
-/// Last port in the auto-allocation range (inclusive).
-pub const DEFAULT_PORT_END: u16 = 14450;
-
-/// True when the user provided an explicit bind or port.
-pub fn has_explicit_bind(args: &HashMap<String, serde_json::Value>) -> bool {
-    args.contains_key("bind") || args.contains_key("port")
-}
+/// Default hpprd TCP port.
+pub const DEFAULT_PORT: u16 = 4777;
 
 pub fn resolve(args: &HashMap<String, serde_json::Value>) -> Result<super::ServiceCommand, String> {
     let program = str_arg(args, "program").unwrap_or_else(|| "hpprd".to_string());
@@ -28,14 +21,7 @@ pub fn resolve(args: &HashMap<String, serde_json::Value>) -> Result<super::Servi
     } else if let Some(port) = u16_arg(args, "port") {
         format!("127.0.0.1:{}", port)
     } else {
-        let offset = u16_arg(args, "_auto_port_offset").unwrap_or(0);
-        let port = DEFAULT_PORT_START.checked_add(offset)
-            .filter(|p| *p <= DEFAULT_PORT_END)
-            .ok_or_else(|| format!(
-                "no free hpprd default port in {}..={} (set --bind or --port explicitly)",
-                DEFAULT_PORT_START, DEFAULT_PORT_END
-            ))?;
-        format!("127.0.0.1:{}", port)
+        format!("127.0.0.1:{}", DEFAULT_PORT)
     };
     cmd_args.push("--bind".to_string());
     cmd_args.push(bind);
@@ -68,41 +54,25 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_uses_range_start() {
+    fn resolve_default_uses_standard_port() {
         let args = HashMap::new();
         let (_, cmd_args, _, _) = resolve(&args).expect("resolve");
-        assert_eq!(cmd_args, vec!["--bind", "127.0.0.1:14400"]);
+        assert_eq!(cmd_args, vec!["--bind", "127.0.0.1:4777"]);
     }
 
     #[test]
-    fn resolve_auto_port_offset() {
+    fn resolve_with_repo_path() {
         let mut args = HashMap::new();
-        args.insert("_auto_port_offset".to_string(), serde_json::json!(5));
+        args.insert("repo_path".to_string(), serde_json::json!("/data/repo"));
         let (_, cmd_args, _, _) = resolve(&args).expect("resolve");
-        assert_eq!(cmd_args, vec!["--bind", "127.0.0.1:14405"]);
+        assert_eq!(cmd_args, vec!["--path", "/data/repo", "--bind", "127.0.0.1:4777"]);
     }
 
     #[test]
-    fn resolve_auto_port_offset_out_of_range() {
+    fn resolve_with_phc() {
         let mut args = HashMap::new();
-        args.insert("_auto_port_offset".to_string(), serde_json::json!(100));
-        let err = resolve(&args).unwrap_err();
-        assert!(err.contains("no free hpprd default port"));
-        assert!(err.contains("--bind"));
-    }
-
-    #[test]
-    fn has_explicit_bind_detects_bind() {
-        let mut args = HashMap::new();
-        assert!(!has_explicit_bind(&args));
-        args.insert("bind".to_string(), serde_json::json!("0.0.0.0:4777"));
-        assert!(has_explicit_bind(&args));
-    }
-
-    #[test]
-    fn has_explicit_bind_detects_port() {
-        let mut args = HashMap::new();
-        args.insert("port".to_string(), serde_json::json!(4777));
-        assert!(has_explicit_bind(&args));
+        args.insert("phc".to_string(), serde_json::json!("$argon2id$v=19$m=64,t=3,p=1$"));
+        let (_, _, env, _) = resolve(&args).expect("resolve");
+        assert_eq!(env.get("HPPR_PHC").unwrap(), "$argon2id$v=19$m=64,t=3,p=1$");
     }
 }

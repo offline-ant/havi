@@ -29,6 +29,7 @@ cargo build -q --manifest-path "$HPPR_ROOT/hpprd/Cargo.toml" --bin hpprd
 # hppr binaries from cargo build, shell tools from hppr/bin/
 export PATH="$HPPR_ROOT/target/debug:$HPPR_ROOT/bin:$PATH"
 HPPR="$HPPR_ROOT/target/debug/hppr"
+HPPR_FS="$HPPR_ROOT/target/debug/hppr-fs"
 
 echo "--- CLI versions ---"
 "$HAVI_ROOT/target/debug/havi" --version || true
@@ -200,17 +201,70 @@ setup_remote_acl() {
         $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
 }
 
-# Import content directory as sealed packets
-import_content() {
-    local content_dir="$1" group="$2" app="$3"
-    HPPR_SIGNER='!ring0/init' dir-pac "$content_dir" -k "$SECRET_KEY" -v "//$group/$app/"
+# Start hppr-fs, mount, and export FS_MNT / FS_PID / FS_PORT.
+# Call fs_unmount to clean up.
+# Usage: fs_mount <home> <signer> <root> [--seal-with <key>]
+fs_mount() {
+    local home="$1" signer="$2" root="$3"
+    shift 3
+
+    FS_PORT=$(_pick_port)
+    FS_MNT=$(mktemp -d)
+
+    local -a fs_args=(
+        --home "$home" --signer "$signer"
+        --root "$root" --bind "127.0.0.1:$FS_PORT"
+    )
+    if [[ $# -gt 0 && "$1" == "--seal-with" ]]; then
+        fs_args+=(--rw --seal-with "$2")
+    fi
+
+    "$HPPR_FS" "${fs_args[@]}" &
+    FS_PID=$!
+
+    local i=0
+    while ! nc -z 127.0.0.1 "$FS_PORT" 2>/dev/null; do
+        sleep 0.1
+        ((i++))
+        if ((i > 50)); then
+            kill "$FS_PID" 2>/dev/null || true
+            rm -rf "$FS_MNT"
+            echo "ERROR: hppr-fs did not start on port $FS_PORT" >&2
+            return 1
+        fi
+    done
+
+    sudo mount -t nfs -o "port=$FS_PORT,mountport=$FS_PORT,nfsvers=3,tcp,nolock" \
+        "127.0.0.1:/" "$FS_MNT"
 }
 
-# Import content to remote repo
+# Unmount and stop hppr-fs started by fs_mount.
+fs_unmount() {
+    sudo umount "$FS_MNT" 2>/dev/null || true
+    kill "$FS_PID" 2>/dev/null || true
+    wait "$FS_PID" 2>/dev/null || true
+    rm -rf "$FS_MNT"
+}
+
+# Pick an unused TCP port.
+_pick_port() {
+    python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
+}
+
+# Import content directory as sealed packets via hppr-fs mount + cp.
+import_content() {
+    local content_dir="$1" group="$2" app="$3"
+    fs_mount "$HPPR_HOME" "!ring0/init" "//$group/$app" --seal-with oldest
+    cp -a "$content_dir/." "$FS_MNT/"
+    fs_unmount
+}
+
+# Import content to remote repo via hppr-fs mount + cp.
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='!ring0/init' \
-        dir-pac "$content_dir" -k "$REMOTE_SECRET_KEY" -v "//$group/$app/"
+    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "!ring0/init" "//$group/$app" --seal-with oldest
+    cp -a "$content_dir/." "$FS_MNT/"
+    fs_unmount
 }
 
 # Set up route packet pointing to remote repo.

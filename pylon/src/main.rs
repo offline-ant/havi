@@ -11,7 +11,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // Extract --bind and --path from anywhere in args
-    let mut port = pylon::DEFAULT_PORT;
+    let mut port: Option<u16> = None;
     let mut repo_path = PathBuf::from("./repo");
     let mut positional = Vec::new();
     let mut i = 0;
@@ -20,9 +20,9 @@ fn main() {
             "--bind" => {
                 if let Some(v) = args.get(i + 1) {
                     if let Some(pos) = v.rfind(':') {
-                        port = v[pos + 1..].parse().unwrap_or(pylon::DEFAULT_PORT);
+                        port = Some(v[pos + 1..].parse().unwrap_or(pylon::DEFAULT_PORT));
                     } else {
-                        port = v.parse().unwrap_or(pylon::DEFAULT_PORT);
+                        port = Some(v.parse().unwrap_or(pylon::DEFAULT_PORT));
                     }
                     i += 2;
                 } else {
@@ -121,7 +121,7 @@ fn main() {
     }
 }
 
-fn run_daemon(port: u16, repo_path: PathBuf) {
+fn run_daemon(port: Option<u16>, repo_path: PathBuf) {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     if let Err(e) = rt.block_on(pylon::run(port, repo_path)) {
         eprintln!("error: {}", e);
@@ -231,8 +231,9 @@ fn print_usage() {
     eprintln!("Daemon mode:");
     eprintln!("  pylon                            Start the pylon daemon");
     eprintln!(
-        "  pylon --bind [host:]<port>        Control address (default: 127.0.0.1:{})",
-        pylon::DEFAULT_PORT
+        "  pylon --bind [host:]<port>        Control address (default: 127.0.0.1:{}..{})",
+        pylon::DEFAULT_PORT,
+        pylon::DEFAULT_PORT_END
     );
     eprintln!("  pylon --path <path>              Repository path (default: ./repo)");
     eprintln!();

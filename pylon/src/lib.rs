@@ -24,8 +24,11 @@ use tokio::sync::mpsc;
 
 use service::{ManagedService, ServiceEvent, State};
 
-/// Default control port.
+/// Default pylon control port (start of scan range).
 pub const DEFAULT_PORT: u16 = 4850;
+
+/// Last pylon control port to try (inclusive).
+pub const DEFAULT_PORT_END: u16 = 4900;
 
 /// PID file location (relative to config dir).
 pub const PID_FILENAME: &str = "pylon.pid";
@@ -206,10 +209,34 @@ impl Pylon {
     }
 }
 
+/// Bind the pylon control port. If `port` is `Some`, bind exactly that port.
+/// If `None`, scan `DEFAULT_PORT..=DEFAULT_PORT_END`, then try port 0 (OS
+/// random) as a last resort.
+async fn bind_control_port(port: Option<u16>) -> Result<tokio::net::TcpListener, String> {
+    if let Some(p) = port {
+        return tokio::net::TcpListener::bind(format!("127.0.0.1:{}", p))
+            .await
+            .map_err(|e| format!("bind 127.0.0.1:{}: {}", p, e));
+    }
+
+    for p in DEFAULT_PORT..=DEFAULT_PORT_END {
+        if let Ok(listener) = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", p)).await {
+            return Ok(listener);
+        }
+    }
+
+    // All ports in range busy — let OS pick a free port.
+    tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("bind 127.0.0.1:0: {}", e))
+}
+
 /// Run pylon as a standalone daemon.
 ///
 /// Binds the control TCP port and processes commands until shutdown.
-pub async fn run(port: u16, repo_path: PathBuf) -> Result<(), String> {
+/// If `port` is `None`, scans `DEFAULT_PORT..=DEFAULT_PORT_END` for a free
+/// port, falling back to a random OS-assigned port.
+pub async fn run(port: Option<u16>, repo_path: PathBuf) -> Result<(), String> {
     // Check for existing pylon process
     if let Some((pid, _)) = read_pid_file(&repo_path) {
         if process_alive(pid) {
@@ -217,11 +244,8 @@ pub async fn run(port: u16, repo_path: PathBuf) -> Result<(), String> {
         }
     }
 
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
-        .await
-        .map_err(|e| format!("bind 127.0.0.1:{}: {}", port, e))?;
-
-    let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
+    let listener = bind_control_port(port).await?;
+    let actual_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     write_pid_file(&repo_path, std::process::id(), actual_port);
     println!("PYLON_BIND=127.0.0.1:{}", actual_port);
 
@@ -256,7 +280,8 @@ pub async fn run(port: u16, repo_path: PathBuf) -> Result<(), String> {
     {
         let pylon_auto = Arc::clone(&pylon);
         tokio::spawn(async move {
-            if let Err(e) = start_hpprd_auto(&pylon_auto, &HashMap::new()).await {
+            let mut y = pylon_auto.lock().await;
+            if let Err(e) = y.start_service("hpprd", &HashMap::new()).await {
                 log::warn!("auto-start hpprd failed: {}", e);
             }
         });
@@ -277,72 +302,6 @@ pub async fn run(port: u16, repo_path: PathBuf) -> Result<(), String> {
 
     remove_pid_file(&repo_path);
     Ok(())
-}
-
-/// Start hpprd with auto-port retry over the 14400..14450 range.
-///
-/// For each candidate port, spawns hpprd and waits for it to reach Running
-/// state (bind succeeded) or Stopped state (bind failed). Retries on bind
-/// failure. Returns after the first successful start or when the range is
-/// exhausted.
-///
-/// `base_args` may contain hpprd options other than bind/port.
-pub async fn start_hpprd_auto(
-    pylon: &Arc<tokio::sync::Mutex<Pylon>>,
-    base_args: &HashMap<String, serde_json::Value>,
-) -> Result<(), String> {
-    let range = services::hpprd::DEFAULT_PORT_END - services::hpprd::DEFAULT_PORT_START;
-
-    for offset in 0..=range {
-        // Ensure clean state before each attempt.
-        {
-            let mut y = pylon.lock().await;
-            if y.hpprd_state() != State::Stopped {
-                let _ = y.stop_service("hpprd").await;
-            }
-        }
-
-        // Build args with this candidate offset.
-        let mut args = base_args.clone();
-        args.insert(
-            "_auto_port_offset".to_string(),
-            serde_json::json!(offset),
-        );
-
-        // Attempt start (spawns hpprd).
-        {
-            let mut y = pylon.lock().await;
-            if let Err(e) = y.start_service("hpprd", &args).await {
-                log::info!("hpprd auto port offset {}: {}", offset, e);
-                continue;
-            }
-        }
-
-        // Poll for Running (bind succeeded) or Stopped (bind failed).
-        // hpprd bind failure exits within milliseconds; 50 × 100ms = 5s is generous.
-        for _ in 0..50 {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let state = pylon.lock().await.hpprd_state();
-            match state {
-                State::Running => return Ok(()),
-                State::Stopped => break,
-                _ => continue,
-            }
-        }
-
-        // If still starting after timeout, assume success (slow repo load).
-        let state = pylon.lock().await.hpprd_state();
-        if state != State::Stopped {
-            return Ok(());
-        }
-        // Stopped — try next port.
-    }
-
-    Err(format!(
-        "no free hpprd port in {}..={} (set --bind or --port explicitly)",
-        services::hpprd::DEFAULT_PORT_START,
-        services::hpprd::DEFAULT_PORT_END
-    ))
 }
 
 fn process_alive(pid: u32) -> bool {
