@@ -1419,7 +1419,6 @@ impl RenderingContext for MacosRenderingContext {
         None
     }
 
-    #[expect(unsafe_code)]
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
         let _ = self.make_current();
         self.gleam_gl
