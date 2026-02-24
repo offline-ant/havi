@@ -1064,6 +1064,73 @@ impl ImageCache for ImageCacheImpl {
         None
     }
 
+    fn rasterize_vector_image_sync(
+        &self,
+        image_id: PendingImageId,
+        requested_size: DeviceIntSize,
+    ) -> Option<RasterImage> {
+        let store = self.store.lock();
+
+        // Return cached rasterization if available.
+        if let Some(task) = store
+            .rasterized_vector_images
+            .get(&(image_id, requested_size))
+        {
+            if let Some(result) = task.result.as_ref() {
+                return Some(result.clone());
+            }
+        }
+
+        let vector_image = store.vector_images.get(&image_id)?.clone();
+        drop(store);
+
+        // Rasterize inline on the calling thread.
+        let natural_size = vector_image.svg_tree.size().to_int_size();
+        let tinyskia_requested_size = {
+            let width = requested_size
+                .width
+                .try_into()
+                .unwrap_or(0)
+                .min(MAX_SVG_PIXMAP_DIMENSION);
+            let height = requested_size
+                .height
+                .try_into()
+                .unwrap_or(0)
+                .min(MAX_SVG_PIXMAP_DIMENSION);
+            tiny_skia::IntSize::from_wh(width, height).unwrap_or(natural_size)
+        };
+        let transform = tiny_skia::Transform::from_scale(
+            tinyskia_requested_size.width() as f32 / natural_size.width() as f32,
+            tinyskia_requested_size.height() as f32 / natural_size.height() as f32,
+        );
+        let mut pixmap = tiny_skia::Pixmap::new(
+            tinyskia_requested_size.width(),
+            tinyskia_requested_size.height(),
+        )?;
+        resvg::render(&vector_image.svg_tree, transform, &mut pixmap.as_mut());
+
+        let bytes = pixmap.take();
+        let frame = ImageFrame {
+            delay: None,
+            byte_range: 0..bytes.len(),
+            width: tinyskia_requested_size.width(),
+            height: tinyskia_requested_size.height(),
+        };
+
+        Some(RasterImage {
+            metadata: ImageMetadata {
+                width: tinyskia_requested_size.width(),
+                height: tinyskia_requested_size.height(),
+            },
+            format: PixelFormat::RGBA8,
+            frames: vec![frame],
+            bytes: Arc::new(bytes),
+            id: None,
+            cors_status: vector_image.cors_status,
+            is_opaque: false,
+        })
+    }
+
     /// Add a new listener for the given pending image id. If the image is already present,
     /// the responder will still receive the expected response.
     fn add_listener(&self, listener: ImageLoadListener) {

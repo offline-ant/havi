@@ -27,6 +27,7 @@ use net_traits::{
 };
 use num_traits::ToPrimitive;
 use pixels::{CorsStatus, ImageMetadata, Snapshot};
+use webrender_api::units::DeviceIntSize;
 use regex::Regex;
 use rustc_hash::FxHashSet;
 use servo_url::ServoUrl;
@@ -214,13 +215,24 @@ impl HTMLImageElement {
         self.current_request.borrow().image.clone()
     }
 
-    /// Gets the copy of the raster image data.
+    /// Gets the copy of the raster image data. For vector (SVG) images, rasterizes
+    /// at the natural dimensions on demand.
     pub(crate) fn get_raster_image_data(&self) -> Option<Snapshot> {
-        let Some(raster_image) = self.image_data()?.as_raster_image() else {
-            warn!("Vector image is not supported as raster image source");
-            return None;
-        };
-        Some(raster_image.as_snapshot())
+        let image = self.image_data()?;
+        match image {
+            Image::Raster(raster_image) => Some(raster_image.as_snapshot()),
+            Image::Vector(ref vector_image) => {
+                let size = DeviceIntSize::new(
+                    vector_image.metadata.width as i32,
+                    vector_image.metadata.height as i32,
+                );
+                let raster_image = self
+                    .owner_window()
+                    .image_cache()
+                    .rasterize_vector_image_sync(vector_image.id, size)?;
+                Some(raster_image.as_snapshot())
+            },
+        }
     }
 }
 

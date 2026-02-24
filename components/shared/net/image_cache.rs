@@ -205,6 +205,14 @@ pub trait ImageCache: Sync + Send {
         svg_id: Option<String>,
     ) -> Option<RasterImage>;
 
+    /// Synchronously rasterize a vector image at the given size, blocking the calling thread.
+    /// Returns the rasterized image or `None` if the vector image data is not available.
+    fn rasterize_vector_image_sync(
+        &self,
+        image_id: VectorImageId,
+        size: DeviceIntSize,
+    ) -> Option<RasterImage>;
+
     /// Adds a new listener to be notified once the given `image_id` has been rasterized at
     /// the given `size`. The listener will receive a `VectorImageRasterizationComplete`
     /// message on the given `sender`, even if the listener is called after rasterization
