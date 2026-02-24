@@ -31,6 +31,14 @@ Environment variables:
 
 When `HAVI_HOME` is unset, pylon runs in local mode with `<config-dir>/repo`.
 
+Host integration policy:
+
+- desktop targets (mac/linux/windows): HAVI starts pylon by spawning itself as
+  `havi pylon ...`.
+- android target: HAVI starts pylon in an internal thread host.
+
+Both paths keep the same pylon TCP control protocol contract.
+
 ## Watch Modes
 
 Per-tab watch mode controls live-reload behavior. Modes:

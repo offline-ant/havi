@@ -7,6 +7,19 @@ fn main() {
 
     // Parse HAVI-specific flags before Makepad takes over args.
     let args: Vec<String> = std::env::args().collect();
+    let argv0 = std::path::Path::new(args.first().map(|s| s.as_str()).unwrap_or("havi"))
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("havi")
+        .to_string();
+
+    // argv0 self-name service dispatch: if invoked as managed service name,
+    // route directly through pylon dispatch.
+    if pylon::catalog::service_from_argv0(&argv0).is_some() {
+        env_logger::init();
+        pylon::cli::main_with_argv(args);
+        return;
+    }
 
     // Pylon subcommand: `havi pylon [args...]`
     if args.get(1).map(|s| s.as_str()) == Some("pylon") {

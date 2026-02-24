@@ -41,8 +41,9 @@ havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
 image = { workspace = true }
 gleam = { workspace = true }
-pylon = { path = "../../../hppr/pylon" }
+pylon = { path = "../../../hppr/pylon", features = ["embedded-services"] }
 env_logger = "0.11"
+anyhow = "1"
 crossbeam-channel = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 

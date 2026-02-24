@@ -37,22 +37,32 @@ Environment variables:
 
 ## Repository Connection
 
-HAVI always goes through [pylon](pylon.md). Two modes:
+HAVI always goes through [pylon](pylon.md).
 
-**Local mode** (default): Pylon owns hpprd. HAVI finds or spawns pylon for
-`<config-dir>/repo/`. Pylon auto-starts hpprd as a child process.
+HAVI links pylon with `embedded-services` enabled by default.
+
+**Local mode** (default): Pylon owns hpprd. HAVI finds or starts pylon for
+`<config-dir>/repo/`.
 
 **Remote mode** (`HAVI_HOME` or `--home` set): Pylon connects to an external
-hpprd. HAVI spawns pylon with `--home <via>`. Pylon manages satellites
+hpprd. HAVI starts pylon with `--home <via>`. Pylon manages satellites
 (NFS, FUSE, lokid, unlokid) against the external hpprd but does not manage
 hpprd itself.
 
 Startup sequence:
 
 1. Connect to running pylon (via `<config-dir>/repo/pylon.pid`)
-2. If no pylon found, spawn `pylon` as a subprocess
+2. If no pylon found:
+   - desktop (macOS/Linux/Windows): spawn self as `havi pylon ...`
+   - Android: start pylon in an internal thread host
 3. If remote mode, pass `--home <via>` to pylon
 4. Hold pylon connection open for app lifetime
+
+`havi pylon ...` command compatibility is preserved, including
+`havi pylon exec hpprd ...`.
+
+When the binary is invoked via a service self-name (argv0 rename), HAVI routes
+that invocation into pylon dispatch so service CLI behavior stays consistent.
 
 ## Single-Instance
 

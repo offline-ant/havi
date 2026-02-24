@@ -764,7 +764,7 @@ impl App {
             let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
             let repo_path = havi_protocols::config::repo_dir();
 
-            let mut pylon_client = match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref()) {
+            let mut pylon_client = match crate::pylon_host::ensure_pylon(&repo_path, home.as_deref()) {
                 Ok(client) => client,
                 Err(err) => {
                     eprintln!("[havi] Fatal: failed to initialize pylon control plane.");

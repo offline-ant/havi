@@ -1,9 +1,9 @@
 # pylon Reference
 
 Service manager for the HPPR ecosystem. Source crate lives at
-`hppr/pylon/` in the HPPR workspace. Pylon currently runs services via process
-backend and exposes backend policy seams for future embedded runtimes.
-TCP JSON lines control protocol on localhost.
+`hppr/pylon/` in the HPPR workspace. Pylon keeps a stable TCP JSON lines
+control protocol on localhost and now has a split dispatch/runtime architecture
+with feature-gated embedded service dispatch.
 
 Pylon operates in two modes:
 
@@ -19,6 +19,7 @@ pylon                              # start daemon, local mode (repo: ./repo)
 pylon --path <path>                # start daemon for specific repo
 pylon --home <via>                 # start daemon, remote mode
 pylon [COMMAND]                    # send command to running daemon
+pylon exec <service> [args...]     # run one managed service CLI
 ```
 
 ## Daemon Mode
@@ -29,6 +30,10 @@ pylon --path <path>
 pylon --home <via>
 pylon --bind [host:]port
 pylon --path <path> --home <via> --bind [host:]port
+
+# dispatch/backend options
+pylon --embedded-services ...
+pylon --external-bin ...
 ```
 
 Starts the pylon daemon. Scans for a free TCP control port starting at 4850
@@ -39,6 +44,36 @@ another pylon is already running for the same repo.
 Prints `PYLON_BIND=127.0.0.1:<port>` on startup.
 
 Auto-shuts down after 30 seconds with zero connected clients.
+
+## Embedded feature gate and dispatch
+
+Pylon build feature: `embedded-services`.
+
+- feature ON (default build): embedded dispatch paths are available.
+- feature OFF (`--no-default-features`): process/exec-only behavior.
+
+In embedded-capable mode, argv0 self-name dispatch covers all managed services:
+
+- `hpprd`
+- `hppr-nfs` / `nfs`
+- `hppr-fuse` / `fuse`
+- `hppr-nat` / `nat`
+- `lokid`
+- `unlokid`
+
+Equivalent explicit form:
+
+```bash
+pylon exec <service> [args...]
+```
+
+`--external-bin` always forces external process execution.
+
+External process resolution order:
+
+1. `./<service>`
+2. `./<service>.exe` (Windows)
+3. `PATH` (`<service>`)
 
 ### Local Mode
 
@@ -231,6 +266,13 @@ pylon unmount /mnt/hppr
 
 # Start hpprd on custom port (local mode)
 pylon hpprd start --bind 127.0.0.1:4777
+
+# Run service CLI directly through pylon dispatch
+pylon exec hpprd --version
+pylon exec nat --help
+
+# Force external binary execution path
+pylon --external-bin exec hpprd --version
 
 # Add/remove listeners at runtime (local mode)
 pylon hpprd listen --bind ws+127.0.0.1:4778
