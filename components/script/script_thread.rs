@@ -3584,7 +3584,7 @@ impl ScriptThread {
         document.set_navigation_start(incomplete.navigation_start);
 
         // HAVI: install disabled-API stubs on hppr* schemes before parsing.
-        if final_url.scheme().starts_with("hppr") {
+        if final_url.scheme().starts_with("hppr") || final_url.scheme() == "file" {
             let cx = window.get_cx();
             rooted!(in(*cx) let mut rval = UndefinedValue());
             let _ = window.as_global_scope().evaluate_js_on_global(

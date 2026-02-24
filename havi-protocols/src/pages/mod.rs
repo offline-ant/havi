@@ -8,6 +8,7 @@
 //! a `PageResponse`. The shell embedder calls these and converts the
 //! result to its rendering layer's response type.
 
+pub mod file;
 pub mod havi;
 pub mod hppr;
 pub mod hppr_browse;

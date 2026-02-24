@@ -28,6 +28,7 @@ Packet signatures provide integrity and authorship regardless of transport.
 - `hppr-sandbox://` for untrusted preview
 - `hppr-browse://` for directory browsing
 - `hppr-editor://` for local packet editing
+- `file://` for local file rendering with home repo access
 - `havi://` for internal pages
 
 ## `hppr://`
@@ -94,6 +95,21 @@ Local editor with `window.ring0` and `window.home`.
 - redirect to `hppr://` on success
 
 Endpoint is forbidden. Editor always targets localhost context.
+
+## `file://`
+
+Local filesystem content rendered as an HPPR HTML page.
+
+- `window.home` available (site identity `site:file#local`)
+- `window.route` is `null` (no remote endpoint)
+- `window.ring0` is `null` (not a privileged scheme)
+- `document.packet` is `null` (no HPPR packet)
+- `<x>` elements work (child frames load via their own scheme)
+- disabled web APIs installed (same as `hppr://`)
+- content type from file extension
+- directory paths render HTML listing
+
+All `file://` pages share one origin and one site Ring1 identity.
 
 ## `havi://`
 

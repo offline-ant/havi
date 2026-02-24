@@ -922,6 +922,13 @@ impl App {
                 credential_store.clone(),
             ),
         );
+        let _ = protocol_registry.register(
+            "file",
+            crate::protocols::file::FileHpprHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
 
         // Step 3: Create Servo instance with viewport_meta_enabled so that
         // <meta name="viewport" content="width=device-width"> tags are respected.

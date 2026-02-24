@@ -534,7 +534,7 @@ impl HpprUrl {
     pub fn is_hppr_scheme(scheme: &str) -> bool {
         matches!(
             scheme,
-            "hppr" | "hppr-setup" | "hppr-sandbox" | "hppr-browse" | "hppr-editor" | "havi"
+            "hppr" | "hppr-setup" | "hppr-sandbox" | "hppr-browse" | "hppr-editor" | "havi" | "file"
         )
     }
 }

@@ -88,7 +88,7 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
 
         // Get site credentials from document (pre-fetched during page load)
         let url = global.get_url();
-        if !matches!(url.scheme(), "hppr" | "hppr-editor") {
+        if !matches!(url.scheme(), "hppr" | "hppr-editor" | "file") {
             promise.reject_error(
                 Error::Type(c"HpprClient.home() requires hppr:// origin".to_owned()),
                 can_gc,

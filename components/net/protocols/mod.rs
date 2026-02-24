@@ -140,7 +140,7 @@ impl ProtocolRegistry {
                 continue;
             }
 
-            self.handlers.entry(scheme).or_insert(handler);
+            self.handlers.insert(scheme, handler);
         }
     }
 

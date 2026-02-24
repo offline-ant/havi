@@ -7,6 +7,7 @@
 //! Each handler delegates to `havi_protocols::pages::*::handle_request()` and
 //! converts the `PageResponse` to a servo `Response`.
 
+pub mod file;
 pub mod havi;
 pub mod hppr;
 pub mod hppr_browse;
