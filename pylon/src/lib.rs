@@ -12,8 +12,8 @@ pub mod protocol;
 pub mod service;
 pub mod services;
 
+#[cfg(unix)]
 mod libc {
-    // TODO: Windows: LockFileEx
     unsafe extern "C" {
         pub fn flock(fd: i32, operation: i32) -> i32;
     }
@@ -25,6 +25,7 @@ mod libc {
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -627,18 +628,63 @@ fn acquire_pid_lock(repo_path: &Path) -> Result<File, String> {
         .open(&pid_path)
         .map_err(|e| format!("open PID file {}: {}", pid_path.display(), e))?;
 
-    let fd = file.as_raw_fd();
-    let result = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    #[cfg(unix)]
+    {
+        let fd = file.as_raw_fd();
+        let result = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+        if result != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                let content = std::fs::read_to_string(&pid_path).unwrap_or_default();
+                let pid = content.split_whitespace().next().unwrap_or("unknown");
+                return Err(format!("pylon already running (pid {})", pid));
+            }
+            return Err(format!("flock PID file: {}", err));
+        }
+    }
 
-    if result != 0 {
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
-            // Another pylon holds the lock — read PID for diagnostics
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use std::ptr;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn LockFileEx(
+                hFile: *mut std::ffi::c_void,
+                dwFlags: u32,
+                dwReserved: u32,
+                nNumberOfBytesToLockLow: u32,
+                nNumberOfBytesToLockHigh: u32,
+                lpOverlapped: *mut Overlapped,
+            ) -> i32;
+        }
+        #[repr(C)]
+        struct Overlapped {
+            internal: usize,
+            internal_high: usize,
+            offset: u32,
+            offset_high: u32,
+            h_event: *mut std::ffi::c_void,
+        }
+        const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x02;
+        const LOCKFILE_FAIL_IMMEDIATELY: u32 = 0x01;
+        let handle = file.as_raw_handle() as *mut std::ffi::c_void;
+        let mut overlapped = Overlapped {
+            internal: 0, internal_high: 0, offset: 0, offset_high: 0, h_event: ptr::null_mut(),
+        };
+        let ok = unsafe {
+            LockFileEx(
+                handle,
+                LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                0, 1, 0,
+                &mut overlapped,
+            )
+        };
+        if ok == 0 {
             let content = std::fs::read_to_string(&pid_path).unwrap_or_default();
             let pid = content.split_whitespace().next().unwrap_or("unknown");
             return Err(format!("pylon already running (pid {})", pid));
         }
-        return Err(format!("flock PID file: {}", err));
     }
 
     Ok(file)

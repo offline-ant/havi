@@ -194,12 +194,20 @@ impl ManagedService {
         self.state = State::Stopping;
 
         let exit_code = if let Some(ref mut child) = self.child {
-            // Send SIGTERM via kill
-            let pid = child.id();
-            if let Some(pid) = pid {
-                unsafe {
-                    libc::kill(pid as i32, libc::SIGTERM);
+            // Request graceful stop
+            #[cfg(unix)]
+            {
+                let pid = child.id();
+                if let Some(pid) = pid {
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGTERM);
+                    }
                 }
+            }
+            #[cfg(windows)]
+            {
+                // Windows has no SIGTERM; start with kill which sends TerminateProcess.
+                let _ = child.start_kill();
             }
 
             // Wait with timeout
@@ -444,6 +452,7 @@ mod tests {
     }
 }
 
+#[cfg(unix)]
 mod libc {
     unsafe extern "C" {
         pub fn kill(pid: i32, sig: i32) -> i32;
