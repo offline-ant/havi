@@ -17,4 +17,4 @@ Task-focused guides for common HAVI workflows.
 - `../reference/havi-cli.md`
 - `../reference/havi-devtools-cli.md`
 - `../reference/pylon.md`
-- `../../../hppr/cli/README.md`
+- `../../../hppr/rust/tools/cli/README.md`

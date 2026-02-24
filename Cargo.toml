@@ -104,11 +104,11 @@ headers = "0.4"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"] }
 hkdf = "0.12"
 jsonqa = { path = "components/jsonqa" }
-hppr-client = { path = "../hppr/client", features = ["tokio"] }
-hppr-packet = { path = "../hppr/packet" }
-hppr-segment = { path = "../hppr/segment", default-features = false }
-hpprd = { path = "../hppr/hpprd" }
-hsb3 = { path = "../hppr/hsb3", features = ["rand"] }
+hppr-client = { path = "../hppr/rust/libs/client", features = ["tokio"] }
+hppr-packet = { path = "../hppr/rust/libs/packet" }
+hppr-segment = { path = "../hppr/rust/libs/segment", default-features = false }
+hpprd = { path = "../hppr/rust/services/hpprd" }
+hsb3 = { path = "../hppr/rust/libs/hsb3", features = ["rand"] }
 html5ever = "0.38"
 http = "1.4"
 http-body-util = "0.1"

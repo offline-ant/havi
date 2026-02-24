@@ -129,4 +129,4 @@ hppr watch //u/site/
 ## Next
 
 - Access strategy: [Access Patterns](access-patterns.md)
-- Tool syntax: `../reference/havi-cli.md`, `../../../hppr/cli/README.md`
+- Tool syntax: `../reference/havi-cli.md`, `../../../hppr/rust/tools/cli/README.md`
