@@ -48,5 +48,6 @@ fn main() {
         return;
     }
 
+    havishell::app::install_window_icon();
     havishell::app::app_main()
 }

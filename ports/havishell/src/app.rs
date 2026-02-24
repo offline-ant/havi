@@ -712,6 +712,41 @@ fn create_macos_rendering_setup(
     (texture, Rc::new(rc))
 }
 
+pub fn install_window_icon() {
+    use makepad_widgets::makepad_platform::{set_window_icon, WindowIcon, WindowIconBuffer};
+
+    let png_64 = include_bytes!(concat!(env!("OUT_DIR"), "/hppr_icon_64.png"));
+    let png_128 = include_bytes!(concat!(env!("OUT_DIR"), "/hppr_icon_128.png"));
+    use ::image::codecs::png::PngDecoder;
+    use ::image::DynamicImage;
+
+    let img_64 = DynamicImage::from_decoder(PngDecoder::new(std::io::Cursor::new(png_64)).unwrap())
+        .expect("decode 64px icon")
+        .into_rgba8();
+    let img_128 =
+        DynamicImage::from_decoder(PngDecoder::new(std::io::Cursor::new(png_128)).unwrap())
+            .expect("decode 128px icon")
+            .into_rgba8();
+
+    set_window_icon(WindowIcon {
+        name: None,
+        buffers: vec![
+            WindowIconBuffer {
+                width: 64,
+                height: 64,
+                scale: 1,
+                data: img_64.into_raw(),
+            },
+            WindowIconBuffer {
+                width: 128,
+                height: 128,
+                scale: 2,
+                data: img_128.into_raw(),
+            },
+        ],
+    });
+}
+
 impl App {
     fn init_servo(&mut self, cx: &mut Cx) {
         if self.initialized {
@@ -728,6 +763,9 @@ impl App {
         if dpi_factor <= 0.0 || inner.x <= 0.0 || inner.y <= 0.0 {
             return;
         }
+
+        // Set Wayland app_id to "havi"
+        cx.windows[CxWindowPool::id_zero()].create_app_id = "havi".to_string();
 
         self.initialized = true;
         self.dpi_factor = dpi_factor;
