@@ -92,7 +92,6 @@ async function saveRepoName() {
 
     if (!newName) {
         msgEl.textContent = 'Please enter a repo name';
-        msgEl.style.color = '#ff6b6b';
         return;
     }
 
@@ -109,10 +108,8 @@ async function saveRepoName() {
         });
 
         msgEl.textContent = 'Repo name updated. Restart repo daemon to take effect.';
-        msgEl.style.color = '#27ae60';
     } catch (e) {
         msgEl.textContent = 'Failed to save: ' + (e instanceof Error ? e.message : String(e));
-        msgEl.style.color = '#ff6b6b';
     }
 }
 

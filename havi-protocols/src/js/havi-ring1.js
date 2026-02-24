@@ -150,7 +150,7 @@ function renderSystemAccounts(accounts) {
             meta = '(admin - full access)';
         } else if (acc.name === 'anyone' || acc.name === 'guest') {
             meta = acc.rules.length + ' rule' + (acc.rules.length !== 1 ? 's' : '');
-            buttons = `<a href="havi:///anyone" class="btn-small secondary" style="text-decoration: none;">Edit on Anyone</a>`;
+            buttons = `<a href="havi:///anyone" class="btn-small secondary">Edit on Anyone</a>`;
         }
 
         const rulesHtml = acc.name !== 'ring0' && acc.rules.length > 0

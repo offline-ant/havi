@@ -53,103 +53,159 @@ pub async fn handle_request(url: &str) -> PageResponse {
     PageResponse::html(html).with_admin_credentials(ring1_name, token)
 }
 
-/// Admin-page-specific styles (nav, cards, buttons, etc).
+/// Minimal admin-page styles with basic layout and legibility.
 const ADMIN_CSS: &str = r#"
-    h1 { margin: 0 0 20px 0; }
-    h2 { color: #7fdbff; margin: 20px 0 10px 0; font-size: 1.2em; }
-    .nav {
+    body {
+        margin: 0;
+        padding: 1rem;
+        background: #fff;
+        color: #111;
+        max-width: 980px;
+        min-height: auto;
+    }
+    a { color: inherit; }
+    h1, h2, h3 { color: inherit; }
+
+    .nav ul {
+        list-style: none;
+        margin: 0 0 1rem 0;
+        padding: 0;
         display: flex;
-        gap: 20px;
-        margin-bottom: 20px;
-        padding-bottom: 15px;
-        border-bottom: 1px solid #333;
         flex-wrap: wrap;
+        gap: 0.4rem;
     }
     .nav a {
-        padding: 8px 16px;
-        background: #16213e;
-        border-radius: 6px;
+        display: inline-block;
+        padding: 0.2rem 0.45rem;
+        border: 1px solid #ccc;
+        text-decoration: none;
     }
-    .nav a:hover { background: #1f2d4a; text-decoration: none; }
-    .nav a.active { background: #4ecdc4; color: #1a1a2e; }
+    .nav a.active {
+        font-weight: 600;
+        background: #f5f5f5;
+    }
+
     .card {
-        background: #16213e;
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        padding: 0.85rem;
+        margin-bottom: 0.85rem;
     }
-    .status { display: flex; gap: 30px; }
-    .status-item { text-align: center; }
-    .status-value { font-size: 1.5em; color: #4ecdc4; font-family: monospace; }
-    .status-label { color: #888; font-size: 0.9em; }
-    button {
-        padding: 10px 20px;
-        font-size: 1em;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        background: #27ae60;
-        color: white;
+
+    .status {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 0.45rem;
     }
-    button:hover { background: #2ecc71; }
-    button:disabled { background: #555; cursor: not-allowed; }
-    button.danger { background: #c0392b; }
-    button.danger:hover { background: #e74c3c; }
-    button.secondary { background: #555; }
-    button.secondary:hover { background: #666; }
+    .status-item {
+        border: 1px solid #eee;
+        padding: 0.45rem;
+    }
+    .status-value { font-family: monospace; font-size: 1.05rem; }
+    .status-label { font-size: 0.9rem; color: #444; }
+
+    button,
     input[type="text"] {
-        padding: 10px;
-        font-size: 1em;
-        border: 2px solid #333;
-        border-radius: 6px;
-        background: #16213e;
-        color: #eee;
-        width: 200px;
+        font: inherit;
+        padding: 0.25rem 0.5rem;
+        border: 1px solid #bbb;
+        background: #fff;
+        color: inherit;
     }
-    input[type="text"]:focus { outline: none; border-color: #4ecdc4; }
+    button + button { margin-left: 0.35rem; }
+
     .list-item {
         display: flex;
         justify-content: space-between;
-        align-items: center;
-        padding: 12px;
-        background: #0f1729;
-        border-radius: 6px;
-        margin-bottom: 8px;
+        gap: 0.5rem;
+        border-top: 1px solid #eee;
+        padding: 0.45rem 0;
     }
-    .list-item .name { font-family: monospace; }
-    .empty { color: #666; font-style: italic; }
-    .error { color: #ff6b6b; }
-    .success { color: #27ae60; }
+    .list-item .name,
+    .route-title,
+    .route-value,
+    .request-ring1,
+    .request-cmd,
+    .request-detail,
+    .account-name,
+    .account-rules,
+    .acl-coord {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
     .message {
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 15px;
+        margin-bottom: 0.85rem;
+        border: 1px solid #bbb;
+        padding: 0.5rem;
     }
-    .message.error { background: #2d1f1f; border-left: 4px solid #ff6b6b; }
-    .message.success { background: #1f2d1f; border-left: 4px solid #27ae60; }
-    .route-item {
-        background: #0f1729;
-        border-radius: 6px;
-        padding: 15px;
-        margin-bottom: 10px;
+    .message.error { border-color: #b33; background: #fff6f6; }
+    .message.success { border-color: #3a7; background: #f6fff8; }
+
+    .empty { color: #666; font-style: italic; }
+    .muted { color: #555; font-size: 0.95rem; }
+    .inline-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
     }
-    .route-header {
+    .codebox {
+        border: 1px solid #ddd;
+        background: #fafafa;
+        padding: 0.55rem;
+        word-break: break-all;
+        white-space: pre-wrap;
+    }
+
+    .section-title {
+        margin: 1rem 0 0.4rem;
+        padding-bottom: 0.2rem;
+        border-bottom: 1px solid #ddd;
+        font-weight: 600;
+    }
+
+    .account-item,
+    .route-item,
+    .request-card {
+        border-top: 1px solid #eee;
+        padding: 0.55rem 0;
+    }
+    .account-header,
+    .route-header,
+    .request-header {
         display: flex;
         justify-content: space-between;
+        gap: 0.6rem;
+        flex-wrap: wrap;
         align-items: center;
-        margin-bottom: 10px;
     }
-    .route-title { font-size: 1.1em; font-family: monospace; color: #4ecdc4; }
-    .route-detail {
-        display: flex;
-        gap: 10px;
-        padding: 5px 0;
-        font-size: 0.9em;
+    .account-rules { margin-top: 0.35rem; font-size: 0.92rem; }
+
+    .acl-editor { border: 1px solid #ddd; margin-top: 0.4rem; }
+    .acl-header,
+    .acl-row,
+    .add-row {
+        display: grid;
+        grid-template-columns: 1fr 2.3rem 2.3rem 2.3rem 2.3rem;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0.35rem;
+        border-top: 1px solid #eee;
     }
-    .route-label { color: #888; min-width: 100px; }
-    .route-value { font-family: monospace; color: #7fdbff; word-break: break-all; }
-    .trusted-key { color: #27ae60; }
-    .key-truncated { font-size: 0.85em; }
+    .acl-header { border-top: 0; font-weight: 600; }
+    .perm-btn,
+    .remove-btn,
+    .add-btn {
+        padding: 0.2rem;
+        min-width: 2rem;
+    }
+    .add-row input { width: 100%; }
+    .editor-buttons,
+    .save-section,
+    .btn-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .inline-editor { margin-top: 0.55rem; }
+
+    .acl-tree details { margin-left: 0.8rem; }
+    .acl-tree summary { cursor: pointer; }
 "#;
 
 /// Render an admin page with shared shell, admin CSS, and nav bar.
@@ -174,105 +230,49 @@ fn render_home_page() -> String {
     <meta charset="utf-8">
     <title>HAVI</title>
     <style>
-        * {{ box-sizing: border-box; }}
         body {{
             font-family: system-ui, sans-serif;
             margin: 0;
-            padding: 0;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            padding: 1rem;
+            max-width: 760px;
         }}
-        .container {{
-            text-align: center;
-            max-width: 600px;
-            padding: 40px;
-        }}
-        .logo {{
-            font-size: 4em;
-            font-weight: bold;
-            color: #4ecdc4;
-            margin-bottom: 10px;
-            letter-spacing: 0.1em;
-        }}
-        .tagline {{
-            color: #7fdbff;
-            font-size: 1.2em;
-            margin-bottom: 40px;
-        }}
-        .search-box {{
+        h1 {{ margin-bottom: 0.25rem; }}
+        .muted {{ margin-top: 0; color: #444; }}
+        #urlInput {{
             width: 100%;
-            max-width: 500px;
-            padding: 15px 20px;
-            font-size: 1.1em;
-            border: 2px solid #333;
-            border-radius: 30px;
-            background: #16213e;
-            color: #eee;
-            outline: none;
-            transition: border-color 0.2s;
+            font: inherit;
+            padding: 0.4rem 0.55rem;
+            border: 1px solid #bbb;
+            margin: 0.5rem 0 1rem;
         }}
-        .search-box:focus {{
-            border-color: #4ecdc4;
-        }}
-        .search-box::placeholder {{
-            color: #666;
-        }}
-        .quick-links {{
-            display: flex;
-            gap: 15px;
-            margin-top: 40px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }}
-        .quick-link {{
-            padding: 12px 24px;
-            background: #16213e;
-            border-radius: 8px;
-            color: #7fdbff;
-            text-decoration: none;
-            transition: background 0.2s;
-        }}
-        .quick-link:hover {{
-            background: #1f2d4a;
-            text-decoration: none;
-        }}
+        #quickLinks {{ display: flex; flex-wrap: wrap; gap: 0.4rem; }}
+        #quickLinks a,
         .admin-link {{
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            background: #16213e;
-            border-radius: 6px;
-            color: #888;
+            border: 1px solid #ccc;
+            padding: 0.2rem 0.45rem;
             text-decoration: none;
-            font-size: 0.9em;
-        }}
-        .admin-link:hover {{
-            color: #4ecdc4;
-            text-decoration: none;
+            color: inherit;
         }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="logo">HAVI</div>
-        <div class="tagline">HPPR Browser</div>
+    <h1>HAVI</h1>
+    <p class="muted">HPPR browser</p>
 
-        <input type="text" class="search-box" id="urlInput"
-               placeholder="Enter hppr:// address or //group/app/path"
-               autofocus>
+    <label for="urlInput">Address</label>
+    <input
+        type="text"
+        id="urlInput"
+        placeholder="hppr://... or //group/app/path"
+        autofocus
+    >
 
-        <div class="quick-links" id="quickLinks">
-            <a href="hppr://u/" class="quick-link">Browse //u/</a>
-        </div>
+    <p>Quick links</p>
+    <div id="quickLinks">
+        <a href="hppr://u/" class="quick-link">//u/</a>
     </div>
 
-    <a href="havi:///overview" class="admin-link">Admin Settings</a>
+    <p><a href="havi:///overview" class="admin-link">Open admin pages</a></p>
 
     <script>
 {home_js}
@@ -304,11 +304,11 @@ fn render_nav(active: &str) -> String {
             } else {
                 ""
             };
-            format!(r#"<a href="{}"{}>{}</a>"#, href, class, label)
+            format!(r#"<li><a href="{}"{}>{}</a></li>"#, href, class, label)
         })
         .collect();
 
-    format!(r#"<nav class="nav">{}</nav>"#, links.join("\n"))
+    format!(r#"<nav class="nav"><ul>{}</ul></nav>"#, links.join("\n"))
 }
 
 /// Render the dashboard page.
@@ -360,19 +360,15 @@ fn render_home_repo_page() -> String {
                 <div class="status-label">Mode</div>
             </div>
         </div>
-        <p style="margin-top: 15px; color: #888; font-size: 0.9em;">
-            Repo: <code id="repoPath" style="color: #7fdbff;">...</code>
+        <p class="muted">
+            Repo: <code id="repoPath">...</code>
         </p>
     </div>
 
     <div class="card">
         <h2>Home Repo Verification Key</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            This key identifies your home repo to route repos and peers.
-        </p>
-        <div id="repoKey" style="font-family: monospace; background: #0f1729; padding: 15px; border-radius: 6px; color: #4ecdc4; word-break: break-all;">
-            Loading...
-        </div>
+        <p class="muted">This key identifies your home repo to route repos and peers.</p>
+        <div id="repoKey" class="codebox">Loading...</div>
     </div>
 
     <div class="card" id="daemonInfoCard" style="display: none;">
@@ -391,21 +387,19 @@ fn render_home_repo_page() -> String {
                 <div class="status-label">Backend</div>
             </div>
         </div>
-        <p style="margin-top: 15px; color: #888; font-size: 0.9em;">
-            Version: <code id="daemonVersion" style="color: #7fdbff;">...</code>
+        <p class="muted">
+            Version: <code id="daemonVersion">...</code>
         </p>
     </div>
 
     <div class="card">
         <h2>Repo Name</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            This name identifies your repo in HELLO greetings.
-        </p>
-        <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
-            <input type="text" id="repoName" placeholder="Repo name" style="width: 200px;">
+        <p class="muted">This name identifies your repo in HELLO greetings.</p>
+        <div class="inline-row">
+            <input type="text" id="repoName" placeholder="Repo name">
             <button onclick="saveRepoName()" id="saveNameBtn">Save</button>
         </div>
-        <div id="nameMessage" style="margin-top: 10px;"></div>
+        <div id="nameMessage" class="muted"></div>
     </div>
 
     <script>
@@ -426,11 +420,9 @@ fn render_routes_page() -> String {
 
     <div class="card">
         <h2>Configured Routes</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            Routes tell HAVI where to fetch content for each group#app coordinate.
-        </p>
+        <p class="muted">Routes tell HAVI where to fetch content for each group#app coordinate.</p>
         <div id="routesList">Loading...</div>
-        <button onclick="loadRoutes()" style="margin-top: 15px;" class="secondary">Refresh</button>
+        <p><button onclick="loadRoutes()" class="secondary">Refresh</button></p>
     </div>
 
     <script>
@@ -445,118 +437,7 @@ fn render_routes_page() -> String {
 /// Render the ring1 accounts management page.
 fn render_accounts_page() -> String {
     let ring1_js = include_str!("../js/havi-ring1.js");
-    let extra_css = r#"
-        .section-title {
-            color: #4ecdc4;
-            font-size: 1.1em;
-            margin: 20px 0 10px 0;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #333;
-        }
-        .account-item {
-            background: #0f1729;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 10px;
-        }
-        .account-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .account-name {
-            font-family: monospace;
-            font-size: 1.1em;
-            color: #7fdbff;
-        }
-        .account-name.system { color: #f39c12; }
-        .account-name.sandbox { color: #4ecdc4; }
-        .account-meta { color: #888; font-size: 0.9em; margin-left: 10px; }
-        .account-rules {
-            font-family: monospace;
-            font-size: 0.85em;
-            color: #888;
-            margin-top: 8px;
-            padding-left: 10px;
-        }
-        .account-rule { padding: 2px 0; }
-        .account-expired { color: #c0392b; }
-        .sandbox-display { color: #aaa; font-size: 0.9em; }
-        .btn-group { display: flex; gap: 5px; }
-        .btn-small { padding: 6px 12px; font-size: 0.85em; }
-        .request-item { background: #1a2744; border-left: 3px solid #f39c12; }
-        .inline-editor {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #333;
-        }
-        .acl-editor {
-            background: #0f1729;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        .acl-header {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px;
-            padding: 10px 15px;
-            background: #16213e;
-            font-weight: bold;
-            font-size: 0.9em;
-            color: #888;
-        }
-        .acl-row {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px;
-            padding: 10px 15px;
-            border-top: 1px solid #1a1a2e;
-            align-items: center;
-        }
-        .acl-row:hover { background: #16213e; }
-        .acl-coord {
-            font-family: monospace;
-            font-size: 0.95em;
-            color: #7fdbff;
-            word-break: break-all;
-        }
-        .perm-btn {
-            width: 32px;
-            height: 32px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-family: monospace;
-            font-weight: bold;
-            font-size: 1em;
-        }
-        .perm-grant { background: #27ae60; color: white; }
-        .perm-deny { background: #c0392b; color: white; }
-        .perm-inherit { background: #555; color: #888; }
-        .perm-btn:hover { opacity: 0.8; }
-        .remove-btn {
-            width: 32px;
-            height: 32px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            background: transparent;
-            color: #666;
-            font-size: 1.2em;
-        }
-        .remove-btn:hover { background: #c0392b; color: white; }
-        .add-row {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px;
-            padding: 15px;
-            background: #16213e;
-            align-items: center;
-        }
-        .add-row input { width: 100%; padding: 8px; font-family: monospace; }
-        .add-btn { width: 32px; height: 32px; padding: 0; font-size: 1.2em; }
-        .editor-buttons { margin-top: 15px; display: flex; gap: 10px; }
-    "#;
+    let extra_css = "";
 
     let body = format!(
         r#"
@@ -564,9 +445,7 @@ fn render_accounts_page() -> String {
 
     <div class="card">
         <h2>Account Management</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            Manage ring1 accounts and their ACL rules. System accounts cannot be deleted.
-        </p>
+        <p class="muted">Manage ring1 accounts and their ACL rules. System accounts cannot be deleted.</p>
 
         <div class="section-title">System Accounts</div>
         <div id="systemAccounts">Loading...</div>
@@ -580,9 +459,7 @@ fn render_accounts_page() -> String {
         <div class="section-title">Pending Requests</div>
         <div id="pendingRequests"><p class="empty">None</p></div>
 
-        <div style="margin-top: 20px;">
-            <button onclick="loadAll()" class="secondary">Refresh</button>
-        </div>
+        <p><button onclick="loadAll()" class="secondary">Refresh</button></p>
     </div>
 
     <script>
@@ -598,15 +475,15 @@ fn render_accounts_page() -> String {
 fn render_groups_page() -> String {
     render_admin_page(
         "Group Membership",
-        "Groups",
+        "Ring2",
         "",
         r#"
     <div class="card">
         <h2>Group Management</h2>
         <p class="empty">Group membership management coming soon.</p>
-        <p style="color: #888; font-size: 0.9em;">
-            Group setup: <code style="color: #7fdbff;">//<em>group</em>/admin/setup/|</code><br>
-            Membership: <code style="color: #7fdbff;">//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code>
+        <p class="muted">
+            Group setup: <code>//<em>group</em>/admin/setup/|</code><br>
+            Membership: <code>//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code>
         </p>
     </div>"#,
     )
@@ -615,63 +492,7 @@ fn render_groups_page() -> String {
 /// Render the Anyone account ACL editor page.
 fn render_anyone_page() -> String {
     let anyone_js = include_str!("../js/havi-anyone.js");
-    let extra_css = r#"
-        .acl-editor { background: #0f1729; border-radius: 6px; overflow: hidden; }
-        .acl-header {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px;
-            padding: 10px 15px;
-            background: #16213e;
-            font-weight: bold;
-            font-size: 0.9em;
-            color: #888;
-        }
-        .acl-row {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px;
-            padding: 10px 15px;
-            border-top: 1px solid #1a1a2e;
-            align-items: center;
-        }
-        .acl-row:hover { background: #16213e; }
-        .acl-coord { font-family: monospace; font-size: 0.95em; color: #7fdbff; word-break: break-all; }
-        .perm-btn {
-            width: 32px; height: 32px; border: none; border-radius: 4px;
-            cursor: pointer; font-family: monospace; font-weight: bold; font-size: 1em;
-        }
-        .perm-grant { background: #27ae60; color: white; }
-        .perm-deny { background: #c0392b; color: white; }
-        .perm-inherit { background: #555; color: #888; }
-        .perm-btn:hover { opacity: 0.8; }
-        .remove-btn {
-            width: 32px; height: 32px; border: none; border-radius: 4px;
-            cursor: pointer; background: transparent; color: #666; font-size: 1.2em;
-        }
-        .remove-btn:hover { background: #c0392b; color: white; }
-        .add-row {
-            display: grid;
-            grid-template-columns: 1fr 40px 40px 40px 50px;
-            gap: 5px; padding: 15px; background: #16213e; align-items: center;
-        }
-        .add-row input { width: 100%; padding: 8px; font-family: monospace; }
-        .add-btn { width: 32px; height: 32px; padding: 0; font-size: 1.2em; }
-        .save-section { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
-        .dirty-indicator { color: #f39c12; font-size: 0.9em; }
-        .acl-tree details { margin-left: 0; }
-        .acl-tree details details { margin-left: 20px; }
-        .acl-tree summary { cursor: pointer; list-style: none; padding: 0; }
-        .acl-tree summary::-webkit-details-marker { display: none; }
-        .acl-tree summary::before {
-            content: '\25B6  ';
-            display: inline-block; width: 15px; font-size: 0.7em;
-            transition: transform 0.2s; color: #666;
-        }
-        details[open] > summary::before { transform: rotate(90deg); }
-        .acl-tree .leaf-rule { margin-left: 15px; }
-        .acl-tree .acl-row { display: inline-grid; width: calc(100% - 15px); }
-    "#;
+    let extra_css = "";
 
     let body = format!(
         r#"
@@ -679,7 +500,7 @@ fn render_anyone_page() -> String {
 
     <div class="card">
         <h2>Access Rules</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
+        <p class="muted">
             These rules control what unauthenticated requests can access.
             Click permission buttons to cycle: grant → deny → inherit.
         </p>
@@ -706,7 +527,7 @@ fn render_anyone_page() -> String {
             <button onclick="saveRules()" id="saveBtn">Save Changes</button>
             <button onclick="loadRules()" class="secondary">Reset</button>
             <span id="dirtyIndicator" class="dirty-indicator" style="display: none;">
-                ⚠ Unsaved changes
+                Unsaved changes
             </span>
         </div>
     </div>
@@ -724,40 +545,16 @@ fn render_anyone_page() -> String {
 fn render_ring0_proxy_page() -> String {
     let ring0_js = include_str!("../js/havi-ring0.js");
     let extra_css = r#"
-        .request-card {
-            background: #0f1729;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-left: 3px solid #f39c12;
-        }
-        .request-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .request-ring1 { font-family: monospace; font-size: 1.1em; color: #7fdbff; }
-        .request-cmd {
-            font-family: monospace; font-size: 0.9em; color: #f39c12;
-            background: #1a2744; padding: 2px 8px; border-radius: 4px;
-        }
-        .request-detail {
-            font-family: monospace; font-size: 0.85em; color: #888;
-            margin: 5px 0; word-break: break-all;
-        }
-        .btn-group { display: flex; gap: 5px; }
-        .btn-small { padding: 6px 12px; font-size: 0.85em; }
         .status-indicator {
-            display: inline-block; width: 8px; height: 8px;
-            border-radius: 50%; margin-right: 8px;
+            display: inline-block;
+            width: 0.55rem;
+            height: 0.55rem;
+            border-radius: 50%;
+            margin-right: 0.45rem;
+            background: #888;
         }
-        .status-watching { background: #27ae60; animation: pulse 2s infinite; }
-        .status-error { background: #c0392b; }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
+        .status-watching { background: #2f7; }
+        .status-error { background: #c33; }
     "#;
 
     let body = format!(
@@ -766,13 +563,11 @@ fn render_ring0_proxy_page() -> String {
 
     <div class="card">
         <h2><span id="watchIndicator" class="status-indicator status-watching"></span>Pending Proxy Requests</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
+        <p class="muted">
             Ring1 accounts submit proxy requests here. Approve to execute the command via ring0 and return the result.
         </p>
         <div id="requestsList"><p class="empty">Scanning...</p></div>
-        <div style="margin-top: 15px;">
-            <button onclick="scanRequests()" class="secondary">Refresh</button>
-        </div>
+        <p><button onclick="scanRequests()" class="secondary">Refresh</button></p>
     </div>
 
     <script>
@@ -787,9 +582,7 @@ fn render_ring0_proxy_page() -> String {
 /// Render the services page.
 fn render_services_page() -> String {
     let services_js = include_str!("../js/havi-services.js");
-    let extra_css = r#"
-        .btn-small { padding: 6px 12px; font-size: 0.85em; }
-    "#;
+    let extra_css = "";
 
     let body = format!(
         r#"
@@ -807,13 +600,9 @@ fn render_services_page() -> String {
 
     <div class="card">
         <h2>Services</h2>
-        <p style="color: #888; font-size: 0.9em; margin-top: 0;">
-            Managed services: hpprd, lokid, unlokid, hppr-nfs.
-        </p>
+        <p class="muted">Managed services: hpprd, lokid, unlokid, hppr-nfs.</p>
         <div id="servicesList"><p class="empty">Loading...</p></div>
-        <div style="margin-top: 15px;">
-            <button onclick="location.reload()" class="secondary">Refresh</button>
-        </div>
+        <p><button onclick="location.reload()" class="secondary">Refresh</button></p>
     </div>
 
     <script>
