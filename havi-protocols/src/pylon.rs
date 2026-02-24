@@ -65,11 +65,19 @@ impl PylonClient {
     }
 
     /// Send a command and receive the response.
-    fn request(&mut self, cmd: &str, service: Option<&str>) -> Result<serde_json::Value, String> {
+    fn request(
+        &mut self,
+        cmd: &str,
+        service: Option<&str>,
+        args: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<serde_json::Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut req = serde_json::json!({"id": id, "cmd": cmd});
         if let Some(svc) = service {
             req["service"] = serde_json::json!(svc);
+        }
+        if let Some(cmd_args) = args {
+            req["args"] = serde_json::Value::Object(cmd_args.clone());
         }
 
         let mut line = serde_json::to_string(&req).unwrap();
@@ -111,7 +119,7 @@ impl PylonClient {
 
     /// Query status of all services.
     pub fn status(&mut self) -> Result<Vec<ServiceStatus>, String> {
-        let data = self.request("status", None)?;
+        let data = self.request("status", None, None)?;
         let obj = data.as_object().ok_or("pylon: status not an object")?;
         let mut services = Vec::new();
         for (name, val) in obj {
@@ -135,7 +143,7 @@ impl PylonClient {
     /// In local mode, returns the port from hpprd's running state.
     /// In remote mode, parses the port from the external address.
     pub fn hpprd_port(&mut self) -> Option<u16> {
-        let data = self.request("status", None).ok()?;
+        let data = self.request("status", None, None).ok()?;
         let hpprd = data.get("hpprd")?;
         let state = hpprd.get("state")?.as_str()?;
         match state {
@@ -151,14 +159,24 @@ impl PylonClient {
 
     /// Start a service.
     pub fn start_service(&mut self, name: &str) -> Result<(), String> {
-        self.request("start", Some(name))?;
+        self.request("start", Some(name), None)?;
         Ok(())
     }
 
     /// Stop a service.
     pub fn stop_service(&mut self, name: &str) -> Result<(), String> {
-        self.request("stop", Some(name))?;
+        self.request("stop", Some(name), None)?;
         Ok(())
+    }
+
+    /// Send an arbitrary pylon command with optional service and args.
+    pub fn command(
+        &mut self,
+        cmd: &str,
+        service: Option<&str>,
+        args: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<serde_json::Value, String> {
+        self.request(cmd, service, args)
     }
 
     /// Subscribe to pylon events. Consumes the client and spawns a reader thread.

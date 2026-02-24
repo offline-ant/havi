@@ -166,7 +166,7 @@ impl BrowserUrl {
     pub fn from_url(url: Url) -> Self {
         // Detect HPPR URLs coming through the Url path and convert them.
         let scheme = url.scheme();
-        if scheme == "hppr" || scheme.starts_with("hppr-") || scheme == "havi" {
+        if scheme == "hppr" || scheme.starts_with("hppr-") {
             // Percent-decode JSONqa characters that were encoded to survive Url::parse.
             let decoded = hppr::percent_decode_jsonqa(url.as_str());
             if let Ok(data) = HpprUrlData::parse(&decoded) {
@@ -790,7 +790,7 @@ impl From<Arc<Url>> for BrowserUrl {
     fn from(url: Arc<Url>) -> Self {
         // Check if this is an HPPR URL
         let scheme = url.scheme();
-        if scheme == "hppr" || scheme.starts_with("hppr-") || scheme == "havi" {
+        if scheme == "hppr" || scheme.starts_with("hppr-") {
             let decoded = hppr::percent_decode_jsonqa(url.as_str());
             if let Ok(data) = HpprUrlData::parse(&decoded) {
                 return BrowserUrl::Hppr(Arc::new(data));
@@ -813,8 +813,7 @@ impl FromStr for BrowserUrl {
 /// Check if input string starts with an HPPR-family scheme.
 fn is_hppr_input(input: &str) -> bool {
     input.starts_with("hppr:") ||
-        input.starts_with("hppr-") ||
-        input.starts_with("havi:")
+        input.starts_with("hppr-")
 }
 
 /// Split JSONqa suffix from a URL or href string.
@@ -1236,11 +1235,25 @@ mod tests {
     }
 
     #[test]
-    fn havi_scheme_not_web() {
-        // havi:// URLs are detected as HPPR-family but HpprUrlData requires
-        // HAVIAddress format; havi:///path doesn't parse as HAVIAddress.
-        // Verify it doesn't fall through to Web variant.
-        assert!(BrowserUrl::parse("havi:///homepage").is_err());
+    fn havi_scheme_parses_as_web() {
+        // havi: is not HPPR-family — it goes through standard Url::parse
+        // and lands in the Web variant.
+        let url = BrowserUrl::parse("havi:///homepage").unwrap();
+        assert!(matches!(url, BrowserUrl::Web(_)));
+        assert_eq!(url.scheme(), "havi");
+    }
+
+    #[test]
+    fn havi_triple_slash_startup_urls() {
+        // Triple-slash havi:// URLs used for HAVI_URL startup (e.g. havi:///home-repo).
+        // These must parse without normalization or fallback.
+        for path in &["home-repo", "overview", "services", "routes", "anyone"] {
+            let input = format!("havi:///{}", path);
+            let url = BrowserUrl::parse(&input)
+                .unwrap_or_else(|e| panic!("failed to parse {}: {}", input, e));
+            assert_eq!(url.scheme(), "havi");
+            assert!(matches!(url, BrowserUrl::Web(_)));
+        }
     }
 
     #[test]

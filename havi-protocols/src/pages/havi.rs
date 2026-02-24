@@ -16,7 +16,7 @@
 //! - /ring2: Group membership management (stub)
 //! - /ring1: View account requests (stub)
 //! - /ring0: Ring0 proxy page for ring1 proxy requests
-//! - /services: Pylon service manager (start/stop hpprd, lokid, unlokid, hppr-nfs)
+//! - /services: Pylon service manager (services, listeners, mounts, nat)
 
 use crate::PageResponse;
 use crate::client::get_admin_credentials;
@@ -326,7 +326,7 @@ fn render_dashboard() -> String {
         <p><a href="havi:///ring2">Ring2</a> - Manage group membership</p>
         <p><a href="havi:///ring1">Ring1</a> - Manage ring1 accounts and requests</p>
         <p><a href="havi:///ring0">Ring0 Proxy</a> - Review and approve ring1 proxy requests</p>
-        <p><a href="havi:///services">Services</a> - Pylon service manager (hpprd, lokid, unlokid, hppr-nfs)</p>
+        <p><a href="havi:///services">Services</a> - Pylon service manager (services, listeners, mounts, nat)</p>
     </div>"#,
     )
 }
@@ -600,10 +600,37 @@ fn render_services_page() -> String {
 
     <div class="card">
         <h2>Services</h2>
-        <p class="muted">Managed services: hpprd, lokid, unlokid, hppr-nfs.</p>
+        <p class="muted">Manage hpprd, hppr-nat, lokid, unlokid, hppr-nfs, hppr-fuse.</p>
         <div id="servicesList"><p class="empty">Loading...</p></div>
-        <p><button onclick="location.reload()" class="secondary">Refresh</button></p>
     </div>
+
+    <div class="card">
+        <h2>hpprd Listeners</h2>
+        <div id="listenersList"><p class="empty">Loading...</p></div>
+        <div class="inline-row">
+            <input type="text" id="listenerBind" placeholder="ws+127.0.0.1:4778">
+            <button onclick="addListener()">Add Listener</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Mounts</h2>
+        <div id="mountsList"><p class="empty">Loading...</p></div>
+        <div class="inline-row">
+            <input type="text" id="mountpoint" placeholder="/mnt/hppr">
+            <input type="text" id="mountRoot" placeholder="// (optional root)">
+            <input type="text" id="mountSigner" placeholder="(optional signer)">
+            <label><input type="checkbox" id="mountRw"> rw</label>
+            <button onclick="createMount()">Mount</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>NAT Runtime</h2>
+        <div id="natInfo"><p class="empty">Loading...</p></div>
+    </div>
+
+    <p><button onclick="loadStatus()" class="secondary">Refresh</button></p>
 
     <script>
 {services_js}
@@ -616,65 +643,67 @@ fn render_services_page() -> String {
 
 /// Handle services API requests (proxied to pylon).
 fn handle_services_api(path: &str) -> String {
-    // Parse query string from path
     let query = path.split('?').nth(1).unwrap_or("");
-    let params: Vec<(&str, &str)> = query.split('&').filter_map(|p| p.split_once('=')).collect();
+    let params: std::collections::HashMap<String, String> =
+        url::form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
 
-    let cmd = params
-        .iter()
-        .find(|(k, _)| *k == "cmd")
-        .map(|(_, v)| *v)
-        .unwrap_or("status");
-    let service = params
-        .iter()
-        .find(|(k, _)| *k == "service")
-        .map(|(_, v)| *v);
+    let cmd = params.get("cmd").map(|s| s.as_str()).unwrap_or("status");
+    let service = params.get("service").map(|s| s.as_str());
+
+    let mut args = serde_json::Map::new();
+    for (k, v) in &params {
+        if k == "cmd" || k == "service" || v.is_empty() {
+            continue;
+        }
+        let value = if v.eq_ignore_ascii_case("true") {
+            serde_json::Value::Bool(true)
+        } else if v.eq_ignore_ascii_case("false") {
+            serde_json::Value::Bool(false)
+        } else if let Ok(n) = v.parse::<i64>() {
+            serde_json::json!(n)
+        } else {
+            serde_json::Value::String(v.clone())
+        };
+        args.insert(k.clone(), value);
+    }
 
     let mut client = match crate::pylon::PylonClient::try_connect(&crate::config::repo_dir()) {
         Some(c) => c,
         None => {
-            return serde_json::json!({"error": "Pylon is not running. Start pylon first."})
+            return serde_json::json!({"ok": false, "error": "Pylon is not running. Start pylon first."})
                 .to_string();
         },
     };
 
-    match cmd {
-        "status" => match client.status() {
-            Ok(services) => {
-                let list: Vec<serde_json::Value> = services
-                    .iter()
-                    .map(|s| {
-                        serde_json::json!({
-                            "name": s.name,
-                            "state": s.state,
-                            "pid": s.pid,
-                            "port": s.port,
-                        })
-                    })
-                    .collect();
-                serde_json::json!({"services": list}).to_string()
-            },
-            Err(e) => serde_json::json!({"error": e}).to_string(),
+    let result = match cmd {
+        "status" | "list" | "mounts" | "shutdown" => {
+            client.command(cmd, None, if args.is_empty() { None } else { Some(&args) })
         },
-        "start" => {
+        "start" | "stop" => {
             let Some(name) = service else {
-                return serde_json::json!({"error": "missing service parameter"}).to_string();
+                return serde_json::json!({"ok": false, "error": "missing service parameter"})
+                    .to_string();
             };
-            match client.start_service(name) {
-                Ok(()) => serde_json::json!({"ok": true}).to_string(),
-                Err(e) => serde_json::json!({"error": e}).to_string(),
-            }
+            client.command(
+                cmd,
+                Some(name),
+                if args.is_empty() { None } else { Some(&args) },
+            )
         },
-        "stop" => {
-            let Some(name) = service else {
-                return serde_json::json!({"error": "missing service parameter"}).to_string();
-            };
-            match client.stop_service(name) {
-                Ok(()) => serde_json::json!({"ok": true}).to_string(),
-                Err(e) => serde_json::json!({"error": e}).to_string(),
-            }
+        "listen" | "unlisten" | "mount" | "unmount" => {
+            client.command(cmd, None, if args.is_empty() { None } else { Some(&args) })
         },
-        _ => serde_json::json!({"error": format!("unknown command: {}", cmd)}).to_string(),
+        _ => {
+            return serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)})
+                .to_string();
+        },
+    };
+
+    match result {
+        Ok(data) => serde_json::json!({"ok": true, "data": data}).to_string(),
+        Err(e) => serde_json::json!({"ok": false, "error": e}).to_string(),
     }
 }
 

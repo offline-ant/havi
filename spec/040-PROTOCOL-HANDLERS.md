@@ -97,7 +97,14 @@ Endpoint is forbidden. Editor always targets localhost context.
 
 ## `havi://`
 
-Internal admin pages for overview, routes, home-repo status, and ring0 proxy
-approvals.
+Internal admin pages for overview, routes, home-repo status, ring0 proxy
+approvals, and pylon service management.
+
+`havi:///services` exposes pylon controls for:
+
+- service start/stop
+- hpprd listen/unlisten
+- mount/unmount
+- status and mounts inspection
 
 All `havi://` pages have pre-authorized `window.ring0` access.
