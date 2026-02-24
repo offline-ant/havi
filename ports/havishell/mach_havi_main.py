@@ -730,7 +730,7 @@ def _build_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
 
     # Build pylon first (separate crate in the workspace)
-    pylon_cmd = ["cargo", "build", "--manifest-path", str(HAVI_ROOT / "pylon" / "Cargo.toml")]
+    pylon_cmd = ["cargo", "build", "--manifest-path", str(HAVI_ROOT.parent / "hppr" / "pylon" / "Cargo.toml")]
     if args.release:
         pylon_cmd.append("--release")
     _log("pylon build", env=env, cmd=pylon_cmd)

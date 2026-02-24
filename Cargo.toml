@@ -6,7 +6,6 @@ members = [
     "components/vendored/svgtypes",
     "components/xpath",
     "havi-protocols",
-    "pylon",
     "ports/havishell",
     "ports/servoshell",
     "tests/unit/*",

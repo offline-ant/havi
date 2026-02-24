@@ -1,8 +1,9 @@
 # pylon Reference
 
-Service manager for the HPPR ecosystem. Manages hpprd and satellite services
-(lokid, unlokid, hppr-nfs, hppr-fuse) as child processes. TCP JSON lines
-control protocol on localhost.
+Service manager for the HPPR ecosystem. Source crate lives at
+`hppr/pylon/` in the HPPR workspace. Pylon currently runs services via process
+backend and exposes backend policy seams for future embedded runtimes.
+TCP JSON lines control protocol on localhost.
 
 Pylon operates in two modes:
 
@@ -87,6 +88,8 @@ pylon lokid start [--k v]          # start lokid
 pylon lokid stop                   # stop lokid
 pylon unlokid start [--k v]        # start unlokid
 pylon unlokid stop                 # stop unlokid
+pylon nat start [--k v]            # start hppr-nat
+pylon nat stop                     # stop hppr-nat
 ```
 
 ### hpprd Options
