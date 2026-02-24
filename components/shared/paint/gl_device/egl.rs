@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{CString, c_char, c_void};
 use std::ptr;
 
 // EGL constants
@@ -16,6 +16,7 @@ type EglCreateContextFn =
 type EglDestroyContextFn = unsafe extern "C" fn(*mut c_void, *mut c_void) -> u32;
 type EglMakeCurrentFn =
     unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void) -> u32;
+type EglGetCurrentContextFn = unsafe extern "C" fn() -> *mut c_void;
 type EglGetErrorFn = unsafe extern "C" fn() -> i32;
 
 /// EGL display information from the host (e.g. makepad's OpenglCx).
@@ -40,6 +41,7 @@ pub(crate) struct EglBackend {
     egl_create_context: EglCreateContextFn,
     egl_destroy_context: EglDestroyContextFn,
     egl_make_current: EglMakeCurrentFn,
+    egl_get_current_context: EglGetCurrentContextFn,
     egl_get_error: EglGetErrorFn,
 }
 
@@ -62,6 +64,10 @@ impl EglBackend {
             let p = load_egl_fn(gpa, "eglMakeCurrent");
             std::mem::transmute(p)
         };
+        let egl_get_current_context: EglGetCurrentContextFn = unsafe {
+            let p = load_egl_fn(gpa, "eglGetCurrentContext");
+            std::mem::transmute(p)
+        };
         let egl_get_error: EglGetErrorFn = unsafe {
             let p = load_egl_fn(gpa, "eglGetError");
             std::mem::transmute(p)
@@ -75,6 +81,7 @@ impl EglBackend {
             egl_create_context,
             egl_destroy_context,
             egl_make_current,
+            egl_get_current_context,
             egl_get_error,
         }
     }
@@ -124,10 +131,34 @@ impl EglBackend {
         }
     }
 
+    /// Destroy an EGL context.
+    ///
+    /// If the context is current on this thread, also unbind it so EGL can
+    /// release it immediately.
+    ///
+    /// Panics on EGL failure.
+    pub fn destroy_context(&self, ctx: *mut c_void) {
+        let was_current = unsafe { (self.egl_get_current_context)() == ctx };
+
+        let ok = unsafe { (self.egl_destroy_context)(self.display, ctx) };
+        if ok == 0 {
+            let err = unsafe { (self.egl_get_error)() };
+            panic!(
+                "eglDestroyContext failed: error 0x{:04x} ({})",
+                err as u32,
+                egl_error_name(err)
+            );
+        }
+
+        if was_current {
+            self.unbind_context();
+        }
+    }
+
     /// Unbind the current context (make no context current).
     ///
     /// Panics on EGL failure.
-    pub fn unbind_context(&self) {
+    fn unbind_context(&self) {
         let ok = unsafe {
             (self.egl_make_current)(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)
         };
@@ -135,21 +166,6 @@ impl EglBackend {
             let err = unsafe { (self.egl_get_error)() };
             panic!(
                 "eglMakeCurrent(EGL_NO_CONTEXT) failed: error 0x{:04x} ({})",
-                err as u32,
-                egl_error_name(err)
-            );
-        }
-    }
-
-    /// Destroy an EGL context.
-    ///
-    /// Panics on EGL failure.
-    pub fn destroy_context(&self, ctx: *mut c_void) {
-        let ok = unsafe { (self.egl_destroy_context)(self.display, ctx) };
-        if ok == 0 {
-            let err = unsafe { (self.egl_get_error)() };
-            panic!(
-                "eglDestroyContext failed: error 0x{:04x} ({})",
                 err as u32,
                 egl_error_name(err)
             );
