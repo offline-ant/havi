@@ -263,13 +263,16 @@ def _find_xauthority() -> str | None:
     """Find the XAUTHORITY file for XWayland sessions."""
     if "XAUTHORITY" in os.environ:
         return os.environ["XAUTHORITY"]
+    if platform.system() == "Windows":
+        return None
     # KDE Wayland / XWayland writes a temp xauth file; pick the newest one.
     import glob as _glob
+    uid = os.getuid()
     home = os.path.expanduser("~")
     for pattern in [
         os.path.join(home, ".xauth*"),
-        f"/run/user/{os.getuid()}/xauth_*",
-        f"/tmp/xauth-{os.getuid()}-*",
+        f"/run/user/{uid}/xauth_*",
+        f"/tmp/xauth-{uid}-*",
     ]:
         matches = _glob.glob(pattern)
         if matches:
@@ -280,8 +283,10 @@ def _find_xauthority() -> str | None:
 def setup_desktop_env() -> dict[str, str]:
     """Build environment for a desktop (host) build."""
     env = os.environ.copy()
-    env.setdefault("CC", "clang")
-    env.setdefault("CXX", "clang++")
+    is_windows = platform.system() == "Windows"
+    if not is_windows:
+        env.setdefault("CC", "clang")
+        env.setdefault("CXX", "clang++")
     # Match Makepad Studio's build_server which sets MAKEPAD=lines so that
     # cfg(lines) is consistent between CLI builds and Studio builds.  Without
     # this, switching between mach-havi build and Studio triggers a full
@@ -289,28 +294,40 @@ def setup_desktop_env() -> dict[str, str]:
     # cargo:rerun-if-env-changed=MAKEPAD.
     env.setdefault("MAKEPAD", "lines")
     # Ensure XAUTHORITY is set so stdin-loop children can connect to XWayland.
-    if "XAUTHORITY" not in env:
+    if not is_windows and "XAUTHORITY" not in env:
         xauth = _find_xauthority()
         if xauth:
             env["XAUTHORITY"] = xauth
     env.setdefault("RUSTFLAGS", "")
 
     if "LIBCLANG_PATH" not in env:
-        for candidate in [
-            "/usr/lib/llvm-18/lib",
-            "/usr/lib/llvm-17/lib",
-            "/usr/lib/llvm-16/lib",
-            "/usr/lib/llvm-15/lib",
-            "/usr/lib/llvm-14/lib",
-            "/usr/lib64/llvm",
-            "/usr/local/opt/llvm/lib",
-            "/opt/homebrew/opt/llvm/lib",
-        ]:
+        candidates = []
+        if is_windows:
+            # MSVC builds: LLVM installed via Visual Studio or standalone.
+            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+            candidates.append(os.path.join(pf, "LLVM", "lib"))
+            # Visual Studio bundled LLVM
+            vs_base = os.path.join(pf, "Microsoft Visual Studio", "2022")
+            for edition in ("Community", "Professional", "Enterprise", "BuildTools"):
+                candidates.append(os.path.join(
+                    vs_base, edition, "VC", "Tools", "Llvm", "x64", "lib"))
+        else:
+            candidates = [
+                "/usr/lib/llvm-18/lib",
+                "/usr/lib/llvm-17/lib",
+                "/usr/lib/llvm-16/lib",
+                "/usr/lib/llvm-15/lib",
+                "/usr/lib/llvm-14/lib",
+                "/usr/lib64/llvm",
+                "/usr/local/opt/llvm/lib",
+                "/opt/homebrew/opt/llvm/lib",
+            ]
+        for candidate in candidates:
             if os.path.isdir(candidate) and glob.glob(os.path.join(candidate, "libclang*")):
                 env["LIBCLANG_PATH"] = candidate
                 break
 
-    if "CLANG_PATH" not in env:
+    if not is_windows and "CLANG_PATH" not in env:
         clang = shutil.which("clang")
         if clang:
             env["CLANG_PATH"] = clang
