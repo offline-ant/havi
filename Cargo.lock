@@ -5568,6 +5568,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-apple-sys"
+version = "1.0.0"
+dependencies = [
+ "makepad-objc-sys",
+]
+
+[[package]]
 name = "makepad-base64"
 version = "1.0.0"
 
@@ -5645,13 +5652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "makepad-http"
-version = "1.0.0"
-dependencies = [
- "makepad-script",
-]
-
-[[package]]
 name = "makepad-jni-sys"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5705,6 +5705,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-network"
+version = "1.0.0"
+dependencies = [
+ "makepad-apple-sys",
+ "makepad-futures-legacy",
+ "makepad-live-id",
+ "makepad-micro-serde",
+ "makepad-script",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "makepad-objc-sys"
 version = "1.0.0"
 
@@ -5716,15 +5728,15 @@ dependencies = [
  "bitflags 2.10.0",
  "hilog-sys",
  "makepad-android-state",
+ "makepad-apple-sys",
  "makepad-futures",
  "makepad-futures-legacy",
- "makepad-http",
  "makepad-jni-sys",
+ "makepad-network",
  "makepad-objc-sys",
  "makepad-script",
  "makepad-wasm-bridge",
  "makepad-zune-png",
- "mozangle",
  "naga 27.0.3",
  "napi-derive-ohos 0.0.9",
  "napi-ohos 0.1.3",
