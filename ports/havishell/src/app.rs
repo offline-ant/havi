@@ -715,18 +715,41 @@ fn create_macos_rendering_setup(
 pub fn install_window_icon() {
     use makepad_widgets::makepad_platform::{set_window_icon, WindowIcon, WindowIconBuffer};
 
-    let png_64 = include_bytes!(concat!(env!("OUT_DIR"), "/hppr_icon_64.png"));
-    let png_128 = include_bytes!(concat!(env!("OUT_DIR"), "/hppr_icon_128.png"));
+    let png_64 = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../resources/havi_icon_64.png"));
+    let png_128 = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../resources/havi_icon_128.png"));
+
     use ::image::codecs::png::PngDecoder;
     use ::image::DynamicImage;
 
-    let img_64 = DynamicImage::from_decoder(PngDecoder::new(std::io::Cursor::new(png_64)).unwrap())
-        .expect("decode 64px icon")
-        .into_rgba8();
-    let img_128 =
-        DynamicImage::from_decoder(PngDecoder::new(std::io::Cursor::new(png_128)).unwrap())
-            .expect("decode 128px icon")
-            .into_rgba8();
+    let dec_64 = match PngDecoder::new(std::io::Cursor::new(&png_64[..])) {
+        Ok(dec) => dec,
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: invalid 64px png: {}", err);
+            return;
+        },
+    };
+    let img_64 = match DynamicImage::from_decoder(dec_64) {
+        Ok(img) => img.into_rgba8(),
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: decode 64px icon failed: {}", err);
+            return;
+        },
+    };
+
+    let dec_128 = match PngDecoder::new(std::io::Cursor::new(&png_128[..])) {
+        Ok(dec) => dec,
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: invalid 128px png: {}", err);
+            return;
+        },
+    };
+    let img_128 = match DynamicImage::from_decoder(dec_128) {
+        Ok(img) => img.into_rgba8(),
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: decode 128px icon failed: {}", err);
+            return;
+        },
+    };
 
     set_window_icon(WindowIcon {
         name: None,
@@ -807,31 +830,39 @@ impl App {
         let (texture, rendering_context) =
             { create_macos_rendering_setup(cx, width as usize, height as usize) };
 
-        // Always go through pylon. HAVI_HOME selects remote mode.
-        let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
-        let repo_path = havi_protocols::config::repo_dir();
-        let pylon_port = match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref())
-            .and_then(|mut c| {
-                let hp = c.start_hpprd()?;
-                let pylon_p = c.port;
-                // Subscribe to events; reader thread keeps connection alive.
-                self.pylon_events = Some(c.subscribe());
-                Some((pylon_p, hp))
-            }) {
-            Some((pylon_p, hpprd_p)) => {
-                let target = hppr_client::ViaSpec::Net {
-                    host: "127.0.0.1".to_string(),
-                    port: hpprd_p,
-                    scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
-                };
-                hppr_client::set_repo_target(target);
-                log!("[havishell] Pylon hpprd on port {}", hpprd_p);
-                Some(pylon_p)
-            },
-            None => {
-                eprintln!("[havi] Fatal: cannot start pylon/hpprd. Check disk/port availability.");
-                std::process::exit(1);
-            },
+        // Always go through pylon in normal mode. Raster mode skips pylon/hpprd.
+        let icon_raster_mode = std::env::var("HAVI_ICON_RASTER").ok().as_deref() == Some("1");
+        let pylon_port = if icon_raster_mode {
+            None
+        } else {
+            let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
+            let repo_path = havi_protocols::config::repo_dir();
+            match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref()).and_then(
+                |mut c| {
+                    let hp = c.start_hpprd()?;
+                    let pylon_p = c.port;
+                    // Subscribe to events; reader thread keeps connection alive.
+                    self.pylon_events = Some(c.subscribe());
+                    Some((pylon_p, hp))
+                },
+            ) {
+                Some((pylon_p, hpprd_p)) => {
+                    let target = hppr_client::ViaSpec::Net {
+                        host: "127.0.0.1".to_string(),
+                        port: hpprd_p,
+                        scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
+                    };
+                    hppr_client::set_repo_target(target);
+                    log!("[havishell] Pylon hpprd on port {}", hpprd_p);
+                    Some(pylon_p)
+                },
+                None => {
+                    eprintln!(
+                        "[havi] Fatal: cannot start pylon/hpprd (likely port conflict or running-instance binary mismatch)."
+                    );
+                    std::process::exit(1);
+                },
+            }
         };
 
         // Create dedicated HAVI runtime and initialize watch pool for live-reload support.

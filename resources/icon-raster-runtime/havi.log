@@ -1,0 +1,12 @@
+[havishell] icon install skipped: invalid 64px png: unexpected end of file
+WAYLAND_DISPLAY: wayland-0
+DISPLAY: :0
+XDG_SESSION_TYPE: wayland
+XDG_CURRENT_DESKTOP: KDE
+Selected: Wayland backend
+Reason: WAYLAND_DISPLAY environment variable is set
+preffered scale: 1
+
+thread 'main' (13450) panicked at /home/devops/Projects/forge/hppr/rust/libs/client/src/endpoint.rs:21:18:
+repo target not set
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

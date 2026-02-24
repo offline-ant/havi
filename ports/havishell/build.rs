@@ -30,41 +30,33 @@ fn main() {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let svg = manifest_dir.join("../../../hppr/logo.svg");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let resources_dir = manifest_dir.join("../../resources");
+    if let Err(err) = fs::create_dir_all(&resources_dir) {
+        println!(
+            "cargo:warning=havishell icon raster skipped: cannot create resources dir {}: {}",
+            resources_dir.display(),
+            err
+        );
+    }
 
-    let generated_with_havi = if let Some(havi_bin) = find_debug_havi(&manifest_dir) {
-        match raster_with_havi_devtools(&manifest_dir, &havi_bin, &svg, &out_dir) {
-            Ok(()) => true,
-            Err(err) => {
-                eprintln!(
-                    "[havishell build] warning: devtools SVG raster path failed with {}: {}",
+    match find_debug_havi(&manifest_dir) {
+        Some(havi_bin) => {
+            if let Err(err) = raster_with_havi_devtools(&manifest_dir, &havi_bin, &svg, &resources_dir) {
+                println!(
+                    "cargo:warning=havishell icon raster skipped ({}): {}",
                     havi_bin.display(),
                     err
                 );
-                false
-            },
-        }
-    } else {
-        false
-    };
-
-    if !generated_with_havi {
-        for size in [64, 128] {
-            let out_png = out_dir.join(format!("hppr_icon_{}.png", size));
-            let status = Command::new("magick")
-                .args([
-                    svg.to_str().unwrap(),
-                    "-resize",
-                    &format!("{}x{}", size, size),
-                    "-background",
-                    "none",
-                    "-flatten",
-                    &format!("PNG32:{}", out_png.display()),
-                ])
-                .status()
-                .expect("failed to run magick (ImageMagick) to convert icon SVG");
-            assert!(status.success(), "magick icon conversion failed");
-        }
+                ensure_placeholder_icons(&resources_dir);
+            }
+        },
+        None => {
+            println!(
+                "cargo:warning=havishell icon raster skipped: debug HAVI binary not found at {}",
+                manifest_dir.join("../../target/debug/havi").display()
+            );
+            ensure_placeholder_icons(&resources_dir);
+        },
     }
 
     println!("cargo:rerun-if-changed={}", svg.display());
@@ -84,6 +76,18 @@ fn raster_with_havi_devtools(
     let devtools_cli = manifest_dir.join("../../havi-devtools-cli");
     if !devtools_cli.exists() {
         return Err(format!("missing havi-devtools-cli at {}", devtools_cli.display()));
+    }
+
+    if let Ok(bind) = env::var("HAVI_DEVTOOLS") {
+        let port = parse_devtools_port(&bind)?;
+        for size in [64, 128, 1024] {
+            let data_uri = eval_svg_to_png_data_uri(&devtools_cli, port, size)?;
+            let png = decode_png_data_uri(&data_uri)?;
+            let out_png = out_dir.join(format!("havi_icon_{}.png", size));
+            fs::write(&out_png, png)
+                .map_err(|e| format!("write {}: {e}", out_png.display()))?;
+        }
+        return Ok(());
     }
 
     let svg_abs = svg_path
@@ -109,6 +113,8 @@ fn raster_with_havi_devtools(
         .env("HAVI_URL", svg_url)
         .env("HAVI_DEVTOOLS", format!("127.0.0.1:{port}"))
         .env("HAVI_CONFIG", run_dir.join("config"))
+        .env("HAVI_HOME", "tcp+127.0.0.1:4777")
+        .env("HAVI_ICON_RASTER", "1")
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err))
         .spawn()
@@ -117,10 +123,10 @@ fn raster_with_havi_devtools(
     let result = (|| -> Result<(), String> {
         wait_for_devtools(&devtools_cli, port, 60, &mut havi, &havi_log)?;
 
-        for size in [64, 128] {
+        for size in [64, 128, 1024] {
             let data_uri = eval_svg_to_png_data_uri(&devtools_cli, port, size)?;
             let png = decode_png_data_uri(&data_uri)?;
-            let out_png = out_dir.join(format!("hppr_icon_{}.png", size));
+            let out_png = out_dir.join(format!("havi_icon_{}.png", size));
             fs::write(&out_png, png)
                 .map_err(|e| format!("write {}: {e}", out_png.display()))?;
         }
@@ -279,6 +285,30 @@ fn pick_free_port() -> io::Result<u16> {
 fn kill_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn parse_devtools_port(bind: &str) -> Result<u16, String> {
+    bind.rsplit(':')
+        .next()
+        .ok_or_else(|| format!("invalid HAVI_DEVTOOLS value: {bind}"))?
+        .parse::<u16>()
+        .map_err(|e| format!("invalid HAVI_DEVTOOLS port in {bind}: {e}"))
+}
+
+fn ensure_placeholder_icons(resources_dir: &Path) {
+    for size in [64, 128, 1024] {
+        let path = resources_dir.join(format!("havi_icon_{}.png", size));
+        if path.exists() {
+            continue;
+        }
+        if let Err(err) = fs::write(&path, []) {
+            println!(
+                "cargo:warning=havishell icon placeholder create failed {}: {}",
+                path.display(),
+                err
+            );
+        }
+    }
 }
 
 fn tail_file(path: &Path, max_bytes: usize) -> String {
