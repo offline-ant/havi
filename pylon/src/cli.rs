@@ -54,7 +54,12 @@ pub fn main(args: Vec<String>) {
         let (mode, state_dir) = if let Some(addr) = home {
             (crate::PylonMode::Remote { hpprd_addr: addr }, repo_path)
         } else {
-            (crate::PylonMode::Local { repo_path: repo_path.clone() }, repo_path)
+            (
+                crate::PylonMode::Local {
+                    repo_path: repo_path.clone(),
+                },
+                repo_path,
+            )
         };
         run_daemon(port, mode, state_dir);
         return;
@@ -69,8 +74,12 @@ pub fn main(args: Vec<String>) {
         "shutdown" => send_command("shutdown", None, &HashMap::new(), &repo_path),
 
         // Service commands: pylon <service> <action> [args]
-        "hpprd" | "lokid" | "unlokid" => {
-            let service = &positional[0];
+        "hpprd" | "lokid" | "unlokid" | "nat" => {
+            let service_name = match positional[0].as_str() {
+                "nat" => "hppr-nat",
+                other => other,
+            };
+            let service = service_name;
             let action = positional.get(1).map(|s| s.as_str()).unwrap_or("start");
             let extra = parse_kv_args(&positional[2..]);
             match action {
@@ -282,6 +291,8 @@ fn print_usage() {
     eprintln!("  pylon lokid stop                 Stop lokid");
     eprintln!("  pylon unlokid start [--k v]      Start unlokid");
     eprintln!("  pylon unlokid stop               Stop unlokid");
+    eprintln!("  pylon nat start [--k v]          Start hppr-nat");
+    eprintln!("  pylon nat stop                   Stop hppr-nat");
     eprintln!();
     eprintln!("Mount commands (auto-selects FUSE on Linux, NFS elsewhere):");
     eprintln!("  pylon mount [path] [--k v]       Mount filesystem");

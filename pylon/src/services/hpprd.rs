@@ -65,13 +65,19 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("repo_path".to_string(), serde_json::json!("/data/repo"));
         let (_, cmd_args, _, _) = resolve(&args).expect("resolve");
-        assert_eq!(cmd_args, vec!["--path", "/data/repo", "--bind", "127.0.0.1:4777"]);
+        assert_eq!(
+            cmd_args,
+            vec!["--path", "/data/repo", "--bind", "127.0.0.1:4777"]
+        );
     }
 
     #[test]
     fn resolve_with_phc() {
         let mut args = HashMap::new();
-        args.insert("phc".to_string(), serde_json::json!("$argon2id$v=19$m=64,t=3,p=1$"));
+        args.insert(
+            "phc".to_string(),
+            serde_json::json!("$argon2id$v=19$m=64,t=3,p=1$"),
+        );
         let (_, _, env, _) = resolve(&args).expect("resolve");
         assert_eq!(env.get("HPPR_PHC").unwrap(), "$argon2id$v=19$m=64,t=3,p=1$");
     }

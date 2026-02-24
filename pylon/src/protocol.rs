@@ -29,15 +29,30 @@ pub struct Response {
 
 impl Response {
     pub fn ok(id: u64, data: serde_json::Value) -> Self {
-        Self { id, ok: true, data: Some(data), error: None }
+        Self {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+        }
     }
 
     pub fn ok_empty(id: u64) -> Self {
-        Self { id, ok: true, data: None, error: None }
+        Self {
+            id,
+            ok: true,
+            data: None,
+            error: None,
+        }
     }
 
     pub fn err(id: u64, msg: impl Into<String>) -> Self {
-        Self { id, ok: false, data: None, error: Some(msg.into()) }
+        Self {
+            id,
+            ok: false,
+            data: None,
+            error: Some(msg.into()),
+        }
     }
 }
 

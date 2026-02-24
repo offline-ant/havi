@@ -1,11 +1,9 @@
 //! unlokid service definition.
 
+use super::{bool_arg, str_arg};
 use std::collections::HashMap;
-use super::{str_arg, bool_arg};
 
-pub fn resolve(
-    args: &HashMap<String, serde_json::Value>,
-) -> Result<super::ServiceCommand, String> {
+pub fn resolve(args: &HashMap<String, serde_json::Value>) -> Result<super::ServiceCommand, String> {
     let program = str_arg(args, "program").unwrap_or_else(|| "unlokid".to_string());
     let mut cmd_args = Vec::new();
     let env = HashMap::new();
@@ -29,5 +27,10 @@ pub fn resolve(
         cmd_args.push(ws_url);
     }
 
-    Ok((program, cmd_args, env, "hppr-http listening on http://".to_string()))
+    Ok((
+        program,
+        cmd_args,
+        env,
+        "hppr-http listening on http://".to_string(),
+    ))
 }

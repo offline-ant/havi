@@ -333,7 +333,7 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
 /// Dynamic add: `HPPRD_LISTEN=tcp+host:port` (single entry)
 ///
 /// Converts `scheme+addr` to `scheme:addr` for internal listener IDs.
-fn parse_listener_add(line: &str) -> Vec<String> {
+pub(crate) fn parse_listener_add(line: &str) -> Vec<String> {
     let rest = match line.strip_prefix("HPPRD_LISTEN=") {
         Some(r) => r.trim(),
         None => return Vec::new(),
@@ -347,26 +347,32 @@ fn parse_listener_add(line: &str) -> Vec<String> {
             if entry.is_empty() {
                 return None;
             }
-            // Convert scheme+addr to scheme:addr
-            if let Some(pos) = entry.find('+') {
-                let scheme = &entry[..pos];
-                let addr = &entry[pos + 1..];
-                if scheme == "unix" {
-                    Some(format!("unix:{}", normalize_unix_path(addr)))
-                } else {
-                    Some(format!("{}:{}", scheme, addr))
-                }
-            } else {
-                Some(entry.to_string())
-            }
+            Some(normalize_listener_id(entry))
         })
         .collect()
 }
 
-fn parse_listener_remove(line: &str) -> Option<String> {
+pub(crate) fn parse_listener_remove(line: &str) -> Option<String> {
     line.strip_prefix("HPPRD_UNLISTEN=")
         .and_then(nonempty)
-        .map(|id| id.to_string())
+        .map(normalize_listener_id)
+}
+
+pub(crate) fn normalize_listener_id(entry: &str) -> String {
+    if let Some(pos) = entry.find('+') {
+        let scheme = &entry[..pos];
+        let addr = &entry[pos + 1..];
+        if scheme == "unix" {
+            return format!("unix:{}", normalize_unix_path(addr));
+        }
+        return format!("{}:{}", scheme, addr);
+    }
+    if let Some((scheme, addr)) = entry.split_once(':') {
+        if scheme == "unix" {
+            return format!("unix:{}", normalize_unix_path(addr));
+        }
+    }
+    entry.to_string()
 }
 
 fn nonempty(s: &str) -> Option<&str> {

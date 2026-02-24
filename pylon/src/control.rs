@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 
 use crate::Pylon;
 use crate::protocol::{Event, Request, Response};
+use crate::service::{State, parse_listener_add, parse_listener_remove};
 
 /// Idle timeout: shut down if no clients connect within this duration.
 const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -33,26 +34,49 @@ pub async fn run(
     let (event_tx, _) = broadcast::channel::<String>(64);
     let client_count = Arc::new(AtomicUsize::new(0));
 
-    // Forward service events to broadcast channel
+    // Forward service lifecycle events to broadcast channel.
+    // Also wire hpprd listener and hppr-nat JSON streams.
     let event_tx2 = event_tx.clone();
+    let pylon_for_events = Arc::clone(&pylon);
     tokio::spawn(async move {
         while let Some(svc_event) = pylon_events.recv().await {
             let event = Event {
                 event: match svc_event.state {
-                    crate::service::State::Running => "service_started".to_string(),
-                    crate::service::State::Stopped => "service_stopped".to_string(),
+                    State::Running => "service_started".to_string(),
+                    State::Stopped => "service_stopped".to_string(),
                     _ => format!(
                         "service_{}",
                         serde_json::to_value(svc_event.state).unwrap_or_default()
                     ),
                 },
-                service: svc_event.name,
+                service: svc_event.name.clone(),
                 pid: svc_event.pid,
                 port: svc_event.port,
                 exit_code: svc_event.exit_code,
             };
             if let Ok(line) = serde_json::to_string(&event) {
                 let _ = event_tx2.send(line + "\n");
+            }
+
+            if svc_event.state == State::Running && svc_event.name == "hpprd" {
+                let pylon = Arc::clone(&pylon_for_events);
+                let event_tx = event_tx2.clone();
+                tokio::spawn(async move {
+                    watch_hpprd_stdout(pylon, event_tx).await;
+                });
+            }
+
+            if svc_event.state == State::Running && svc_event.name == "hppr-nat" {
+                let pylon = Arc::clone(&pylon_for_events);
+                let event_tx = event_tx2.clone();
+                tokio::spawn(async move {
+                    watch_hppr_nat_stdout(pylon, event_tx).await;
+                });
+
+                let pylon = Arc::clone(&pylon_for_events);
+                tokio::spawn(async move {
+                    map_current_hpprd_listeners(pylon).await;
+                });
             }
         }
     });
@@ -104,6 +128,156 @@ pub async fn run(
                 }
             }
         }
+    }
+}
+
+async fn service_stdout_with_retry(
+    pylon: &Arc<Mutex<Pylon>>,
+    name: &str,
+) -> Result<tokio::sync::broadcast::Receiver<String>, String> {
+    let mut last_err = "service stdout unavailable".to_string();
+    for _ in 0..20 {
+        {
+            let y = pylon.lock().await;
+            let result = match name {
+                "hpprd" => y.hpprd_control_handles().map(|(_, rx)| rx),
+                "hppr-nat" => y.hppr_nat_control_handles().map(|(_, rx)| rx),
+                _ => Err(format!("unsupported service: {}", name)),
+            };
+            match result {
+                Ok(rx) => return Ok(rx),
+                Err(err) => last_err = err,
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Err(last_err)
+}
+
+fn listener_to_nat_mapping(listener: &str) -> Option<(u16, &'static str)> {
+    let (scheme, rest) = listener.split_once(':')?;
+    let port = rest.rsplit(':').next()?.parse::<u16>().ok()?;
+    match scheme {
+        "tcp" => Some((port, "tcp")),
+        "quib" => Some((port, "udp")),
+        _ => None,
+    }
+}
+
+async fn send_nat_command(pylon: &Arc<Mutex<Pylon>>, cmd: &str, listener: &str) {
+    let Some((port, proto)) = listener_to_nat_mapping(listener) else {
+        return;
+    };
+
+    let stdin = {
+        let y = pylon.lock().await;
+        if !y.hppr_nat_running() {
+            return;
+        }
+        match y.hppr_nat_control_handles() {
+            Ok((stdin, _)) => stdin,
+            Err(_) => return,
+        }
+    };
+
+    let line = serde_json::json!({"cmd": cmd, "port": port, "proto": proto}).to_string() + "\n";
+    let mut stdin = stdin.lock().await;
+    let _ = stdin.write_all(line.as_bytes()).await;
+    let _ = stdin.flush().await;
+}
+
+async fn map_current_hpprd_listeners(pylon: Arc<Mutex<Pylon>>) {
+    let listeners = {
+        let y = pylon.lock().await;
+        y.hpprd_listener_snapshot()
+    };
+    for listener in listeners {
+        send_nat_command(&pylon, "map", &listener).await;
+    }
+}
+
+async fn watch_hpprd_stdout(pylon: Arc<Mutex<Pylon>>, event_tx: broadcast::Sender<String>) {
+    let mut stdout_rx = match service_stdout_with_retry(&pylon, "hpprd").await {
+        Ok(rx) => rx,
+        Err(err) => {
+            log::warn!("hpprd stdout subscription failed: {}", err);
+            return;
+        },
+    };
+
+    loop {
+        let line = match stdout_rx.recv().await {
+            Ok(line) => line,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+        };
+
+        let mut added = parse_listener_add(&line);
+        if !added.is_empty() {
+            for listener in added.drain(..) {
+                let ev = serde_json::json!({
+                    "event": "listener_added",
+                    "service": "hpprd",
+                    "listener": listener,
+                });
+                let listener_id = ev
+                    .get("listener")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let _ = event_tx.send(ev.to_string() + "\n");
+                send_nat_command(&pylon, "map", &listener_id).await;
+            }
+            continue;
+        }
+
+        if let Some(listener) = parse_listener_remove(&line) {
+            let ev = serde_json::json!({
+                "event": "listener_removed",
+                "service": "hpprd",
+                "listener": listener,
+            });
+            let listener_id = ev
+                .get("listener")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let _ = event_tx.send(ev.to_string() + "\n");
+            send_nat_command(&pylon, "unmap", &listener_id).await;
+        }
+    }
+}
+
+async fn watch_hppr_nat_stdout(pylon: Arc<Mutex<Pylon>>, event_tx: broadcast::Sender<String>) {
+    let mut stdout_rx = match service_stdout_with_retry(&pylon, "hppr-nat").await {
+        Ok(rx) => rx,
+        Err(err) => {
+            log::warn!("hppr-nat stdout subscription failed: {}", err);
+            return;
+        },
+    };
+
+    loop {
+        let line = match stdout_rx.recv().await {
+            Ok(line) => line,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+        };
+
+        let mut value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("service".to_string(), serde_json::json!("hppr-nat"));
+        }
+
+        {
+            let mut y = pylon.lock().await;
+            y.apply_nat_event(&value);
+        }
+
+        let _ = event_tx.send(value.to_string() + "\n");
     }
 }
 
@@ -258,10 +432,7 @@ async fn fuse_mount_flow(
 }
 
 /// FUSE unmount flow: fusermount3 -u, then stop the service.
-async fn fuse_unmount_flow(
-    pylon: &Arc<Mutex<Pylon>>,
-    mountpoint: &str,
-) -> Result<(), String> {
+async fn fuse_unmount_flow(pylon: &Arc<Mutex<Pylon>>, mountpoint: &str) -> Result<(), String> {
     // fusermount3 -u causes hppr-fuse to exit cleanly
     crate::mount::fuse_unmount(mountpoint).await?;
 
@@ -284,10 +455,7 @@ async fn fs_mount_flow(
 }
 
 /// Unified FS unmount: FUSE on Linux, NFS on macOS/Windows.
-async fn fs_unmount_flow(
-    pylon: &Arc<Mutex<Pylon>>,
-    mountpoint: &str,
-) -> Result<(), String> {
+async fn fs_unmount_flow(pylon: &Arc<Mutex<Pylon>>, mountpoint: &str) -> Result<(), String> {
     if cfg!(target_os = "linux") {
         fuse_unmount_flow(pylon, mountpoint).await
     } else {

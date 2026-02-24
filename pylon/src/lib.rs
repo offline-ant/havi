@@ -50,6 +50,21 @@ pub enum PylonMode {
     Remote { hpprd_addr: String },
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct NatRuntime {
+    pub gateway: Option<String>,
+    pub external_ip: Option<String>,
+    pub protocol: Option<String>,
+    pub mappings: HashMap<String, NatMapping>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NatMapping {
+    pub port: u16,
+    pub proto: String,
+    pub external_port: Option<u16>,
+}
+
 /// Owns all managed services.
 pub struct Pylon {
     services: HashMap<String, ManagedService>,
@@ -60,6 +75,7 @@ pub struct Pylon {
     /// hpprd address, set when hpprd starts. Used by other services.
     hpprd_addr: Option<String>,
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    nat_runtime: NatRuntime,
     /// Operating mode.
     pub mode: PylonMode,
 }
@@ -83,6 +99,7 @@ impl Pylon {
             event_rx: Some(event_rx),
             hpprd_addr,
             shutdown_tx: None,
+            nat_runtime: NatRuntime::default(),
             mode,
         }
     }
@@ -202,6 +219,20 @@ impl Pylon {
                     State::Stopped
                 };
                 serde_json::json!({"state": state, "pid": any_pid, "port": null, "count": self.fuse_services.len()})
+            } else if name == "hppr-nat" {
+                serde_json::json!({
+                    "state": svc.state,
+                    "pid": svc.pid,
+                    "port": svc.port,
+                    "gateway": self.nat_runtime.gateway,
+                    "external_ip": self.nat_runtime.external_ip,
+                    "protocol": self.nat_runtime.protocol,
+                    "mappings": self.nat_runtime.mappings.values().map(|m| serde_json::json!({
+                        "port": m.port,
+                        "proto": m.proto,
+                        "external_port": m.external_port,
+                    })).collect::<Vec<_>>()
+                })
             } else {
                 svc.status_json()
             };
@@ -237,6 +268,9 @@ impl Pylon {
                 if event.name == "hpprd" && matches!(self.mode, PylonMode::Local { .. }) {
                     self.hpprd_addr = None;
                 }
+                if event.name == "hppr-nat" {
+                    self.nat_runtime = NatRuntime::default();
+                }
             }
             return;
         }
@@ -263,7 +297,9 @@ impl Pylon {
 
     /// Get hpprd service state.
     pub fn hpprd_state(&self) -> State {
-        self.services.get("hpprd").map_or(State::Stopped, |s| s.state)
+        self.services
+            .get("hpprd")
+            .map_or(State::Stopped, |s| s.state)
     }
 
     /// Get the hppr-nfs port if running.
@@ -349,6 +385,112 @@ impl Pylon {
             .get("hpprd")
             .ok_or_else(|| "unknown service: hpprd".to_string())?;
         svc.control_handles()
+    }
+
+    pub fn hppr_nat_control_handles(
+        &self,
+    ) -> Result<
+        (
+            std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+            tokio::sync::broadcast::Receiver<String>,
+        ),
+        String,
+    > {
+        let svc = self
+            .services
+            .get("hppr-nat")
+            .ok_or_else(|| "unknown service: hppr-nat".to_string())?;
+        svc.control_handles()
+    }
+
+    pub fn hpprd_listener_snapshot(&self) -> Vec<String> {
+        self.services
+            .get("hpprd")
+            .map(|svc| svc.listener_snapshot())
+            .unwrap_or_default()
+    }
+
+    pub fn apply_nat_event(&mut self, event: &serde_json::Value) {
+        let Some(kind) = event.get("event").and_then(|v| v.as_str()) else {
+            return;
+        };
+        match kind {
+            "ready" => {
+                self.nat_runtime.gateway = event
+                    .get("gateway")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                self.nat_runtime.external_ip = event
+                    .get("external_ip")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                self.nat_runtime.protocol = event
+                    .get("protocol")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            },
+            "mapped" | "renewed" => {
+                if kind == "mapped" {
+                    if let Some(v) = event
+                        .get("gateway")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                    {
+                        self.nat_runtime.gateway = Some(v);
+                    }
+                }
+                if let Some(v) = event
+                    .get("external_ip")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                {
+                    self.nat_runtime.external_ip = Some(v);
+                }
+                if let Some(v) = event
+                    .get("protocol")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                {
+                    self.nat_runtime.protocol = Some(v);
+                }
+
+                let Some(port) = event.get("port").and_then(|v| v.as_u64()) else {
+                    return;
+                };
+                let Some(proto) = event.get("proto").and_then(|v| v.as_str()) else {
+                    return;
+                };
+                let key = format!("{}/{}", port, proto);
+                self.nat_runtime.mappings.insert(
+                    key,
+                    NatMapping {
+                        port: port as u16,
+                        proto: proto.to_string(),
+                        external_port: event
+                            .get("external_port")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u16),
+                    },
+                );
+            },
+            "unmapped" => {
+                let Some(port) = event.get("port").and_then(|v| v.as_u64()) else {
+                    return;
+                };
+                let Some(proto) = event.get("proto").and_then(|v| v.as_str()) else {
+                    return;
+                };
+                let key = format!("{}/{}", port, proto);
+                self.nat_runtime.mappings.remove(&key);
+            },
+            _ => {},
+        }
+    }
+
+    pub fn hppr_nat_running(&self) -> bool {
+        self.services
+            .get("hppr-nat")
+            .is_some_and(|svc| svc.state == State::Running)
     }
 
     /// Shutdown all services.
