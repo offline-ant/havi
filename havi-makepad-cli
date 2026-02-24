@@ -15,8 +15,10 @@ For webview-level interaction (JS eval, DOM), use havi-devtools-cli.
 import argparse, json, os, socket, subprocess, sys, threading, time, queue
 
 # ---------------------------------------------------------------------------
-# Makepad KeyCode variants (string names used directly in JSON)
+# Makepad KeyCode integer encoding
 # ---------------------------------------------------------------------------
+# Makepad serializes KeyCode as an integer index via manual SerJson/DeJson.
+# The order must match KEYCODE_VARIANTS in makepad/platform/src/event/keyboard.rs.
 
 KEYCODE_VARIANTS = [
     "Escape", "Back", "Backtick",
@@ -41,14 +43,21 @@ KEYCODE_VARIANTS = [
     "Unknown",
 ]
 
+# Build name-to-index lookup (case-insensitive variant name -> integer index)
+_KEYCODE_INDEX = {name.lower(): idx for idx, name in enumerate(KEYCODE_VARIANTS)}
+
+# User-friendly aliases -> canonical variant name
 KEY_MAP = {
-    "enter": "ReturnKey", "tab": "Tab", "escape": "Escape",
+    "enter": "ReturnKey", "return": "ReturnKey", "tab": "Tab", "escape": "Escape", "esc": "Escape",
     "backspace": "Backspace", "delete": "Delete",
     "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight",
     "home": "Home", "end": "End", "pageup": "PageUp", "pagedown": "PageDown",
-    "space": "Space",
+    "space": "Space", "capslock": "Capslock",
+    "printscreen": "PrintScreen", "scrolllock": "ScrollLock", "pause": "Pause",
+    "insert": "Insert", "numlock": "Numlock",
     **{c: f"Key{c.upper()}" for c in "abcdefghijklmnopqrstuvwxyz"},
     **{d: f"Key{d}" for d in "0123456789"},
+    **{f"f{n}": f"F{n}" for n in range(1, 13)},
 }
 
 MODS = {"shift": False, "control": False, "alt": False, "logo": False}
@@ -129,9 +138,17 @@ def connect(args):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def keycode_name(name):
-    """Map user-friendly key name to Makepad KeyCode variant string."""
-    return KEY_MAP.get(name.lower(), name)
+def keycode_index(name):
+    """Map user-friendly key name to Makepad KeyCode integer index.
+
+    Makepad serializes KeyCode as an integer index into KEYCODE_VARIANTS.
+    Returns the index, or the Unknown index (101) for unrecognized keys.
+    """
+    canonical = KEY_MAP.get(name.lower(), name)
+    idx = _KEYCODE_INDEX.get(canonical.lower())
+    if idx is not None:
+        return idx
+    return _KEYCODE_INDEX["unknown"]
 
 
 def tick(conn):
@@ -224,7 +241,7 @@ def cmd_type(args, conn):
 
 def cmd_key(args, conn):
     name = args.name
-    code = keycode_name(name)
+    code = keycode_index(name)
     now = time.time()
     kd = {"key_code": code, "is_repeat": False, "modifiers": MODS, "time": now}
     conn.send(mkv("KeyDown", kd))

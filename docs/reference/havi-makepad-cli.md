@@ -40,7 +40,10 @@ The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
 - `type <text>`
   - Send text input.
 - `key <name>`
-  - Press a key (`enter`, `tab`, `escape`, `backspace`, `a`-`z`, etc.).
+  - Press a key. Accepts friendly names (`enter`, `tab`, `escape`, `f5`,
+    `a`-`z`, `0`-`9`) or Makepad variant names (`ReturnKey`, `ArrowUp`).
+    Case-insensitive. Key codes are sent as integer indices matching
+    Makepad's `KEYCODE_VARIANTS` serialization.
 - `touch <id> <phase> <x> <y>`
   - Touch event at window coordinates.
 - `sleep <ms>`

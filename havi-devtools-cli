@@ -243,8 +243,10 @@ def connect_for_console(port, timeout, text_mode=False, tab_index=0):
 
     tab = select_tab(tabs, tab_index, text_mode)
     target = get_target(client, tab["actor"], timeout)
-    target_actor_id = target.get("actor")
-    console_actor_id = target.get("consoleActor") or target.get("console")
+    # getTarget wraps the BrowsingContextActor data in a "frame" field
+    frame = target.get("frame", target)
+    target_actor_id = frame.get("actor")
+    console_actor_id = frame.get("consoleActor") or frame.get("console")
     if not target_actor_id or not console_actor_id:
         client.disconnect()
         output_error(text_mode, EXIT_CONNECTION, "connection", "target/console actor not available")
