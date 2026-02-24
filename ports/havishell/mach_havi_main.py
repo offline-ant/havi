@@ -280,6 +280,21 @@ def _find_xauthority() -> str | None:
     return None
 
 
+def _ensure_llvm_windows() -> None:
+    """Install LLVM via winget (Windows only)."""
+    print("[mach-havi] LLVM not found. Installing via winget...")
+    ret = subprocess.call(
+        ["winget", "install", "LLVM.LLVM", "--accept-source-agreements",
+         "--accept-package-agreements", "--silent"],
+    )
+    if ret != 0:
+        sys.exit(
+            "error: failed to install LLVM via winget.\n"
+            "Install manually: winget install LLVM.LLVM"
+        )
+    print("[mach-havi] LLVM installed.")
+
+
 def setup_desktop_env() -> dict[str, str]:
     """Build environment for a desktop (host) build."""
     env = os.environ.copy()
@@ -303,10 +318,8 @@ def setup_desktop_env() -> dict[str, str]:
     if "LIBCLANG_PATH" not in env:
         candidates = []
         if is_windows:
-            # MSVC builds: LLVM installed via Visual Studio or standalone.
             pf = os.environ.get("ProgramFiles", r"C:\Program Files")
             candidates.append(os.path.join(pf, "LLVM", "lib"))
-            # Visual Studio bundled LLVM
             vs_base = os.path.join(pf, "Microsoft Visual Studio", "2022")
             for edition in ("Community", "Professional", "Enterprise", "BuildTools"):
                 candidates.append(os.path.join(
@@ -322,10 +335,19 @@ def setup_desktop_env() -> dict[str, str]:
                 "/usr/local/opt/llvm/lib",
                 "/opt/homebrew/opt/llvm/lib",
             ]
+        found = False
         for candidate in candidates:
             if os.path.isdir(candidate) and glob.glob(os.path.join(candidate, "libclang*")):
                 env["LIBCLANG_PATH"] = candidate
+                found = True
                 break
+        if not found and is_windows:
+            _ensure_llvm_windows()
+            # Retry after install
+            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+            llvm_lib = os.path.join(pf, "LLVM", "lib")
+            if os.path.isdir(llvm_lib):
+                env["LIBCLANG_PATH"] = llvm_lib
 
     if not is_windows and "CLANG_PATH" not in env:
         clang = shutil.which("clang")

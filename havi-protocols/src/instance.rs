@@ -4,11 +4,12 @@
 
 //! HAVI single-instance IPC.
 //!
-//! Uses a Unix socket at `<config_dir>/havi.sock` to detect a running HAVI
-//! instance and send it commands (e.g. open a URL in a new tab).
+//! Uses a localhost TCP socket to detect a running HAVI instance and send
+//! it commands (e.g. open a URL in a new tab). The listening port is written
+//! to `<config_dir>/havi.port` so a second instance can find it.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::mpsc;
@@ -29,17 +30,28 @@ pub struct IpcResponse {
     pub ok: bool,
 }
 
-/// Path to the HAVI IPC socket.
-pub fn ipc_socket_path() -> PathBuf {
-    crate::config::config_dir().join("havi.sock")
+/// Path to the HAVI IPC port file.
+fn ipc_port_path() -> PathBuf {
+    crate::config::config_dir().join("havi.port")
 }
 
 /// Try to connect to a running HAVI instance and send a command.
 /// Returns Ok(()) if the command was accepted, Err if no instance is running.
 pub fn try_send_open(url: &str) -> Result<(), String> {
-    let path = ipc_socket_path();
-    let mut stream =
-        UnixStream::connect(&path).map_err(|e| format!("no running instance: {}", e))?;
+    let path = ipc_port_path();
+    let port_str = std::fs::read_to_string(&path)
+        .map_err(|e| format!("no running instance: {}", e))?;
+    let port: u16 = port_str
+        .trim()
+        .parse()
+        .map_err(|e| format!("bad port file: {}", e))?;
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .map_err(|e| {
+            // Stale port file — clean up.
+            let _ = std::fs::remove_file(&path);
+            format!("no running instance: {}", e)
+        })?;
 
     let cmd = IpcCommand::Open {
         url: url.to_string(),
@@ -69,24 +81,34 @@ pub fn try_send_open(url: &str) -> Result<(), String> {
 /// Start the IPC listener. Returns a receiver for incoming commands.
 /// The listener runs on a background thread.
 pub fn start_ipc_listener() -> Result<mpsc::Receiver<IpcCommand>, String> {
-    let path = ipc_socket_path();
+    let port_path = ipc_port_path();
 
-    // Clean up stale socket
-    if path.exists() {
-        match UnixStream::connect(&path) {
-            Ok(_) => return Err("another instance is listening".to_string()),
-            Err(_) => {
-                let _ = std::fs::remove_file(&path);
-            },
+    // Check for existing instance via port file.
+    if port_path.exists() {
+        if let Ok(port_str) = std::fs::read_to_string(&port_path) {
+            if let Ok(port) = port_str.trim().parse::<u16>() {
+                if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                    return Err("another instance is listening".to_string());
+                }
+            }
         }
+        // Stale port file.
+        let _ = std::fs::remove_file(&port_path);
     }
 
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = port_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let listener = UnixListener::bind(&path)
-        .map_err(|e| format!("failed to bind {}: {}", path.display(), e))?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("failed to bind: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("local_addr: {}", e))?
+        .port();
+
+    std::fs::write(&port_path, port.to_string())
+        .map_err(|e| format!("write port file: {}", e))?;
 
     let (tx, rx) = mpsc::channel();
 
@@ -98,18 +120,18 @@ pub fn start_ipc_listener() -> Result<mpsc::Receiver<IpcCommand>, String> {
                 handle_ipc_client(stream, tx);
             });
         }
-        let _ = std::fs::remove_file(ipc_socket_path());
+        let _ = std::fs::remove_file(ipc_port_path());
     });
 
     Ok(rx)
 }
 
-/// Remove the IPC socket file. Call on clean shutdown.
+/// Remove the IPC port file. Call on clean shutdown.
 pub fn cleanup_ipc_socket() {
-    let _ = std::fs::remove_file(ipc_socket_path());
+    let _ = std::fs::remove_file(ipc_port_path());
 }
 
-fn handle_ipc_client(stream: UnixStream, tx: mpsc::Sender<IpcCommand>) {
+fn handle_ipc_client(stream: TcpStream, tx: mpsc::Sender<IpcCommand>) {
     let reader = BufReader::new(&stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
