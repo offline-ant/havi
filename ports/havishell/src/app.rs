@@ -1,6 +1,7 @@
 use crossbeam_channel::Sender;
 use euclid::Scale;
 use havi_protocols::credentials::global_credential_store;
+use makepad_widgets::makepad_platform::gl_render_bridge::{GlApi, GlRenderBridge};
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::makepad_platform::thread::SignalToUI;
@@ -10,14 +11,6 @@ use servo::{DeviceIndependentPixel, DevicePixel, RenderingContext, WebViewId};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
-
-/// Platform-specific rendering context type.
-/// On Linux/Android: MakepadRenderingContext (shared EGL context).
-/// On macOS: MacosRenderingContext (CGL + IOSurface bridge to Metal).
-#[cfg(any(target_os = "linux", target_os = "android"))]
-type PlatformRenderingContext = servo::MakepadRenderingContext;
-#[cfg(target_os = "macos")]
-type PlatformRenderingContext = servo::MacosRenderingContext;
 
 mod context_menu;
 mod input_handling;
@@ -494,7 +487,9 @@ pub struct App {
     #[rust]
     servo: Option<servo::Servo>,
     #[rust]
-    rendering_context: Option<Rc<PlatformRenderingContext>>,
+    rendering_context: Option<Rc<servo::MakepadRenderingContext>>,
+    #[rust]
+    bridge: Option<GlRenderBridge>,
     #[rust]
     texture: Option<Texture>,
     #[rust]
@@ -585,131 +580,74 @@ const MAX_IDLE_FRAMES: u32 = 10;
 /// the gesture is treated as a scroll; otherwise it's a tap (click).
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
-/// Create a rendering context that loads GL function pointers from Makepad's EGL
-/// context. Servo renders into an FBO within the same GL context — no second
-/// context is created.
-///
-/// On Linux, Makepad exposes EGL via `cx.os.opengl_cx` (OpenglCx). On Android,
-/// it uses `cx.os.display` (CxAndroidDisplay).
-#[cfg(target_os = "linux")]
-fn create_shared_rendering_context(
+/// GL_TEXTURE_RECTANGLE constant (macOS CGL/IOSurface textures).
+const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
+
+/// Build platform display info for WebGL from the GL render bridge.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::egl::EglDisplayInfo {
+    // Recover the raw eglGetProcAddress function pointer from the bridge.
+    // SAFETY: bridge.get_proc_address wraps eglGetProcAddress. Looking up
+    // "eglGetProcAddress" returns a pointer to the function itself.
+    let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void = unsafe {
+        std::mem::transmute(bridge.get_proc_address("eglGetProcAddress"))
+    };
+    servo::gl_device::egl::EglDisplayInfo {
+        display: bridge.egl_display(),
+        config: bridge.egl_config(),
+        share_context: bridge.egl_context(),
+        get_proc_address: egl_gpa,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::cgl::CglDisplayInfo {
+    servo::gl_device::cgl::CglDisplayInfo {
+        pixel_format: bridge.cgl_pixel_format(),
+        share_context: bridge.cgl_context(),
+    }
+}
+
+/// Create the GL render bridge, shared texture, and rendering context.
+/// Unified path for all platforms via makepad's GlRenderBridge.
+fn create_rendering_context(
     cx: &mut Cx,
     size: dpi::PhysicalSize<u32>,
-) -> Result<servo::MakepadRenderingContext, servo::rendering_context::Error> {
-    let opengl_cx = cx
-        .os
-        .opengl_cx
-        .as_ref()
-        .expect("Makepad OpenGL context not initialized");
+) -> Result<
+    (Texture, GlRenderBridge, Rc<servo::MakepadRenderingContext>),
+    servo::rendering_context::Error,
+> {
+    let bridge = cx.create_gl_render_bridge();
+    bridge.make_current();
 
-    opengl_cx.make_current();
+    let (texture, gl_texture_id) =
+        cx.create_gl_render_bridge_texture(&bridge, size.width as usize, size.height as usize);
 
-    let egl_get_proc_address = opengl_cx
-        .libegl
-        .eglGetProcAddress
-        .expect("eglGetProcAddress not available");
-
-    // Build EGL display info for gl_device (used by WebGL thread).
-    let display_info = servo::gl_device::egl::EglDisplayInfo {
-        display: opengl_cx.egl_display as *mut std::ffi::c_void,
-        config: opengl_cx.egl_config as *mut std::ffi::c_void,
-        share_context: opengl_cx.egl_context as *mut std::ffi::c_void,
-        get_proc_address: egl_get_proc_address,
+    let display_info = build_display_info(&bridge);
+    let gl_api = match bridge.gl_api() {
+        GlApi::GL => servo::gl_device::GlApi::GL,
+        GlApi::GLES => servo::gl_device::GlApi::GLES,
+    };
+    let texture_target = match bridge.gl_api() {
+        GlApi::GL => GL_TEXTURE_RECTANGLE,
+        GlApi::GLES => gleam::gl::TEXTURE_2D,
     };
 
-    // SAFETY: Makepad's EGL context is current (ensured above). The GL function
-    // pointers loaded via eglGetProcAddress are valid for this context.
-    unsafe {
-        servo::MakepadRenderingContext::new_from_loader(
-            size,
-            &|func_name: &str| {
-                let c_name = std::ffi::CString::new(func_name).unwrap();
-                egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-            },
-            Some(display_info),
-        )
-    }
-}
-
-#[cfg(target_os = "android")]
-fn create_shared_rendering_context(
-    cx: &mut Cx,
-    size: dpi::PhysicalSize<u32>,
-) -> Result<servo::MakepadRenderingContext, servo::rendering_context::Error> {
-    let display = cx
-        .os
-        .display
-        .as_ref()
-        .expect("Makepad Android display not initialized");
-
-    display.make_current();
-
-    let egl_get_proc_address = display
-        .libegl
-        .eglGetProcAddress
-        .expect("eglGetProcAddress not available");
-
-    // Build EGL display info for gl_device (used by WebGL thread).
-    let display_info = servo::gl_device::egl::EglDisplayInfo {
-        display: display.egl_display as *mut std::ffi::c_void,
-        config: display.egl_config as *mut std::ffi::c_void,
-        share_context: display.egl_context as *mut std::ffi::c_void,
-        get_proc_address: egl_get_proc_address,
-    };
-
-    // SAFETY: Makepad's EGL context is current (ensured above). The GL function
-    // pointers loaded via eglGetProcAddress are valid for this context.
-    unsafe {
-        servo::MakepadRenderingContext::new_from_loader(
-            size,
-            &|func_name: &str| {
-                let c_name = std::ffi::CString::new(func_name).unwrap();
-                egl_get_proc_address(c_name.as_ptr()) as *const std::ffi::c_void
-            },
-            Some(display_info),
-        )
-    }
-}
-
-/// Restore Makepad's EGL context as current after Servo rendering.
-/// With the unified single-context approach this is technically a no-op (Servo
-/// renders within Makepad's own context), but kept for safety in case platform
-/// code changes the current context between frames.
-#[cfg(target_os = "linux")]
-fn restore_makepad_gl_context(cx: &mut Cx) {
-    if let Some(opengl_cx) = cx.os.opengl_cx.as_ref() {
-        opengl_cx.make_current();
-    }
-}
-
-#[cfg(target_os = "android")]
-fn restore_makepad_gl_context(cx: &mut Cx) {
-    if let Some(display) = cx.os.display.as_ref() {
-        display.make_current();
-    }
-}
-
-/// On macOS, Makepad uses Metal — no GL context to restore.
-#[cfg(target_os = "macos")]
-fn restore_makepad_gl_context(_cx: &mut Cx) {}
-
-/// On macOS, create a CGL rendering context that renders into an IOSurface.
-/// The IOSurface is created by Makepad and shared with Metal for display.
-#[cfg(target_os = "macos")]
-fn create_macos_rendering_setup(
-    cx: &mut Cx,
-    width: usize,
-    height: usize,
-) -> (Texture, Rc<servo::MacosRenderingContext>) {
-    let (texture, iosurface_ref, _iosurface_id) = cx.create_iosurface_render_texture(width, height);
-    let size = dpi::PhysicalSize::new(width as u32, height as u32);
-    // SAFETY: iosurface_ref is valid — it was just created by Makepad and is kept
-    // alive by the returned Texture (which holds it via CxOsTexture.iosurface).
+    // SAFETY: The bridge's GL context is current (ensured above). GL function
+    // pointers loaded via get_proc_address are valid for this context.
     let rc = unsafe {
-        servo::MacosRenderingContext::new(size, iosurface_ref)
-            .expect("Failed to create macOS CGL rendering context")
-    };
-    (texture, Rc::new(rc))
+        servo::MakepadRenderingContext::new_from_loader(
+            size,
+            &|name| bridge.get_proc_address(name) as *const std::ffi::c_void,
+            gl_api,
+            texture_target,
+            Some(display_info),
+        )
+    }?;
+    rc.set_external_texture(gl_texture_id, size);
+    cx.restore_gl_context();
+
+    Ok((texture, bridge, Rc::new(rc)))
 }
 
 pub fn install_window_icon() {
@@ -807,28 +745,16 @@ impl App {
         let height = ((inner.y * self.dpi_factor) as u32).max(64);
         self.content_size = (width as usize, height as usize);
 
-        // Create rendering context + texture. Platform-specific:
-        // - Linux/Android: shared EGL context, Makepad-owned GL texture
-        // - macOS: CGL context + IOSurface bridge to Metal
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let (texture, rendering_context) = {
-            let (texture, gl_texture_id) =
-                cx.create_gl_render_texture(width as usize, height as usize);
-            let size = dpi::PhysicalSize::new(width, height);
-            let rendering_context = match create_shared_rendering_context(cx, size) {
-                Ok(rc) => Rc::new(rc),
-                Err(e) => {
-                    log!("[havishell] FAILED to create rendering context: {:?}", e);
-                    return;
-                },
-            };
-            rendering_context.set_external_texture(gl_texture_id, size);
-            restore_makepad_gl_context(cx);
-            (texture, rendering_context)
+        // Create rendering context + texture via the unified GL render bridge.
+        let size = dpi::PhysicalSize::new(width, height);
+        let (texture, bridge, rendering_context) = match create_rendering_context(cx, size) {
+            Ok(result) => result,
+            Err(e) => {
+                log!("[havishell] FAILED to create rendering context: {:?}", e);
+                return;
+            },
         };
-        #[cfg(target_os = "macos")]
-        let (texture, rendering_context) =
-            { create_macos_rendering_setup(cx, width as usize, height as usize) };
+        self.bridge = Some(bridge);
 
         // Always go through pylon in normal mode. Raster mode skips pylon/hpprd.
         let icon_raster_mode = std::env::var("HAVI_ICON_RASTER").ok().as_deref() == Some("1");
@@ -1156,26 +1082,16 @@ impl App {
             tab.webview.resize(phys_size);
         }
 
-        // Create new texture and rebind the rendering context.
-        // Platform-specific: Linux/Android uses shared GL texture,
-        // macOS uses IOSurface bridge.
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        {
-            let (texture, gl_texture_id) =
-                cx.create_gl_render_texture(new_width as usize, new_height as usize);
+        // Create new texture via the bridge and rebind the rendering context.
+        if let Some(bridge) = &self.bridge {
+            let (texture, gl_texture_id) = cx.create_gl_render_bridge_texture(
+                bridge,
+                new_width as usize,
+                new_height as usize,
+            );
             if let Some(rc) = &self.rendering_context {
                 rc.set_external_texture(gl_texture_id, phys_size);
-                restore_makepad_gl_context(cx);
-            }
-            self.texture = Some(texture);
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let (texture, iosurface_ref, _iosurface_id) =
-                cx.create_iosurface_render_texture(new_width as usize, new_height as usize);
-            if let Some(rc) = &self.rendering_context {
-                // SAFETY: iosurface_ref is valid, owned by the new texture.
-                unsafe { rc.rebind_iosurface(iosurface_ref, phys_size) };
+                cx.restore_gl_context();
             }
             self.texture = Some(texture);
         }
@@ -1253,10 +1169,8 @@ impl App {
             // when Makepad's GL context samples it.
             rc.present();
 
-            // Restore Makepad's EGL context. Servo's paint() + present() left
-            // Servo's shared GL context current; Makepad's draw passes need their
-            // own context to be current so they can see the texture we rendered into.
-            restore_makepad_gl_context(cx);
+            // Restore Makepad's own GL context as current.
+            cx.restore_gl_context();
         }
     }
 

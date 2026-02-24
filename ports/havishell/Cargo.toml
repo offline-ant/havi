@@ -45,3 +45,6 @@ pylon = { path = "../../pylon" }
 env_logger = "0.11"
 crossbeam-channel = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+libservo = { path = "../../components/servo", features = ["background_hang_monitor", "no-wgl"] }

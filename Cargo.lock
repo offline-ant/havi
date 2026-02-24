@@ -5724,6 +5724,7 @@ dependencies = [
  "makepad-script",
  "makepad-wasm-bridge",
  "makepad-zune-png",
+ "mozangle",
  "naga 27.0.3",
  "napi-derive-ohos 0.0.9",
  "napi-ohos 0.1.3",
