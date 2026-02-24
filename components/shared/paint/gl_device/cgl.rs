@@ -29,44 +29,6 @@ impl CglBackend {
         }
     }
 
-    /// Create a standalone CGL backend with its own pixel format (GL 3.2 Core,
-    /// RGBA8, depth24, stencil8) and a root sharing context.
-    pub fn new_standalone() -> Self {
-        let attributes: [cgl::CGLPixelFormatAttribute; 9] = [
-            cgl::kCGLPFAOpenGLProfile,
-            0x3200, // GL 3.2 Core
-            cgl::kCGLPFAAlphaSize,
-            8,
-            cgl::kCGLPFADepthSize,
-            24,
-            cgl::kCGLPFAStencilSize,
-            8,
-            0, // null terminator
-        ];
-        let mut pixel_format: cgl::CGLPixelFormatObj = ptr::null_mut();
-        let mut num_formats: i32 = 0;
-        let err = unsafe {
-            cgl::CGLChoosePixelFormat(attributes.as_ptr(), &mut pixel_format, &mut num_formats)
-        };
-        assert!(
-            err == cgl::kCGLNoError && !pixel_format.is_null(),
-            "CGLChoosePixelFormat failed: {err}"
-        );
-
-        // Create a root context for resource sharing.
-        let mut root_ctx: cgl::CGLContextObj = ptr::null_mut();
-        let err = unsafe { cgl::CGLCreateContext(pixel_format, ptr::null_mut(), &mut root_ctx) };
-        assert!(
-            err == cgl::kCGLNoError && !root_ctx.is_null(),
-            "CGLCreateContext (root) failed: {err}"
-        );
-
-        CglBackend {
-            pixel_format: pixel_format as *mut c_void,
-            share_context: root_ctx as *mut c_void,
-        }
-    }
-
     /// Create a new CGL context.
     ///
     /// If `share_with` is `Some`, shares resources with that context.
@@ -94,17 +56,6 @@ impl CglBackend {
         assert!(
             err == cgl::kCGLNoError,
             "CGLSetCurrentContext failed: {err}"
-        );
-    }
-
-    /// Unbind the current context (make no context current).
-    ///
-    /// Panics on CGL failure.
-    pub fn unbind_context(&self) {
-        let err = unsafe { cgl::CGLSetCurrentContext(ptr::null_mut()) };
-        assert!(
-            err == cgl::kCGLNoError,
-            "CGLSetCurrentContext(null) failed: {err}"
         );
     }
 

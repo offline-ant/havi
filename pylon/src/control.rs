@@ -389,7 +389,10 @@ async fn fuse_mount_flow(
     args: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<String, String> {
     #[cfg(not(target_os = "linux"))]
-    return Err("hppr-fuse is Linux-only".to_string());
+    {
+        let _ = (pylon, args);
+        return Err("hppr-fuse is Linux-only".to_string());
+    }
 
     #[cfg(target_os = "linux")]
     {
