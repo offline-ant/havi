@@ -6,6 +6,7 @@ license = "MPL-2.0"
 publish = false
 
 [dependencies]
+anyhow = "1"
 dirs = "6.0"
 hppr-client = { workspace = true }
 hppr-packet = { workspace = true }

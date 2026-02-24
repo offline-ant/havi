@@ -147,8 +147,19 @@ pub fn main(args: Vec<String>) {
 
 fn run_daemon(port: Option<u16>, mode: crate::PylonMode, state_dir: PathBuf) {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    if let Err(e) = rt.block_on(crate::run(port, mode, state_dir)) {
-        eprintln!("error: {}", e);
+    if let Err(e) = rt.block_on(crate::run(port, mode, state_dir.clone())) {
+        eprintln!("pylon daemon start failed");
+        eprintln!("state_dir: {}", state_dir.display());
+        if let Some(p) = port {
+            eprintln!("requested bind: 127.0.0.1:{}", p);
+        } else {
+            eprintln!(
+                "requested bind: scan 127.0.0.1:{}..{} then fallback to 127.0.0.1:0",
+                crate::DEFAULT_PORT,
+                crate::DEFAULT_PORT_END
+            );
+        }
+        eprintln!("cause: {}", e);
         std::process::exit(1);
     }
 }

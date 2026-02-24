@@ -763,32 +763,45 @@ impl App {
         } else {
             let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
             let repo_path = havi_protocols::config::repo_dir();
-            match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref()).and_then(
-                |mut c| {
-                    let hp = c.start_hpprd()?;
-                    let pylon_p = c.port;
-                    // Subscribe to events; reader thread keeps connection alive.
-                    self.pylon_events = Some(c.subscribe());
-                    Some((pylon_p, hp))
-                },
-            ) {
-                Some((pylon_p, hpprd_p)) => {
-                    let target = hppr_client::ViaSpec::Net {
-                        host: "127.0.0.1".to_string(),
-                        port: hpprd_p,
-                        scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
-                    };
-                    hppr_client::set_repo_target(target);
-                    log!("[havishell] Pylon hpprd on port {}", hpprd_p);
-                    Some(pylon_p)
-                },
-                None => {
-                    eprintln!(
-                        "[havi] Fatal: cannot start pylon/hpprd (likely port conflict or running-instance binary mismatch)."
-                    );
+
+            let mut pylon_client = match havi_protocols::pylon::ensure_pylon(&repo_path, home.as_deref()) {
+                Ok(client) => client,
+                Err(err) => {
+                    eprintln!("[havi] Fatal: failed to initialize pylon control plane.");
+                    eprintln!("[havi] repo path: {}", repo_path.display());
+                    if let Some(home_addr) = home.as_deref() {
+                        eprintln!("[havi] mode: remote (HAVI_HOME={})", home_addr);
+                    } else {
+                        eprintln!("[havi] mode: local");
+                    }
+                    eprintln!("[havi] detailed cause chain:\n{:#}", err);
                     std::process::exit(1);
                 },
-            }
+            };
+
+            let hpprd_p = match pylon_client.start_hpprd() {
+                Ok(port) => port,
+                Err(err) => {
+                    eprintln!("[havi] Fatal: pylon is running but hpprd could not be started or reached.");
+                    eprintln!("[havi] pylon control: 127.0.0.1:{}", pylon_client.port);
+                    eprintln!("[havi] repo path: {}", repo_path.display());
+                    eprintln!("[havi] detailed cause chain:\n{:#}", err);
+                    std::process::exit(1);
+                },
+            };
+
+            let pylon_p = pylon_client.port;
+            // Subscribe to events; reader thread keeps connection alive.
+            self.pylon_events = Some(pylon_client.subscribe());
+
+            let target = hppr_client::ViaSpec::Net {
+                host: "127.0.0.1".to_string(),
+                port: hpprd_p,
+                scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
+            };
+            hppr_client::set_repo_target(target);
+            log!("[havishell] Pylon hpprd on port {}", hpprd_p);
+            Some(pylon_p)
         };
 
         // Create dedicated HAVI runtime and initialize watch pool for live-reload support.

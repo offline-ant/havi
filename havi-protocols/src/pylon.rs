@@ -7,6 +7,7 @@
 //! Connects to a running pylon instance via TCP JSON lines protocol.
 //! No dependency on the pylon crate — communicates purely over TCP.
 
+use anyhow::{Context, anyhow};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -48,13 +49,21 @@ impl PylonClient {
         Self::connect(port).ok()
     }
 
+    fn try_connect_with_error(repo_path: &std::path::Path) -> anyhow::Result<Option<Self>> {
+        let (_, port) = match read_pid_file(repo_path) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        Self::connect(port).map(Some)
+    }
+
     /// Connect to pylon at the given port.
-    pub fn connect(port: u16) -> Result<Self, String> {
+    pub fn connect(port: u16) -> anyhow::Result<Self> {
         let stream = TcpStream::connect_timeout(
             &format!("127.0.0.1:{}", port).parse().unwrap(),
             Duration::from_secs(2),
         )
-        .map_err(|e| format!("pylon connect: {}", e))?;
+        .with_context(|| format!("pylon control connect to 127.0.0.1:{} failed", port))?;
         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
         Ok(Self {
@@ -230,22 +239,67 @@ impl PylonClient {
     ///
     /// In local mode, starts hpprd via pylon and polls for the port.
     /// In remote mode, returns the external hpprd port immediately.
-    pub fn start_hpprd(&mut self) -> Option<u16> {
+    pub fn start_hpprd(&mut self) -> anyhow::Result<u16> {
         // Already running or external?
         if let Some(port) = self.hpprd_port() {
-            return Some(port);
+            return Ok(port);
         }
-        // Request start (will fail in remote mode, which is fine —
-        // hpprd_port() already returned the external port above)
-        let _ = self.start_service("hpprd");
-        // Poll for port (hpprd needs time to bind)
+
+        // Request start (this can fail if pylon rejects the request).
+        let start_error = self.start_service("hpprd").err();
+
+        // Poll for port (hpprd needs time to bind and report status).
+        let mut last_state: Option<String> = None;
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(300));
             if let Some(port) = self.hpprd_port() {
-                return Some(port);
+                return Ok(port);
+            }
+
+            if let Ok(status) = self.request("status", None, None) {
+                if let Some(hpprd) = status.get("hpprd") {
+                    let state = hpprd
+                        .get("state")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let pid = hpprd
+                        .get("pid")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string());
+                    let port = hpprd
+                        .get("port")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string());
+                    let addr = hpprd
+                        .get("addr")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("none");
+                    last_state = Some(format!(
+                        "state={}, pid={}, port={}, addr={}",
+                        state, pid, port, addr
+                    ));
+                }
             }
         }
-        None
+
+        let mut message = String::from(
+            "hpprd did not become reachable after pylon startup request and 10 status polls (~3s).",
+        );
+        if let Some(e) = start_error {
+            message.push_str(" Start request error: ");
+            message.push_str(&e);
+            message.push('.');
+        }
+        if let Some(state) = last_state {
+            message.push_str(" Last observed hpprd status: ");
+            message.push_str(&state);
+            message.push('.');
+        } else {
+            message.push_str(" Pylon status did not return an hpprd entry during polling.");
+        }
+        Err(anyhow!(message))
     }
 }
 
@@ -255,42 +309,103 @@ impl PylonClient {
 /// at that address instead of spawning its own.
 ///
 /// Returns a connected PylonClient.
-pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> Option<PylonClient> {
-    // Try existing pylon first
-    if let Some(client) = PylonClient::try_connect(repo_path) {
-        return Some(client);
+pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> anyhow::Result<PylonClient> {
+    // Try existing pylon first.
+    match PylonClient::try_connect_with_error(repo_path) {
+        Ok(Some(client)) => return Ok(client),
+        Ok(None) => {},
+        Err(e) => {
+            return Err(e).context(format!(
+                "found pylon.pid in '{}' but failed to connect to the recorded control port",
+                repo_path.display()
+            ));
+        },
     }
 
-    // Start pylon as a background subprocess
+    // Start pylon as a background subprocess.
+    use std::io::Read;
     use std::process::{Command, Stdio};
-    let exe = std::env::current_exe().ok()?;
+    let exe = std::env::current_exe().context("cannot resolve current executable path for spawning pylon")?;
+
     let mut cmd = Command::new(&exe);
     cmd.arg("pylon").arg("--path").arg(repo_path);
     if let Some(addr) = home {
         cmd.arg("--home").arg(addr);
     }
+
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
+        .with_context(|| format!("failed to spawn '{}' as pylon subprocess", exe.display()))?;
 
-    // Read stdout for PYLON_BIND= line
-    use std::io::BufRead;
-    let stdout = child.stdout.take()?;
+    let stdout = child.stdout.take().context(
+        "spawned pylon process has no stdout pipe; cannot read PYLON_BIND announcement",
+    )?;
+    let mut stderr = child.stderr.take().context(
+        "spawned pylon process has no stderr pipe; cannot capture startup diagnostics",
+    )?;
+
+    // Read startup stdout for PYLON_BIND= line.
+    let mut observed_stdout = Vec::new();
     let reader = std::io::BufReader::new(stdout);
-    for line in reader.lines().take(10) {
-        let line = line.ok()?;
+    for line in reader.lines().take(20) {
+        let line = line.context("failed while reading pylon startup stdout")?;
+        observed_stdout.push(line.clone());
         if let Some(addr) = line.strip_prefix("PYLON_BIND=") {
-            let port: u16 = addr.rsplit(':').next()?.parse().ok()?;
-            // Detach child — pylon runs as a daemon
+            let port: u16 = addr
+                .rsplit(':')
+                .next()
+                .ok_or_else(|| anyhow!("invalid PYLON_BIND value '{}' (missing ':<port>')", addr))?
+                .parse()
+                .with_context(|| format!("invalid PYLON_BIND value '{}' (port parse failed)", addr))?;
+
+            // Detach child — pylon runs as a daemon.
             std::mem::forget(child);
             std::thread::sleep(Duration::from_millis(100));
-            return PylonClient::connect(port).ok();
+            return PylonClient::connect(port).with_context(|| {
+                format!(
+                    "pylon reported PYLON_BIND=127.0.0.1:{}, but connection failed immediately",
+                    port
+                )
+            });
         }
     }
-    None
+
+    let exit_status = child
+        .try_wait()
+        .context("failed to inspect spawned pylon process status")?;
+
+    let mut stderr_text = String::new();
+    if exit_status.is_some() {
+        let _ = stderr.read_to_string(&mut stderr_text);
+    }
+
+    let stdout_preview = if observed_stdout.is_empty() {
+        "(no stdout lines)".to_string()
+    } else {
+        observed_stdout.join(" | ")
+    };
+
+    let mut message = format!(
+        "spawned pylon process did not announce PYLON_BIND within 20 stdout lines. observed stdout: {}.",
+        stdout_preview
+    );
+
+    if let Some(status) = exit_status {
+        message.push_str(&format!(" process exited early with status {}.", status));
+    } else {
+        message.push_str(" process is still running but did not emit a parseable PYLON_BIND line.");
+    }
+
+    if !stderr_text.trim().is_empty() {
+        message.push_str(" stderr: ");
+        message.push_str(stderr_text.trim());
+        message.push('.');
+    }
+
+    Err(anyhow!(message))
 }
 
 /// Read pylon PID file from repo directory. Returns (pid, port).
