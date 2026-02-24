@@ -573,6 +573,36 @@ def _find_apk(target_triple: str, release: bool) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _copy_windows_angle_dlls(profile: str) -> int:
+    """Copy ANGLE runtime DLLs (libEGL/libGLESv2) next to havi.exe.
+
+    libservo's `no-wgl` feature enables `mozangle/build_dlls`, which emits
+    ANGLE DLLs under target/<profile>/build/**. Makepad loads libEGL.dll at
+    runtime on Windows, so keep these DLLs in the executable directory.
+    """
+    if platform.system() != "Windows":
+        return 0
+
+    exe_dir = HAVI_ROOT / "target" / profile
+    build_dir = exe_dir / "build"
+    if not build_dir.is_dir():
+        print(f"error: expected build artifacts at {build_dir}")
+        return 1
+
+    for dll in ("libEGL.dll", "libGLESv2.dll"):
+        matches = sorted(build_dir.rglob(dll), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not matches:
+            print(f"error: could not find required ANGLE DLL: {dll}")
+            print("hint: this should be produced by mozangle/build_dlls")
+            return 1
+        src = matches[0]
+        dst = exe_dir / dll
+        shutil.copy2(src, dst)
+        print(f"[mach-havi] copied {dll}: {src} -> {dst}")
+
+    return 0
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     if args.android or args.emulator:
         return _build_android(args)
@@ -715,7 +745,12 @@ def _build_desktop(args: argparse.Namespace) -> int:
         cmd.extend(args.extra)
 
     _log("desktop build", env=env, cmd=cmd)
-    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+    ret = subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+    if ret != 0:
+        return ret
+
+    profile = "release" if args.release else "debug"
+    return _copy_windows_angle_dlls(profile)
 
 
 def cmd_check(args: argparse.Namespace) -> int:
