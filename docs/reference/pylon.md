@@ -1,9 +1,8 @@
 # pylon Reference
 
 Service manager for the HPPR ecosystem. Source crate lives at
-`hppr/pylon/` in the HPPR workspace. Pylon currently runs services via process
-backend and exposes backend policy seams for future embedded runtimes.
-TCP JSON lines control protocol on localhost.
+`hppr/pylon/` in the HPPR workspace. Pylon manages services as child
+processes and exposes a TCP JSON lines control protocol on localhost.
 
 Pylon operates in two modes:
 
@@ -103,10 +102,16 @@ pylon nat stop                     # stop hppr-nat
 ### lokid Options
 
 - `--key <signing-key>`: HSB3 signing key
+- `--bind [host:]port`: listen address (default: `127.0.0.1:4777`)
+- `--name <name>`: repo name in HELLO (default: `loki-bridged`)
+- `--follow`: follow HTTP redirects
 
 ### unlokid Options
 
+- `--home <addr>`: upstream hpprd address
+- `--bind [host:]port`: listen address (default: `127.0.0.1:8080`)
 - `--shim <bool>`: enable shim mode
+- `--ws_url <url>`: hpprd WebSocket URL for shim assets
 
 ## Mount Commands
 
