@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use crate::PageResponse;
-use crate::client::{get_admin_credentials, HpprdClientAsync};
+use crate::client::{HpprdClientAsync, get_admin_credentials};
 use crate::credentials::CredentialStoreHandle;
 use crate::url::HAVIAddress;
 use crate::util::html_escape;

@@ -13,7 +13,7 @@
 //! before the user trusts a remote repo.
 
 use hppr_client::env_target::parse_via;
-use hppr_client::{spawn_connection, HpprRequest as IoRequest, ResponseKind, Signer};
+use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer, spawn_connection};
 
 use crate::PageResponse;
 use crate::url::HAVIAddress;
@@ -46,8 +46,7 @@ pub async fn handle_request(url: &str) -> PageResponse {
     let endpoint = match parse_via(&endpoint_str) {
         Ok(v) => v,
         Err(e) => {
-            return render_error(&format!("Invalid endpoint: {}", e))
-                .with_csp(SANDBOX_CSP);
+            return render_error(&format!("Invalid endpoint: {}", e)).with_csp(SANDBOX_CSP);
         },
     };
 
@@ -64,9 +63,7 @@ pub async fn handle_request(url: &str) -> PageResponse {
             };
             PageResponse::new(mime.to_string(), body).with_csp(SANDBOX_CSP)
         },
-        Err(e) => {
-            render_error(&e).with_csp(SANDBOX_CSP)
-        },
+        Err(e) => render_error(&e).with_csp(SANDBOX_CSP),
     }
 }
 
@@ -77,11 +74,9 @@ async fn fetch_content(
 ) -> Result<(String, String, Vec<u8>), String> {
     // Parse endpoint to socket address
     let addr = match endpoint {
-        hppr_client::env_target::ViaSpec::Net { host, port, .. } => {
-            format!("{}:{}", host, port)
-                .parse::<std::net::SocketAddr>()
-                .map_err(|e| format!("Invalid address: {}", e))?
-        },
+        hppr_client::env_target::ViaSpec::Net { host, port, .. } => format!("{}:{}", host, port)
+            .parse::<std::net::SocketAddr>()
+            .map_err(|e| format!("Invalid address: {}", e))?,
         _ => return Err("Unsupported transport for sandbox".to_string()),
     };
 
@@ -90,16 +85,15 @@ async fn fetch_content(
         .map_err(|e| format!("Connection failed: {}", e))?;
 
     let resp = conn
-        .send(IoRequest::Get { urc: urc.to_string() })
+        .send(IoRequest::Get {
+            urc: urc.to_string(),
+        })
         .await
         .map_err(|e| format!("GET failed: {}", e))?;
 
     match resp.kind {
         ResponseKind::Packet(packet) => {
-            let content_type = packet
-                .header("Content-Type")
-                .unwrap_or("")
-                .to_string();
+            let content_type = packet.header("Content-Type").unwrap_or("").to_string();
             let location = packet.header("Location").unwrap_or("").to_string();
             let body = packet.data().to_vec();
             Ok((content_type, location, body))
@@ -127,7 +121,8 @@ mod tests {
         assert_eq!(url.endpoint_string(), Some("192.168.1.10:4777".to_string()));
         assert_eq!(url.urc_string(), "//chess/game/");
 
-        let url = HAVIAddress::parse("hppr-sandbox://mygroup/app/index.html{via:10.0.0.5:4778}").unwrap();
+        let url =
+            HAVIAddress::parse("hppr-sandbox://mygroup/app/index.html{via:10.0.0.5:4778}").unwrap();
         assert_eq!(url.endpoint_string(), Some("10.0.0.5:4778".to_string()));
         assert_eq!(url.urc_string(), "//mygroup/app/index.html");
     }

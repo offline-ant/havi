@@ -1,5 +1,5 @@
-use makepad_widgets::*;
 use keyboard_types::{Code, Key, Modifiers, NamedKey};
+use makepad_widgets::*;
 
 pub fn makepad_key_to_servo(key_code: KeyCode) -> Key {
     match key_code {
@@ -185,8 +185,8 @@ pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<servo::InputE
         other => other,
     };
 
-    Some(servo::InputEvent::Keyboard(
-        servo::KeyboardEvent::new(keyboard_types::KeyboardEvent {
+    Some(servo::InputEvent::Keyboard(servo::KeyboardEvent::new(
+        keyboard_types::KeyboardEvent {
             state,
             key,
             code,
@@ -194,6 +194,6 @@ pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<servo::InputE
             modifiers,
             repeat: ke.is_repeat,
             is_composing: false,
-        }),
-    ))
+        },
+    )))
 }

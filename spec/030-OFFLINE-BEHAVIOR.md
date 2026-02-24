@@ -32,14 +32,6 @@ returning them to page code.
 
 Chunk data fetched for manifest reassembly is also cached.
 
-## Recommended access patterns
-
-- local-first with remote fallback
-- remote-first with local fallback
-- background refresh with cache comparison
-
-Treat route failures as normal runtime states.
-
 ## Connectivity detection
 
 HAVI has no dedicated online/offline API.
@@ -56,10 +48,3 @@ Route watches require an active remote connection.
 Disconnects end watch streams. Reconnect with backoff when continuous updates
 are required.
 
-## Offline-first app guidance
-
-1. write local state to `user/`
-2. keep cached copies of required remote content
-3. handle route failures gracefully
-4. sync queued local changes after reconnection
-5. resolve divergence explicitly

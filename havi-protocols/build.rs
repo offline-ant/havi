@@ -32,10 +32,7 @@ fn generate_havi_typings(manifest_dir: &Path, js_dir: &Path) {
         "Document.webidl",
     ];
     for file in idl_inputs {
-        println!(
-            "cargo:rerun-if-changed={}",
-            webidl_dir.join(file).display()
-        );
+        println!("cargo:rerun-if-changed={}", webidl_dir.join(file).display());
     }
 
     let status = Command::new("bun")

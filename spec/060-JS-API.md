@@ -125,7 +125,6 @@ format:
 Invalid identity strings reject the returned promise with a TypeError.
 
 Common return types:
-Common return types:
 
 - `get()`: `HpprPacket`
 - `list()/tips()/headers()/members()`: `string[]`
@@ -316,4 +315,3 @@ const { signingKey, verifyingKey } = H3.generateKey();
 
 Generate a fresh random key pair. Returns `HpprKeyPair` with `signingKey`
 (`&.xxx.H3`) and `verifyingKey` (`V.xxx.H3`).
-Streaming methods return normal streaming types and are not envelope-wrapped.

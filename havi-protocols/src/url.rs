@@ -11,8 +11,8 @@
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
 //! Example: `hppr://chess/game/board.html{via:192.168.1.5:4777}`
 
-use hppr_packet::urc::URC;
 use hppr_packet::CoordinateParts;
+use hppr_packet::urc::URC;
 use std::fmt;
 
 /// HPPR URL schemes that use URCs.
@@ -85,10 +85,16 @@ impl Endpoint {
                 let rest = &s[close + 1..];
                 if let Some(port_str) = rest.strip_prefix(':') {
                     if let Ok(port) = port_str.parse::<u16>() {
-                        return Self { host: host.to_string(), port };
+                        return Self {
+                            host: host.to_string(),
+                            port,
+                        };
                     }
                 }
-                return Self { host: host.to_string(), port: default_port };
+                return Self {
+                    host: host.to_string(),
+                    port: default_port,
+                };
             }
         }
         // Find the last colon that's part of a port (not IPv6)
@@ -280,9 +286,7 @@ impl HAVIAddress {
 
         // Find JSONqa suffix ({...}) - check both literal and percent-encoded
         let (coord_str, via_value) = {
-            let brace_pos = rest
-                .find('{')
-                .or_else(|| rest.find("%7B"));
+            let brace_pos = rest.find('{').or_else(|| rest.find("%7B"));
             if let Some(idx) = brace_pos {
                 let jsonqa_raw = &rest[idx..];
                 // Percent-decode the JSONqa portion
@@ -408,8 +412,8 @@ impl HAVIAddress {
 
     /// Check if this URL has a direct endpoint ({via:...} present).
     pub fn has_direct_endpoint(&self) -> bool {
-        matches!(self.scheme, HpprScheme::Hppr | HpprScheme::HpprBrowse) &&
-            matches!(self.endpoint, EndpointKind::Direct(_))
+        matches!(self.scheme, HpprScheme::Hppr | HpprScheme::HpprBrowse)
+            && matches!(self.endpoint, EndpointKind::Direct(_))
     }
 
     /// Build a URC string from group, app, location.
@@ -435,8 +439,7 @@ impl HAVIAddress {
 
     /// Returns true if this uses routed mode (no explicit endpoint).
     pub fn is_routed(&self) -> bool {
-        matches!(self.scheme, HpprScheme::Hppr) &&
-            matches!(self.endpoint, EndpointKind::None)
+        matches!(self.scheme, HpprScheme::Hppr) && matches!(self.endpoint, EndpointKind::None)
     }
 
     /// Returns true if this uses direct connection mode ({via:...} present).
@@ -484,9 +487,7 @@ impl HaviUrl {
     /// Expects format: `havi:///path` or `havi://path`
     pub fn parse(url: &str) -> Result<Self, HpprUrlParseError> {
         let rest = url.strip_prefix("havi:").ok_or_else(|| {
-            HpprUrlParseError::UnknownScheme(
-                url.split(':').next().unwrap_or("").to_string(),
-            )
+            HpprUrlParseError::UnknownScheme(url.split(':').next().unwrap_or("").to_string())
         })?;
 
         // Strip leading slashes to get the path
@@ -533,12 +534,7 @@ impl HpprUrl {
     pub fn is_hppr_scheme(scheme: &str) -> bool {
         matches!(
             scheme,
-            "hppr"
-                | "hppr-setup"
-                | "hppr-sandbox"
-                | "hppr-browse"
-                | "hppr-editor"
-                | "havi"
+            "hppr" | "hppr-setup" | "hppr-sandbox" | "hppr-browse" | "hppr-editor" | "havi"
         )
     }
 }
@@ -586,7 +582,10 @@ mod tests {
     #[test]
     fn test_hppr_with_jsonqa_suffix() {
         // JSONqa suffix must be stripped before URC parsing
-        let url = HAVIAddress::parse("hppr://u/showcase/video/index.html{src://u/showcase/video/demo.mp4}").unwrap();
+        let url = HAVIAddress::parse(
+            "hppr://u/showcase/video/index.html{src://u/showcase/video/demo.mp4}",
+        )
+        .unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         assert_eq!(url.group(), Some("u".to_string()));
         assert_eq!(url.app(), Some("showcase".to_string()));
@@ -596,7 +595,10 @@ mod tests {
     #[test]
     fn test_hppr_with_percent_encoded_jsonqa() {
         // The url crate percent-encodes { -> %7B, } -> %7D
-        let url = HAVIAddress::parse("hppr://u/showcase/video/index.html%7Bsrc://u/showcase/video/demo.mp4%7D").unwrap();
+        let url = HAVIAddress::parse(
+            "hppr://u/showcase/video/index.html%7Bsrc://u/showcase/video/demo.mp4%7D",
+        )
+        .unwrap();
         assert_eq!(url.group(), Some("u".to_string()));
         assert_eq!(url.app(), Some("showcase".to_string()));
         assert_eq!(url.location(), Some("video/index.html".to_string()));
@@ -657,7 +659,8 @@ mod tests {
 
     #[test]
     fn test_hppr_sandbox() {
-        let url = HAVIAddress::parse("hppr-sandbox://group/app/index.html{via:10.0.0.5:4778}").unwrap();
+        let url =
+            HAVIAddress::parse("hppr-sandbox://group/app/index.html{via:10.0.0.5:4778}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::HpprSandbox);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "10.0.0.5");
@@ -699,7 +702,10 @@ mod tests {
         assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
         assert_eq!(HAVIAddress::build_urc_string("u", "", ""), "//u/");
         assert_eq!(HAVIAddress::build_urc_string("u", "app", ""), "//u/app");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "loc"), "//u/app/loc");
+        assert_eq!(
+            HAVIAddress::build_urc_string("u", "app", "loc"),
+            "//u/app/loc"
+        );
         assert_eq!(HAVIAddress::build_urc_string("u", "app", "/"), "//u/app/");
         assert_eq!(
             HAVIAddress::build_urc_string("u", "app", "loc/"),
@@ -836,7 +842,8 @@ mod tests {
     #[test]
     fn test_via_with_other_qa() {
         // {via:...} alongside other JSONqa keys
-        let url = HAVIAddress::parse("hppr://u/app/index.html{via:10.0.0.1:4777,src://u/app/data}").unwrap();
+        let url = HAVIAddress::parse("hppr://u/app/index.html{via:10.0.0.1:4777,src://u/app/data}")
+            .unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "10.0.0.1");

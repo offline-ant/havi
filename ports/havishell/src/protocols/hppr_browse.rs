@@ -19,7 +19,10 @@ pub struct HpprBrowseHandler {
 
 impl HpprBrowseHandler {
     pub fn new(client: Arc<HpprdClientAsync>, credential_store: CredentialStoreHandle) -> Self {
-        Self { client, credential_store }
+        Self {
+            client,
+            credential_store,
+        }
     }
 }
 
@@ -38,8 +41,7 @@ impl ProtocolHandler for HpprBrowseHandler {
 
         Box::pin(async move {
             let page =
-                havi_protocols::pages::hppr_browse::handle_request(&url_str, &client, &creds)
-                    .await;
+                havi_protocols::pages::hppr_browse::handle_request(&url_str, &client, &creds).await;
             super::page_response_to_servo(page, url, ResourceFetchTiming::new(timing_type))
         })
     }

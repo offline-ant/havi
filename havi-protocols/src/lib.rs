@@ -10,17 +10,17 @@
 //! Shell embedders (havishell, servoshell) call these functions and feed the
 //! result to their rendering layer.
 
-pub mod config;
 pub mod client;
-pub mod instance;
+pub mod config;
 pub mod credentials;
-pub mod pylon;
+pub mod instance;
 pub mod local_ip;
 pub mod page_shell;
+pub mod pages;
+pub mod pylon;
 pub mod url;
 pub mod util;
 pub mod watch;
-pub mod pages;
 
 /// Response from a protocol page handler.
 ///

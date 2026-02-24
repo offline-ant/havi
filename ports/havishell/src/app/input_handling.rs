@@ -1,8 +1,7 @@
 use makepad_widgets::*;
 use servo::{
-    CompositionEvent, CompositionState, ImeEvent, Key, KeyState, KeyboardEvent,
-    MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
-    NamedKey, TouchEventType, TouchId,
+    CompositionEvent, CompositionState, ImeEvent, Key, KeyState, KeyboardEvent, MouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent, NamedKey, TouchEventType, TouchId,
 };
 
 use super::{App, TAP_DISTANCE_THRESHOLD};
@@ -18,7 +17,7 @@ impl App {
                 let swva: ServoWebViewAction = wa.cast();
 
                 match &swva {
-                    ServoWebViewAction::None => {}
+                    ServoWebViewAction::None => {},
 
                     // ----- Finger / touch -----
                     //
@@ -34,7 +33,12 @@ impl App {
                     //             position, then Touch(Move) for each move,
                     //             and Touch(Up) at the end.
                     //
-                    ServoWebViewAction::FingerDown { abs, digit_id: _, is_mouse, is_right_click } => {
+                    ServoWebViewAction::FingerDown {
+                        abs,
+                        digit_id: _,
+                        is_mouse,
+                        is_right_click,
+                    } => {
                         if *is_right_click {
                             let pt = self.point_to_device(cx, *abs);
                             self.send_input_event(servo::InputEvent::MouseButton(
@@ -68,8 +72,12 @@ impl App {
                             // Don't send any event yet — wait to see if it's a tap or drag/scroll.
                             handled_input = true;
                         }
-                    }
-                    ServoWebViewAction::FingerUp { abs, digit_id, is_mouse: _ } => {
+                    },
+                    ServoWebViewAction::FingerUp {
+                        abs,
+                        digit_id,
+                        is_mouse: _,
+                    } => {
                         if self.is_right_click_gesture {
                             self.is_right_click_gesture = false;
                         } else {
@@ -90,11 +98,7 @@ impl App {
                             } else if self.is_touch_scrolling {
                                 // Complete the touch/scroll sequence
                                 self.send_input_event(servo::InputEvent::Touch(
-                                    servo::TouchEvent::new(
-                                        TouchEventType::Up,
-                                        touch_id,
-                                        pt.into(),
-                                    ),
+                                    servo::TouchEvent::new(TouchEventType::Up, touch_id, pt.into()),
                                 ));
                             } else {
                                 // TAP — send mouse click only (no touch events)
@@ -124,8 +128,12 @@ impl App {
                         self.is_mouse_gesture = false;
                         self.is_mouse_dragging = false;
                         handled_input = true;
-                    }
-                    ServoWebViewAction::FingerMove { abs, digit_id, is_mouse: _ } => {
+                    },
+                    ServoWebViewAction::FingerMove {
+                        abs,
+                        digit_id,
+                        is_mouse: _,
+                    } => {
                         if self.is_right_click_gesture {
                             handled_input = true;
                         } else {
@@ -181,23 +189,22 @@ impl App {
                             }
                             handled_input = true;
                         }
-                    }
+                    },
 
                     // ----- Mouse hover events -----
-                    ServoWebViewAction::HoverIn { abs }
-                    | ServoWebViewAction::HoverOver { abs } => {
+                    ServoWebViewAction::HoverIn { abs } | ServoWebViewAction::HoverOver { abs } => {
                         let pt = self.point_to_device(cx, *abs);
                         self.send_input_event(servo::InputEvent::MouseMove(
                             servo::MouseMoveEvent::new(pt.into()),
                         ));
                         handled_input = true;
-                    }
+                    },
                     ServoWebViewAction::HoverOut => {
                         self.send_input_event(servo::InputEvent::MouseLeftViewport(
                             MouseLeftViewportEvent::default(),
                         ));
                         handled_input = true;
-                    }
+                    },
 
                     // ----- Scroll / wheel events -----
                     ServoWebViewAction::Scroll { abs, scroll } => {
@@ -208,30 +215,43 @@ impl App {
                             z: 0.0,
                             mode: servo::WheelMode::DeltaPixel,
                         };
-                        self.send_input_event(servo::InputEvent::Wheel(
-                            servo::WheelEvent::new(delta, pt.into()),
-                        ));
+                        self.send_input_event(servo::InputEvent::Wheel(servo::WheelEvent::new(
+                            delta,
+                            pt.into(),
+                        )));
                         // Update local scroll estimate for the overlay indicator.
                         // scroll.y is in logical pixels (negative = scroll down in Makepad).
                         self.scroll_y_estimate = (self.scroll_y_estimate - scroll.y).max(0.0);
                         // Use viewport size as rough content height estimate until we know better.
-                        let vp_h = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx).size.y;
+                        let vp_h = self
+                            .ui
+                            .servo_web_view(cx, ids!(web_view))
+                            .area()
+                            .rect(cx)
+                            .size
+                            .y;
                         if self.content_height_estimate < vp_h {
                             self.content_height_estimate = vp_h * 3.0; // rough initial guess
                         }
                         // Clamp scroll to content bounds
                         let max_scroll = (self.content_height_estimate - vp_h).max(0.0);
                         self.scroll_y_estimate = self.scroll_y_estimate.min(max_scroll);
-                        self.ui.servo_web_view(cx, ids!(web_view))
-                            .set_scroll_state(cx, self.scroll_y_estimate, self.content_height_estimate, vp_h);
+                        self.ui.servo_web_view(cx, ids!(web_view)).set_scroll_state(
+                            cx,
+                            self.scroll_y_estimate,
+                            self.content_height_estimate,
+                            vp_h,
+                        );
                         handled_input = true;
-                    }
+                    },
 
                     // ----- Keyboard events -----
                     ServoWebViewAction::KeyDown { key_event } => {
                         // Escape dismisses context menu
                         if self.context_menu_open {
-                            if key_event.key_code == makepad_widgets::makepad_platform::KeyCode::Escape {
+                            if key_event.key_code
+                                == makepad_widgets::makepad_platform::KeyCode::Escape
+                            {
                                 self.hide_context_menu(cx);
                                 handled_input = true;
                                 continue;
@@ -241,13 +261,13 @@ impl App {
                             self.send_input_event(event);
                             handled_input = true;
                         }
-                    }
+                    },
                     ServoWebViewAction::KeyUp { key_event } => {
                         if let Some(event) = crate::input::translate_key_event(key_event, false) {
                             self.send_input_event(event);
                             handled_input = true;
                         }
-                    }
+                    },
 
                     // ----- IME / text input -----
                     ServoWebViewAction::TextInput { input } => {
@@ -258,12 +278,12 @@ impl App {
                                     Key::Named(NamedKey::Process),
                                 ),
                             ));
-                            self.send_input_event(servo::InputEvent::Ime(
-                                ImeEvent::Composition(CompositionEvent {
+                            self.send_input_event(servo::InputEvent::Ime(ImeEvent::Composition(
+                                CompositionEvent {
                                     state: CompositionState::End,
                                     data: input.clone(),
-                                }),
-                            ));
+                                },
+                            )));
                             self.send_input_event(servo::InputEvent::Keyboard(
                                 KeyboardEvent::from_state_and_key(
                                     KeyState::Up,
@@ -272,7 +292,7 @@ impl App {
                             ));
                             handled_input = true;
                         }
-                    }
+                    },
                 }
             }
         }

@@ -1,5 +1,5 @@
-use makepad_widgets::*;
 use euclid::Scale;
+use makepad_widgets::*;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 
@@ -10,7 +10,8 @@ pub(super) const HOME_URL: &str = "hppr://u/web/index.html";
 
 /// Derive a tab title from a URL. Uses the last path segment.
 pub(super) fn title_from_url(url: &str) -> String {
-    url.rsplit('/').find(|s| !s.is_empty())
+    url.rsplit('/')
+        .find(|s| !s.is_empty())
         .unwrap_or("New Tab")
         .to_string()
 }
@@ -42,7 +43,8 @@ impl App {
         let template_source = {
             let tab_bar = tab_bar_ref.borrow_mut();
             tab_bar.and_then(|tb| {
-                tb.children.iter()
+                tb.children
+                    .iter()
                     .find(|(id, _)| *id == live_id!(tab_template))
                     .and_then(|(_, w)| {
                         let view_borrow = w.borrow_mut::<View>();
@@ -61,7 +63,9 @@ impl App {
         // Keep the template (hidden)
         {
             if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb.children.iter()
+                if let Some(entry) = tb
+                    .children
+                    .iter()
                     .find(|(id, _)| *id == live_id!(tab_template))
                 {
                     let entry = entry.clone();
@@ -92,9 +96,19 @@ impl App {
             }
             // Set label text color
             let text_color = if is_active {
-                Vec4f { x: 0.9, y: 0.9, z: 0.9, w: 1.0 }
+                Vec4f {
+                    x: 0.9,
+                    y: 0.9,
+                    z: 0.9,
+                    w: 1.0,
+                }
             } else {
-                Vec4f { x: 0.6, y: 0.6, z: 0.6, w: 1.0 }
+                Vec4f {
+                    x: 0.6,
+                    y: 0.6,
+                    z: 0.6,
+                    w: 1.0,
+                }
             };
             let label_widget = widget.widget(cx, ids!(tab_label));
             if let Some(mut label) = label_widget.borrow_mut::<Label>() {
@@ -106,7 +120,9 @@ impl App {
         // Preserve the new_tab_btn widget from the original children
         {
             if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb.children.iter()
+                if let Some(entry) = tb
+                    .children
+                    .iter()
                     .find(|(id, _)| *id == live_id!(new_tab_btn))
                 {
                     new_children.push(entry.clone());
@@ -137,8 +153,7 @@ impl App {
 
         if let Some(tab_bar) = tab_bar_ref.borrow_mut() {
             for (child_id, child_widget) in tab_bar.children.iter() {
-                let Some(tab_idx) = self.tabs.iter().position(|t| t.widget_id == *child_id)
-                else {
+                let Some(tab_idx) = self.tabs.iter().position(|t| t.widget_id == *child_id) else {
                     continue;
                 };
 
@@ -215,7 +230,9 @@ impl App {
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, HOME_URL);
+        self.ui
+            .text_input(cx, ids!(url_input))
+            .set_text(cx, HOME_URL);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }
@@ -253,7 +270,8 @@ impl App {
         self.activate_tab_webview(idx);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
-        self.ui.button(cx, ids!(watch_btn))
+        self.ui
+            .button(cx, ids!(watch_btn))
             .set_text(cx, self.tabs[idx].watch.mode().label());
         self.needs_paint = true;
         self.sync_tab_bar(cx);
@@ -263,5 +281,4 @@ impl App {
     pub(super) fn tab_index_for_webview(&self, webview_id: WebViewId) -> Option<usize> {
         self.tabs.iter().position(|t| t.webview_id == webview_id)
     }
-
 }

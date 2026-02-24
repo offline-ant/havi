@@ -19,7 +19,10 @@ pub struct HpprHandler {
 
 impl HpprHandler {
     pub fn new(client: Arc<HpprdClientAsync>, credential_store: CredentialStoreHandle) -> Self {
-        Self { client, credential_store }
+        Self {
+            client,
+            credential_store,
+        }
     }
 }
 
@@ -37,8 +40,7 @@ impl ProtocolHandler for HpprHandler {
         let creds = self.credential_store.clone();
 
         Box::pin(async move {
-            let page =
-                havi_protocols::pages::hppr::handle_request(&url_str, &client, &creds).await;
+            let page = havi_protocols::pages::hppr::handle_request(&url_str, &client, &creds).await;
             super::page_response_to_servo(page, url, ResourceFetchTiming::new(timing_type))
         })
     }

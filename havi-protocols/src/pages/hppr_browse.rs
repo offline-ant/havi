@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use hppr_client::env_target::parse_via;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
@@ -71,15 +71,11 @@ pub async fn handle_request(
             Ok(v) => v,
             Err(e) => {
                 return render_error(&format!("Invalid endpoint: {}", e));
-            }
+            },
         }
     } else {
-        let (ep, _) = resolve_route_endpoint(
-            &parts.group,
-            &parts.app,
-            client,
-            credential_store,
-        ).await;
+        let (ep, _) =
+            resolve_route_endpoint(&parts.group, &parts.app, client, credential_store).await;
         ep
     };
 
@@ -92,7 +88,8 @@ pub async fn handle_request(
         &parts.app,
         &location,
         endpoint_str.as_deref(),
-    ).await
+    )
+    .await
 }
 
 /// Handle LIST request and render directory listing.
@@ -170,7 +167,13 @@ fn render_breadcrumb(group: &str, app: &str, location: &str, endpoint: Option<&s
 }
 
 /// Render directory listing as HTML with browse and open links.
-fn render_browse_html(group: &str, app: &str, location: &str, children: &[String], endpoint: Option<&str>) -> String {
+fn render_browse_html(
+    group: &str,
+    app: &str,
+    location: &str,
+    children: &[String],
+    endpoint: Option<&str>,
+) -> String {
     let display_urc = build_urc(group, app, location);
     let breadcrumb = render_breadcrumb(group, app, location, endpoint);
 
@@ -284,7 +287,11 @@ fn render_error(error: &str) -> PageResponse {
         html_escape(error)
     );
 
-    PageResponse::html(crate::page_shell::render_page("Browse Error - HAVI", css, &body))
+    PageResponse::html(crate::page_shell::render_page(
+        "Browse Error - HAVI",
+        css,
+        &body,
+    ))
 }
 
 #[cfg(test)]

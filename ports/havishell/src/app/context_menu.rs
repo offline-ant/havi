@@ -15,7 +15,10 @@ pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
         return None;
     }
     // For HPPR URLs, replace scheme: hppr://group/app/loc → hppr-editor://group/app/loc
-    Some(format!("hppr-editor://{}", &url.as_str()["hppr://".len()..]))
+    Some(format!(
+        "hppr-editor://{}",
+        &url.as_str()["hppr://".len()..]
+    ))
 }
 
 impl App {
@@ -23,7 +26,9 @@ impl App {
     pub(super) fn show_context_menu(&mut self, cx: &mut Cx) {
         let url_text = self.ui.text_input(cx, ids!(url_input)).text();
         let has_editor = editor_url_for(&url_text).is_some();
-        self.ui.button(cx, ids!(context_edit_btn)).set_visible(cx, has_editor);
+        self.ui
+            .button(cx, ids!(context_edit_btn))
+            .set_visible(cx, has_editor);
         // abs_pos is window-absolute in Makepad, so use click position directly.
         let content_rect = self.ui.view(cx, ids!(content_area)).area().rect(cx);
         let mut menu_x = self.context_menu_pos.x;
@@ -63,8 +68,8 @@ impl App {
     pub(super) fn send_copy_command(&self) {
         use keyboard_types::{Code, Modifiers};
         // Send Ctrl+C keydown
-        self.send_input_event(servo::InputEvent::Keyboard(
-            KeyboardEvent::new(keyboard_types::KeyboardEvent {
+        self.send_input_event(servo::InputEvent::Keyboard(KeyboardEvent::new(
+            keyboard_types::KeyboardEvent {
                 state: keyboard_types::KeyState::Down,
                 key: Key::Character("c".into()),
                 code: Code::KeyC,
@@ -72,11 +77,11 @@ impl App {
                 modifiers: Modifiers::CONTROL,
                 repeat: false,
                 is_composing: false,
-            }),
-        ));
+            },
+        )));
         // Send Ctrl+C keyup
-        self.send_input_event(servo::InputEvent::Keyboard(
-            KeyboardEvent::new(keyboard_types::KeyboardEvent {
+        self.send_input_event(servo::InputEvent::Keyboard(KeyboardEvent::new(
+            keyboard_types::KeyboardEvent {
                 state: keyboard_types::KeyState::Up,
                 key: Key::Character("c".into()),
                 code: Code::KeyC,
@@ -84,7 +89,7 @@ impl App {
                 modifiers: Modifiers::CONTROL,
                 repeat: false,
                 is_composing: false,
-            }),
-        ));
+            },
+        )));
     }
 }

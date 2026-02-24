@@ -124,7 +124,7 @@ pub async fn resolve_route_endpoint(
         None => {
             log::debug!("No admin credential for route lookup, falling back to repo");
             return (repo_target, None);
-        }
+        },
     };
 
     let account = cred.ring1_name.clone();
@@ -133,21 +133,36 @@ pub async fn resolve_route_endpoint(
     let repo_vkey = match repo_client.get_admin_identity(&account, &token).await {
         Ok(key) => key,
         Err(e) => {
-            log::debug!("Failed to get admin identity for route lookup: {}, falling back to repo", e);
+            log::debug!(
+                "Failed to get admin identity for route lookup: {}, falling back to repo",
+                e
+            );
             return (repo_target, None);
-        }
+        },
     };
 
-    match repo_client.get_route(group, app, &repo_vkey, &account, &token).await {
+    match repo_client
+        .get_route(group, app, &repo_vkey, &account, &token)
+        .await
+    {
         Ok(route_info) => {
             let endpoint = route_info.upstream.unwrap_or_else(|| {
-                log::debug!("Route for {}/{} has no upstream, falling back to repo", group, app);
+                log::debug!(
+                    "Route for {}/{} has no upstream, falling back to repo",
+                    group,
+                    app
+                );
                 repo_target.clone()
             });
             (endpoint, route_info.upstream_verification_key)
         },
         Err(e) => {
-            log::debug!("No route for {}/{}: {}, falling back to repo", group, app, e);
+            log::debug!(
+                "No route for {}/{}: {}, falling back to repo",
+                group,
+                app,
+                e
+            );
             (repo_target, None)
         },
     }

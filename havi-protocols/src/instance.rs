@@ -10,8 +10,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::sync::OnceLock;
+use std::sync::mpsc;
 
 use serde::{Deserialize, Serialize};
 
@@ -38,22 +38,32 @@ pub fn ipc_socket_path() -> PathBuf {
 /// Returns Ok(()) if the command was accepted, Err if no instance is running.
 pub fn try_send_open(url: &str) -> Result<(), String> {
     let path = ipc_socket_path();
-    let mut stream = UnixStream::connect(&path)
-        .map_err(|e| format!("no running instance: {}", e))?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|e| format!("no running instance: {}", e))?;
 
-    let cmd = IpcCommand::Open { url: url.to_string() };
+    let cmd = IpcCommand::Open {
+        url: url.to_string(),
+    };
     let mut line = serde_json::to_string(&cmd).map_err(|e| e.to_string())?;
     line.push('\n');
-    stream.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+    stream
+        .write_all(line.as_bytes())
+        .map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())?;
 
     let mut reader = BufReader::new(&stream);
     let mut resp_line = String::new();
-    reader.read_line(&mut resp_line).map_err(|e| e.to_string())?;
-    let resp: IpcResponse = serde_json::from_str(&resp_line)
-        .map_err(|e| format!("bad response: {}", e))?;
+    reader
+        .read_line(&mut resp_line)
+        .map_err(|e| e.to_string())?;
+    let resp: IpcResponse =
+        serde_json::from_str(&resp_line).map_err(|e| format!("bad response: {}", e))?;
 
-    if resp.ok { Ok(()) } else { Err("rejected".to_string()) }
+    if resp.ok {
+        Ok(())
+    } else {
+        Err("rejected".to_string())
+    }
 }
 
 /// Start the IPC listener. Returns a receiver for incoming commands.
@@ -65,7 +75,9 @@ pub fn start_ipc_listener() -> Result<mpsc::Receiver<IpcCommand>, String> {
     if path.exists() {
         match UnixStream::connect(&path) {
             Ok(_) => return Err("another instance is listening".to_string()),
-            Err(_) => { let _ = std::fs::remove_file(&path); }
+            Err(_) => {
+                let _ = std::fs::remove_file(&path);
+            },
         }
     }
 
@@ -101,8 +113,12 @@ fn handle_ipc_client(stream: UnixStream, tx: mpsc::Sender<IpcCommand>) {
     let reader = BufReader::new(&stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
-        if line.is_empty() { continue; }
-        let Ok(cmd) = serde_json::from_str::<IpcCommand>(&line) else { continue };
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(cmd) = serde_json::from_str::<IpcCommand>(&line) else {
+            continue;
+        };
         let ok = tx.send(cmd).is_ok();
         let resp = IpcResponse { ok };
         let mut writer = &stream;

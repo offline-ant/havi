@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use crate::PageResponse;
-use crate::client::{get_admin_credentials, HpprdClientAsync};
+use crate::client::{HpprdClientAsync, get_admin_credentials};
 use crate::credentials::CredentialStoreHandle;
 use crate::url::HAVIAddress;
 use crate::util::html_escape;
@@ -25,7 +25,7 @@ pub async fn handle_request(
         Ok(u) => u,
         Err(e) => {
             return PageResponse::html(render_editor_error(&format!("Invalid coordinate: {}", e)));
-        }
+        },
     };
 
     let parts = address.parts();
@@ -52,11 +52,17 @@ pub async fn handle_request(
                 },
                 Err(_) => String::new(),
             }
-        }
+        },
         None => String::new(),
     };
 
-    let html = render_editor_html(&parts.group, &parts.app, &parts.location, &current_content, &urc);
+    let html = render_editor_html(
+        &parts.group,
+        &parts.app,
+        &parts.location,
+        &current_content,
+        &urc,
+    );
     let (ring1_name, token) = get_admin_credentials();
     PageResponse::html(html).with_admin_credentials(ring1_name, token)
 }
@@ -167,7 +173,11 @@ fn render_editor_html(group: &str, app: &str, location: &str, content: &str, urc
         script = script,
     );
 
-    crate::page_shell::render_page(&format!("Edit {} - HAVI", html_escape(urc)), extra_css, &body)
+    crate::page_shell::render_page(
+        &format!("Edit {} - HAVI", html_escape(urc)),
+        extra_css,
+        &body,
+    )
 }
 
 /// Render editor error page.

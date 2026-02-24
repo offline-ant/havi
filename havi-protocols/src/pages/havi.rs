@@ -155,7 +155,12 @@ const ADMIN_CSS: &str = r#"
 /// Render an admin page with shared shell, admin CSS, and nav bar.
 fn render_admin_page(title: &str, active_nav: &str, extra_css: &str, body_content: &str) -> String {
     let css = format!("{}{}", ADMIN_CSS, extra_css);
-    let body = format!("    <h1>{}</h1>\n    {}\n{}", title, render_nav(active_nav), body_content);
+    let body = format!(
+        "    <h1>{}</h1>\n    {}\n{}",
+        title,
+        render_nav(active_nav),
+        body_content
+    );
     crate::page_shell::render_page(&format!("{} - HAVI", title), &css, &body)
 }
 
@@ -294,7 +299,11 @@ fn render_nav(active: &str) -> String {
     let links: Vec<String> = pages
         .iter()
         .map(|(href, label)| {
-            let class = if *label == active { " class=\"active\"" } else { "" };
+            let class = if *label == active {
+                " class=\"active\""
+            } else {
+                ""
+            };
             format!(r#"<a href="{}"{}>{}</a>"#, href, class, label)
         })
         .collect();
@@ -304,7 +313,11 @@ fn render_nav(active: &str) -> String {
 
 /// Render the dashboard page.
 fn render_dashboard() -> String {
-    render_admin_page("HAVI", "Overview", "", r#"
+    render_admin_page(
+        "HAVI",
+        "Overview",
+        "",
+        r#"
     <div class="card">
         <h2>Browser Administration</h2>
         <p><a href="havi:///home-repo">Home Repo</a> - Port, repo path, and home repo status</p>
@@ -314,7 +327,8 @@ fn render_dashboard() -> String {
         <p><a href="havi:///ring1">Ring1</a> - Manage ring1 accounts and requests</p>
         <p><a href="havi:///ring0">Ring0 Proxy</a> - Review and approve ring1 proxy requests</p>
         <p><a href="havi:///services">Services</a> - Pylon service manager (hpprd, lokid, unlokid, hppr-nfs)</p>
-    </div>"#)
+    </div>"#,
+    )
 }
 
 /// Render the home repo configuration page.
@@ -544,7 +558,8 @@ fn render_accounts_page() -> String {
         .editor-buttons { margin-top: 15px; display: flex; gap: 10px; }
     "#;
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     <div id="message"></div>
 
     <div class="card">
@@ -581,7 +596,11 @@ fn render_accounts_page() -> String {
 
 /// Render the groups page (stub).
 fn render_groups_page() -> String {
-    render_admin_page("Group Membership", "Groups", "", r#"
+    render_admin_page(
+        "Group Membership",
+        "Groups",
+        "",
+        r#"
     <div class="card">
         <h2>Group Management</h2>
         <p class="empty">Group membership management coming soon.</p>
@@ -589,7 +608,8 @@ fn render_groups_page() -> String {
             Group setup: <code style="color: #7fdbff;">//<em>group</em>/admin/setup/|</code><br>
             Membership: <code style="color: #7fdbff;">//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code>
         </p>
-    </div>"#)
+    </div>"#,
+    )
 }
 
 /// Render the Anyone account ACL editor page.
@@ -653,7 +673,8 @@ fn render_anyone_page() -> String {
         .acl-tree .acl-row { display: inline-grid; width: calc(100% - 15px); }
     "#;
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     <div id="message"></div>
 
     <div class="card">
@@ -739,7 +760,8 @@ fn render_ring0_proxy_page() -> String {
         }
     "#;
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     <div id="message"></div>
 
     <div class="card">
@@ -769,7 +791,8 @@ fn render_services_page() -> String {
         .btn-small { padding: 6px 12px; font-size: 0.85em; }
     "#;
 
-    let body = format!(r#"
+    let body = format!(
+        r#"
     <div id="message"></div>
 
     <div class="card">
@@ -806,37 +829,44 @@ fn render_services_page() -> String {
 fn handle_services_api(path: &str) -> String {
     // Parse query string from path
     let query = path.split('?').nth(1).unwrap_or("");
-    let params: Vec<(&str, &str)> = query.split('&')
-        .filter_map(|p| p.split_once('='))
-        .collect();
+    let params: Vec<(&str, &str)> = query.split('&').filter_map(|p| p.split_once('=')).collect();
 
-    let cmd = params.iter().find(|(k, _)| *k == "cmd").map(|(_, v)| *v).unwrap_or("status");
-    let service = params.iter().find(|(k, _)| *k == "service").map(|(_, v)| *v);
+    let cmd = params
+        .iter()
+        .find(|(k, _)| *k == "cmd")
+        .map(|(_, v)| *v)
+        .unwrap_or("status");
+    let service = params
+        .iter()
+        .find(|(k, _)| *k == "service")
+        .map(|(_, v)| *v);
 
     let mut client = match crate::pylon::PylonClient::try_connect(&crate::config::repo_dir()) {
         Some(c) => c,
         None => {
-            return serde_json::json!({"error": "Pylon is not running. Start pylon first."}).to_string();
-        }
+            return serde_json::json!({"error": "Pylon is not running. Start pylon first."})
+                .to_string();
+        },
     };
 
     match cmd {
-        "status" => {
-            match client.status() {
-                Ok(services) => {
-                    let list: Vec<serde_json::Value> = services.iter().map(|s| {
+        "status" => match client.status() {
+            Ok(services) => {
+                let list: Vec<serde_json::Value> = services
+                    .iter()
+                    .map(|s| {
                         serde_json::json!({
                             "name": s.name,
                             "state": s.state,
                             "pid": s.pid,
                             "port": s.port,
                         })
-                    }).collect();
-                    serde_json::json!({"services": list}).to_string()
-                }
-                Err(e) => serde_json::json!({"error": e}).to_string(),
-            }
-        }
+                    })
+                    .collect();
+                serde_json::json!({"services": list}).to_string()
+            },
+            Err(e) => serde_json::json!({"error": e}).to_string(),
+        },
         "start" => {
             let Some(name) = service else {
                 return serde_json::json!({"error": "missing service parameter"}).to_string();
@@ -845,7 +875,7 @@ fn handle_services_api(path: &str) -> String {
                 Ok(()) => serde_json::json!({"ok": true}).to_string(),
                 Err(e) => serde_json::json!({"error": e}).to_string(),
             }
-        }
+        },
         "stop" => {
             let Some(name) = service else {
                 return serde_json::json!({"error": "missing service parameter"}).to_string();
@@ -854,7 +884,7 @@ fn handle_services_api(path: &str) -> String {
                 Ok(()) => serde_json::json!({"ok": true}).to_string(),
                 Err(e) => serde_json::json!({"error": e}).to_string(),
             }
-        }
+        },
         _ => serde_json::json!({"error": format!("unknown command: {}", cmd)}).to_string(),
     }
 }

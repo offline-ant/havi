@@ -12,13 +12,13 @@
 use hppr_client::Packet;
 use hppr_client::env_target::ViaSpec;
 use hppr_client::{
-    spawn_connection, AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer,
+    AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer, spawn_connection,
 };
-use hppr_packet::{acl_coord_sort_key, PacketType};
+use hppr_packet::{PacketType, acl_coord_sort_key};
 use tokio::sync::Mutex;
 
 use crate::credentials::{
-    global_credential_store, SiteCredential, DEFAULT_RING0_NAME, DEFAULT_ROOT_TOKEN,
+    DEFAULT_RING0_NAME, DEFAULT_ROOT_TOKEN, SiteCredential, global_credential_store,
 };
 
 // ============================================================================
@@ -72,7 +72,6 @@ pub fn get_admin_credentials() -> (String, String) {
         )
     }
 }
-
 
 /// Async client for communicating with hpprd daemon.
 ///
@@ -131,69 +130,94 @@ impl HpprdClientAsync {
                             .await
                             .map_err(|e| e.to_string())?;
                         Ok(AnyConnection::Tcp(conn))
-                    }
+                    },
                     Some(hppr_client::TransportScheme::Quib) => {
                         let conn = hppr_client::connect_quib_async(addr, self.signer.clone())
                             .await
                             .map_err(|e| e.to_string())?;
                         Ok(AnyConnection::Quib(Box::new(conn)))
-                    }
+                    },
                     Some(hppr_client::TransportScheme::Ws) => {
-                        let conn = hppr_client::spawn_ws_connection(host.clone(), *port, self.signer.clone())
-                            .await
-                            .map_err(|e| e.to_string())?;
+                        let conn = hppr_client::spawn_ws_connection(
+                            host.clone(),
+                            *port,
+                            self.signer.clone(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
                         Ok(AnyConnection::Tcp(conn))
-                    }
+                    },
                     Some(hppr_client::TransportScheme::Udp) => {
                         let conn = hppr_client::connect_udp_stateless(addr)
                             .await
                             .map_err(|e| e.to_string())?;
                         Ok(AnyConnection::Udp(conn))
-                    }
+                    },
                     None => {
                         // Auto-negotiate: connect TCP, check Transport headers
                         let conn = spawn_connection(addr, self.signer.clone())
                             .await
                             .map_err(|e| e.to_string())?;
-                        let resp = conn.send(IoRequest::Hello).await.map_err(|e| e.to_string())?;
+                        let resp = conn
+                            .send(IoRequest::Hello)
+                            .await
+                            .map_err(|e| e.to_string())?;
                         if let ResponseKind::Greeting(greeting) = &resp.kind {
                             let host_str = addr.ip().to_string();
                             for via in greeting.transports_for_host(&host_str) {
                                 match via {
-                                    ViaSpec::Net { scheme: Some(hppr_client::TransportScheme::Tcp), .. } => {
+                                    ViaSpec::Net {
+                                        scheme: Some(hppr_client::TransportScheme::Tcp),
+                                        ..
+                                    } => {
                                         return Ok(AnyConnection::Tcp(conn));
-                                    }
-                                    ViaSpec::Net { scheme: Some(hppr_client::TransportScheme::Quib), ref host, port, .. } => {
-                                        let quib_addr: std::net::SocketAddr = format!("{}:{}", host, port)
-                                            .parse()
-                                            .map_err(|e| format!("invalid quib address '{}:{}': {}", host, port, e))?;
-                                        let quib = hppr_client::connect_quib_async(quib_addr, self.signer.clone())
-                                            .await
-                                            .map_err(|e| e.to_string())?;
+                                    },
+                                    ViaSpec::Net {
+                                        scheme: Some(hppr_client::TransportScheme::Quib),
+                                        ref host,
+                                        port,
+                                        ..
+                                    } => {
+                                        let quib_addr: std::net::SocketAddr =
+                                            format!("{}:{}", host, port).parse().map_err(|e| {
+                                                format!(
+                                                    "invalid quib address '{}:{}': {}",
+                                                    host, port, e
+                                                )
+                                            })?;
+                                        let quib = hppr_client::connect_quib_async(
+                                            quib_addr,
+                                            self.signer.clone(),
+                                        )
+                                        .await
+                                        .map_err(|e| e.to_string())?;
                                         return Ok(AnyConnection::Quib(Box::new(quib)));
-                                    }
+                                    },
                                     _ => continue,
                                 }
                             }
                         }
                         Ok(AnyConnection::Tcp(conn))
-                    }
+                    },
                 }
-            }
+            },
             #[cfg(unix)]
             ViaSpec::Unix { path } => {
                 let conn = hppr_client::spawn_unix_connection(path.clone(), self.signer.clone())
                     .await
                     .map_err(|e| e.to_string())?;
-                Ok(AnyConnection::Unix { conn, path: path.clone() })
-            }
+                Ok(AnyConnection::Unix {
+                    conn,
+                    path: path.clone(),
+                })
+            },
             #[cfg(not(unix))]
             ViaSpec::Unix { path } => {
                 Err(format!("unix sockets not supported: {}", path.display()))
-            }
+            },
             ViaSpec::Unknown { scheme, .. } => {
                 Err(format!("unsupported transport scheme: {}", scheme))
-            }
+            },
         }
     }
 
@@ -236,17 +260,20 @@ impl HpprdClientAsync {
         _account: &str,
         _token: &str,
     ) -> Result<(String, Vec<u8>), String> {
-        let p = self.request_packet(
-            IoRequest::Get { urc: urc.to_string() },
-        ).await?;
+        let p = self
+            .request_packet(IoRequest::Get {
+                urc: urc.to_string(),
+            })
+            .await?;
         Ok(extract_content(&p))
     }
 
     /// GET returning validated Packet.
     async fn get_packet(&self, urc: &str) -> Result<Packet, String> {
-        self.request_packet(
-            IoRequest::Get { urc: urc.to_string() },
-        ).await
+        self.request_packet(IoRequest::Get {
+            urc: urc.to_string(),
+        })
+        .await
     }
 
     /// GET returning validated Packet (public wrapper, legacy signature).
@@ -261,25 +288,31 @@ impl HpprdClientAsync {
 
     /// LIST.
     pub async fn list(&self, urc: &str) -> Result<Vec<String>, String> {
-        let text = self.request_lines(
-            IoRequest::List { urc: urc.to_string() },
-        ).await?;
+        let text = self
+            .request_lines(IoRequest::List {
+                urc: urc.to_string(),
+            })
+            .await?;
         Ok(Self::parse_lines(&text))
     }
 
     /// MEMBERS.
     pub async fn members(&self, urc: &str) -> Result<Vec<String>, String> {
-        let text = self.request_lines(
-            IoRequest::Members { args: urc.to_string() },
-        ).await?;
+        let text = self
+            .request_lines(IoRequest::Members {
+                args: urc.to_string(),
+            })
+            .await?;
         Ok(Self::parse_lines(&text))
     }
 
     /// ADD.
     pub async fn add(&self, add_args: &[u8]) -> Result<String, String> {
-        self.request_lines(
-            IoRequest::Add { headers: add_args.to_vec(), data: None },
-        ).await
+        self.request_lines(IoRequest::Add {
+            headers: add_args.to_vec(),
+            data: None,
+        })
+        .await
     }
 
     // ========================================================================
@@ -314,9 +347,10 @@ impl HpprdClientAsync {
 
         // Extract and parse Upstream header (single via target)
         let upstream = match packet.header("Upstream") {
-            Some(v) => Some(hppr_client::env_target::parse_via(v).map_err(|e| {
-                format!("invalid Upstream header '{}': {}", v, e)
-            })?),
+            Some(v) => Some(
+                hppr_client::env_target::parse_via(v)
+                    .map_err(|e| format!("invalid Upstream header '{}': {}", v, e))?,
+            ),
             None => None,
         };
 
@@ -547,7 +581,6 @@ impl HpprdClientAsync {
 
         Err("No keys found for site Ring1".to_string())
     }
-
 }
 
 /// Extract content-type and body from a packet.

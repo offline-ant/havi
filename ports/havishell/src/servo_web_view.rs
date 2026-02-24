@@ -25,16 +25,42 @@ script_mod! {
 pub enum ServoWebViewAction {
     #[default]
     None,
-    FingerDown { abs: DVec2, digit_id: u64, is_mouse: bool, is_right_click: bool },
-    FingerUp { abs: DVec2, digit_id: u64, is_mouse: bool },
-    FingerMove { abs: DVec2, digit_id: u64, is_mouse: bool },
-    HoverIn { abs: DVec2 },
-    HoverOver { abs: DVec2 },
+    FingerDown {
+        abs: DVec2,
+        digit_id: u64,
+        is_mouse: bool,
+        is_right_click: bool,
+    },
+    FingerUp {
+        abs: DVec2,
+        digit_id: u64,
+        is_mouse: bool,
+    },
+    FingerMove {
+        abs: DVec2,
+        digit_id: u64,
+        is_mouse: bool,
+    },
+    HoverIn {
+        abs: DVec2,
+    },
+    HoverOver {
+        abs: DVec2,
+    },
     HoverOut,
-    Scroll { abs: DVec2, scroll: DVec2 },
-    KeyDown { key_event: KeyEvent },
-    KeyUp { key_event: KeyEvent },
-    TextInput { input: String },
+    Scroll {
+        abs: DVec2,
+        scroll: DVec2,
+    },
+    KeyDown {
+        key_event: KeyEvent,
+    },
+    KeyUp {
+        key_event: KeyEvent,
+    },
+    TextInput {
+        input: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -87,49 +113,48 @@ impl Widget for ServoWebView {
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
                 cx.set_key_focus(self.draw_bg.area());
-                let is_right_click = fd.device.mouse_button()
-                    .map_or(false, |b| b.is_secondary());
+                let is_right_click = fd.device.mouse_button().map_or(false, |b| b.is_secondary());
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::FingerDown {
                         abs: fd.abs,
-                        digit_id: fd.digit_id.0 .0,
+                        digit_id: fd.digit_id.0.0,
                         is_mouse: matches!(fd.device, DigitDevice::Mouse { .. }),
                         is_right_click,
                     },
                 );
-            }
+            },
             Hit::FingerUp(fu) => {
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::FingerUp {
                         abs: fu.abs,
-                        digit_id: fu.digit_id.0 .0,
+                        digit_id: fu.digit_id.0.0,
                         is_mouse: matches!(fu.device, DigitDevice::Mouse { .. }),
                     },
                 );
-            }
+            },
             Hit::FingerMove(fm) => {
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::FingerMove {
                         abs: fm.abs,
-                        digit_id: fm.digit_id.0 .0,
+                        digit_id: fm.digit_id.0.0,
                         is_mouse: matches!(fm.device, DigitDevice::Mouse { .. }),
                     },
                 );
-            }
+            },
 
             // ----- Hover -----
             Hit::FingerHoverIn(fh) => {
                 cx.widget_action(uid, ServoWebViewAction::HoverIn { abs: fh.abs });
-            }
+            },
             Hit::FingerHoverOver(fh) => {
                 cx.widget_action(uid, ServoWebViewAction::HoverOver { abs: fh.abs });
-            }
+            },
             Hit::FingerHoverOut(_) => {
                 cx.widget_action(uid, ServoWebViewAction::HoverOut);
-            }
+            },
 
             // ----- Scroll / wheel -----
             Hit::FingerScroll(fs) => {
@@ -140,7 +165,7 @@ impl Widget for ServoWebView {
                         scroll: fs.scroll,
                     },
                 );
-            }
+            },
 
             // ----- Keyboard -----
             Hit::KeyDown(ke) => {
@@ -150,7 +175,7 @@ impl Widget for ServoWebView {
                         key_event: ke.clone(),
                     },
                 );
-            }
+            },
             Hit::KeyUp(ke) => {
                 cx.widget_action(
                     uid,
@@ -158,7 +183,7 @@ impl Widget for ServoWebView {
                         key_event: ke.clone(),
                     },
                 );
-            }
+            },
 
             // ----- Text / IME -----
             Hit::TextInput(ti) => {
@@ -168,9 +193,9 @@ impl Widget for ServoWebView {
                         input: ti.input.clone(),
                     },
                 );
-            }
+            },
 
-            _ => {}
+            _ => {},
         }
     }
 
@@ -203,7 +228,12 @@ impl Widget for ServoWebView {
                 0.0
             };
             let alpha = (self.scroll_fade * 0.6) as f32;
-            self.draw_scroll_thumb.color = Vec4f { x: 0.5, y: 0.5, z: 0.5, w: alpha };
+            self.draw_scroll_thumb.color = Vec4f {
+                x: 0.5,
+                y: 0.5,
+                z: 0.5,
+                w: alpha,
+            };
             let thumb_rect = Rect {
                 pos: dvec2(
                     rect.pos.x + rect.size.x - thumb_width - margin_right,
@@ -255,7 +285,13 @@ impl ServoWebViewRef {
     }
 
     /// Update scroll state from a JS query result and trigger redraw.
-    pub fn set_scroll_state(&self, cx: &mut Cx, scroll_y: f64, content_height: f64, viewport_height: f64) {
+    pub fn set_scroll_state(
+        &self,
+        cx: &mut Cx,
+        scroll_y: f64,
+        content_height: f64,
+        viewport_height: f64,
+    ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.scroll_y = scroll_y;
             inner.content_height = content_height;

@@ -53,7 +53,8 @@ impl PylonClient {
         let stream = TcpStream::connect_timeout(
             &format!("127.0.0.1:{}", port).parse().unwrap(),
             Duration::from_secs(2),
-        ).map_err(|e| format!("pylon connect: {}", e))?;
+        )
+        .map_err(|e| format!("pylon connect: {}", e))?;
         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
         Ok(Self {
@@ -73,19 +74,22 @@ impl PylonClient {
 
         let mut line = serde_json::to_string(&req).unwrap();
         line.push('\n');
-        self.stream.get_mut().write_all(line.as_bytes())
+        self.stream
+            .get_mut()
+            .write_all(line.as_bytes())
             .map_err(|e| format!("pylon write: {}", e))?;
 
         // Read lines until we get our response (skip event broadcasts)
         loop {
             let mut resp_line = String::new();
-            self.stream.read_line(&mut resp_line)
+            self.stream
+                .read_line(&mut resp_line)
                 .map_err(|e| format!("pylon read: {}", e))?;
             if resp_line.is_empty() {
                 return Err("pylon: connection closed".to_string());
             }
-            let resp: serde_json::Value = serde_json::from_str(&resp_line)
-                .map_err(|e| format!("pylon parse: {}", e))?;
+            let resp: serde_json::Value =
+                serde_json::from_str(&resp_line).map_err(|e| format!("pylon parse: {}", e))?;
 
             // Skip event broadcasts (they have "event" field, not "id")
             if resp.get("event").is_some() {
@@ -95,7 +99,9 @@ impl PylonClient {
                 if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                     return Ok(resp.get("data").cloned().unwrap_or(serde_json::Value::Null));
                 } else {
-                    let err = resp.get("error").and_then(|v| v.as_str())
+                    let err = resp
+                        .get("error")
+                        .and_then(|v| v.as_str())
                         .unwrap_or("unknown error");
                     return Err(format!("pylon: {}", err));
                 }
@@ -111,8 +117,11 @@ impl PylonClient {
         for (name, val) in obj {
             services.push(ServiceStatus {
                 name: name.clone(),
-                state: val.get("state").and_then(|v| v.as_str())
-                    .unwrap_or("unknown").to_string(),
+                state: val
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
                 pid: val.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32),
                 port: val.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
             });
@@ -170,20 +179,28 @@ impl PylonClient {
                             if let Some(event) = val.get("event").and_then(|v| v.as_str()) {
                                 let ev = PylonEvent {
                                     event: event.to_string(),
-                                    service: val.get("service").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                                    service: val
+                                        .get("service")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
                                     pid: val.get("pid").and_then(|v| v.as_u64()).map(|n| n as u32),
-                                    port: val.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
+                                    port: val
+                                        .get("port")
+                                        .and_then(|v| v.as_u64())
+                                        .map(|n| n as u16),
                                 };
                                 if tx.send(ev).is_err() {
                                     break; // Receiver dropped
                                 }
                             }
                         }
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut => {
+                    },
+                    Err(ref e)
+                        if e.kind() == std::io::ErrorKind::WouldBlock
+                            || e.kind() == std::io::ErrorKind::TimedOut =>
+                    {
                         continue; // Read timeout, keep going
-                    }
+                    },
                     Err(_) => break, // Connection error
                 }
             }
@@ -230,9 +247,7 @@ pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> Option<P
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?;
     let mut cmd = Command::new(&exe);
-    cmd.arg("pylon")
-        .arg("--path")
-        .arg(repo_path);
+    cmd.arg("pylon").arg("--path").arg(repo_path);
     if let Some(addr) = home {
         cmd.arg("--home").arg(addr);
     }

@@ -19,7 +19,10 @@ pub struct HaviHandler {
 
 impl HaviHandler {
     pub fn new(client: Arc<HpprdClientAsync>, credential_store: CredentialStoreHandle) -> Self {
-        Self { _client: client, _credential_store: credential_store }
+        Self {
+            _client: client,
+            _credential_store: credential_store,
+        }
     }
 }
 

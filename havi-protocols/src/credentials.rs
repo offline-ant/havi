@@ -37,10 +37,7 @@ pub struct Credential {
 impl Credential {
     /// Create a new credential.
     pub fn new(ring1_name: String, token: String) -> Self {
-        Self {
-            ring1_name,
-            token,
-        }
+        Self { ring1_name, token }
     }
 
     /// Get the token for internal use only.
@@ -151,7 +148,11 @@ impl CredentialStore {
 
         if let Ok(mut admin) = self.admin.write() {
             *admin = Some(Credential::new(account, token));
-            log::info!("Loaded admin credential for key {} from {}", key, path.display());
+            log::info!(
+                "Loaded admin credential for key {} from {}",
+                key,
+                path.display()
+            );
             Ok(())
         } else {
             Err("Failed to acquire write lock".to_string())
@@ -160,7 +161,9 @@ impl CredentialStore {
 
     /// Persist admin credential for a specific repo key.
     pub fn persist_admin_for_key(&self, key: &str) -> Result<(), String> {
-        let admin = self.admin.read()
+        let admin = self
+            .admin
+            .read()
             .map_err(|_| "Failed to acquire read lock")?;
 
         let cred = admin.as_ref().ok_or("No admin credential to persist")?;
@@ -174,7 +177,11 @@ impl CredentialStore {
         fs::write(&path, &content)
             .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
 
-        log::info!("Persisted admin credential for key {} to {}", key, path.display());
+        log::info!(
+            "Persisted admin credential for key {} to {}",
+            key,
+            path.display()
+        );
         Ok(())
     }
 
@@ -272,7 +279,6 @@ impl CredentialStore {
 
         Ok(cred)
     }
-
 }
 
 /// Handle for sharing credential store across components.

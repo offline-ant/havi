@@ -11,9 +11,9 @@
 use std::sync::Arc;
 
 use hppr_client::env_target::{ViaSpec, parse_via};
-use hppr_packet::chunk::{is_chunk_manifest, parse_chunk_manifest, ChunkKind};
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use pulldown_cmark::{Parser, Options, html};
+use hppr_packet::chunk::{ChunkKind, is_chunk_manifest, parse_chunk_manifest};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use pulldown_cmark::{Options, Parser, html};
 
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
@@ -67,13 +67,8 @@ async fn resolve_target(
     } else if let Some(endpoint) = page_endpoint {
         (endpoint.clone(), None)
     } else {
-        let (endpoint, upstream_key) = resolve_route_endpoint(
-            &parts.group,
-            &parts.app,
-            repo_client,
-            credential_store,
-        )
-        .await;
+        let (endpoint, upstream_key) =
+            resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await;
 
         (endpoint, upstream_key)
     };
@@ -156,12 +151,10 @@ pub async fn handle_request(
                     let account = cred.ring1_name.clone();
                     let token = cred.token().to_string();
                     match client.get_admin_identity(&account, &token).await {
-                        Ok(key) => {
-                            client
-                                .get_route(&parts.group, &parts.app, &key, &account, &token)
-                                .await
-                                .is_ok()
-                        },
+                        Ok(key) => client
+                            .get_route(&parts.group, &parts.app, &key, &account, &token)
+                            .await
+                            .is_ok(),
                         Err(_) => false,
                     }
                 },
@@ -175,7 +168,8 @@ pub async fn handle_request(
                     format!("hppr-setup://{}/{}/{}", parts.group, parts.app, location)
                 };
                 let setup_url = via_url(&setup_coord, &host);
-                let redirect_html = render_setup_redirect(&setup_url, &host, &parts.group, &parts.app);
+                let redirect_html =
+                    render_setup_redirect(&setup_url, &host, &parts.group, &parts.app);
                 return PageResponse::html(redirect_html);
             }
         }
@@ -183,13 +177,17 @@ pub async fn handle_request(
 
     let (endpoint, urc, _upstream_key) =
         match resolve_target(&address, client, credential_store, None).await {
-        Ok(r) => r,
-        Err(e) => {
-            return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
-        },
-    };
+            Ok(r) => r,
+            Err(e) => {
+                return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
+            },
+        };
 
-    log::info!("hppr::handle_request resolved endpoint={} urc={}", endpoint, urc);
+    log::info!(
+        "hppr::handle_request resolved endpoint={} urc={}",
+        endpoint,
+        urc
+    );
     let repo_target = hppr_client::repo_target().clone();
     let is_repo = is_repo_endpoint(&endpoint, &repo_target);
 
@@ -206,11 +204,10 @@ pub async fn handle_request(
                 is_repo,
                 client,
                 credential_store,
-            ).await
+            )
+            .await
         },
-        HpprMode::List => {
-            handle_list(client, &endpoint, url, &urc).await
-        },
+        HpprMode::List => handle_list(client, &endpoint, url, &urc).await,
     }
 }
 
@@ -275,10 +272,19 @@ async fn handle_get(
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> PageResponse {
-    log::info!("handle_get: urc={} endpoint={} is_repo={}", urc, endpoint, is_repo);
+    log::info!(
+        "handle_get: urc={} endpoint={} is_repo={}",
+        urc,
+        endpoint,
+        is_repo
+    );
 
     if group.is_empty() || app.is_empty() {
-        return PageResponse::error("HPPR Error", "Group and app are required", Some(&format!("URL: {}", url)));
+        return PageResponse::error(
+            "HPPR Error",
+            "Group and app are required",
+            Some(&format!("URL: {}", url)),
+        );
     }
 
     // Build the appropriate client for the target endpoint.
@@ -296,7 +302,11 @@ async fn handle_get(
                 )))
             },
             Err(e) => {
-                log::warn!("No route credential for {}: {}, falling back to repo", group, e);
+                log::warn!(
+                    "No route credential for {}: {}, falling back to repo",
+                    group,
+                    e
+                );
                 None
             },
         }
@@ -307,9 +317,7 @@ async fn handle_get(
 
     // Fetch packet via GET
     let cred = credential_store.get_admin();
-    let fetch_result = fetch_client
-        .get_packet_authenticated(urc, "", "")
-        .await;
+    let fetch_result = fetch_client.get_packet_authenticated(urc, "", "").await;
 
     let packet = match fetch_result {
         Ok(p) => p,
@@ -385,7 +393,11 @@ async fn handle_get(
     let path = url.split("://").nth(1).unwrap_or("");
     let location_hint = if content_type.is_empty() { path } else { "" };
     let mime = if content_type.is_empty() {
-        mime_from_path(if location_hint.is_empty() { path } else { location_hint })
+        mime_from_path(if location_hint.is_empty() {
+            path
+        } else {
+            location_hint
+        })
     } else {
         &content_type
     };
@@ -426,9 +438,7 @@ async fn handle_get(
             .get_or_create_route_credential_async(group, client)
             .await
         {
-            response.hppr_signer = Some(
-                format!("@{}#{}",  group, route_cred.signing_key()),
-            );
+            response.hppr_signer = Some(format!("@{}#{}", group, route_cred.signing_key()));
         }
     }
 
@@ -448,9 +458,7 @@ async fn handle_list(
             let html = render_list_html(path, &children);
             PageResponse::html(html)
         },
-        Err(e) => {
-            PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)))
-        },
+        Err(e) => PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url))),
     }
 }
 
@@ -494,7 +502,11 @@ fn render_setup_redirect(setup_url: &str, host: &str, group: &str, app: &str) ->
 /// Render redirect page to hppr-setup for untrusted seals.
 fn render_trust_redirect(setup_url: &str, endpoint: &ViaSpec, trust_key: &str) -> String {
     let key_display = if trust_key.len() > 32 {
-        format!("{}...{}", &trust_key[..20], &trust_key[trust_key.len()-8..])
+        format!(
+            "{}...{}",
+            &trust_key[..20],
+            &trust_key[trust_key.len() - 8..]
+        )
     } else {
         trust_key.to_string()
     };
@@ -541,7 +553,11 @@ fn render_list_html(path: &str, children: &[String]) -> String {
         .iter()
         .map(|child| {
             let encoded = utf8_percent_encode(child, PATH_SEGMENT_ENCODE_SET).to_string();
-            format!(r#"<li><a href="./{}">{}</a></li>"#, encoded, html_escape(child))
+            format!(
+                r#"<li><a href="./{}">{}</a></li>"#,
+                encoded,
+                html_escape(child)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n            ");
@@ -659,30 +675,28 @@ mod tests {
         assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
         assert_eq!(HAVIAddress::build_urc_string("u", "", ""), "//u/");
         assert_eq!(HAVIAddress::build_urc_string("u", "app", ""), "//u/app");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "loc"), "//u/app/loc");
+        assert_eq!(
+            HAVIAddress::build_urc_string("u", "app", "loc"),
+            "//u/app/loc"
+        );
         assert_eq!(HAVIAddress::build_urc_string("u", "app", "/"), "//u/app/");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "loc/"), "//u/app/loc/");
+        assert_eq!(
+            HAVIAddress::build_urc_string("u", "app", "loc/"),
+            "//u/app/loc/"
+        );
     }
 
     #[test]
     fn test_list_vs_get_detection_with_trailing_slash() {
         let url = HAVIAddress::parse("hppr://group/app/").unwrap();
         assert!(url.is_listing());
-        let urc = HAVIAddress::build_urc_string(
-            &url.group().unwrap(),
-            &url.app().unwrap(),
-            "/",
-        );
+        let urc = HAVIAddress::build_urc_string(&url.group().unwrap(), &url.app().unwrap(), "/");
         assert_eq!(urc, "//group/app/");
         assert!(matches!(detect_mode(&urc), HpprMode::List));
 
         let url = HAVIAddress::parse("hppr://group/app").unwrap();
         assert!(!url.is_listing());
-        let urc = HAVIAddress::build_urc_string(
-            &url.group().unwrap(),
-            &url.app().unwrap(),
-            "",
-        );
+        let urc = HAVIAddress::build_urc_string(&url.group().unwrap(), &url.app().unwrap(), "");
         assert_eq!(urc, "//group/app");
         assert!(matches!(detect_mode(&urc), HpprMode::Get));
 
@@ -696,7 +710,13 @@ mod tests {
     #[test]
     fn test_is_repo_endpoint() {
         let parse = |s: &str| parse_via(s).unwrap();
-        assert!(is_repo_endpoint(&parse("127.0.0.1:4777"), &parse("127.0.0.1:4777")));
-        assert!(!is_repo_endpoint(&parse("192.168.1.10:4777"), &parse("127.0.0.1:4777")));
+        assert!(is_repo_endpoint(
+            &parse("127.0.0.1:4777"),
+            &parse("127.0.0.1:4777")
+        ));
+        assert!(!is_repo_endpoint(
+            &parse("192.168.1.10:4777"),
+            &parse("127.0.0.1:4777")
+        ));
     }
 }
