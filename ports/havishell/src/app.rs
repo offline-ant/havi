@@ -756,9 +756,18 @@ impl App {
         };
         self.bridge = Some(bridge);
 
-        // Always go through pylon in normal mode. Raster mode skips pylon/hpprd.
-        let icon_raster_mode = std::env::var("HAVI_ICON_RASTER").ok().as_deref() == Some("1");
-        let pylon_port = if icon_raster_mode {
+        // Always go through pylon in normal mode. NO_PYLON=1 skips pylon/hpprd.
+        let no_pylon_mode = std::env::var("NO_PYLON").ok().as_deref() == Some("1");
+        let pylon_port = if no_pylon_mode {
+            let target = std::env::var("HAVI_HOME")
+                .ok()
+                .and_then(|v| hppr_client::env_target::parse_via(&v).ok())
+                .unwrap_or(hppr_client::ViaSpec::Net {
+                    host: "127.0.0.1".to_string(),
+                    port: hppr_client::env_target::DEFAULT_PORT,
+                    scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
+                });
+            hppr_client::set_repo_target(target);
             None
         } else {
             let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
