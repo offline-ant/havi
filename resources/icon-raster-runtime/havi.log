@@ -1,4 +1,3 @@
-[havishell] icon install skipped: invalid 64px png: unexpected end of file
 WAYLAND_DISPLAY: wayland-0
 DISPLAY: :0
 XDG_SESSION_TYPE: wayland
@@ -6,7 +5,10 @@ XDG_CURRENT_DESKTOP: KDE
 Selected: Wayland backend
 Reason: WAYLAND_DISPLAY environment variable is set
 preffered scale: 1
-
-thread 'main' (13450) panicked at /home/devops/Projects/forge/hppr/rust/libs/client/src/endpoint.rs:21:18:
-repo target not set
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[havi] Fatal: failed to initialize pylon control plane.
+[havi] repo path: /home/devops/Projects/forge/havi/ports/havishell/../../resources/icon-raster-runtime/config/repo
+[havi] mode: remote (HAVI_HOME=tcp+127.0.0.1:4777)
+[havi] detailed cause chain:
+spawned pylon process did not announce PYLON_BIND within 20 stdout lines. observed stdout: (no stdout lines). process exited early with status exit status: 101. stderr: thread 'main' (15755) panicked at /home/claude/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/env_logger-0.11.8/src/logger.rs:901:16:
+env_logger::init should not be called after logger initialized: SetLoggerError(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
