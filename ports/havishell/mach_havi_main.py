@@ -42,6 +42,8 @@ HAVI_ROOT: pathlib.Path
 HAVISHELL_DIR: pathlib.Path
 MAKEPAD_ROOT: pathlib.Path
 CARGO_MAKEPAD_DIR: pathlib.Path
+HAVI_ICON_SOURCE: pathlib.Path
+HAVI_ICON_CONVERT: pathlib.Path
 
 TRIPLE_TO_ABI = {
     "aarch64-linux-android": "aarch64",
@@ -188,7 +190,7 @@ def _log(action: str, *, target: str | None = None, abi: str | None = None,
         parts.append(f"abi={abi}")
     print(" | ".join(parts))
     if env:
-        for key in ("ANDROID_NDK_ROOT", "ANDROID_SDK_ROOT", "LIBCLANG_PATH", "CC", "CXX"):
+        for key in ("ANDROID_NDK_ROOT", "ANDROID_SDK_ROOT", "CARGO_TARGET_DIR", "LIBCLANG_PATH", "CC", "CXX"):
             val = env.get(key)
             if val:
                 print(f"  {key}={val}")
@@ -235,6 +237,7 @@ def setup_android_env(target_triple: str) -> dict[str, str]:
     env.setdefault("CC", "clang")
     env.setdefault("CXX", "clang++")
     env.setdefault("RUSTFLAGS", "")
+    env.setdefault("CARGO_TARGET_DIR", str(HAVI_ROOT / "target" / "android"))
     env["ANDROID_NDK_ROOT"] = ndk_root
     env["ANDROID_SDK_ROOT"] = sdk_root
 
@@ -686,10 +689,27 @@ def _cargo_makepad_cmd_base() -> list[str]:
     ]
 
 
+def _cargo_makepad_icon_args() -> list[str]:
+    icon_source = HAVI_ICON_SOURCE
+    if not icon_source.is_file():
+        fallback = HAVI_ROOT.parent / "hppr" / "logo.svg"
+        if fallback.is_file():
+            icon_source = fallback
+        else:
+            sys.exit(f"error: missing icon source: {icon_source}")
+    if not HAVI_ICON_CONVERT.is_file():
+        sys.exit(f"error: missing icon converter script: {HAVI_ICON_CONVERT}")
+    return [
+        f"--icon={icon_source}",
+        f"--icon-convert={HAVI_ICON_CONVERT}",
+    ]
+
+
 def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> list[str]:
     """Base repo-local cargo-makepad android command with --abi and --sdk-path."""
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["android", f"--abi={abi}"])
+    cmd.extend(_cargo_makepad_icon_args())
     cm_sdk = _detect_cargo_makepad_sdk()
     if cm_sdk:
         cmd.append(f"--sdk-path={cm_sdk}")
@@ -742,7 +762,11 @@ def _emulator_install_and_run(args: argparse.Namespace, target_triple: str) -> i
 def _build_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
 
-    cmd = ["cargo", "build", "--manifest-path", str(HAVISHELL_DIR / "Cargo.toml")]
+    cmd = _cargo_makepad_cmd_base()
+    cmd.append("desktop")
+    cmd.extend(_cargo_makepad_icon_args())
+    cmd.append("build")
+    cmd.extend(["-p", "havishell"])
     if args.release:
         cmd.append("--release")
     if args.extra:
@@ -1062,11 +1086,13 @@ def _run_desktop_makepad_socket(cmd: list[str], env: dict[str, str]) -> int:
 
 
 def run(topdir: str) -> int:
-    global HAVI_ROOT, HAVISHELL_DIR, MAKEPAD_ROOT, CARGO_MAKEPAD_DIR
+    global HAVI_ROOT, HAVISHELL_DIR, MAKEPAD_ROOT, CARGO_MAKEPAD_DIR, HAVI_ICON_SOURCE, HAVI_ICON_CONVERT
     HAVI_ROOT = pathlib.Path(topdir)
     HAVISHELL_DIR = HAVI_ROOT / "ports" / "havishell"
     MAKEPAD_ROOT = HAVI_ROOT.parent / "makepad"
     CARGO_MAKEPAD_DIR = MAKEPAD_ROOT / "tools" / "cargo_makepad"
+    HAVI_ICON_SOURCE = HAVI_ROOT.parent / "logo.svg"
+    HAVI_ICON_CONVERT = HAVI_ROOT / "generate-icon.sh"
 
     parser = argparse.ArgumentParser(
         prog="mach-havi",

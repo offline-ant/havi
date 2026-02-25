@@ -23,7 +23,6 @@ use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, Ma
 use navigation::NavCommand;
 use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
 
-pub use runtime::install_window_icon;
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};

@@ -40,7 +40,6 @@ dpi = "0.1"
 euclid = "0.22"
 havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
-image = { workspace = true }
 gleam = { workspace = true }
 pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"

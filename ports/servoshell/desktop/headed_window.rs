@@ -36,8 +36,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::{Key as LogicalKey, ModifiersState, NamedKey as WinitNamedKey};
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::WindowAttributesExtWayland;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-use winit::window::Icon;
 #[cfg(target_os = "macos")]
 use {
     objc2_app_kit::{NSColorSpace, NSView},
@@ -133,12 +131,6 @@ impl HeadedWindow {
         let winit_window = event_loop
             .create_window(window_attr)
             .expect("Failed to create window.");
-
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        {
-            let icon_bytes = include_bytes!("../../../resources/servo_64.png");
-            winit_window.set_window_icon(Some(load_icon(icon_bytes)));
-        }
 
         let window_handle = winit_window
             .window_handle()
@@ -1161,21 +1153,6 @@ fn winit_phase_to_touch_event_type(phase: TouchPhase) -> TouchEventType {
         TouchPhase::Ended => TouchEventType::Up,
         TouchPhase::Cancelled => TouchEventType::Cancel,
     }
-}
-
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-fn load_icon(icon_bytes: &[u8]) -> Icon {
-    let (icon_rgba, icon_width, icon_height) = {
-        use image::{GenericImageView, Pixel};
-        let image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
-        let (width, height) = image.dimensions();
-        let mut rgba = Vec::with_capacity((width * height) as usize * 4);
-        for (_, _, pixel) in image.pixels() {
-            rgba.extend_from_slice(&pixel.to_rgba().0);
-        }
-        (rgba, width, height)
-    };
-    Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to load icon")
 }
 
 #[cfg(feature = "webxr")]

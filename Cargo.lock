@@ -4004,7 +4004,6 @@ dependencies = [
  "gleam",
  "havi-protocols",
  "hppr-client",
- "image",
  "keyboard-types",
  "libservo",
  "log",
