@@ -677,8 +677,40 @@ def _ensure_cargo_makepad_ndk() -> None:
         sys.exit(f"[mach-havi] install-toolchain failed (exit {ret})")
 
 
+def _ensure_cargo_makepad_binary_windows() -> pathlib.Path:
+    """Build repo-local cargo-makepad and return its executable path.
+
+    Windows keeps executables file-locked while running. Invoking cargo-makepad
+    via `cargo run` during each mach-havi command can race with replacement of
+    makepad/target/debug/cargo-makepad.exe and fail with os error 5.
+
+    Build first, then execute the binary directly.
+    """
+    manifest = MAKEPAD_ROOT / "Cargo.toml"
+    cmd = [
+        "cargo",
+        "build",
+        "--manifest-path",
+        str(manifest),
+        "-p",
+        "cargo-makepad",
+    ]
+    ret = subprocess.call(cmd, cwd=str(HAVI_ROOT))
+    if ret != 0:
+        sys.exit(f"[mach-havi] failed to build cargo-makepad (exit {ret})")
+
+    exe = MAKEPAD_ROOT / "target" / "debug" / "cargo-makepad.exe"
+    if not exe.is_file():
+        sys.exit(f"[mach-havi] cargo-makepad binary not found at {exe}")
+    return exe
+
+
 def _cargo_makepad_cmd_base() -> list[str]:
-    """Run cargo-makepad from this repo, never from ~/.cargo/bin."""
+    """Run repo-local cargo-makepad, never from ~/.cargo/bin."""
+    if platform.system() == "Windows":
+        exe = _ensure_cargo_makepad_binary_windows()
+        return [str(exe)]
+
     return [
         "cargo",
         "run",
