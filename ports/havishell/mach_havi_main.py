@@ -664,19 +664,32 @@ def _ensure_cargo_makepad_ndk() -> None:
                             print(f"[mach-havi] Symlinked system NDK r28: {ndk_dir} → {expected}")
                             return
 
-    # ---------- Fall back to downloading via cargo-makepad ----------
-    print("[mach-havi] NDK r28 not found locally. Running cargo makepad android install-toolchain...")
-    ret = subprocess.call(
-        ["cargo", "makepad", "android", f"--sdk-path={cm_sdk}", "install-toolchain"],
-        cwd=str(MAKEPAD_ROOT),
-    )
+    # ---------- Fall back to downloading via repo-local cargo-makepad ----------
+    print("[mach-havi] NDK r28 not found locally. Running cargo-makepad android install-toolchain...")
+    cmd = _cargo_makepad_cmd_base()
+    cmd.extend(["android", f"--sdk-path={cm_sdk}", "install-toolchain"])
+    ret = subprocess.call(cmd, cwd=str(HAVI_ROOT))
     if ret != 0:
         sys.exit(f"[mach-havi] install-toolchain failed (exit {ret})")
 
 
+def _cargo_makepad_cmd_base() -> list[str]:
+    """Run cargo-makepad from this repo, never from ~/.cargo/bin."""
+    return [
+        "cargo",
+        "run",
+        "--manifest-path",
+        str(MAKEPAD_ROOT / "Cargo.toml"),
+        "-p",
+        "cargo-makepad",
+        "--",
+    ]
+
+
 def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> list[str]:
-    """Base cargo makepad android command with --abi and --sdk-path."""
-    cmd = ["cargo", "makepad", "android", f"--abi={abi}"]
+    """Base repo-local cargo-makepad android command with --abi and --sdk-path."""
+    cmd = _cargo_makepad_cmd_base()
+    cmd.extend(["android", f"--abi={abi}"])
     cm_sdk = _detect_cargo_makepad_sdk()
     if cm_sdk:
         cmd.append(f"--sdk-path={cm_sdk}")
