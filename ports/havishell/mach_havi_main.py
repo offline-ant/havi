@@ -764,7 +764,6 @@ def _build_desktop(args: argparse.Namespace) -> int:
 
     cmd = _cargo_makepad_cmd_base()
     cmd.append("desktop")
-    cmd.extend(_cargo_makepad_icon_args())
     cmd.append("build")
     cmd.extend(["-p", "havishell"])
     if args.release:
@@ -1092,11 +1091,7 @@ def run(topdir: str) -> int:
     MAKEPAD_ROOT = HAVI_ROOT.parent / "makepad"
     CARGO_MAKEPAD_DIR = MAKEPAD_ROOT / "tools" / "cargo_makepad"
     HAVI_ICON_SOURCE = HAVI_ROOT.parent / "logo.svg"
-    HAVI_ICON_CONVERT = (
-        HAVI_ROOT / "generate-icon.cmd"
-        if platform.system() == "Windows"
-        else HAVI_ROOT / "generate-icon.sh"
-    )
+    HAVI_ICON_CONVERT = HAVI_ROOT / "generate-icon.sh"
 
     parser = argparse.ArgumentParser(
         prog="mach-havi",
