@@ -263,10 +263,10 @@ Methods:
 
 - `port()`
 - `repoPath()`
-- `status()` (`embedded` or `external`, wire-compatible)
-  - `embedded`: HAVI-managed runtime path (desktop **Self-Exec Process Runtime**
-    or Android **In-Process Embedded Runtime**)
-  - `external`: external endpoint path (**External Process Runtime** semantics)
+- `status()` runtime/backend string (`external`, `self_exec`, or `inline`)
+  - `external`: external-process runtime path
+  - `self_exec`: pylon self-exec process runtime path
+  - `inline`: in-process runtime path
 
 ## EnvelopeHpprClient
 

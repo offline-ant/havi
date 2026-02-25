@@ -27,7 +27,7 @@ pub fn ensure_pylon(
             havi_protocols::pylon::ensure_pylon_with_self_exec_process_fallback(
                 repo_path,
                 home,
-                pylon::self_exec_process::SELF_EXEC_PROCESS_FEATURE_ENABLED,
+                cfg!(feature = "embedded-services"),
             )
         },
         HostStrategy::InProcessEmbeddedRuntime => ensure_pylon_android(repo_path, home),

@@ -47,59 +47,47 @@ Auto-shuts down after 30 seconds with zero connected clients.
 
 ## Runtime Vocabulary and Dispatch
 
-Canonical runtime terms in this document:
+Canonical runtime values:
 
-- **External Process Runtime**
-- **Self-Exec Process Runtime**
-- **In-Process Embedded Runtime**
+- `external`
+- `self_exec`
+- `inline`
 
-Pylon build feature name remains `embedded-services` for build/CLI compatibility.
+`embedded-services` is the compile-time feature gate for `self_exec` and `inline`.
 
-- feature ON (default build): **Self-Exec Process Runtime** dispatch is available.
-- feature OFF (`--no-default-features`): **Self-Exec Process Runtime** dispatch is disabled and
-  pylon uses **External Process Runtime** paths.
+- feature ON (default): all 3 modes are available where supported.
+- feature OFF (`--no-default-features`): only `external` is available.
+
+Runtime override args accepted by daemon start commands:
+
+- `--runtime external|self_exec|inline`
+- `--backend external|self_exec|inline` (alias)
+
+`--external-bin` always forces `external`.
 
 Dispatch behavior:
 
-- `pylon exec <service> ...` defaults to **External Process Runtime** execution.
-- `pylon --embedded-services exec <service> ...` requests **Self-Exec Process Runtime** execution
-  when the `embedded-services` feature is enabled.
-- argv0 self-name mode (invoked as a service name) requests **Self-Exec Process Runtime** execution
-  when the `embedded-services` feature is enabled.
+- `pylon exec <service> ...` defaults to external dispatch.
+- `pylon --embedded-services exec <service> ...` prefers embedded dispatch.
+- argv0 self-name service dispatch also prefers embedded dispatch when enabled.
 
-Argv0 self-name mappings:
+Control protocol/event parity guarantee:
 
-- `hpprd`
-- `hppr-nfs` / `nfs`
-- `hppr-fuse` / `fuse`
-- `hppr-nat` / `nat`
-- `lokid`
-- `unlokid`
-
-When `embedded-services` support is disabled at build time, these dispatch forms run via
-**External Process Runtime**.
-
-`--external-bin` always forces **External Process Runtime** and overrides
-**Self-Exec Process Runtime** selection for both CLI dispatch and daemon service starts.
-
-**External Process Runtime** resolution order:
-
-1. `./<service>`
-2. `./<service>.exe` (Windows)
-3. `PATH` (`<service>`)
+- hpprd listen/unlisten ACK + error lines are identical across modes.
+- hppr-nat event JSON shapes are identical across modes.
+- control command/response JSON protocol is unchanged across modes.
 
 ### Local Mode
 
 Default. Pylon auto-starts hpprd on its default port (4777) and manages its
 full lifecycle: start, stop, listen, unlisten.
 
-Runtime backend policy for daemon-managed services is process-first.
-When `embedded-services` support is enabled, `--embedded-services` on service commands
-sets the runtime to use the **Self-Exec Process Runtime** (spawning `pylon exec ...`);
-if that service has no implemented **In-Process Embedded Runtime** backend,
-start returns an error. When `embedded-services` support is disabled, this flag is ignored
-and **External Process Runtime** is used.
-`--external-bin` forces **External Process Runtime** even when **Self-Exec Process Runtime** is requested.
+Daemon-managed services support all runtime selectors (`external`, `self_exec`, `inline`)
+when `embedded-services` is enabled. Default mode is `external` on desktop platforms.
+Android defaults to `inline` for supported services.
+
+`--embedded-services` prefers embedded runtime dispatch when no explicit runtime
+override is provided. `--external-bin` still forces `external`.
 
 ### Remote Mode
 
