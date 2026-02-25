@@ -79,3 +79,4 @@ support/macos/Brewfile.lock.json
 justfile
 **/dist/
 /repo/
+/resources/icon-raster-runtime/havi.log
