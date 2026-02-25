@@ -60,15 +60,17 @@ else
   exit 1
 fi
 
-if [ ! -x "./havi-devtools-cli" ]; then
-  echo "error: missing executable: ./havi-devtools-cli" >&2
+if [ ! -f "./havi-devtools-cli" ]; then
+  echo "error: missing script: ./havi-devtools-cli" >&2
   exit 1
 fi
 
-INPUT_ABS="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$INPUT_FILE")"
+UV=(uv run --frozen --project "$SCRIPT_DIR")
+
+INPUT_ABS="$("${UV[@]}" python -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$INPUT_FILE")"
 OUTPUT_DIR="$(dirname "$OUTPUT_FILE")"
 mkdir -p "$OUTPUT_DIR"
-OUTPUT_ABS="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$OUTPUT_FILE")"
+OUTPUT_ABS="$("${UV[@]}" python -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$OUTPUT_FILE")"
 
 LOG_FILE="$SCRIPT_DIR/resources/icon-raster-runtime/havi.log"
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -107,13 +109,13 @@ fi
 
 DEVTOOLS_PORT="${DEVTOOLS_ADDR##*:}"
 
-python3 - "$INPUT_ABS" "$OUTPUT_ABS" "$OUTPUT_SIZE" "$DEVTOOLS_PORT" <<'PY'
+"${UV[@]}" python - "$INPUT_ABS" "$OUTPUT_ABS" "$OUTPUT_SIZE" "$DEVTOOLS_PORT" "$SCRIPT_DIR" <<'PY'
 import base64
 import json
 import subprocess
 import sys
 
-inp, outp, size, port = sys.argv[1:]
+inp, outp, size, port, script_dir = sys.argv[1:]
 
 js = r"""
 (async () => {
@@ -143,7 +145,21 @@ js = r"""
 js = js.replace('%INPUT_PATH%', json.dumps(inp)).replace('%SIZE%', size)
 
 proc = subprocess.run(
-    ["./havi-devtools-cli", "-p", port, "--text", "eval", "--await", js],
+    [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        script_dir,
+        "python",
+        f"{script_dir}/havi-devtools-cli",
+        "-p",
+        port,
+        "--text",
+        "eval",
+        "--await",
+        js,
+    ],
     capture_output=True,
     text=True,
 )

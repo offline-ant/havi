@@ -1092,7 +1092,11 @@ def run(topdir: str) -> int:
     MAKEPAD_ROOT = HAVI_ROOT.parent / "makepad"
     CARGO_MAKEPAD_DIR = MAKEPAD_ROOT / "tools" / "cargo_makepad"
     HAVI_ICON_SOURCE = HAVI_ROOT.parent / "logo.svg"
-    HAVI_ICON_CONVERT = HAVI_ROOT / "generate-icon.sh"
+    HAVI_ICON_CONVERT = (
+        HAVI_ROOT / "generate-icon.cmd"
+        if platform.system() == "Windows"
+        else HAVI_ROOT / "generate-icon.sh"
+    )
 
     parser = argparse.ArgumentParser(
         prog="mach-havi",
