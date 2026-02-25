@@ -16,7 +16,7 @@ fi
 mkdir -p "$OUT_DIR"
 
 # Desktop / platform build-time icons expected by makepad-platform build.rs
-for size in 32 64 128; do
+for size in 32 64 128 256 512 1024; do
   echo "[generate-icons] rendering desktop icon_${size}.png"
   OUTPUT_SIZE="$size" "$SCRIPT_DIR/generate-icon.sh" "$ICON_SOURCE" "$OUT_DIR/icon_${size}.png"
 done
@@ -37,14 +37,14 @@ do
   OUTPUT_SIZE="$size" "$SCRIPT_DIR/generate-icon.sh" "$ICON_SOURCE" "$dst_dir/ic_launcher.png"
 done
 
-uv run --frozen --project "$SCRIPT_DIR" python - "$OUT_DIR/icon_32.png" "$OUT_DIR/icon_64.png" "$OUT_DIR/icon_128.png" "$OUT_DIR/icon.ico" <<'PY'
+uv run --frozen --project "$SCRIPT_DIR" python - "$OUT_DIR/icon_32.png" "$OUT_DIR/icon_64.png" "$OUT_DIR/icon_128.png" "$OUT_DIR/icon_256.png" "$OUT_DIR/icon.ico" <<'PY'
 import struct
 import sys
 from pathlib import Path
 
-png_paths = [Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])]
-ico_path = Path(sys.argv[4])
-sizes = [32, 64, 128]
+png_paths = [Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])]
+ico_path = Path(sys.argv[5])
+sizes = [32, 64, 128, 256]
 blobs = [p.read_bytes() for p in png_paths]
 
 out = bytearray()
@@ -68,7 +68,14 @@ ico_path.write_bytes(out)
 PY
 
 echo "[generate-icons] wrote desktop resources:"
-ls -l "$OUT_DIR/icon_32.png" "$OUT_DIR/icon_64.png" "$OUT_DIR/icon_128.png" "$OUT_DIR/icon.ico"
+ls -l \
+  "$OUT_DIR/icon_32.png" \
+  "$OUT_DIR/icon_64.png" \
+  "$OUT_DIR/icon_128.png" \
+  "$OUT_DIR/icon_256.png" \
+  "$OUT_DIR/icon_512.png" \
+  "$OUT_DIR/icon_1024.png" \
+  "$OUT_DIR/icon.ico"
 echo "[generate-icons] wrote android resources:"
 ls -l \
   "$ANDROID_RES_DIR/mipmap-mdpi/ic_launcher.png" \

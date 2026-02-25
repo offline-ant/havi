@@ -316,24 +316,8 @@ def setup_desktop_env() -> dict[str, str]:
             env["XAUTHORITY"] = xauth
     env.setdefault("RUSTFLAGS", "")
 
-    # makepad-platform build.rs only embeds custom app icons when these env vars
-    # are set. Resolve from havishell/resources (crate-local) first, then the
-    # repository resources/ as a fallback.
-    icon_roots = [HAVISHELL_DIR / "resources", HAVI_ROOT / "resources"]
-    icon_names = ["icon_32.png", "icon_64.png", "icon_128.png", "icon.ico"]
-    icon_vars = [
-        "MAKEPAD_APP_ICON_32",
-        "MAKEPAD_APP_ICON_64",
-        "MAKEPAD_APP_ICON_128",
-        "MAKEPAD_APP_ICON_ICO",
-    ]
-    if not all(k in env for k in icon_vars):
-        for root in icon_roots:
-            paths = [root / name for name in icon_names]
-            if all(p.is_file() for p in paths):
-                for key, path in zip(icon_vars, paths):
-                    env.setdefault(key, str(path))
-                break
+    # Custom desktop icons are auto-detected by cargo-makepad desktop from
+    # crate-local resources/, so mach-havi does not need to set icon env vars.
 
     if "LIBCLANG_PATH" not in env:
         candidates = []
