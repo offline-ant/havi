@@ -848,6 +848,25 @@ impl App {
         };
         self.bridge = Some(bridge);
 
+        #[cfg(target_os = "android")]
+        {
+            if std::env::var_os("HAVI_CONFIG").is_none() {
+                if let Some(data_dir) = cx.get_data_dir() {
+                    let config_dir = std::path::Path::new(&data_dir).join("HAVI");
+                    if let Err(err) = std::fs::create_dir_all(&config_dir) {
+                        eprintln!(
+                            "[havi] failed to create android HAVI_CONFIG at {}: {}",
+                            config_dir.display(),
+                            err
+                        );
+                    } else {
+                        std::env::set_var("HAVI_CONFIG", &config_dir);
+                        log!("[havishell] HAVI_CONFIG={}", config_dir.display());
+                    }
+                }
+            }
+        }
+
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
         let repo_path = havi_protocols::config::repo_dir();
         let fallback_target = home
