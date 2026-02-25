@@ -49,10 +49,19 @@ Auto-shuts down after 30 seconds with zero connected clients.
 
 Pylon build feature: `embedded-services`.
 
-- feature ON (default build): embedded dispatch paths are available.
-- feature OFF (`--no-default-features`): process/exec-only behavior.
+- feature ON (default build): embedded CLI dispatch is available.
+- feature OFF (`--no-default-features`): embedded CLI dispatch is disabled and
+  pylon uses external process execution paths.
 
-In embedded-capable mode, argv0 self-name dispatch covers all managed services:
+Dispatch behavior:
+
+- `pylon exec <service> ...` defaults to external process execution.
+- `pylon --embedded-services exec <service> ...` requests embedded execution
+  when the embedded feature is enabled.
+- argv0 self-name mode (invoked as a service name) requests embedded execution
+  when the embedded feature is enabled.
+
+Argv0 self-name mappings:
 
 - `hpprd`
 - `hppr-nfs` / `nfs`
@@ -61,13 +70,11 @@ In embedded-capable mode, argv0 self-name dispatch covers all managed services:
 - `lokid`
 - `unlokid`
 
-Equivalent explicit form:
+When embedded support is disabled at build time, these dispatch forms run via
+external process execution.
 
-```bash
-pylon exec <service> [args...]
-```
-
-`--external-bin` always forces external process execution.
+`--external-bin` always forces external process execution and overrides
+embedded selection for both CLI dispatch and daemon service starts.
 
 External process resolution order:
 
@@ -79,6 +86,13 @@ External process resolution order:
 
 Default. Pylon auto-starts hpprd on its default port (4777) and manages its
 full lifecycle: start, stop, listen, unlisten.
+
+Runtime backend policy for daemon-managed services is process-first.
+When embedded support is enabled, `--embedded-services` on service commands
+sets `runtime=embedded`; if that service has no implemented embedded runtime,
+start returns an error. When embedded support is disabled, this flag is ignored
+and process runtime is used.
+`--external-bin` forces process runtime even when embedded is requested.
 
 ### Remote Mode
 
@@ -97,8 +111,11 @@ unavailable. Status reports the external endpoint instead of a managed process.
 ```bash
 pylon status                       # service status + mounts + user
 pylon mounts                       # list active mounts
-pylon shutdown                     # stop all services and exit
+pylon shutdown                     # stop services and exit
 ```
+
+`shutdown` stops managed satellites first, then hpprd in local mode, then
+exits and removes `<repo>/pylon.pid`.
 
 The `status` response includes:
 
@@ -222,6 +239,9 @@ writes a JSON control line to hpprd stdin and waits for hpprd stdout markers:
 
 - success: `HPPRD_LISTEN=<listener-id>` or `HPPRD_UNLISTEN=<listener-id>`
 - failure: `HPPRD_ERROR=<message>`
+
+Response `data.listeners` is the ACKed listener IDs emitted by hpprd for that
+request (one or more lines can be returned in a single response).
 
 If hpprd does not ACK within the control timeout, pylon returns an error.
 
