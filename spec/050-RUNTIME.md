@@ -31,13 +31,16 @@ Environment variables:
 
 When `HAVI_HOME` is unset, pylon runs in local mode with `<config-dir>/repo`.
 
-Host integration policy:
+Host integration runtime policy:
 
-- desktop targets (mac/linux/windows): HAVI starts pylon by spawning itself as
-  `havi pylon ...`.
-- android target: HAVI starts pylon in an internal thread host.
+- desktop targets (mac/linux/windows): HAVI uses the **Self-Exec Process Runtime**
+  host path by spawning itself as `havi pylon ...`.
+- android target: HAVI uses the **In-Process Embedded Runtime** host path by
+  starting pylon in an internal thread host.
+- service dispatch remains protocol-compatible with **External Process Runtime**
+  execution paths.
 
-Both paths keep the same pylon TCP control protocol contract.
+All runtime paths keep the same pylon TCP control protocol contract.
 
 ## Watch Modes
 

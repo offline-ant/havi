@@ -263,7 +263,10 @@ Methods:
 
 - `port()`
 - `repoPath()`
-- `status()` (`embedded` or `external`)
+- `status()` (`embedded` or `external`, wire-compatible)
+  - `embedded`: HAVI-managed runtime path (desktop **Self-Exec Process Runtime**
+    or Android **In-Process Embedded Runtime**)
+  - `external`: external endpoint path (**External Process Runtime** semantics)
 
 ## EnvelopeHpprClient
 

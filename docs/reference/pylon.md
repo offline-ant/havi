@@ -3,7 +3,7 @@
 Service manager for the HPPR ecosystem. Source crate lives at
 `hppr/pylon/` in the HPPR workspace. Pylon keeps a stable TCP JSON lines
 control protocol on localhost and now has a split dispatch/runtime architecture
-with feature-gated embedded service dispatch.
+with feature-gated **Self-Exec Process Runtime** dispatch.
 
 Pylon operates in two modes:
 
@@ -45,21 +45,27 @@ Prints `PYLON_BIND=127.0.0.1:<port>` on startup.
 
 Auto-shuts down after 30 seconds with zero connected clients.
 
-## Embedded feature gate and dispatch
+## Runtime Vocabulary and Dispatch
 
-Pylon build feature: `embedded-services`.
+Canonical runtime terms in this document:
 
-- feature ON (default build): embedded CLI dispatch is available.
-- feature OFF (`--no-default-features`): embedded CLI dispatch is disabled and
-  pylon uses external process execution paths.
+- **External Process Runtime**
+- **Self-Exec Process Runtime**
+- **In-Process Embedded Runtime**
+
+Pylon build feature name remains `embedded-services` for build/CLI compatibility.
+
+- feature ON (default build): **Self-Exec Process Runtime** dispatch is available.
+- feature OFF (`--no-default-features`): **Self-Exec Process Runtime** dispatch is disabled and
+  pylon uses **External Process Runtime** paths.
 
 Dispatch behavior:
 
-- `pylon exec <service> ...` defaults to external process execution.
-- `pylon --embedded-services exec <service> ...` requests embedded execution
-  when the embedded feature is enabled.
-- argv0 self-name mode (invoked as a service name) requests embedded execution
-  when the embedded feature is enabled.
+- `pylon exec <service> ...` defaults to **External Process Runtime** execution.
+- `pylon --embedded-services exec <service> ...` requests **Self-Exec Process Runtime** execution
+  when the `embedded-services` feature is enabled.
+- argv0 self-name mode (invoked as a service name) requests **Self-Exec Process Runtime** execution
+  when the `embedded-services` feature is enabled.
 
 Argv0 self-name mappings:
 
@@ -70,13 +76,13 @@ Argv0 self-name mappings:
 - `lokid`
 - `unlokid`
 
-When embedded support is disabled at build time, these dispatch forms run via
-external process execution.
+When `embedded-services` support is disabled at build time, these dispatch forms run via
+**External Process Runtime**.
 
-`--external-bin` always forces external process execution and overrides
-embedded selection for both CLI dispatch and daemon service starts.
+`--external-bin` always forces **External Process Runtime** and overrides
+**Self-Exec Process Runtime** selection for both CLI dispatch and daemon service starts.
 
-External process resolution order:
+**External Process Runtime** resolution order:
 
 1. `./<service>`
 2. `./<service>.exe` (Windows)
@@ -88,11 +94,12 @@ Default. Pylon auto-starts hpprd on its default port (4777) and manages its
 full lifecycle: start, stop, listen, unlisten.
 
 Runtime backend policy for daemon-managed services is process-first.
-When embedded support is enabled, `--embedded-services` on service commands
-sets `runtime=embedded`; if that service has no implemented embedded runtime,
-start returns an error. When embedded support is disabled, this flag is ignored
-and process runtime is used.
-`--external-bin` forces process runtime even when embedded is requested.
+When `embedded-services` support is enabled, `--embedded-services` on service commands
+sets the runtime to use the **Self-Exec Process Runtime** (spawning `pylon exec ...`);
+if that service has no implemented **In-Process Embedded Runtime** backend,
+start returns an error. When `embedded-services` support is disabled, this flag is ignored
+and **External Process Runtime** is used.
+`--external-bin` forces **External Process Runtime** even when **Self-Exec Process Runtime** is requested.
 
 ### Remote Mode
 
@@ -259,6 +266,8 @@ If the PID file exists and the process is alive, pylon refuses to start.
 HAVI always connects through pylon. Startup sequence:
 
 1. Find or spawn pylon for `<config-dir>/repo/`
+   - desktop hosts use **Self-Exec Process Runtime** startup (`havi pylon ...`)
+   - Android hosts use **In-Process Embedded Runtime** startup (internal thread host)
 2. If `HAVI_HOME` is set, pylon starts in remote mode (`--home <via>`)
 3. Subscribe to event stream → update toolbar status on service changes
 4. Background reader thread holds the TCP connection open

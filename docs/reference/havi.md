@@ -41,6 +41,12 @@ HAVI always goes through [pylon](pylon.md).
 
 HAVI links pylon with `embedded-services` enabled by default.
 
+Runtime vocabulary used by HAVI + pylon integration:
+
+- **External Process Runtime**
+- **Self-Exec Process Runtime**
+- **In-Process Embedded Runtime**
+
 **Local mode** (default): Pylon owns hpprd. HAVI finds or starts pylon for
 `<config-dir>/repo/`.
 
@@ -53,8 +59,10 @@ Startup sequence:
 
 1. Connect to running pylon (via `<config-dir>/repo/pylon.pid`)
 2. If no pylon found:
-   - desktop (macOS/Linux/Windows): spawn self as `havi pylon ...`
-   - Android: start pylon in an internal thread host
+   - desktop (macOS/Linux/Windows): use **Self-Exec Process Runtime** host
+     startup by spawning self as `havi pylon ...`
+   - Android: use **In-Process Embedded Runtime** host startup by starting
+     pylon in an internal thread host
 3. If remote mode, pass `--home <via>` to pylon
 4. Hold pylon connection open for app lifetime
 

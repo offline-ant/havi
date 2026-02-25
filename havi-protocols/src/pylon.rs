@@ -16,6 +16,17 @@ use std::time::Duration;
 /// PID file name within repo directory.
 const PID_FILENAME: &str = "pylon.pid";
 
+#[cfg(target_os = "windows")]
+const PYLON_BIN_NAMES: &[&str] = &["pylon.exe"];
+#[cfg(not(target_os = "windows"))]
+const PYLON_BIN_NAMES: &[&str] = &["pylon"];
+
+#[derive(Debug, Clone)]
+struct PylonLaunch {
+    program: std::path::PathBuf,
+    use_havi_subcommand: bool,
+}
+
 /// Connection to a running pylon instance.
 pub struct PylonClient {
     stream: BufReader<TcpStream>,
@@ -272,10 +283,7 @@ impl PylonClient {
                         .and_then(|v| v.as_u64())
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "none".to_string());
-                    let addr = hpprd
-                        .get("addr")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("none");
+                    let addr = hpprd.get("addr").and_then(|v| v.as_str()).unwrap_or("none");
                     last_state = Some(format!(
                         "state={}, pid={}, port={}, addr={}",
                         state, pid, port, addr
@@ -309,7 +317,24 @@ impl PylonClient {
 /// at that address instead of spawning its own.
 ///
 /// Returns a connected PylonClient.
-pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> anyhow::Result<PylonClient> {
+pub fn ensure_pylon(
+    repo_path: &std::path::Path,
+    home: Option<&str>,
+) -> anyhow::Result<PylonClient> {
+    ensure_pylon_with_self_exec_process_fallback(repo_path, home, false)
+}
+
+/// Ensure a pylon instance is running.
+///
+/// Launcher lookup order:
+/// 1) ./pylon.exe on Windows, ./pylon on non-Windows
+/// 2) pylon executable in PATH (pylon.exe on Windows, pylon otherwise)
+/// 3) current executable as `havi pylon ...` when Self-Exec Process Runtime fallback is enabled
+pub fn ensure_pylon_with_self_exec_process_fallback(
+    repo_path: &std::path::Path,
+    home: Option<&str>,
+    self_exec_process_fallback: bool,
+) -> anyhow::Result<PylonClient> {
     // Try existing pylon first.
     match PylonClient::try_connect_with_error(repo_path) {
         Ok(Some(client)) => return Ok(client),
@@ -322,13 +347,77 @@ pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> anyhow::
         },
     }
 
-    // Start pylon as a background subprocess.
+    let launch = resolve_pylon_launch(self_exec_process_fallback)?;
+    spawn_pylon_subprocess(&launch, repo_path, home)
+}
+
+fn resolve_pylon_launch(self_exec_process_fallback: bool) -> anyhow::Result<PylonLaunch> {
+    if let Some(program) = find_pylon_in_current_dir() {
+        return Ok(PylonLaunch {
+            program,
+            use_havi_subcommand: false,
+        });
+    }
+
+    if let Some(program) = find_pylon_in_path() {
+        return Ok(PylonLaunch {
+            program,
+            use_havi_subcommand: false,
+        });
+    }
+
+    if self_exec_process_fallback {
+        let program = std::env::current_exe().context(
+            "cannot resolve current executable path for Self-Exec Process Runtime pylon fallback",
+        )?;
+        return Ok(PylonLaunch {
+            program,
+            use_havi_subcommand: true,
+        });
+    }
+
+    Err(anyhow!(
+        "pylon executable not found in ./ or PATH (checked ./pylon.exe on Windows, ./pylon otherwise, then PATH)."
+    ))
+}
+
+fn find_pylon_in_current_dir() -> Option<std::path::PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    for name in PYLON_BIN_NAMES {
+        let candidate = cwd.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn find_pylon_in_path() -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for name in PYLON_BIN_NAMES {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn spawn_pylon_subprocess(
+    launch: &PylonLaunch,
+    repo_path: &std::path::Path,
+    home: Option<&str>,
+) -> anyhow::Result<PylonClient> {
     use std::io::Read;
     use std::process::{Command, Stdio};
-    let exe = std::env::current_exe().context("cannot resolve current executable path for spawning pylon")?;
 
-    let mut cmd = Command::new(&exe);
-    cmd.arg("pylon").arg("--path").arg(repo_path);
+    let mut cmd = Command::new(&launch.program);
+    if launch.use_havi_subcommand {
+        cmd.arg("pylon");
+    }
+    cmd.arg("--path").arg(repo_path);
     if let Some(addr) = home {
         cmd.arg("--home").arg(addr);
     }
@@ -338,14 +427,21 @@ pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> anyhow::
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .with_context(|| format!("failed to spawn '{}' as pylon subprocess", exe.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to spawn '{}' as pylon subprocess",
+                launch.program.display()
+            )
+        })?;
 
-    let stdout = child.stdout.take().context(
-        "spawned pylon process has no stdout pipe; cannot read PYLON_BIND announcement",
-    )?;
-    let mut stderr = child.stderr.take().context(
-        "spawned pylon process has no stderr pipe; cannot capture startup diagnostics",
-    )?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("spawned pylon process has no stdout pipe; cannot read PYLON_BIND announcement")?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .context("spawned pylon process has no stderr pipe; cannot capture startup diagnostics")?;
 
     // Read startup stdout for PYLON_BIND= line.
     let mut observed_stdout = Vec::new();
@@ -359,7 +455,9 @@ pub fn ensure_pylon(repo_path: &std::path::Path, home: Option<&str>) -> anyhow::
                 .next()
                 .ok_or_else(|| anyhow!("invalid PYLON_BIND value '{}' (missing ':<port>')", addr))?
                 .parse()
-                .with_context(|| format!("invalid PYLON_BIND value '{}' (port parse failed)", addr))?;
+                .with_context(|| {
+                    format!("invalid PYLON_BIND value '{}' (port parse failed)", addr)
+                })?;
 
             // Detach child — pylon runs as a daemon.
             std::mem::forget(child);

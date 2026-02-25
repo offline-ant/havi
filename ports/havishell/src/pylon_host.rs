@@ -2,15 +2,15 @@ use anyhow::anyhow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostStrategy {
-    DesktopSubprocess,
-    AndroidThread,
+    SelfExecProcessRuntime,
+    InProcessEmbeddedRuntime,
 }
 
 pub(crate) fn strategy_for(is_android: bool) -> HostStrategy {
     if is_android {
-        HostStrategy::AndroidThread
+        HostStrategy::InProcessEmbeddedRuntime
     } else {
-        HostStrategy::DesktopSubprocess
+        HostStrategy::SelfExecProcessRuntime
     }
 }
 
@@ -23,8 +23,14 @@ pub fn ensure_pylon(
     home: Option<&str>,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
     match strategy_for_target() {
-        HostStrategy::DesktopSubprocess => havi_protocols::pylon::ensure_pylon(repo_path, home),
-        HostStrategy::AndroidThread => ensure_pylon_android(repo_path, home),
+        HostStrategy::SelfExecProcessRuntime => {
+            havi_protocols::pylon::ensure_pylon_with_self_exec_process_fallback(
+                repo_path,
+                home,
+                pylon::self_exec_process::SELF_EXEC_PROCESS_FEATURE_ENABLED,
+            )
+        },
+        HostStrategy::InProcessEmbeddedRuntime => ensure_pylon_android(repo_path, home),
     }
 }
 
@@ -33,7 +39,9 @@ fn ensure_pylon_android(
     _repo_path: &std::path::Path,
     _home: Option<&str>,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
-    Err(anyhow!("android pylon host strategy requested on non-android build"))
+    Err(anyhow!(
+        "android pylon host strategy requested on non-android build"
+    ))
 }
 
 #[cfg(target_os = "android")]
@@ -84,7 +92,7 @@ mod tests {
 
     #[test]
     fn strategy_distinguishes_desktop_and_android() {
-        assert_eq!(strategy_for(false), HostStrategy::DesktopSubprocess);
-        assert_eq!(strategy_for(true), HostStrategy::AndroidThread);
+        assert_eq!(strategy_for(false), HostStrategy::SelfExecProcessRuntime);
+        assert_eq!(strategy_for(true), HostStrategy::InProcessEmbeddedRuntime);
     }
 }
