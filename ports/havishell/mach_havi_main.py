@@ -316,6 +316,25 @@ def setup_desktop_env() -> dict[str, str]:
             env["XAUTHORITY"] = xauth
     env.setdefault("RUSTFLAGS", "")
 
+    # makepad-platform build.rs only embeds custom app icons when these env vars
+    # are set. Resolve from havishell/resources (crate-local) first, then the
+    # repository resources/ as a fallback.
+    icon_roots = [HAVISHELL_DIR / "resources", HAVI_ROOT / "resources"]
+    icon_names = ["icon_32.png", "icon_64.png", "icon_128.png", "icon.ico"]
+    icon_vars = [
+        "MAKEPAD_APP_ICON_32",
+        "MAKEPAD_APP_ICON_64",
+        "MAKEPAD_APP_ICON_128",
+        "MAKEPAD_APP_ICON_ICO",
+    ]
+    if not all(k in env for k in icon_vars):
+        for root in icon_roots:
+            paths = [root / name for name in icon_names]
+            if all(p.is_file() for p in paths):
+                for key, path in zip(icon_vars, paths):
+                    env.setdefault(key, str(path))
+                break
+
     if "LIBCLANG_PATH" not in env:
         candidates = []
         if is_windows:
@@ -699,6 +718,13 @@ def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> lis
     return cmd
 
 
+def _cargo_makepad_desktop_cmd() -> list[str]:
+    """Base repo-local cargo-makepad desktop command."""
+    cmd = _cargo_makepad_cmd_base()
+    cmd.append("desktop")
+    return cmd
+
+
 def _build_android(args: argparse.Namespace) -> int:
     _ensure_cargo_makepad_ndk()
     target_triple = args.target or (EMULATOR_TRIPLE if args.emulator else DEFAULT_ANDROID_TRIPLE)
@@ -743,12 +769,8 @@ def _emulator_install_and_run(args: argparse.Namespace, target_triple: str) -> i
 def _build_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
 
-    cmd = [
-        "cargo",
-        "build",
-        "--manifest-path",
-        str(HAVISHELL_DIR / "Cargo.toml"),
-    ]
+    cmd = _cargo_makepad_desktop_cmd()
+    cmd.extend(["build", "-p", "havishell"])
     if args.release:
         cmd.append("--release")
     if args.extra:
@@ -766,7 +788,8 @@ def _build_desktop(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     """Run cargo check with the same environment as build."""
     env = setup_desktop_env()
-    cmd = ["cargo", "check", "--manifest-path", str(HAVISHELL_DIR / "Cargo.toml")]
+    cmd = _cargo_makepad_desktop_cmd()
+    cmd.extend(["check", "-p", "havishell"])
     if args.extra:
         cmd.extend(args.extra)
 

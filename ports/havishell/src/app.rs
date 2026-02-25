@@ -502,6 +502,11 @@ pub struct App {
     context_menu_open: bool,
     #[rust]
     context_menu_pos: DVec2,
+
+    /// Latest advertised public via from pylon listener events.
+    #[rust]
+    shared_public_via: Option<String>,
+
     // --- Tab state ---
     #[rust]
     tabs: Vec<TabInfo>,

@@ -1,5 +1,42 @@
 use super::*;
 
+fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
+    let Some(via) = public_via.filter(|v| !v.is_empty()) else {
+        return current_url.to_string();
+    };
+
+    let Ok(addr) = havi_protocols::url::HAVIAddress::parse(current_url) else {
+        return current_url.to_string();
+    };
+
+    if addr.endpoint().is_some() {
+        return current_url.to_string();
+    }
+
+    if !matches!(
+        addr.scheme(),
+        havi_protocols::url::HpprScheme::Hppr | havi_protocols::url::HpprScheme::HpprBrowse
+    ) {
+        return current_url.to_string();
+    }
+
+    if current_url.contains('{') {
+        if current_url.contains("via:") {
+            return current_url.to_string();
+        }
+        if current_url.ends_with('}') {
+            let mut out = String::with_capacity(current_url.len() + via.len() + 6);
+            out.push_str(&current_url[..current_url.len() - 1]);
+            out.push_str(",via:");
+            out.push_str(via);
+            out.push('}');
+            return out;
+        }
+    }
+
+    havi_protocols::url::via_url(current_url, via)
+}
+
 impl MatchEvent for App {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
         let mut nav_action: Option<NavCommand> = None;
@@ -33,9 +70,9 @@ impl MatchEvent for App {
             }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
-            // Copy current URL to clipboard
             let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            cx.copy_to_clipboard(&url_text);
+            let share_url = shareable_url(&url_text, self.shared_public_via.as_deref());
+            cx.copy_to_clipboard(&share_url);
         }
         if self.ui.button(cx, ids!(home_btn)).clicked(actions) {
             nav_action = Some(NavCommand::Navigate(HOME_URL.into()));
@@ -293,6 +330,16 @@ impl AppMain for App {
                     };
                     if !label.is_empty() {
                         self.set_repo_mode_label(cx, &label, false);
+                    }
+
+                    if ev.event == "listener" && ev.service.as_deref() == Some("hpprd") {
+                        if let Some(via) = ev.public_via.as_ref() {
+                            self.shared_public_via = Some(via.clone());
+                        } else if ev.present == Some(false)
+                            || ev.source.as_deref() == Some("nat")
+                        {
+                            self.shared_public_via = None;
+                        }
                     }
                 }
             }

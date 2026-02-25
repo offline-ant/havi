@@ -50,6 +50,11 @@ pub struct PylonEvent {
     pub service: Option<String>,
     pub pid: Option<u32>,
     pub port: Option<u16>,
+    pub listener: Option<String>,
+    pub present: Option<bool>,
+    pub public_ip: Option<String>,
+    pub public_via: Option<String>,
+    pub source: Option<String>,
 }
 
 impl PylonClient {
@@ -226,6 +231,23 @@ impl PylonClient {
                                         .get("port")
                                         .and_then(|v| v.as_u64())
                                         .map(|n| n as u16),
+                                    listener: val
+                                        .get("listener")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    present: val.get("present").and_then(|v| v.as_bool()),
+                                    public_ip: val
+                                        .get("public_ip")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    public_via: match val.get("public_via") {
+                                        Some(serde_json::Value::String(s)) => Some(s.to_string()),
+                                        _ => None,
+                                    },
+                                    source: val
+                                        .get("source")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
                                 };
                                 if tx.send(ev).is_err() {
                                     break; // Receiver dropped
