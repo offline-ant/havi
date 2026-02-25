@@ -155,6 +155,8 @@ proc = subprocess.run(
         f"{script_dir}/havi-devtools-cli",
         "-p",
         port,
+        "--timeout",
+        "60",
         "--text",
         "eval",
         "--await",
