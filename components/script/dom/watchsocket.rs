@@ -16,7 +16,7 @@ use ipc_channel::router::ROUTER;
 use js::jsval::{ObjectValue, UndefinedValue};
 use js::realm::AutoRealm;
 use net_traits::{CoreResourceMsg, HpprProtocolError, WatchDomAction, WatchNetworkEvent};
-use hppr_client::env_target::parse_via;
+use hppr_client::parse_via;
 use hppr_client::Signer;
 use profile_traits::ipc as ProfiledIpc;
 use script_bindings::conversions::SafeToJSValConvertible;

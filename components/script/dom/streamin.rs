@@ -19,7 +19,7 @@ use net_traits::{
     CoreResourceMsg, HpprProtocolError, StreamInDomAction, StreamInNetworkEvent,
     StreamInPublisherParams,
 };
-use hppr_client::env_target::parse_via;
+use hppr_client::parse_via;
 use hppr_client::Signer;
 use profile_traits::ipc as ProfiledIpc;
 

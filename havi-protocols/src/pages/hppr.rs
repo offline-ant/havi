@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use hppr_client::env_target::{ViaSpec, parse_via};
+use hppr_client::{ViaSpec, parse_via};
 use hppr_packet::chunk::{ChunkKind, is_chunk_manifest, parse_chunk_manifest};
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use pulldown_cmark::{Options, Parser, html};

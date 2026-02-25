@@ -183,6 +183,14 @@ script_mod! {
                             width: Fit height: Fit
                             margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
                         }
+                        repo_mode_label_off := Label{
+                            visible: false
+                            text: ""
+                            draw_text.color: #xff4444
+                            draw_text.text_style.font_size: 9.0
+                            width: Fit height: Fit
+                            margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
+                        }
                     }
 
                     content_area := View{
@@ -270,6 +278,90 @@ fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
         havi_protocols::watch::WatchMode::Dev => "dev",
     }
     .to_string()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PylonMode {
+    None,
+    External,
+    Embedded,
+}
+
+fn pylon_mode_from_env() -> PylonMode {
+    match std::env::var("HAVI_PYLON_MODE").ok().as_deref() {
+        Some("none") => PylonMode::None,
+        Some("external") => PylonMode::External,
+        Some("embedded") if cfg!(feature = "embedded-services") => PylonMode::Embedded,
+        Some("embedded") => PylonMode::External,
+        _ if cfg!(feature = "embedded-services") => PylonMode::Embedded,
+        _ => PylonMode::External,
+    }
+}
+
+fn start_hpprd_with_runtime(
+    pylon_client: &mut havi_protocols::pylon::PylonClient,
+    runtime: Option<&str>,
+) -> anyhow::Result<u16> {
+    if let Some(port) = pylon_client.hpprd_port() {
+        return Ok(port);
+    }
+
+    let mut args = serde_json::Map::new();
+    if let Some(mode) = runtime {
+        args.insert("runtime".to_string(), serde_json::json!(mode));
+    }
+
+    let start_error = pylon_client
+        .command("start", Some("hpprd"), Some(&args))
+        .err();
+
+    let mut last_state: Option<String> = None;
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if let Some(port) = pylon_client.hpprd_port() {
+            return Ok(port);
+        }
+
+        if let Ok(status) = pylon_client.command("status", None, None) {
+            if let Some(hpprd) = status.get("hpprd") {
+                let state = hpprd
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let pid = hpprd
+                    .get("pid")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string());
+                let port = hpprd
+                    .get("port")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string());
+                let addr = hpprd.get("addr").and_then(|v| v.as_str()).unwrap_or("none");
+                last_state = Some(format!(
+                    "state={}, pid={}, port={}, addr={}",
+                    state, pid, port, addr
+                ));
+            }
+        }
+    }
+
+    let mut message = String::from(
+        "hpprd did not become reachable after pylon startup request and 10 status polls (~3s).",
+    );
+    if let Some(e) = start_error {
+        message.push_str(" Start request error: ");
+        message.push_str(&e);
+        message.push('.');
+    }
+    if let Some(state) = last_state {
+        message.push_str(" Last observed hpprd status: ");
+        message.push_str(&state);
+        message.push('.');
+    }
+
+    Err(anyhow::anyhow!(message))
 }
 
 #[derive(Clone, Debug)]
@@ -756,61 +848,78 @@ impl App {
         };
         self.bridge = Some(bridge);
 
-        // Always go through pylon in normal mode. NO_PYLON=1 skips pylon/hpprd.
-        let no_pylon_mode = std::env::var("NO_PYLON").ok().as_deref() == Some("1");
-        let pylon_port = if no_pylon_mode {
-            let target = std::env::var("HAVI_HOME")
-                .ok()
-                .and_then(|v| hppr_client::env_target::parse_via(&v).ok())
-                .unwrap_or(hppr_client::ViaSpec::Net {
-                    host: "127.0.0.1".to_string(),
-                    port: hppr_client::env_target::DEFAULT_PORT,
-                    scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
-                });
-            hppr_client::set_repo_target(target);
-            None
-        } else {
-            let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
-            let repo_path = havi_protocols::config::repo_dir();
-
-            let mut pylon_client = match crate::pylon_host::ensure_pylon(&repo_path, home.as_deref()) {
-                Ok(client) => client,
-                Err(err) => {
-                    eprintln!("[havi] Fatal: failed to initialize pylon control plane.");
-                    eprintln!("[havi] repo path: {}", repo_path.display());
-                    if let Some(home_addr) = home.as_deref() {
-                        eprintln!("[havi] mode: remote (HAVI_HOME={})", home_addr);
-                    } else {
-                        eprintln!("[havi] mode: local");
-                    }
-                    eprintln!("[havi] detailed cause chain:\n{:#}", err);
-                    std::process::exit(1);
-                },
-            };
-
-            let hpprd_p = match pylon_client.start_hpprd() {
-                Ok(port) => port,
-                Err(err) => {
-                    eprintln!("[havi] Fatal: pylon is running but hpprd could not be started or reached.");
-                    eprintln!("[havi] pylon control: 127.0.0.1:{}", pylon_client.port);
-                    eprintln!("[havi] repo path: {}", repo_path.display());
-                    eprintln!("[havi] detailed cause chain:\n{:#}", err);
-                    std::process::exit(1);
-                },
-            };
-
-            let pylon_p = pylon_client.port;
-            // Subscribe to events; reader thread keeps connection alive.
-            self.pylon_events = Some(pylon_client.subscribe());
-
-            let target = hppr_client::ViaSpec::Net {
+        let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
+        let repo_path = havi_protocols::config::repo_dir();
+        let fallback_target = home
+            .as_deref()
+            .and_then(|v| hppr_client::parse_via(v).ok())
+            .unwrap_or(hppr_client::ViaSpec::Net {
                 host: "127.0.0.1".to_string(),
-                port: hpprd_p,
-                scheme: Some(hppr_client::env_target::TransportScheme::Tcp),
-            };
-            hppr_client::set_repo_target(target);
-            log!("[havishell] Pylon hpprd on port {}", hpprd_p);
-            Some(pylon_p)
+                port: hppr_client::DEFAULT_PORT,
+                scheme: Some(hppr_client::TransportScheme::Tcp),
+            });
+
+        let pylon_mode = pylon_mode_from_env();
+        let mut pylon_disabled_reason: Option<String> = None;
+
+        let pylon_port = match pylon_mode {
+            PylonMode::None => {
+                hppr_client::set_repo_target(fallback_target.clone());
+                pylon_disabled_reason = Some("pylon: off (--no-pylon)".to_string());
+                None
+            }
+            PylonMode::External | PylonMode::Embedded => {
+                let host_mode = match pylon_mode {
+                    PylonMode::External => crate::pylon_host::PylonHostMode::External,
+                    PylonMode::Embedded => crate::pylon_host::PylonHostMode::Embedded,
+                    PylonMode::None => unreachable!(),
+                };
+
+                match crate::pylon_host::ensure_pylon(&repo_path, home.as_deref(), host_mode) {
+                    Ok(mut pylon_client) => {
+                        let hpprd_runtime = match pylon_mode {
+                            PylonMode::Embedded => Some("inline"),
+                            PylonMode::External | PylonMode::None => None,
+                        };
+
+                        match start_hpprd_with_runtime(&mut pylon_client, hpprd_runtime) {
+                            Ok(hpprd_p) => {
+                                let pylon_p = pylon_client.port;
+                                self.pylon_events = Some(pylon_client.subscribe());
+                                hppr_client::set_repo_target(hppr_client::ViaSpec::Net {
+                                    host: "127.0.0.1".to_string(),
+                                    port: hpprd_p,
+                                    scheme: Some(hppr_client::TransportScheme::Tcp),
+                                });
+                                log!("[havishell] Pylon hpprd on port {}", hpprd_p);
+                                Some(pylon_p)
+                            }
+                            Err(err) => {
+                                eprintln!("[havi] pylon unavailable: hpprd could not be started or reached.");
+                                eprintln!("[havi] pylon control: 127.0.0.1:{}", pylon_client.port);
+                                eprintln!("[havi] repo path: {}", repo_path.display());
+                                eprintln!("[havi] detailed cause chain:\n{:#}", err);
+                                hppr_client::set_repo_target(fallback_target.clone());
+                                pylon_disabled_reason = Some("pylon: off (hpprd start failed)".to_string());
+                                None
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("[havi] pylon unavailable: control plane not found/reachable.");
+                        eprintln!("[havi] repo path: {}", repo_path.display());
+                        if let Some(home_addr) = home.as_deref() {
+                            eprintln!("[havi] mode: remote (HAVI_HOME={})", home_addr);
+                        } else {
+                            eprintln!("[havi] mode: local");
+                        }
+                        eprintln!("[havi] detailed cause chain:\n{:#}", err);
+                        hppr_client::set_repo_target(fallback_target.clone());
+                        pylon_disabled_reason = Some("pylon: off (not found)".to_string());
+                        None
+                    }
+                }
+            }
         };
 
         // Create dedicated HAVI runtime and initialize watch pool for live-reload support.
@@ -972,9 +1081,10 @@ impl App {
             .set_text(cx, &start_url_str);
 
         // Show repo mode indicator
-        self.ui
-            .label(cx, ids!(repo_mode_label))
-            .set_text(cx, "pylon");
+        let repo_mode_text = pylon_disabled_reason
+            .clone()
+            .unwrap_or_else(|| "pylon".to_string());
+        self.set_repo_mode_label(cx, &repo_mode_text, pylon_disabled_reason.is_some());
 
         // Set window title caption to "havi"
         self.ui
@@ -1215,6 +1325,23 @@ impl App {
             if let Some(servo) = &self.servo {
                 servo.spin_event_loop();
             }
+        }
+    }
+
+    fn set_repo_mode_label(&self, cx: &mut Cx, text: &str, off: bool) {
+        self.ui
+            .widget(cx, ids!(repo_mode_label))
+            .set_visible(cx, !off);
+        self.ui
+            .widget(cx, ids!(repo_mode_label_off))
+            .set_visible(cx, off);
+
+        if off {
+            self.ui
+                .label(cx, ids!(repo_mode_label_off))
+                .set_text(cx, text);
+        } else {
+            self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, text);
         }
     }
 }
@@ -1490,9 +1617,7 @@ impl AppMain for App {
                         _ => String::new(),
                     };
                     if !label.is_empty() {
-                        self.ui
-                            .label(cx, ids!(repo_mode_label))
-                            .set_text(cx, &label);
+                        self.set_repo_mode_label(cx, &label, false);
                     }
                 }
             }

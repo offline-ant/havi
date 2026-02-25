@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use hppr_client::env_target::ViaSpec;
+use hppr_client::ViaSpec;
 use hppr_client::ExchangeItem;
 use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer};
 use hppr_packet::chunk::ChunkManifest;

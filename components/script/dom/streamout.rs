@@ -16,7 +16,7 @@ use js::typedarray::ArrayBufferU8;
 use net_traits::{
     CoreResourceMsg, HpprProtocolError, StreamOutDomAction, StreamOutNetworkEvent,
 };
-use hppr_client::env_target::parse_via;
+use hppr_client::parse_via;
 use hppr_client::Signer;
 use profile_traits::ipc as ProfiledIpc;
 

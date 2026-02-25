@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use hppr_client::env_target::parse_via;
+use hppr_client::parse_via;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
 use crate::PageResponse;

@@ -10,7 +10,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use hppr_client::env_target::ViaSpec;
+use hppr_client::ViaSpec;
 use hppr_client::Signer;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;

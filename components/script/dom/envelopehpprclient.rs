@@ -12,7 +12,7 @@ use std::rc::Rc;
 use base::generic_channel::GenericCallback;
 use dom_struct::dom_struct;
 use hppr_client::add_coords_to_pac_headers;
-use hppr_client::env_target::parse_via;
+use hppr_client::parse_via;
 use hppr_client::Signer;
 use net_traits::{HpprRequest, CoreResourceMsg, HpprProtocolResponse};
 

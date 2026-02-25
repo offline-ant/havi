@@ -4011,6 +4011,7 @@ dependencies = [
  "makepad-widgets",
  "pylon",
  "rustls",
+ "serde_json",
  "tokio",
  "url",
 ]

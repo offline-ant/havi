@@ -10,9 +10,9 @@
 //! - `HpprdClientAsync`: Async client for hpprd daemon operations
 
 use hppr_client::Packet;
-use hppr_client::env_target::ViaSpec;
 use hppr_client::{
-    AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer, spawn_connection,
+    AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, parse_via,
+    spawn_connection,
 };
 use hppr_packet::{PacketType, acl_coord_sort_key};
 use tokio::sync::Mutex;
@@ -348,8 +348,7 @@ impl HpprdClientAsync {
         // Extract and parse Upstream header (single via target)
         let upstream = match packet.header("Upstream") {
             Some(v) => Some(
-                hppr_client::env_target::parse_via(v)
-                    .map_err(|e| format!("invalid Upstream header '{}': {}", v, e))?,
+                parse_via(v).map_err(|e| format!("invalid Upstream header '{}': {}", v, e))?,
             ),
             None => None,
         };

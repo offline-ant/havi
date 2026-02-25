@@ -12,8 +12,8 @@
 //! forms, and navigation. Used by hppr-setup:// to show a safe preview
 //! before the user trusts a remote repo.
 
-use hppr_client::env_target::parse_via;
-use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer, spawn_connection};
+use hppr_client::parse_via;
+use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, spawn_connection};
 
 use crate::PageResponse;
 use crate::url::HAVIAddress;
@@ -69,12 +69,12 @@ pub async fn handle_request(url: &str) -> PageResponse {
 
 /// Fetch content from remote repo using anyone authentication via a new connection.
 async fn fetch_content(
-    endpoint: &hppr_client::env_target::ViaSpec,
+    endpoint: &ViaSpec,
     urc: &str,
 ) -> Result<(String, String, Vec<u8>), String> {
     // Parse endpoint to socket address
     let addr = match endpoint {
-        hppr_client::env_target::ViaSpec::Net { host, port, .. } => format!("{}:{}", host, port)
+        ViaSpec::Net { host, port, .. } => format!("{}:{}", host, port)
             .parse::<std::net::SocketAddr>()
             .map_err(|e| format!("Invalid address: {}", e))?,
         _ => return Err("Unsupported transport for sandbox".to_string()),

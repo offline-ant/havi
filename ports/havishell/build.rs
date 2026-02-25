@@ -110,11 +110,11 @@ fn raster_with_havi_devtools(
     let havi_root = manifest_dir.join("../..");
     let mut havi = Command::new(havi_bin)
         .current_dir(&havi_root)
+        .arg("--no-pylon")
         .env("HAVI_URL", svg_url)
         .env("HAVI_DEVTOOLS", format!("127.0.0.1:{port}"))
         .env("HAVI_CONFIG", run_dir.join("config"))
         .env("HAVI_HOME", "tcp+127.0.0.1:4777")
-        .env("NO_PYLON", "1")
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err))
         .spawn()

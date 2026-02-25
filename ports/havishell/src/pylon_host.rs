@@ -1,14 +1,24 @@
 #[cfg(target_os = "android")]
 use anyhow::anyhow;
 
+/// Pylon host startup mode for desktop targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PylonHostMode {
+    /// Require external `pylon` binary lookup/startup.
+    External,
+    /// Prefer embedded self-exec host startup (`havi pylon ...`).
+    Embedded,
+}
+
 /// Ensure pylon is reachable for this HAVI process.
 ///
 /// Host startup policy:
-/// - desktop targets: process-host startup (`pylon` binary, with self-exec fallback)
+/// - desktop targets: process-host startup (`pylon` binary, optional self-exec fallback)
 /// - android target: inline host startup (spawn pylon in-process on a thread)
 pub fn ensure_pylon(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
+    host_mode: PylonHostMode,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
     #[cfg(target_os = "android")]
     {
@@ -17,7 +27,7 @@ pub fn ensure_pylon(
 
     #[cfg(not(target_os = "android"))]
     {
-        ensure_pylon_process_host(repo_dir, home_addr)
+        ensure_pylon_process_host(repo_dir, home_addr, host_mode)
     }
 }
 
@@ -25,11 +35,17 @@ pub fn ensure_pylon(
 fn ensure_pylon_process_host(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
+    host_mode: PylonHostMode,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
+    let self_exec_fallback = match host_mode {
+        PylonHostMode::External => false,
+        PylonHostMode::Embedded => cfg!(feature = "embedded-services"),
+    };
+
     havi_protocols::pylon::ensure_pylon_with_self_exec_process_fallback(
         repo_dir,
         home_addr,
-        cfg!(feature = "embedded-services"),
+        self_exec_fallback,
     )
 }
 

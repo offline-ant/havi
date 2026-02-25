@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use hppr_client::env_target::{ViaSpec, TransportScheme, parse_via};
+use hppr_client::{ViaSpec, TransportScheme, parse_via};
 use hppr_client::{
     AnyConnection, HpprError, HpprRequest as IoRequest, ResponseKind, Result, Signer,
     connect_quib_async, spawn_connection,

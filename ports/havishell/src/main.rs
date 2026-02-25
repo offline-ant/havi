@@ -28,9 +28,24 @@ fn main() {
         return;
     }
 
-    // Extract --path and --home flags, set env vars for downstream use.
+    // Self-exec service dispatch compatibility:
+    // pylon self-exec mode can launch current_exe as:
+    //   havi --embedded-services exec <service> ...
+    // Route that argv shape into pylon CLI dispatch instead of launching UI.
+    if args.get(1).map(|s| s.as_str()) == Some("--embedded-services")
+        && args.get(2).map(|s| s.as_str()) == Some("exec")
+    {
+        env_logger::init();
+        pylon::cli::main(args[1..].to_vec());
+        return;
+    }
+
+    // Extract HAVI runtime flags and set env vars for downstream use.
     {
         let mut i = 1;
+        let mut force_no_pylon = false;
+        let mut force_external_pylon = false;
+
         while i < args.len() {
             match args[i].as_str() {
                 "--path" => {
@@ -49,9 +64,28 @@ fn main() {
                         i += 1;
                     }
                 },
+                "--no-pylon" => {
+                    force_no_pylon = true;
+                    i += 1;
+                },
+                "--external-pylon" => {
+                    force_external_pylon = true;
+                    i += 1;
+                },
                 _ => i += 1,
             }
         }
+
+        let pylon_mode = if force_no_pylon {
+            "none"
+        } else if force_external_pylon {
+            "external"
+        } else if cfg!(feature = "embedded-services") {
+            "embedded"
+        } else {
+            "external"
+        };
+        std::env::set_var("HAVI_PYLON_MODE", pylon_mode);
     }
 
     // Single-instance check: if another HAVI is running, ask it to open a new tab.

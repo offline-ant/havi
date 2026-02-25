@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use hppr_client::env_target::ViaSpec;
+use hppr_client::ViaSpec;
 
 use crate::client::HpprdClientAsync;
 
