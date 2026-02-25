@@ -4,15 +4,12 @@
 #   commit which supports the required rustc version
 # - the version in support/crown/rust-toolchain.toml
 # - the version in .devcontainer/Dockerfile
-channel = "nightly-2026-02-23"
+channel = "nightly-2026-02-24"
 
 components = [
-    "clippy",
+    # "clippy",
     # For support/crown
-    "llvm-tools",
+    # "llvm-tools",
     # For support/crown
-    "rustc-dev",
-    "rustfmt",
-    # For rust-analyzer
-    "rust-src",
+    # "rustc-dev"
 ]
