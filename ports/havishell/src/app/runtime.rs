@@ -1,0 +1,698 @@
+use super::*;
+
+/// GL_TEXTURE_RECTANGLE constant (macOS CGL/IOSurface textures).
+const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
+
+/// Build platform display info for WebGL from the GL render bridge.
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::egl::EglDisplayInfo {
+    // Recover the raw eglGetProcAddress function pointer from the bridge.
+    // SAFETY: bridge.get_proc_address wraps eglGetProcAddress. Looking up
+    // "eglGetProcAddress" returns a pointer to the function itself.
+    let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void = unsafe {
+        std::mem::transmute(bridge.get_proc_address("eglGetProcAddress"))
+    };
+    servo::gl_device::egl::EglDisplayInfo {
+        display: bridge.egl_display(),
+        config: bridge.egl_config(),
+        share_context: bridge.egl_context(),
+        get_proc_address: egl_gpa,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::cgl::CglDisplayInfo {
+    servo::gl_device::cgl::CglDisplayInfo {
+        pixel_format: bridge.cgl_pixel_format(),
+        share_context: bridge.cgl_context(),
+    }
+}
+
+/// Create the GL render bridge, shared texture, and rendering context.
+/// Unified path for all platforms via makepad's GlRenderBridge.
+fn create_rendering_context(
+    cx: &mut Cx,
+    size: dpi::PhysicalSize<u32>,
+) -> Result<
+    (Texture, GlRenderBridge, Rc<servo::MakepadRenderingContext>),
+    servo::rendering_context::Error,
+> {
+    let bridge = cx.create_gl_render_bridge();
+    bridge.make_current();
+
+    let (texture, gl_texture_id) =
+        cx.create_gl_render_bridge_texture(&bridge, size.width as usize, size.height as usize);
+
+    let display_info = build_display_info(&bridge);
+    let gl_api = match bridge.gl_api() {
+        GlApi::GL => servo::gl_device::GlApi::GL,
+        GlApi::GLES => servo::gl_device::GlApi::GLES,
+    };
+    let texture_target = match bridge.gl_api() {
+        GlApi::GL => GL_TEXTURE_RECTANGLE,
+        GlApi::GLES => gleam::gl::TEXTURE_2D,
+    };
+
+    // SAFETY: The bridge's GL context is current (ensured above). GL function
+    // pointers loaded via get_proc_address are valid for this context.
+    let rc = unsafe {
+        servo::MakepadRenderingContext::new_from_loader(
+            size,
+            &|name| bridge.get_proc_address(name) as *const std::ffi::c_void,
+            gl_api,
+            texture_target,
+            Some(display_info),
+        )
+    }?;
+    rc.set_external_texture(gl_texture_id, size);
+    cx.restore_gl_context();
+
+    Ok((texture, bridge, Rc::new(rc)))
+}
+
+pub fn install_window_icon() {
+    use makepad_widgets::makepad_platform::{set_window_icon, WindowIcon, WindowIconBuffer};
+
+    let png_64 = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../resources/havi_icon_64.png"
+    ));
+    let png_128 = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../resources/havi_icon_128.png"
+    ));
+
+    use ::image::codecs::png::PngDecoder;
+    use ::image::DynamicImage;
+
+    let dec_64 = match PngDecoder::new(std::io::Cursor::new(&png_64[..])) {
+        Ok(dec) => dec,
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: invalid 64px png: {}", err);
+            return;
+        },
+    };
+    let img_64 = match DynamicImage::from_decoder(dec_64) {
+        Ok(img) => img.into_rgba8(),
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: decode 64px icon failed: {}", err);
+            return;
+        },
+    };
+
+    let dec_128 = match PngDecoder::new(std::io::Cursor::new(&png_128[..])) {
+        Ok(dec) => dec,
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: invalid 128px png: {}", err);
+            return;
+        },
+    };
+    let img_128 = match DynamicImage::from_decoder(dec_128) {
+        Ok(img) => img.into_rgba8(),
+        Err(err) => {
+            eprintln!("[havishell] icon install skipped: decode 128px icon failed: {}", err);
+            return;
+        },
+    };
+
+    set_window_icon(WindowIcon {
+        name: None,
+        buffers: vec![
+            WindowIconBuffer {
+                width: 64,
+                height: 64,
+                scale: 1,
+                data: img_64.into_raw(),
+            },
+            WindowIconBuffer {
+                width: 128,
+                height: 128,
+                scale: 2,
+                data: img_128.into_raw(),
+            },
+        ],
+    });
+}
+
+impl App {
+    pub(super) fn init_servo(&mut self, cx: &mut Cx) {
+        if self.initialized {
+            return;
+        }
+
+        // Wait until the window geometry is populated by the platform layer.
+        // On Android, dpi_factor and inner_size are set asynchronously:
+        // dpi_factor comes from FromJavaMessage::Init, inner_size from SurfaceChanged.
+        // Both must be valid before we can create correctly-sized textures.
+        let geom = &cx.windows[CxWindowPool::id_zero()].window_geom;
+        let dpi_factor = geom.dpi_factor;
+        let inner = geom.inner_size;
+        if dpi_factor <= 0.0 || inner.x <= 0.0 || inner.y <= 0.0 {
+            return;
+        }
+
+        // Set Wayland app_id to "havi"
+        cx.windows[CxWindowPool::id_zero()].create_app_id = "havi".to_string();
+
+        self.initialized = true;
+        self.dpi_factor = dpi_factor;
+
+        // Init crypto provider
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .ok();
+
+        // Init resource reader
+        servo::resources::set(Box::new(ResourceReader));
+
+        // Use physical pixel dimensions for the initial texture.
+        // Makepad's inner_size is in logical pixels; multiply by DPI for physical.
+        let width = ((inner.x * self.dpi_factor) as u32).max(64);
+        let height = ((inner.y * self.dpi_factor) as u32).max(64);
+        self.content_size = (width as usize, height as usize);
+
+        // Create rendering context + texture via the unified GL render bridge.
+        let size = dpi::PhysicalSize::new(width, height);
+        let (texture, bridge, rendering_context) = match create_rendering_context(cx, size) {
+            Ok(result) => result,
+            Err(e) => {
+                log!("[havishell] FAILED to create rendering context: {:?}", e);
+                return;
+            },
+        };
+        self.bridge = Some(bridge);
+
+        #[cfg(target_os = "android")]
+        {
+            if std::env::var_os("HAVI_CONFIG").is_none() {
+                if let Some(data_dir) = cx.get_data_dir() {
+                    let config_dir = std::path::Path::new(&data_dir).join("HAVI");
+                    if let Err(err) = std::fs::create_dir_all(&config_dir) {
+                        eprintln!(
+                            "[havi] failed to create android HAVI_CONFIG at {}: {}",
+                            config_dir.display(),
+                            err
+                        );
+                    } else {
+                        std::env::set_var("HAVI_CONFIG", &config_dir);
+                        log!("[havishell] HAVI_CONFIG={}", config_dir.display());
+                    }
+                }
+            }
+        }
+
+        let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
+        let repo_path = havi_protocols::config::repo_dir();
+        let fallback_target = home
+            .as_deref()
+            .and_then(|v| hppr_client::parse_via(v).ok())
+            .unwrap_or(hppr_client::ViaSpec::Net {
+                host: "127.0.0.1".to_string(),
+                port: hppr_client::DEFAULT_PORT,
+                scheme: Some(hppr_client::TransportScheme::Tcp),
+            });
+
+        let pylon_mode = pylon_mode_from_env();
+        let mut pylon_disabled_reason: Option<String> = None;
+
+        let pylon_port = match pylon_mode {
+            PylonMode::None => {
+                hppr_client::set_repo_target(fallback_target.clone());
+                pylon_disabled_reason = Some("pylon: off (--no-pylon)".to_string());
+                None
+            }
+            PylonMode::External | PylonMode::Embedded => {
+                let host_mode = match pylon_mode {
+                    PylonMode::External => crate::pylon_host::PylonHostMode::External,
+                    PylonMode::Embedded => crate::pylon_host::PylonHostMode::Embedded,
+                    PylonMode::None => unreachable!(),
+                };
+
+                match crate::pylon_host::ensure_pylon(&repo_path, home.as_deref(), host_mode) {
+                    Ok(mut pylon_client) => {
+                        let hpprd_runtime = match pylon_mode {
+                            PylonMode::Embedded => Some("inline"),
+                            PylonMode::External | PylonMode::None => None,
+                        };
+
+                        match start_hpprd_with_runtime(&mut pylon_client, hpprd_runtime) {
+                            Ok(hpprd_p) => {
+                                let pylon_p = pylon_client.port;
+                                self.pylon_events = Some(pylon_client.subscribe());
+                                hppr_client::set_repo_target(hppr_client::ViaSpec::Net {
+                                    host: "127.0.0.1".to_string(),
+                                    port: hpprd_p,
+                                    scheme: Some(hppr_client::TransportScheme::Tcp),
+                                });
+                                log!("[havishell] Pylon hpprd on port {}", hpprd_p);
+                                Some(pylon_p)
+                            }
+                            Err(err) => {
+                                eprintln!("[havi] pylon unavailable: hpprd could not be started or reached.");
+                                eprintln!("[havi] pylon control: 127.0.0.1:{}", pylon_client.port);
+                                eprintln!("[havi] repo path: {}", repo_path.display());
+                                eprintln!("[havi] detailed cause chain:\n{:#}", err);
+                                hppr_client::set_repo_target(fallback_target.clone());
+                                pylon_disabled_reason = Some("pylon: off (hpprd start failed)".to_string());
+                                None
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("[havi] pylon unavailable: control plane not found/reachable.");
+                        eprintln!("[havi] repo path: {}", repo_path.display());
+                        if let Some(home_addr) = home.as_deref() {
+                            eprintln!("[havi] mode: remote (HAVI_HOME={})", home_addr);
+                        } else {
+                            eprintln!("[havi] mode: local");
+                        }
+                        eprintln!("[havi] detailed cause chain:\n{:#}", err);
+                        hppr_client::set_repo_target(fallback_target.clone());
+                        pylon_disabled_reason = Some("pylon: off (not found)".to_string());
+                        None
+                    }
+                }
+            }
+        };
+
+        // Create dedicated HAVI runtime and initialize watch pool for live-reload support.
+        // This runtime is owned by App and is independent from Servo/Net runtime ownership.
+        let watch_runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("havi-watch")
+            .build()
+            .expect("failed to create HAVI watch runtime");
+        self.havi_runtime = Some(watch_runtime);
+        let watch_runtime_handle = self
+            .havi_runtime
+            .as_ref()
+            .expect("HAVI watch runtime must exist before watch pool")
+            .handle()
+            .clone();
+        self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
+            watch_runtime_handle,
+            SignalToUI::set_ui_signal,
+        ));
+
+        // Initialize HPPR protocol handlers
+        let hppr_handler = {
+            let target = hppr_client::repo_target().clone();
+            Arc::new(
+                havi_protocols::client::HpprdClientAsync::new(target)
+                    .expect("invalid repo endpoint"),
+            )
+        };
+        let credential_store = global_credential_store();
+
+        // Bootstrap credentials
+        {
+            let endpoint = hppr_client::repo_endpoint().to_string();
+            match hppr_client::connect_tcp(&endpoint, hppr_client::Signer::anyone()) {
+                Ok(mut client) => {
+                    if let Ok(greeting) = client.hello() {
+                        let key = greeting.verifying_key();
+                        if credential_store.load_admin_for_key(key).is_err() {
+                            credential_store.bootstrap_admin();
+                            let _ = credential_store.persist_admin_for_key(key);
+                        }
+                    } else {
+                        credential_store.bootstrap_admin();
+                    }
+                },
+                Err(_) => credential_store.bootstrap_admin(),
+            }
+        }
+
+        let mut protocol_registry = ProtocolRegistry::default();
+        let _ = protocol_registry.register(
+            "hppr",
+            crate::protocols::hppr::HpprHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
+            "havi",
+            crate::protocols::havi::HaviHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
+            "hppr-browse",
+            crate::protocols::hppr_browse::HpprBrowseHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
+            "hppr-sandbox",
+            crate::protocols::hppr_sandbox::HpprSandboxHandler::new(),
+        );
+        let _ = protocol_registry.register(
+            "hppr-setup",
+            crate::protocols::hppr_setup::HpprSetupHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
+            "hppr-editor",
+            crate::protocols::hppr_editor::HpprEditorHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
+            "file",
+            crate::protocols::file::FileHpprHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+
+        // Step 3: Create Servo instance with viewport_meta_enabled so that
+        // <meta name="viewport" content="width=device-width"> tags are respected.
+        let mut preferences = servo::Preferences::default();
+        preferences.set_value("viewport_meta_enabled", servo::PrefValue::Bool(true));
+
+        // Enable devtools. HAVI_DEVTOOLS env var overrides the listen address
+        // (e.g. "6080" or "127.0.0.1:6080"). In debug builds, devtools defaults
+        // to port 0 (OS-assigned) so the effective port is printed at startup.
+        if let Ok(devtools_addr) = std::env::var("HAVI_DEVTOOLS") {
+            preferences.devtools_server_enabled = true;
+            preferences.devtools_server_listen_address = devtools_addr;
+        } else if cfg!(debug_assertions) {
+            preferences.devtools_server_enabled = true;
+            preferences.devtools_server_listen_address = "0".to_string();
+        }
+
+        let servo = servo::ServoBuilder::default()
+            .event_loop_waker(Box::new(MakepadEventLoopWaker))
+            .preferences(preferences)
+            .protocol_registry(protocol_registry)
+            .build();
+        servo.set_delegate(Rc::new(HaviServoDelegate));
+        servo.setup_logging();
+
+        // Step 4: Create first WebView with proper HiDPI scale factor.
+        let start_url_str = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
+        let url = servo::BrowserUrl::parse(&start_url_str).unwrap();
+        let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
+            Scale::new(self.dpi_factor as f32);
+        let webview = servo::WebViewBuilder::new(&servo, rendering_context.clone())
+            .url(url)
+            .hidpi_scale_factor(hidpi)
+            .delegate(Rc::new(HaviWebViewDelegate))
+            .build();
+
+        let webview_id = webview.id();
+        self.tabs.push(TabInfo {
+            webview_id,
+            webview,
+            title: title_from_url(&start_url_str),
+            url: start_url_str.clone(),
+            widget_id: next_tab_live_id(),
+            watch: Default::default(),
+        });
+        self.active_tab_idx = 0;
+
+        self.servo = Some(servo);
+        self.rendering_context = Some(rendering_context);
+
+        // Step 5: Assign texture to the ServoWebView widget
+        self.texture = Some(texture);
+        if let Some(texture) = &self.texture {
+            self.ui
+                .servo_web_view(cx, ids!(web_view))
+                .set_texture(cx, Some(texture.clone()));
+        }
+
+        // Set initial URL in the text input
+        self.ui
+            .text_input(cx, ids!(url_input))
+            .set_text(cx, &start_url_str);
+
+        // Show repo mode indicator
+        let repo_mode_text = pylon_disabled_reason
+            .clone()
+            .unwrap_or_else(|| "pylon".to_string());
+        self.set_repo_mode_label(cx, &repo_mode_text, pylon_disabled_reason.is_some());
+
+        // Set window title caption to "havi"
+        self.ui
+            .widget(cx, ids!(caption_bar.caption_label.label))
+            .set_text(cx, "havi");
+
+        // Sync tab bar UI
+        self.sync_tab_bar(cx);
+
+        // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
+        self.ui.view(cx, ids!(caption_bar)).set_visible(cx, false);
+
+        // Hide macOS traffic light buttons — HAVI uses its own window controls
+        cx.push_unique_platform_op(CxOsOp::HideWindowButtons(CxWindowPool::id_zero()));
+
+        // In Makepad Studio's RunView, window control buttons are meaningless —
+        // the child process doesn't own a real window.
+        if cx.in_makepad_studio {
+            self.ui
+                .view(cx, ids!(window_controls))
+                .set_visible(cx, false);
+        }
+
+        // Start HAVI IPC listener for single-instance support
+        havi_protocols::instance::set_signal_callback(|| {
+            SignalToUI::set_ui_signal();
+        });
+        match havi_protocols::instance::start_ipc_listener() {
+            Ok(rx) => self.ipc_rx = Some(rx),
+            Err(e) => log!("[havishell] IPC listener: {}", e),
+        }
+
+        // Signal that we need to paint the first frame
+        self.needs_paint = true;
+        self.idle_frames = 0;
+
+        // Print eval-compatible environment summary
+        {
+            let repo_dir = havi_protocols::config::repo_dir();
+            eprintln!("HPPRD_REPO={}", repo_dir.display());
+            if let Some(pp) = pylon_port {
+                eprintln!("PYLON=127.0.0.1:{}", pp);
+            }
+            eprintln!("HAVI_URL={}", start_url_str);
+        }
+
+        // Start the frame loop
+        self.next_frame = cx.new_next_frame();
+
+        // Control mode: stdin/stdout JSON protocol.
+        // Skip when running inside Makepad Studio's RunView — stdin is already
+        // used by the Studio WebSocket protocol.
+        if std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() && !cx.in_makepad_studio {
+            Cx::set_studio_stdout_mode(true);
+            cx.in_makepad_studio = true;
+
+            let (tx, rx) = mpsc::channel();
+            Cx::set_control_channel(rx);
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let stdin = std::io::stdin();
+                let reader = std::io::BufReader::new(stdin.lock());
+                for line in reader.lines() {
+                    let Ok(line) = line else { break };
+                    if line.is_empty() {
+                        continue;
+                    }
+                    match StudioToApp::deserialize_json(&line) {
+                        Ok(msg) => {
+                            if tx.send(msg).is_err() {
+                                break;
+                            }
+                            SignalToUI::set_ui_signal();
+                        }
+                        Err(e) => {
+                            eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
+                        }
+                    }
+                }
+            });
+
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
+            let _ = std::io::stdout().flush();
+        }
+    }
+
+    /// Check if the web_view widget has been resized and update the rendering context
+    /// and texture accordingly.
+    fn check_resize(&mut self, cx: &mut Cx) {
+        let rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+        // Makepad's rect is in logical (DPI-independent) pixels.
+        // Servo and GL textures need physical pixel dimensions.
+        let new_width = ((rect.size.x * self.dpi_factor) as u32).max(1);
+        let new_height = ((rect.size.y * self.dpi_factor) as u32).max(1);
+
+        let (cur_w, cur_h) = self.content_size;
+        if new_width as usize == cur_w && new_height as usize == cur_h {
+            return;
+        }
+
+        // Avoid very small sizes during layout transitions
+        if new_width < 64 || new_height < 64 {
+            return;
+        }
+
+        ::log::info!(
+            "Resizing rendering context: {}x{} → {}x{}",
+            cur_w,
+            cur_h,
+            new_width,
+            new_height
+        );
+
+        self.content_size = (new_width as usize, new_height as usize);
+
+        let phys_size = dpi::PhysicalSize::new(new_width, new_height);
+
+        // IMPORTANT: Notify the webview BEFORE updating the rendering context's
+        // external texture. webview.resize() → resize_rendering_context() checks
+        // if rendering_context.size() == new_size to decide whether to update
+        // WebRender's document view. If we call set_external_texture first, it
+        // updates the stored size, making the check see matching sizes and skip
+        // set_document_view — so WebRender never learns the new viewport.
+        // Resize all webviews so they're ready when switched to.
+        for tab in &self.tabs {
+            tab.webview.resize(phys_size);
+        }
+
+        // Create new texture via the bridge and rebind the rendering context.
+        if let Some(bridge) = &self.bridge {
+            let (texture, gl_texture_id) = cx.create_gl_render_bridge_texture(
+                bridge,
+                new_width as usize,
+                new_height as usize,
+            );
+            if let Some(rc) = &self.rendering_context {
+                rc.set_external_texture(gl_texture_id, phys_size);
+                cx.restore_gl_context();
+            }
+            self.texture = Some(texture);
+        }
+
+        // Assign new texture to ServoWebView widget
+        if let Some(texture) = &self.texture {
+            self.ui
+                .servo_web_view(cx, ids!(web_view))
+                .set_texture(cx, Some(texture.clone()));
+        }
+
+        // Force a repaint at the new size
+        self.needs_paint = true;
+    }
+
+    /// Main update method called each frame. Spins Servo's event loop and
+    /// optionally does the expensive paint + readback cycle.
+    pub(super) fn update_servo_and_texture(&mut self, cx: &mut Cx) {
+        // Always spin the event loop to process Servo's internal messages.
+        // This is lightweight when there's nothing to do.
+        if let Some(servo) = &self.servo {
+            servo.spin_event_loop();
+        }
+
+        // Poll webview state directly after spin_event_loop.
+        // The delegate's Cx::post_action goes through an mpsc channel that is
+        // only drained on timer-0, so title/URL updates from the delegate can
+        // lag behind. Polling the webview's already-updated fields here ensures
+        // the tab bar reflects changes in the same frame.
+        {
+            let mut tab_bar_dirty = false;
+            for tab in &mut self.tabs {
+                let new_title = tab
+                    .webview
+                    .page_title()
+                    .unwrap_or_else(|| title_from_url(&tab.url));
+                if new_title != tab.title {
+                    tab.title = new_title;
+                    tab_bar_dirty = true;
+                }
+                if let Some(new_url) = tab.webview.url() {
+                    let new_url_str = new_url.as_str();
+                    if new_url_str != tab.url {
+                        tab.url = new_url_str.to_owned();
+                        tab_bar_dirty = true;
+                    }
+                }
+            }
+            if tab_bar_dirty {
+                // Update URL bar for active tab
+                let url = self.tabs[self.active_tab_idx].url.clone();
+                self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                self.sync_tab_bar(cx);
+            }
+        }
+
+        // Check for widget resize
+        self.check_resize(cx);
+
+        // Only do the expensive paint + readback cycle when Servo has new content
+        if !self.needs_paint {
+            self.idle_frames = self.idle_frames.saturating_add(1);
+            return;
+        }
+        self.needs_paint = false;
+        self.idle_frames = 0;
+
+        let active_webview = self.tabs.get(self.active_tab_idx).map(|t| &t.webview);
+        if let (Some(webview), Some(rc)) = (active_webview, &self.rendering_context) {
+            // Tell WebRender to render the current state.
+            // This renders to the shared GL context's FBO texture.
+            webview.paint();
+
+            // Flush Servo's GL command queue so the texture contents are visible
+            // when Makepad's GL context samples it.
+            rc.present();
+
+            // Restore Makepad's own GL context as current.
+            cx.restore_gl_context();
+        }
+    }
+
+    pub(super) fn point_to_device(&self, cx: &mut Cx, pos: DVec2) -> servo::DevicePoint {
+        let rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+        // pos and rect are in Makepad logical pixels; Servo wants device pixels.
+        let x = ((pos.x - rect.pos.x) * self.dpi_factor) as f32;
+        let y = ((pos.y - rect.pos.y) * self.dpi_factor) as f32;
+        servo::DevicePoint::new(x, y)
+    }
+
+    /// Get the active tab's webview, if any.
+    pub(super) fn active_webview(&self) -> Option<&servo::WebView> {
+        self.tabs.get(self.active_tab_idx).map(|t| &t.webview)
+    }
+
+    pub(super) fn send_input_event(&self, event: servo::InputEvent) {
+        if let Some(webview) = self.active_webview() {
+            webview.notify_input_event(event);
+            if let Some(servo) = &self.servo {
+                servo.spin_event_loop();
+            }
+        }
+    }
+
+    pub(super) fn set_repo_mode_label(&self, cx: &mut Cx, text: &str, off: bool) {
+        self.ui
+            .widget(cx, ids!(repo_mode_label))
+            .set_visible(cx, !off);
+        self.ui
+            .widget(cx, ids!(repo_mode_label_off))
+            .set_visible(cx, off);
+
+        if off {
+            self.ui.label(cx, ids!(repo_mode_label_off)).set_text(cx, text);
+        } else {
+            self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, text);
+        }
+    }
+}
