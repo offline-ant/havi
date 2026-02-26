@@ -320,7 +320,19 @@ impl AppMain for App {
 
         // Poll pylon background init result.
         if let Some(ref rx) = self.pylon_init_rx {
-            if let Ok(result) = rx.try_recv() {
+            let poll_result = match rx.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // pylon-init thread dropped sender without sending a result
+                    // (panic, abort, or logic error).
+                    eprintln!("[havi] pylon-init thread exited without sending a result (likely panicked)");
+                    Some(PylonInitResult::Failed {
+                        reason: "pylon: off (init thread crashed)".to_string(),
+                    })
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(result) = poll_result {
                 self.pylon_init_rx = None;
                 match result {
                     PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events } => {

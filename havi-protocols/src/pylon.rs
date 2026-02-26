@@ -367,8 +367,13 @@ pub fn ensure_pylon_with_self_exec_process_fallback(
 ) -> anyhow::Result<PylonClient> {
     // Try existing pylon first.
     match PylonClient::try_connect_with_error(repo_path) {
-        Ok(Some(client)) => return Ok(client),
-        Ok(None) => {},
+        Ok(Some(client)) => {
+            eprintln!("[havi] pylon: connected to existing instance on port {}", client.port);
+            return Ok(client);
+        },
+        Ok(None) => {
+            eprintln!("[havi] pylon: no existing instance found at {}", repo_path.display());
+        },
         Err(e) => {
             return Err(e).context(format!(
                 "found pylon.pid in '{}' but failed to connect to the recorded control port",
@@ -377,7 +382,12 @@ pub fn ensure_pylon_with_self_exec_process_fallback(
         },
     }
 
-    let launch = resolve_pylon_launch(self_exec_process_fallback)?;
+    let launch = resolve_pylon_launch(self_exec_process_fallback).map_err(|e| {
+        eprintln!("[havi] pylon: {:#}", e);
+        e
+    })?;
+    eprintln!("[havi] pylon: spawning {} (havi_subcommand={})",
+        launch.program.display(), launch.use_havi_subcommand);
     spawn_pylon_subprocess(&launch, repo_path, home)
 }
 
@@ -473,12 +483,40 @@ fn spawn_pylon_subprocess(
         .take()
         .context("spawned pylon process has no stderr pipe; cannot capture startup diagnostics")?;
 
-    // Read startup stdout for PYLON_BIND= line.
+    // Read startup stdout for PYLON_BIND= line with a timeout.
+    // Pylon should print PYLON_BIND= within seconds; 15s is generous.
+    // Use a background thread + channel because pipe reads have no timeout API.
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("pylon-stdout-reader".to_string())
+        .spawn(move || {
+            let reader = std::io::BufReader::new(stdout);
+            for line in reader.lines() {
+                if line_tx.send(line).is_err() {
+                    break; // receiver dropped
+                }
+            }
+        })
+        .context("failed to spawn pylon stdout reader thread")?;
+
     let mut observed_stdout = Vec::new();
-    let reader = std::io::BufReader::new(stdout);
-    for line in reader.lines().take(20) {
-        let line = line.context("failed while reading pylon startup stdout")?;
+    let startup_deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let remaining = startup_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        if observed_stdout.len() >= 20 {
+            break;
+        }
+        let line = match line_rx.recv_timeout(remaining) {
+            Ok(Ok(l)) => l,
+            Ok(Err(e)) => return Err(e).context("failed while reading pylon startup stdout"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         observed_stdout.push(line.clone());
+        eprintln!("[havi] pylon stdout: {}", line);
         if let Some(addr) = line.strip_prefix("PYLON_BIND=") {
             let port: u16 = addr
                 .rsplit(':')
@@ -517,7 +555,7 @@ fn spawn_pylon_subprocess(
     };
 
     let mut message = format!(
-        "spawned pylon process did not announce PYLON_BIND within 20 stdout lines. observed stdout: {}.",
+        "spawned pylon process did not announce PYLON_BIND within 15s / 20 stdout lines. observed stdout: {}.",
         stdout_preview
     );
 

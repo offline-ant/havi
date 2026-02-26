@@ -170,21 +170,25 @@ impl App {
             std::thread::Builder::new()
                 .name("pylon-init".to_string())
                 .spawn(move || {
-                    let host_mode = match pylon_mode {
-                        PylonMode::External => crate::pylon_host::PylonHostMode::External,
-                        PylonMode::Embedded => crate::pylon_host::PylonHostMode::Embedded,
-                        PylonMode::None => unreachable!(),
-                    };
+                    let msg = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let host_mode = match pylon_mode {
+                            PylonMode::External => crate::pylon_host::PylonHostMode::External,
+                            PylonMode::Embedded => crate::pylon_host::PylonHostMode::Embedded,
+                            PylonMode::None => unreachable!(),
+                        };
 
-                    let result = (|| -> Result<(u16, u16, std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>), String> {
+                        eprintln!("[havi] pylon-init: mode={:?}, repo={}", host_mode, repo_path_clone.display());
+
                         let mut pylon_client = crate::pylon_host::ensure_pylon(
                             &repo_path_clone,
                             home_clone.as_deref(),
                             host_mode,
                         ).map_err(|e| {
                             eprintln!("[havi] pylon unavailable: {:#}", e);
-                            "pylon: off (not found)".to_string()
+                            format!("pylon: off ({})", e)
                         })?;
+
+                        eprintln!("[havi] pylon-init: connected to pylon on port {}", pylon_client.port);
 
                         let hpprd_runtime = match pylon_mode {
                             PylonMode::Embedded => Some("inline"),
@@ -196,6 +200,8 @@ impl App {
                                 eprintln!("[havi] hpprd start failed: {:#}", e);
                                 "pylon: off (hpprd start failed)".to_string()
                             })?;
+
+                        eprintln!("[havi] pylon-init: hpprd on port {}", hpprd_port);
 
                         let pylon_port = pylon_client.port;
                         let events = pylon_client.subscribe();
@@ -218,21 +224,34 @@ impl App {
                                         let _ = credential_store.persist_admin_for_key(key);
                                     }
                                 } else {
+                                    eprintln!("[havi] pylon-init: hpprd hello failed, bootstrapping admin");
                                     credential_store.bootstrap_admin();
                                 }
                             },
-                            Err(_) => credential_store.bootstrap_admin(),
+                            Err(e) => {
+                                eprintln!("[havi] pylon-init: hpprd connect failed ({}), bootstrapping admin", e);
+                                credential_store.bootstrap_admin();
+                            },
                         }
 
-                        Ok((hpprd_port, pylon_port, events))
-                    })();
-
-                    let msg = match result {
-                        Ok((hpprd_port, pylon_port, pylon_events)) => {
+                        Ok::<_, String>((hpprd_port, pylon_port, events))
+                    })) {
+                        Ok(Ok((hpprd_port, pylon_port, pylon_events))) => {
                             PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events }
                         }
-                        Err(reason) => {
+                        Ok(Err(reason)) => {
                             PylonInitResult::Failed { reason }
+                        }
+                        Err(panic_payload) => {
+                            let panic_msg = panic_payload
+                                .downcast_ref::<String>()
+                                .map(|s| s.as_str())
+                                .or_else(|| panic_payload.downcast_ref::<&str>().copied())
+                                .unwrap_or("unknown panic");
+                            eprintln!("[havi] pylon-init thread panicked: {}", panic_msg);
+                            PylonInitResult::Failed {
+                                reason: format!("pylon: off (panic: {})", panic_msg),
+                            }
                         }
                     };
                     let _ = pylon_tx.send(msg);
