@@ -366,7 +366,7 @@ def setup_desktop_env() -> dict[str, str]:
         for llvm_bin in llvm_bin_candidates:
             if os.path.isfile(os.path.join(llvm_bin, "llvm-rc.exe")):
                 current_path = env.get("PATH", "")
-                env["PATH"] = llvm_bin + (os.pathsep + current_path if current_path else "")
+                env["PATH"] = (current_path + os.pathsep + llvm_bin if current_path else llvm_bin)
                 break
 
     if not is_windows and "CLANG_PATH" not in env:
