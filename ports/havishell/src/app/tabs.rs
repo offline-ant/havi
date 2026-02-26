@@ -82,13 +82,13 @@ impl App {
                 let template_val: ScriptValue = template_source.as_object().into();
                 WidgetRef::script_from_value(vm, template_val)
             });
-            // Set label text
-            widget.widget(cx, ids!(tab_label)).set_text(cx, &tab.title);
+            // Set label text — prefixed to confirm fresh build
+            widget.widget(cx, ids!(tab_label)).set_text(cx, &format!("★ {}", tab.title));
             // Set active/inactive bg color
             let bg = if is_active {
-                [0.208f32, 0.208, 0.208, 1.0] // #353535
+                [0.0f32, 0.25, 0.9, 1.0] // debug active: blue
             } else {
-                [0.165f32, 0.165, 0.165, 1.0] // #2a2a2a
+                [0.0f32, 0.8, 0.2, 1.0] // debug inactive: green
             };
             // Set bg color via View's draw_bg uniform
             if let Some(mut view) = widget.borrow_mut::<View>() {

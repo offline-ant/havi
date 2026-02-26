@@ -76,7 +76,7 @@ script_mod! {
                                 align: Align{y: 0.5}
                                 show_bg: true
                                 draw_bg +: {
-                                    color: uniform(#x2a2a2a)
+                                    color: uniform(#xff00ff)
                                     border_radius: uniform(6.0)
                                     pixel: fn() {
                                         let sdf = Sdf2d.viewport(self.pos * self.rect_size)

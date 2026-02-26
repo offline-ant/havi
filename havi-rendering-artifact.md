@@ -32,44 +32,75 @@ View widgets. They have no parent in the widget tree graph because their parent
 View was created via `script_from_value` and is not part of the static tree.
 Their `area` coordinates reflect the last position they were drawn.
 
-## Root Cause (established)
+## Root Cause (under investigation — prior hypothesis invalidated)
 
-`sync_tab_bar` in `ports/havishell/src/app/tabs.rs` rebuilds the tab bar
-children on every call by creating fresh widget instances via
-`script_from_value`. Each call:
+The initial root cause analysis attributed the ghost blocks to stale VBO data
+retained after widget instances were dropped. Both the mechanism and the fix
+were wrong.
 
-1. Allocates new `WidgetRef` instances for every tab.
-2. Pushes them into `tab_bar.children`, replacing the previous set.
-3. Drops the old `WidgetRef` instances.
+**The VBO tail hypothesis is mechanically incorrect.** `update_array_buffer`
+calls `glBufferData` with the exact byte count of the current instances slice.
+`glBufferData` replaces the entire GL buffer with that data. No tail is
+retained; the GPU buffer is exactly as large as the upload.
 
-The old widgets' draw calls (specifically their `draw_bg` `DrawQuad`) were
-written inline into the parent `tab_bar` draw list's VBO on the previous frame.
-On Linux/OpenGL those VBO entries are not cleared when the widget stops drawing
-— the GPU retains whatever was last uploaded. On the next frame the new widgets
-draw at their correct positions, but the old VBO entries also remain and are
-re-issued by the GL driver, producing ghost backgrounds at the old coordinates.
+**Widget reuse (Attempt 4) does not fix the artifact.** If the ghost were
+caused by stale data from dropped widgets, reusing the same `WidgetRef` would
+prevent it. It does not.
 
-On macOS/Metal this does not occur because Metal rebuilds its command buffer
-from scratch on every frame; there is no persistent VBO state to corrupt.
+**Attempts 1 and 2 confirm the ghost items are fresh, not stale.** Both
+attempts filtered on `draw_item.redraw_id != list_redraw_id`. Neither fixed the
+artifact because the ghost draw items carry the current-frame `redraw_id` —
+they are not leftover from a prior frame. The wrong geometry is being written
+into fresh draw items in the current draw pass.
+
+### What is known about the actual mechanism
+
+The ghost blocks are solid-color DrawQuad instances at positions that do not
+correspond to any current tab widget's layout position. They are rendered from
+fresh, current-frame draw items (redraw_id matches). The wrong data is being
+written to those items during the current draw pass.
+
+Two paths in Makepad update instance position data without setting
+`instance_dirty`:
+
+- `Area::set_rect()` — called by `draw_quad.end()` to patch the final rect
+  after layout. Does not set `instance_dirty`.
+- `move_align_list()` — called by the turtle to shift aligned instances into
+  their final positions for `Fit`-sized widgets. Does not set `instance_dirty`.
+
+Both paths rely on `instance_dirty = true` having been set upstream by
+`push_item` (which `clear_draw_items` triggers at the start of a full redraw).
+In a full redraw this chain is correct. The ghost persisting through
+`redraw_all()` means either:
+
+1. The position patch is not being applied (silent `set_rect` early-return due
+   to `redraw_id` mismatch between the area and the draw list), leaving the
+   DrawQuad's stale struct-field `rect_pos`/`rect_size` in the VBO, or
+2. The patch is applied but to the wrong instance offset, or
+3. A draw item is produced by a code path that does not go through the normal
+   `begin()`/`end()` pair and therefore never receives the correct rect.
+
+`Area::set_rect()` early-returns silently when
+`draw_list.redraw_id != inst.redraw_id`. If `draw_bg.begin()` and
+`draw_bg.end()` execute in frames with different `cx.redraw_id` values — which
+the `DrawState` async mechanism permits for widgets whose draw spans multiple
+ticks — the patch is skipped and the VBO is uploaded with the DrawQuad struct's
+previous-frame `rect_pos`/`rect_size`.
+
+Whether the tab View widgets created via `script_from_value` can span draw
+ticks (via `script_async` or `on_render`) has not been confirmed.
 
 ### Why `visible = false` / `set_visible` does not help
 
-The `View::draw_walk` early-out at `if !self.visible` prevents the widget from
-emitting new draw calls. But the VBO on the GPU already contains the data from
-when the widget last drew. The GL `render_view` loop iterates all draw items in
-the draw list's pool — including items written by now-dropped widgets — and
-issues draw calls for all of them with no staleness check.
+`View::draw_walk` early-outs when `!self.visible`, suppressing new draw calls.
+This cannot affect already-rendered ghost blocks because those come from fresh
+draw calls in the same frame, not from the hidden widget.
 
 ### Why `redraw_all` does not help
 
-`cx.redraw_all()` sets `DrawEvent::redraw_all = true`, which causes every draw
-list's `clear_draw_items` to be called at the start of the next draw pass.
-`clear_draw_items` sets `draw_items.used = 0` (pool cursor reset) but does not
-zero the pool buffer. New draw calls are written starting from index 0, reusing
-slots — but the GPU VBO is only re-uploaded when `instance_dirty = true`. If
-the same shader/geometry combination is reused, Makepad may append to the
-existing draw call rather than creating a new one, leaving orphan geometry in
-the VBO tail.
+`redraw_all` clears all draw lists and re-runs every widget's `draw_walk`.
+The ghost is written during the re-run itself — it is not a holdover from a
+prior frame.
 
 ## Architecture: how inline drawing works
 
@@ -118,12 +149,10 @@ the template itself.
 
 ### Attempt 4: reuse widget instances across `sync_tab_bar` calls (havi)
 
-Added `widget: Option<WidgetRef>` to `TabInfo`. In `sync_tab_bar`, use
-`get_or_insert_with` to create the widget only once per tab, reusing the same
-`WidgetRef` on subsequent calls. This prevents new widget instances from being
-allocated each sync, so no new orphaned draw calls accumulate. Not confirmed to
-fix the artifact — build was aborted before testing. Reverted along with all
-other changes.
+Added `widget: Option<WidgetRef>` to `TabInfo`. In `sync_tab_bar`, use the
+cached widget rather than calling `script_from_value` on every sync. This was
+the "most promising fix" in the previous investigation. It was implemented,
+built, and run. The artifact persists unchanged.
 
 ## How testing was done
 
@@ -140,14 +169,34 @@ other changes.
 
 ## Current state
 
-All changes reverted. Codebase is at the pre-investigation state.
+Attempt 4 (widget reuse) is in place in the codebase. It does not fix the
+artifact. The root cause is not yet fully understood.
 
-## Most promising fix
+## Open questions
 
-Reuse the same `WidgetRef` per tab across `sync_tab_bar` calls (Attempt 4).
-This is the correct application-level fix: the same widget instance draws at
-its new position each frame, so the draw list slot is reused with fresh data
-and no ghost geometry accumulates. The makepad-level fix (zeroing stale VBO
-entries in `render_view`) is the correct generic fix for the class of problem
-but requires more investigation into why the `redraw_id` approach did not work
-as expected.
+1. Do `script_from_value` tab View widgets use `script_async` or `on_render`
+   in a way that causes their `draw_walk` to span multiple `cx.redraw_id`
+   cycles? If so, `set_rect` would silently skip the rect patch.
+
+2. Is there a draw path for dynamically-created Views that bypasses
+   `draw_bg.end()` entirely, leaving `rect_pos`/`rect_size` at their stale
+   struct-field values when the VBO is uploaded?
+
+3. Does `move_align_list` correctly address the instance offset for the tab
+   View's draw_bg when the tab View is not in the static widget tree?
+
+## Next investigative step
+
+Confirm whether `draw_bg.end()` → `area.set_rect()` is actually patching the
+correct rect for the tab View widgets, or silently returning. Add a log or
+assert inside `Area::set_rect` that fires when the redraw_id mismatch
+early-return is taken, and re-run HAVI to see if it triggers.
+
+## Step-back option
+
+Add `optimize: DrawList` to the tab template definition. Each tab widget then
+has its own isolated `CxDrawList`. Its draw calls do not interact with the
+parent's draw list pool. Partial and full redraws are both handled correctly
+through the existing sub-list mechanism. This eliminates the entire class of
+inline-draw-list position-update races without requiring further diagnosis of
+the exact broken path.

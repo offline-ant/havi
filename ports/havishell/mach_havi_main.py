@@ -901,7 +901,12 @@ def _run_desktop(args: argparse.Namespace) -> int:
         cmd.extend(args.extra)
 
     if getattr(args, "makepad_socket", False):
-        return run_desktop_makepad_socket(cmd, env, HAVI_ROOT)
+        return run_desktop_makepad_socket(
+            cmd,
+            env,
+            HAVI_ROOT,
+            socket_path=getattr(args, "makepad_socket_path", None),
+        )
 
     _log("desktop run", env=env, cmd=cmd)
     try:
@@ -953,6 +958,8 @@ def run(topdir: str) -> int:
         if name == "run":
             p.add_argument("--makepad-socket", action="store_true",
                             help="Launch with Makepad event socket for havi-makepad-cli")
+            p.add_argument("--makepad-socket-path", default=None,
+                            help="Use explicit Unix socket path (default: random in /tmp)")
         p.add_argument("extra", nargs="*",
                         help="Extra arguments forwarded to cargo")
         p.set_defaults(func=handler)

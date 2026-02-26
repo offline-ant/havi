@@ -37,6 +37,7 @@ def run_desktop_makepad_socket(
     cmd: list[str],
     env: dict[str, str],
     havi_root: pathlib.Path,
+    socket_path: str | None = None,
 ) -> int:
     """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
 
@@ -48,9 +49,12 @@ def run_desktop_makepad_socket(
     import socket as sock_mod
     import tempfile
 
-    sock_path = os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
+    sock_path = socket_path or os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
 
-    # Clean up stale socket file.
+    # Ensure socket parent directory exists and clean up stale socket file.
+    sock_parent = os.path.dirname(sock_path)
+    if sock_parent:
+        os.makedirs(sock_parent, exist_ok=True)
     try:
         os.unlink(sock_path)
     except FileNotFoundError:
