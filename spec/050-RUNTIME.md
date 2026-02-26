@@ -15,9 +15,12 @@ Format:
 
 Startup flow:
 
-1. HELLO to get home repo key
-2. load credentials for that key
-3. if missing, bootstrap with `ring0/init`
+1. launch first tab on `havi:///loading`
+2. start pylon/hpprd bootstrap in background
+3. HELLO to get home repo key
+4. load credentials for that key
+5. if missing, bootstrap with `ring0/init`
+6. navigate to the canonical startup URL
 
 Site credentials for route operations are cached in memory per group/app.
 
@@ -85,6 +88,7 @@ trailing slash.
 Pool behavior:
 
 - keyed by `//group/app/` string
+- created lazily on first non-Off watch mode use
 - connections are reference-counted; dropped when no tabs use them
 - dead entries are cleaned on next access
 - subscribers receive events via channels; a wake function triggers UI updates

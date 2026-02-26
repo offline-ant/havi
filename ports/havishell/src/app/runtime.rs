@@ -152,7 +152,7 @@ impl App {
 
         let pylon_mode = pylon_mode_from_env();
         self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
-        self.start_navigation_done = false;
+        self.start_navigation_done = pylon_mode == PylonMode::None;
 
         // Startup state machine: Booting -> Ready/Failed.
         self.startup_state = if pylon_mode == PylonMode::None {
@@ -259,25 +259,10 @@ impl App {
                 .expect("failed to spawn pylon-init thread");
         }
 
-        // Create dedicated HAVI runtime and initialize watch pool for live-reload support.
-        // This runtime is owned by App and is independent from Servo/Net runtime ownership.
-        let watch_runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("havi-watch")
-            .build()
-            .expect("failed to create HAVI watch runtime");
-        self.havi_runtime = Some(watch_runtime);
-        let watch_runtime_handle = self
-            .havi_runtime
-            .as_ref()
-            .expect("HAVI watch runtime must exist before watch pool")
-            .handle()
-            .clone();
-        self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
-            watch_runtime_handle,
-            hppr_client::repo_endpoint_from(&fallback_target),
-            SignalToUI::set_ui_signal,
-        ));
+        // Watch runtime/pool are created lazily on first watch usage.
+        self.watch_fallback_endpoint = hppr_client::repo_endpoint_from(&fallback_target);
+        self.havi_runtime = None;
+        self.watch_pool = None;
 
         // Initialize HPPR protocol handlers with the local fallback target.
         let hppr_handler = {
@@ -363,8 +348,12 @@ impl App {
         servo.setup_logging();
 
         // Step 4: Create first WebView with proper HiDPI scale factor.
-        // Always navigate directly to the canonical startup URL.
-        let initial_url_str = self.start_url.clone();
+        // During backend bootstrap, render the internal loading page first.
+        let initial_url_str = if pylon_mode == PylonMode::None {
+            self.start_url.clone()
+        } else {
+            LOADING_URL.to_string()
+        };
         let url = servo::BrowserUrl::parse(&initial_url_str).unwrap();
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
@@ -384,7 +373,6 @@ impl App {
             watch: Default::default(),
         });
         self.active_tab_idx = 0;
-        self.start_navigation_done = true;
 
         self.servo = Some(servo);
         self.rendering_context = Some(rendering_context);
@@ -412,9 +400,6 @@ impl App {
             .clone()
             .unwrap_or_else(|| "pylon: starting…".to_string());
         self.set_repo_mode_label(cx, &repo_mode_text, pylon_disabled_reason.is_some());
-        self.ui
-            .view(cx, ids!(loading_overlay))
-            .set_visible(cx, pylon_mode != PylonMode::None);
 
         // Set window title caption to "havi"
         self.ui
@@ -432,9 +417,9 @@ impl App {
         // Hide macOS traffic light buttons — HAVI uses its own window controls
         cx.push_unique_platform_op(CxOsOp::HideWindowButtons(CxWindowPool::id_zero()));
 
-        // In Makepad Studio's RunView, window control buttons are meaningless —
-        // the child process doesn't own a real window.
-        if cx.in_makepad_studio {
+        // In Makepad Studio's RunView, or on mobile targets, window control
+        // buttons are meaningless.
+        if cx.in_makepad_studio || cfg!(any(target_os = "android", target_os = "ios")) {
             self.ui
                 .view(cx, ids!(window_controls))
                 .set_visible(cx, false);
@@ -661,6 +646,25 @@ impl App {
                 servo.spin_event_loop();
             }
         }
+    }
+
+    pub(super) fn ensure_watch_pool(&mut self) {
+        if self.watch_pool.is_some() {
+            return;
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("havi-watch")
+            .build()
+            .expect("failed to create HAVI watch runtime");
+        let handle = runtime.handle().clone();
+        self.havi_runtime = Some(runtime);
+        self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
+            handle,
+            self.watch_fallback_endpoint.clone(),
+            SignalToUI::set_ui_signal,
+        ));
     }
 
     pub(super) fn set_repo_mode_label(&self, cx: &mut Cx, text: &str, off: bool) {

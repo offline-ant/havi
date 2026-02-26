@@ -21,7 +21,7 @@ mod tabs;
 
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
-use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
+use tabs::{HOME_URL, LOADING_URL, TabInfo, next_tab_live_id, title_from_url};
 
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
@@ -388,8 +388,7 @@ fn start_hpprd_with_runtime(
         .err();
 
     let mut last_state: Option<String> = None;
-    for _ in 0..10 {
-        std::thread::sleep(std::time::Duration::from_millis(300));
+    for _ in 0..20 {
         if let Some(port) = pylon_client.hpprd_port() {
             return Ok(port);
         }
@@ -417,10 +416,12 @@ fn start_hpprd_with_runtime(
                 ));
             }
         }
+
+        std::thread::sleep(std::time::Duration::from_millis(150));
     }
 
     let mut message = String::from(
-        "hpprd did not become reachable after pylon startup request and 10 status polls (~3s).",
+        "hpprd did not become reachable after pylon startup request and 20 status polls (~3s).",
     );
     if let Some(e) = start_error {
         message.push_str(" Start request error: ");
@@ -623,6 +624,10 @@ pub struct App {
     /// Field order matters: this is dropped before `havi_runtime` during App teardown.
     #[rust]
     watch_pool: Option<havi_protocols::watch::WatchPool>,
+
+    /// Endpoint used when initializing watch pool lazily.
+    #[rust]
+    watch_fallback_endpoint: String,
 
     /// Dedicated runtime for UI-owned async tasks (watch connections).
     /// Declared after `watch_pool` so watch tasks are aborted before runtime teardown.

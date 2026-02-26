@@ -47,6 +47,24 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
 }
 
 impl App {
+    fn complete_startup_navigation(&mut self, cx: &mut Cx) {
+        if self.start_navigation_done {
+            return;
+        }
+        self.start_navigation_done = true;
+        self.scroll_y_estimate = 0.0;
+        self.content_height_estimate = 0.0;
+        self.navigate(&self.start_url);
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+            tab.url = self.start_url.clone();
+            tab.title = title_from_url(&self.start_url);
+        }
+        self.ui
+            .text_input(cx, ids!(url_input))
+            .set_text(cx, &self.start_url);
+        self.sync_tab_bar(cx);
+    }
+
     pub(super) fn apply_menu_dock(&self, cx: &mut Cx) {
         let tab_uid = self.ui.view(cx, ids!(tab_bar_wrap)).widget_uid();
         let toolbar_uid = self.ui.view(cx, ids!(toolbar)).widget_uid();
@@ -108,6 +126,9 @@ impl MatchEvent for App {
             if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
                 let next = tab.watch.mode().next();
                 tab.watch.set_mode(next);
+                if next != havi_protocols::watch::WatchMode::Off {
+                    self.ensure_watch_pool();
+                }
                 self.ui
                     .button(cx, ids!(watch_btn))
                     .set_text(cx, &watch_button_text(next));
@@ -301,7 +322,11 @@ impl MatchEvent for App {
                     response_sender,
                 }) => {
                     let tab_idx = self.tab_index_for_webview(*webview_id);
+                    let mut need_watch_pool = false;
                     let new_mode = if let Some(mode) = mode_from_wire(mode) {
+                        if mode != havi_protocols::watch::WatchMode::Off {
+                            need_watch_pool = true;
+                        }
                         if let Some(idx) = tab_idx {
                             if let Some(tab) = self.tabs.get_mut(idx) {
                                 tab.watch.set_mode(mode);
@@ -323,6 +348,9 @@ impl MatchEvent for App {
                             .map(|tab| mode_to_wire(tab.watch.mode()))
                             .unwrap_or_else(|| "off".to_string())
                     };
+                    if need_watch_pool {
+                        self.ensure_watch_pool();
+                    }
                     let _ = response_sender.send(new_mode);
                 },
                 _ => {},
@@ -405,19 +433,21 @@ impl AppMain for App {
                         eprintln!("PYLON=127.0.0.1:{}", pylon_port);
                         eprintln!("[havi] startup: state={:?}", self.startup_state);
                         log!("[havishell] Pylon hpprd on port {}", hpprd_port);
+                        self.watch_fallback_endpoint = format!("127.0.0.1:{}", hpprd_port);
                         if let Some(pool) = &mut self.watch_pool {
-                            pool.set_endpoint(format!("127.0.0.1:{}", hpprd_port));
+                            pool.set_endpoint(self.watch_fallback_endpoint.clone());
                         }
                         self.pylon_events = Some(pylon_events);
                         self.set_repo_mode_label(cx, "pylon", false);
+                        self.complete_startup_navigation(cx);
                     }
                     PylonInitResult::Failed { reason } => {
                         self.startup_state = StartupState::Failed;
                         eprintln!("[havi] startup: state={:?} reason={}", self.startup_state, reason);
                         self.set_repo_mode_label(cx, &reason, true);
+                        self.complete_startup_navigation(cx);
                     }
                 }
-                self.ui.view(cx, ids!(loading_overlay)).set_visible(cx, false);
                 self.needs_paint = true;
                 self.idle_frames = 0;
                 self.next_frame = cx.new_next_frame();

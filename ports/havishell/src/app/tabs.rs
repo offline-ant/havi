@@ -14,6 +14,9 @@ const TOOLBAR_WRAP_THRESHOLD: f64 = 860.0;
 /// Default start page URL.
 pub(super) const HOME_URL: &str = "hppr://u/web/index.html";
 
+/// Internal startup loading page shown while pylon/hpprd bootstraps.
+pub(super) const LOADING_URL: &str = "havi:///loading";
+
 /// Derive a tab title from a URL. Uses the last path segment.
 pub(super) fn title_from_url(url: &str) -> String {
     url.rsplit('/')
