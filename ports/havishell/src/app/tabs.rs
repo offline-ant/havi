@@ -93,6 +93,10 @@ impl App {
             .button(cx, ids!(tab_scroll_right_btn))
             .set_visible(cx, overflow);
 
+        if let Some(mut tab_bar) = self.ui.view(cx, ids!(tab_bar)).borrow_mut() {
+            tab_bar.walk.width = if overflow { Size::fill() } else { Size::fit() };
+        }
+
         if !overflow {
             self.tab_scroll_x = 0.0;
         }
@@ -184,6 +188,11 @@ impl App {
                 let uid = child_widget.widget_uid();
                 if let Some(action) = actions.find_widget_action(uid) {
                     if let ViewAction::FingerDown(fd) = action.cast() {
+                        if fd.mouse_button().is_some_and(|b| b.is_middle()) {
+                            closed_tab = Some(tab_idx);
+                            break;
+                        }
+
                         // Check if click is in the close area (rightmost 24px)
                         let tab_rect = child_widget.area().rect(cx);
                         let close_x = tab_rect.pos.x + tab_rect.size.x - 24.0;

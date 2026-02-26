@@ -623,7 +623,50 @@ def _copy_windows_angle_dlls(profile: str) -> int:
     return 0
 
 
+def _maybe_consume_positional_platform(args: argparse.Namespace) -> None:
+    """Compat shim: allow `mach-havi build android aarch64 --release` style.
+
+    Historically `mach-havi` used flags (`--android --target ...`). This
+    accepts the first positional tokens as platform/arch and strips them from
+    `args.extra` before forwarding to cargo.
+    """
+    extra = list(getattr(args, "extra", []) or [])
+    if not extra:
+        return
+
+    # Explicit flags always win.
+    if getattr(args, "android", False) or getattr(args, "emulator", False):
+        return
+
+    platform_token = extra[0]
+    if platform_token == "android":
+        args.android = True
+        extra = extra[1:]
+    elif platform_token == "emulator":
+        args.emulator = True
+        args.android = True
+        extra = extra[1:]
+    elif platform_token == "desktop":
+        extra = extra[1:]
+    else:
+        return
+
+    if extra and not getattr(args, "target", None):
+        arch_token = extra[0]
+        arch_to_triple = {
+            "aarch64": "aarch64-linux-android",
+            "x86_64": "x86_64-linux-android",
+            "armv7": "armv7-linux-androideabi",
+            "i686": "i686-linux-android",
+        }
+        args.target = arch_to_triple.get(arch_token, arch_token)
+        extra = extra[1:]
+
+    args.extra = extra
+
+
 def cmd_build(args: argparse.Namespace) -> int:
+    _maybe_consume_positional_platform(args)
     if args.android or args.emulator:
         return _build_android(args)
     return _build_desktop(args)
