@@ -66,11 +66,19 @@ impl PylonClient {
     }
 
     fn try_connect_with_error(repo_path: &std::path::Path) -> anyhow::Result<Option<Self>> {
-        let (_, port) = match read_pid_file(repo_path) {
+        let (pid, port) = match read_pid_file(repo_path) {
             Some(v) => v,
             None => return Ok(None),
         };
-        Self::connect(port).map(Some)
+        match Self::connect(port) {
+            Ok(client) => Ok(Some(client)),
+            Err(_) if !is_pid_alive(pid) => {
+                // Stale pid file — process is gone. Clean up and let caller spawn a new one.
+                let _ = std::fs::remove_file(repo_path.join(PID_FILENAME));
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Connect to pylon at the given port.
@@ -526,6 +534,29 @@ fn spawn_pylon_subprocess(
     }
 
     Err(anyhow!(message))
+}
+
+/// Check whether a process with the given PID is still running.
+fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(true)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = pid;
+        true // conservative: let connect error propagate normally
+    }
 }
 
 /// Read pylon PID file from repo directory. Returns (pid, port).

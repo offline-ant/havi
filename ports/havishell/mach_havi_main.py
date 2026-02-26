@@ -818,10 +818,12 @@ def _build_desktop(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    """Run cargo check with the same environment as build."""
+    """Run cargo check with the same environment as build/run."""
     env = setup_desktop_env()
     cmd = _cargo_makepad_desktop_cmd()
     cmd.extend(["check", "-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
     if args.extra:
         cmd.extend(args.extra)
 

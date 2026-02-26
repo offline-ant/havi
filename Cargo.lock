@@ -3982,6 +3982,7 @@ dependencies = [
  "dirs",
  "hppr-client",
  "hppr-packet",
+ "libc",
  "log",
  "parking_lot",
  "percent-encoding",
