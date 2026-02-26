@@ -79,17 +79,22 @@ impl Drop for AbortOnDrop {
 
 impl WatchConn {
     /// Spawn a new watch connection for the given `//group/app/` prefix.
-    fn spawn(group_app: &str, runtime: &tokio::runtime::Handle, wake_fn: fn()) -> Self {
+    fn spawn(
+        group_app: &str,
+        endpoint: &str,
+        runtime: &tokio::runtime::Handle,
+        wake_fn: fn(),
+    ) -> Self {
         let subscribers: Arc<Mutex<Vec<std::sync::mpsc::Sender<String>>>> =
             Arc::new(Mutex::new(Vec::new()));
         let subs = subscribers.clone();
         let urc = format!("{}/", group_app); // trailing slash for prefix watch
+        let endpoint = endpoint.to_string();
         let runtime = runtime.clone();
         let stream_runtime = runtime.clone();
         let task = runtime.spawn(async move {
             let (ring1_name, token) = get_admin_credentials();
             let signer = hppr_client::Signer::ring1_adhoc(&ring1_name, &token);
-            let endpoint = hppr_client::repo_endpoint();
             let addr: std::net::SocketAddr = match endpoint.parse() {
                 Ok(a) => a,
                 Err(e) => {
@@ -136,18 +141,25 @@ impl Drop for WatchConn {
 /// Pool of shared watch connections keyed by `//group/app/`.
 pub struct WatchPool {
     runtime: tokio::runtime::Handle,
+    endpoint: String,
     conns: HashMap<String, Weak<WatchConn>>,
     wake_fn: fn(),
 }
 
 impl WatchPool {
-    /// Create a new pool with explicit runtime ownership from HAVI.
-    pub fn new(runtime: tokio::runtime::Handle, wake_fn: fn()) -> Self {
+    /// Create a new pool with explicit runtime ownership and endpoint from HAVI.
+    pub fn new(runtime: tokio::runtime::Handle, endpoint: String, wake_fn: fn()) -> Self {
         Self {
             runtime,
+            endpoint,
             conns: HashMap::new(),
             wake_fn,
         }
+    }
+
+    /// Update endpoint for future connections.
+    pub fn set_endpoint(&mut self, endpoint: String) {
+        self.endpoint = endpoint;
     }
 
     /// Get or create a shared connection for the given `//group/app/` prefix.
@@ -161,7 +173,12 @@ impl WatchPool {
         // Clean dead entries opportunistically
         self.conns.retain(|_, w| w.strong_count() > 0);
         // Spawn new connection
-        let conn = Arc::new(WatchConn::spawn(group_app, &self.runtime, self.wake_fn));
+        let conn = Arc::new(WatchConn::spawn(
+            group_app,
+            &self.endpoint,
+            &self.runtime,
+            self.wake_fn,
+        ));
         self.conns
             .insert(group_app.to_string(), Arc::downgrade(&conn));
         conn

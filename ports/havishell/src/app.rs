@@ -209,6 +209,21 @@ script_mod! {
                             height: Fill
                         }
 
+                        loading_overlay := View{
+                            visible: false
+                            width: Fill
+                            height: Fill
+                            show_bg: true
+                            draw_bg.color: #x00000022
+                            align: Align{x: 0.5, y: 0.5}
+
+                            loading_label := Label{
+                                text: "Starting pylon…"
+                                draw_text.color: #x333333
+                                draw_text.text_style.font_size: 12.0
+                            }
+                        }
+
                         // Context menu overlay (starts off-screen; show_context_menu positions it)
                         context_menu := View{
                             visible: false
@@ -304,6 +319,14 @@ enum PylonInitResult {
     Failed {
         reason: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum StartupState {
+    #[default]
+    Booting,
+    Ready,
+    Failed,
 }
 
 fn pylon_mode_from_env() -> PylonMode {
@@ -543,9 +566,17 @@ pub struct App {
     #[rust]
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
 
-    /// Start URL deferred until pylon is ready (or fails).
+    /// Canonical startup URL selected once during init.
     #[rust]
-    deferred_url: Option<String>,
+    start_url: String,
+
+    /// True once startup navigation has been issued.
+    #[rust]
+    start_navigation_done: bool,
+
+    /// Startup state machine.
+    #[rust]
+    startup_state: StartupState,
 
     /// Receives the pylon init result from the background thread.
     #[rust]

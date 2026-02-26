@@ -51,7 +51,7 @@ async fn resolve_target(
     credential_store: &CredentialStoreHandle,
     page_endpoint: Option<&ViaSpec>,
 ) -> Result<(ViaSpec, String, Option<String>), String> {
-    let repo_target = hppr_client::repo_target().clone();
+    let repo_target = repo_client.target();
 
     let parts = url.parts();
     let location = url.location_with_slash();
@@ -188,7 +188,7 @@ pub async fn handle_request(
         endpoint,
         urc
     );
-    let repo_target = hppr_client::repo_target().clone();
+    let repo_target = client.target();
     let is_repo = is_repo_endpoint(&endpoint, &repo_target);
 
     let mode = detect_mode(&urc);

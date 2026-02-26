@@ -292,6 +292,8 @@ pub struct ScriptThread {
     #[no_trace]
     storage_threads: StorageThreads,
 
+    home_hppr_endpoint: String,
+
     /// A queue of tasks to be executed in this script-thread.
     task_queue: TaskQueue<MainThreadScriptMsg>,
 
@@ -531,6 +533,10 @@ impl ScriptThread {
 
     pub(crate) fn microtask_queue() -> Rc<MicrotaskQueue> {
         with_script_thread(|script_thread| script_thread.microtask_queue.clone())
+    }
+
+    pub(crate) fn home_hppr_endpoint() -> String {
+        with_script_thread(|script_thread| script_thread.home_hppr_endpoint.clone())
     }
 
     pub(crate) fn mark_document_with_no_blocked_loads(doc: &Document) {
@@ -1009,6 +1015,7 @@ impl ScriptThread {
                     image_cache_factory,
                     resource_threads: state.resource_threads,
                     storage_threads: state.storage_threads,
+                    home_hppr_endpoint: state.hppr_home_endpoint,
                     task_queue,
                     background_hang_monitor,
                     closing,

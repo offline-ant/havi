@@ -358,9 +358,6 @@ impl HpprAsyncState {
         }
     }
 
-    pub fn from_env() -> Self {
-        Self::new(hppr_client::repo_target().clone())
-    }
 
     /// Default endpoint as a display string (for legacy interfaces).
     pub fn default_endpoint(&self) -> String {

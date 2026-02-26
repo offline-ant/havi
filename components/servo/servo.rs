@@ -846,6 +846,7 @@ impl Servo {
                 opts.certificate_path.clone(),
                 opts.ignore_certificate_errors,
                 protocols.clone(),
+                builder.hppr_home_target.clone(),
             );
 
         let (private_storage_threads, public_storage_threads) =
@@ -865,6 +866,11 @@ impl Servo {
             async_runtime,
             public_storage_threads.clone(),
             private_storage_threads.clone(),
+            match &builder.hppr_home_target {
+                embedder_traits::HpprViaSpec::Net { host, port, .. } => format!("{host}:{port}"),
+                embedder_traits::HpprViaSpec::Unix { path } => path.to_string_lossy().to_string(),
+                embedder_traits::HpprViaSpec::Unknown { scheme, rest } => format!("{scheme}+{rest}"),
+            },
         );
 
         if opts::get().multiprocess {
@@ -1059,6 +1065,7 @@ fn create_constellation(
     async_runtime: Box<dyn net_traits::AsyncRuntime>,
     public_storage_threads: StorageThreads,
     private_storage_threads: StorageThreads,
+    hppr_home_endpoint: String,
 ) {
     // Global configuration options, parsed from the command line.
     let opts = opts::get();
@@ -1100,6 +1107,7 @@ fn create_constellation(
         wgpu_image_map: paint.webgpu_image_map(),
         async_runtime,
         privileged_urls,
+        hppr_home_endpoint,
     };
 
     let layout_factory = Arc::new(LayoutFactoryImpl());
@@ -1296,6 +1304,7 @@ pub struct ServoBuilder {
     preferences: Option<Box<Preferences>>,
     event_loop_waker: Box<dyn EventLoopWaker>,
     protocol_registry: ProtocolRegistry,
+    hppr_home_target: embedder_traits::HpprViaSpec,
     #[cfg(feature = "webxr")]
     webxr_registry: Box<dyn webxr::WebXrRegistry>,
 }
@@ -1307,6 +1316,11 @@ impl Default for ServoBuilder {
             preferences: Default::default(),
             event_loop_waker: Box::new(DefaultEventLoopWaker),
             protocol_registry: Default::default(),
+            hppr_home_target: embedder_traits::HpprViaSpec::Net {
+                host: "127.0.0.1".to_string(),
+                port: 4777,
+                scheme: None,
+            },
             #[cfg(feature = "webxr")]
             webxr_registry: Box::new(DefaultWebXrRegistry),
         }
@@ -1335,6 +1349,11 @@ impl ServoBuilder {
 
     pub fn protocol_registry(mut self, protocol_registry: ProtocolRegistry) -> Self {
         self.protocol_registry = protocol_registry;
+        self
+    }
+
+    pub fn hppr_home_target(mut self, target: embedder_traits::HpprViaSpec) -> Self {
+        self.hppr_home_target = target;
         self
     }
 

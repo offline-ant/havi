@@ -208,7 +208,7 @@ use hppr_client::Signer;
 use crate::{fetch, window_named_properties};
 
 fn default_hppr_endpoint() -> String {
-    hppr_client::repo_endpoint().to_string()
+    ScriptThread::home_hppr_endpoint()
 }
 
 /// A callback to call when a response comes back from the `ImageCache`.

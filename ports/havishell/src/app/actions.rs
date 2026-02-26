@@ -1,5 +1,32 @@
 use super::*;
 
+fn set_jsonqa_via(current_url: &str, via: &str) -> String {
+    if !current_url.ends_with('}') {
+        return havi_protocols::url::via_url(current_url, via);
+    }
+
+    let Some(start) = current_url.rfind('{') else {
+        return havi_protocols::url::via_url(current_url, via);
+    };
+
+    let inner = &current_url[start + 1..current_url.len() - 1];
+    let mut out_parts: Vec<String> = Vec::new();
+    for part in inner.split(',') {
+        if part.is_empty() || part.starts_with("via:") {
+            continue;
+        }
+        out_parts.push(part.to_string());
+    }
+    out_parts.push(format!("via:{}", via));
+
+    let mut out = String::with_capacity(current_url.len() + via.len() + 6);
+    out.push_str(&current_url[..start]);
+    out.push('{');
+    out.push_str(&out_parts.join(","));
+    out.push('}');
+    out
+}
+
 fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
     let Some(via) = public_via.filter(|v| !v.is_empty()) else {
         return current_url.to_string();
@@ -9,10 +36,6 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
         return current_url.to_string();
     };
 
-    if addr.endpoint().is_some() {
-        return current_url.to_string();
-    }
-
     if !matches!(
         addr.scheme(),
         havi_protocols::url::HpprScheme::Hppr | havi_protocols::url::HpprScheme::HpprBrowse
@@ -20,21 +43,7 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
         return current_url.to_string();
     }
 
-    if current_url.contains('{') {
-        if current_url.contains("via:") {
-            return current_url.to_string();
-        }
-        if current_url.ends_with('}') {
-            let mut out = String::with_capacity(current_url.len() + via.len() + 6);
-            out.push_str(&current_url[..current_url.len() - 1]);
-            out.push_str(",via:");
-            out.push_str(via);
-            out.push('}');
-            return out;
-        }
-    }
-
-    havi_protocols::url::via_url(current_url, via)
+    set_jsonqa_via(current_url, via)
 }
 
 impl MatchEvent for App {
@@ -70,8 +79,13 @@ impl MatchEvent for App {
             }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
-            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            let share_url = shareable_url(&url_text, self.shared_public_via.as_deref());
+            let input_url = self.ui.text_input(cx, ids!(url_input)).text();
+            let effective_url = self
+                .tabs
+                .get(self.active_tab_idx)
+                .map(|tab| tab.url.as_str())
+                .unwrap_or(input_url.as_str());
+            let share_url = shareable_url(effective_url, self.shared_public_via.as_deref());
             cx.copy_to_clipboard(&share_url);
         }
         if self.ui.button(cx, ids!(home_btn)).clicked(actions) {
@@ -336,32 +350,27 @@ impl AppMain for App {
                 self.pylon_init_rx = None;
                 match result {
                     PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events } => {
-                        hppr_client::set_repo_target(hppr_client::ViaSpec::Net {
-                            host: "127.0.0.1".to_string(),
-                            port: hpprd_port,
-                            scheme: Some(hppr_client::TransportScheme::Tcp),
-                        });
+                        self.startup_state = StartupState::Ready;
                         eprintln!("PYLON=127.0.0.1:{}", pylon_port);
+                        eprintln!("[havi] startup: state={:?}", self.startup_state);
                         log!("[havishell] Pylon hpprd on port {}", hpprd_port);
+                        if let Some(pool) = &mut self.watch_pool {
+                            pool.set_endpoint(format!("127.0.0.1:{}", hpprd_port));
+                        }
                         self.pylon_events = Some(pylon_events);
                         self.set_repo_mode_label(cx, "pylon", false);
                     }
                     PylonInitResult::Failed { reason } => {
+                        self.startup_state = StartupState::Failed;
+                        eprintln!("[havi] startup: state={:?} reason={}", self.startup_state, reason);
                         self.set_repo_mode_label(cx, &reason, true);
                     }
                 }
-                // Navigate to the deferred start URL.
-                if let Some(url) = self.deferred_url.take() {
-                    self.navigate(&url);
-                    if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-                        tab.url = url.clone();
-                    }
-                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
-                    self.needs_paint = true;
-                    self.idle_frames = 0;
-                    self.next_frame = cx.new_next_frame();
-                    cx.redraw_all();
-                }
+                self.ui.view(cx, ids!(loading_overlay)).set_visible(cx, false);
+                self.needs_paint = true;
+                self.idle_frames = 0;
+                self.next_frame = cx.new_next_frame();
+                cx.redraw_all();
             }
         }
 

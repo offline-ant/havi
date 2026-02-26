@@ -113,7 +113,7 @@ pub async fn resolve_route_endpoint(
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> (ViaSpec, Option<String>) {
-    let repo_target = hppr_client::repo_target().clone();
+    let repo_target = repo_client.target();
 
     if group.is_empty() || app.is_empty() {
         return (repo_target, None);

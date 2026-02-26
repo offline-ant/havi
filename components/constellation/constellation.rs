@@ -512,6 +512,9 @@ pub struct Constellation<STF, SWF> {
 
     /// Whether accessibility trees are being built and sent to the underlying platform.
     pub(crate) accessibility_active: bool,
+
+    /// Home HPPR endpoint for new script threads.
+    pub(crate) hppr_home_endpoint: String,
 }
 
 /// State needed to construct a constellation.
@@ -567,6 +570,9 @@ pub struct InitialConstellationState {
 
     /// The async runtime.
     pub async_runtime: Box<dyn AsyncRuntime>,
+
+    /// Home HPPR endpoint for script defaults.
+    pub hppr_home_endpoint: String,
 }
 
 /// When we are exiting a pipeline, we can either force exiting or not. A normal exit
@@ -731,6 +737,7 @@ where
                     screenshot_readiness_requests: Vec::new(),
                     user_contents_for_manager_id: Default::default(),
                     accessibility_active: false,
+                    hppr_home_endpoint: state.hppr_home_endpoint,
                 };
 
                 constellation.run();

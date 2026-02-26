@@ -148,21 +148,21 @@ impl App {
                 scheme: Some(hppr_client::TransportScheme::Tcp),
             });
 
-        // Set fallback target so protocol handlers have an endpoint immediately.
-        hppr_client::set_repo_target(fallback_target.clone());
+        // Fallback target used locally until pylon/hpprd startup resolves.
 
         let pylon_mode = pylon_mode_from_env();
+        self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
+        self.start_navigation_done = false;
+
+        // Startup state machine: Booting -> Ready/Failed.
+        self.startup_state = if pylon_mode == PylonMode::None {
+            StartupState::Ready
+        } else {
+            StartupState::Booting
+        };
 
         // Spawn pylon + hpprd + credential bootstrap on a background thread.
-        // The UI renders a loading page while this runs. On completion, a
-        // PylonReady or PylonFailed action is posted back to the UI thread.
-        if pylon_mode == PylonMode::None {
-            // --no-pylon: skip background work, go straight to the start URL.
-            // deferred_url stays None so init_servo navigates directly below.
-        } else {
-            let start_url_str = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
-            self.deferred_url = Some(start_url_str);
-
+        if pylon_mode != PylonMode::None {
             let home_clone = home.clone();
             let repo_path_clone = repo_path.clone();
             let (pylon_tx, pylon_rx) = std::sync::mpsc::channel();
@@ -212,9 +212,8 @@ impl App {
                             port: hpprd_port,
                             scheme: Some(hppr_client::TransportScheme::Tcp),
                         };
-                        hppr_client::set_repo_target(target);
                         let credential_store = global_credential_store();
-                        let endpoint = hppr_client::repo_endpoint().to_string();
+                        let endpoint = hppr_client::repo_endpoint_from(&target);
                         match hppr_client::connect_tcp(&endpoint, hppr_client::Signer::anyone()) {
                             Ok(mut client) => {
                                 if let Ok(greeting) = client.hello() {
@@ -276,13 +275,13 @@ impl App {
             .clone();
         self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
             watch_runtime_handle,
+            hppr_client::repo_endpoint_from(&fallback_target),
             SignalToUI::set_ui_signal,
         ));
 
-        // Initialize HPPR protocol handlers.
-        // These read repo_target() dynamically — it will be updated when PylonReady arrives.
+        // Initialize HPPR protocol handlers with the local fallback target.
         let hppr_handler = {
-            let target = hppr_client::repo_target().clone();
+            let target = fallback_target.clone();
             Arc::new(
                 havi_protocols::client::HpprdClientAsync::new(target)
                     .expect("invalid repo endpoint"),
@@ -358,18 +357,14 @@ impl App {
             .event_loop_waker(Box::new(MakepadEventLoopWaker))
             .preferences(preferences)
             .protocol_registry(protocol_registry)
+            .hppr_home_target(fallback_target.clone())
             .build();
         servo.set_delegate(Rc::new(HaviServoDelegate));
         servo.setup_logging();
 
         // Step 4: Create first WebView with proper HiDPI scale factor.
-        // If pylon is starting in the background, show the loading page.
-        // Otherwise (--no-pylon), navigate directly to the start URL.
-        let initial_url_str = if self.deferred_url.is_some() {
-            "havi:///loading".to_string()
-        } else {
-            std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string())
-        };
+        // Always navigate directly to the canonical startup URL.
+        let initial_url_str = self.start_url.clone();
         let url = servo::BrowserUrl::parse(&initial_url_str).unwrap();
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
@@ -380,16 +375,16 @@ impl App {
             .build();
 
         let webview_id = webview.id();
-        let display_url = self.deferred_url.as_deref().unwrap_or(&initial_url_str);
         self.tabs.push(TabInfo {
             webview_id,
             webview,
-            title: title_from_url(display_url),
-            url: display_url.to_string(),
+            title: title_from_url(&initial_url_str),
+            url: initial_url_str.clone(),
             widget_id: next_tab_live_id(),
             watch: Default::default(),
         });
         self.active_tab_idx = 0;
+        self.start_navigation_done = true;
 
         self.servo = Some(servo);
         self.rendering_context = Some(rendering_context);
@@ -405,9 +400,9 @@ impl App {
         // Set initial URL in the text input
         self.ui
             .text_input(cx, ids!(url_input))
-            .set_text(cx, display_url);
+            .set_text(cx, &initial_url_str);
 
-        // Show repo mode indicator
+        // Startup overlay + repo mode indicator
         let pylon_disabled_reason = if pylon_mode == PylonMode::None {
             Some("pylon: off (--no-pylon)".to_string())
         } else {
@@ -417,6 +412,9 @@ impl App {
             .clone()
             .unwrap_or_else(|| "pylon: starting…".to_string());
         self.set_repo_mode_label(cx, &repo_mode_text, pylon_disabled_reason.is_some());
+        self.ui
+            .view(cx, ids!(loading_overlay))
+            .set_visible(cx, pylon_mode != PylonMode::None);
 
         // Set window title caption to "havi"
         self.ui
@@ -458,8 +456,12 @@ impl App {
         {
             let repo_dir = havi_protocols::config::repo_dir();
             eprintln!("HPPRD_REPO={}", repo_dir.display());
-            let effective_url = self.deferred_url.as_deref().unwrap_or(&initial_url_str);
-            eprintln!("HAVI_URL={}", effective_url);
+            eprintln!("HAVI_URL={}", self.start_url);
+            eprintln!(
+                "[havi] startup: state={:?}, start_navigation_done={}",
+                self.startup_state,
+                self.start_navigation_done
+            );
         }
 
         // Start the frame loop

@@ -112,6 +112,7 @@ impl EventLoop {
             privileged_urls: constellation.privileged_urls.clone(),
             user_contents_for_manager_id: constellation.user_contents_for_manager_id.clone(),
             accessibility_active: constellation.accessibility_active,
+            hppr_home_endpoint: constellation.hppr_home_endpoint.clone(),
         };
 
         let event_loop = if opts::get().multiprocess {

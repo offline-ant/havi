@@ -21,6 +21,7 @@ pub mod pylon;
 pub mod url;
 pub mod util;
 pub mod watch;
+pub mod repo_target;
 
 /// Response from a protocol page handler.
 ///

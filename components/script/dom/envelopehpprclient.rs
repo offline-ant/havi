@@ -41,11 +41,12 @@ use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::routed_promise::{RoutedPromiseListener, callback_promise};
 use crate::script_runtime::CanGc;
+use crate::script_thread::ScriptThread;
 use script_bindings::cformat;
 
 /// Default HPPR socket endpoint.
 pub(crate) fn default_endpoint() -> String {
-    hppr_client::repo_endpoint().to_string()
+    ScriptThread::home_hppr_endpoint()
 }
 
 /// Envelope HPPR client

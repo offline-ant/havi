@@ -391,6 +391,8 @@ pub struct InitialScriptState {
     pub user_contents_for_manager_id: FxHashMap<UserContentManagerId, UserContents>,
     /// Whether this script should be initialized with accessibility already active.
     pub accessibility_active: bool,
+    /// Home HPPR endpoint for window.home and window.ring0 defaults.
+    pub hppr_home_endpoint: String,
 }
 
 /// Errors from executing a paint worklet

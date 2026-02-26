@@ -117,6 +117,10 @@ impl HpprdClientAsync {
         Ok(any)
     }
 
+    pub fn target(&self) -> ViaSpec {
+        self.target.clone()
+    }
+
     /// Connect based on ViaSpec, with auto-negotiation for scheme: None.
     async fn connect_via(&self) -> Result<AnyConnection, String> {
         match &self.target {

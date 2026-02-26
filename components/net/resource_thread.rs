@@ -91,6 +91,7 @@ pub fn new_resource_threads(
     certificate_path: Option<String>,
     ignore_certificate_errors: bool,
     protocols: Arc<ProtocolRegistry>,
+    hppr_home_target: HpprViaSpec,
 ) -> (ResourceThreads, ResourceThreads, Box<dyn AsyncRuntime>) {
     // Initialize the async runtime, and get a handle to it for use in clean shutdown.
     let async_runtime = init_async_runtime();
@@ -112,6 +113,7 @@ pub fn new_resource_threads(
         ca_certificates,
         ignore_certificate_errors,
         protocols,
+        hppr_home_target,
     );
     (
         ResourceThreads::new(public_core),
@@ -131,6 +133,7 @@ pub fn new_core_resource_thread(
     ca_certificates: CACertificates<'static>,
     ignore_certificate_errors: bool,
     protocols: Arc<ProtocolRegistry>,
+    hppr_home_target: HpprViaSpec,
 ) -> (CoreResourceThread, CoreResourceThread) {
     let (public_setup_chan, public_setup_port) = generic_channel::channel().unwrap();
     let (private_setup_chan, private_setup_port) = generic_channel::channel().unwrap();
@@ -145,6 +148,7 @@ pub fn new_core_resource_thread(
                 embedder_proxy.clone(),
                 ca_certificates.clone(),
                 ignore_certificate_errors,
+                hppr_home_target,
             );
 
             let mut channel_manager = ResourceChannelManager {
@@ -728,6 +732,7 @@ impl CoreResourceManager {
         embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
         ca_certificates: CACertificates<'static>,
         ignore_certificate_errors: bool,
+        hppr_home_target: HpprViaSpec,
     ) -> CoreResourceManager {
         CoreResourceManager {
             devtools_sender,
@@ -738,7 +743,7 @@ impl CoreResourceManager {
             ignore_certificate_errors,
             preloaded_resources: Default::default(),
             in_flight_keep_alive_records: Default::default(),
-            hppr_state: Arc::new(crate::hppr_pool::HpprAsyncState::from_env()),
+            hppr_state: Arc::new(crate::hppr_pool::HpprAsyncState::new(hppr_home_target)),
         }
     }
 
