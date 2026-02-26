@@ -353,6 +353,22 @@ def setup_desktop_env() -> dict[str, str]:
             if os.path.isdir(llvm_lib):
                 env["LIBCLANG_PATH"] = llvm_lib
 
+    # Ensure LLVM tools are on PATH on Windows so cargo-makepad can find llvm-rc.
+    if is_windows:
+        llvm_bin_candidates = []
+        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+        llvm_bin_candidates.append(os.path.join(pf, "LLVM", "bin"))
+        vs_base = os.path.join(pf, "Microsoft Visual Studio", "2022")
+        for edition in ("Community", "Professional", "Enterprise", "BuildTools"):
+            llvm_bin_candidates.append(os.path.join(
+                vs_base, edition, "VC", "Tools", "Llvm", "x64", "bin"))
+
+        for llvm_bin in llvm_bin_candidates:
+            if os.path.isfile(os.path.join(llvm_bin, "llvm-rc.exe")):
+                current_path = env.get("PATH", "")
+                env["PATH"] = llvm_bin + (os.pathsep + current_path if current_path else "")
+                break
+
     if not is_windows and "CLANG_PATH" not in env:
         clang = shutil.which("clang")
         if clang:
