@@ -36,6 +36,11 @@ pub async fn handle_request(url: &str) -> PageResponse {
         return PageResponse::new("application/json", json.into_bytes());
     }
 
+    // Loading page returns early — no admin credentials needed.
+    if path == "/loading" {
+        return PageResponse::html(render_loading_page());
+    }
+
     let html = match path.as_str() {
         "/home" => render_home_page(),
         "/overview" | "/" | "" => render_dashboard(),
@@ -51,6 +56,24 @@ pub async fn handle_request(url: &str) -> PageResponse {
 
     let (ring1_name, token) = get_admin_credentials();
     PageResponse::html(html).with_admin_credentials(ring1_name, token)
+}
+
+/// Splash page shown during pylon startup. Centered icon on white background.
+fn render_loading_page() -> String {
+    use base64::Engine;
+    let icon_bytes = include_bytes!("../../../ports/havishell/resources/icon_256.png");
+    let icon_b64 = base64::engine::general_purpose::STANDARD.encode(icon_bytes);
+    format!(
+        r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>havi</title>
+<style>
+body {{ margin:0; background:#fff; display:flex; align-items:center; justify-content:center; height:100vh; }}
+img {{ width:128px; height:128px; }}
+</style></head>
+<body><img src="data:image/png;base64,{}"></body></html>"#,
+        icon_b64
+    )
 }
 
 /// Minimal admin-page styles with basic layout and legibility.

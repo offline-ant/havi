@@ -294,6 +294,18 @@ enum PylonMode {
     Embedded,
 }
 
+/// Result of background pylon + hpprd + credential bootstrap.
+enum PylonInitResult {
+    Ready {
+        hpprd_port: u16,
+        pylon_port: u16,
+        pylon_events: std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
 fn pylon_mode_from_env() -> PylonMode {
     match std::env::var("HAVI_PYLON_MODE").ok().as_deref() {
         Some("none") => PylonMode::None,
@@ -530,6 +542,14 @@ pub struct App {
     /// TCP connection alive (preventing pylon idle shutdown).
     #[rust]
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
+
+    /// Start URL deferred until pylon is ready (or fails).
+    #[rust]
+    deferred_url: Option<String>,
+
+    /// Receives the pylon init result from the background thread.
+    #[rust]
+    pylon_init_rx: Option<std::sync::mpsc::Receiver<PylonInitResult>>,
 
     /// Shared HPPR watch connection pool.
     /// Field order matters: this is dropped before `havi_runtime` during App teardown.

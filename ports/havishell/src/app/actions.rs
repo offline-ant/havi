@@ -318,6 +318,41 @@ impl AppMain for App {
             }
         }
 
+        // Poll pylon background init result.
+        if let Some(ref rx) = self.pylon_init_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.pylon_init_rx = None;
+                match result {
+                    PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events } => {
+                        hppr_client::set_repo_target(hppr_client::ViaSpec::Net {
+                            host: "127.0.0.1".to_string(),
+                            port: hpprd_port,
+                            scheme: Some(hppr_client::TransportScheme::Tcp),
+                        });
+                        eprintln!("PYLON=127.0.0.1:{}", pylon_port);
+                        log!("[havishell] Pylon hpprd on port {}", hpprd_port);
+                        self.pylon_events = Some(pylon_events);
+                        self.set_repo_mode_label(cx, "pylon", false);
+                    }
+                    PylonInitResult::Failed { reason } => {
+                        self.set_repo_mode_label(cx, &reason, true);
+                    }
+                }
+                // Navigate to the deferred start URL.
+                if let Some(url) = self.deferred_url.take() {
+                    self.navigate(&url);
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+                        tab.url = url.clone();
+                    }
+                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                    self.needs_paint = true;
+                    self.idle_frames = 0;
+                    self.next_frame = cx.new_next_frame();
+                    cx.redraw_all();
+                }
+            }
+        }
+
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
             // Drain pylon events and update toolbar status
