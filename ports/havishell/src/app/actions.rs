@@ -46,6 +46,41 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
     set_jsonqa_via(current_url, via)
 }
 
+impl App {
+    pub(super) fn apply_menu_dock(&self, cx: &mut Cx) {
+        let tab_uid = self.ui.view(cx, ids!(tab_bar_wrap)).widget_uid();
+        let toolbar_uid = self.ui.view(cx, ids!(toolbar)).widget_uid();
+        let content_uid = self.ui.view(cx, ids!(content_area)).widget_uid();
+
+        if let Some(mut main_layout) = self.ui.view(cx, ids!(main_layout)).borrow_mut() {
+            main_layout.children.sort_by_key(|(_, child)| {
+                let uid = child.widget_uid();
+                if self.menu_at_bottom {
+                    if uid == content_uid {
+                        0
+                    } else if uid == toolbar_uid {
+                        1
+                    } else if uid == tab_uid {
+                        2
+                    } else {
+                        3
+                    }
+                } else if uid == tab_uid {
+                    0
+                } else if uid == toolbar_uid {
+                    1
+                } else if uid == content_uid {
+                    2
+                } else {
+                    3
+                }
+            });
+        }
+
+        self.ui.view(cx, ids!(main_layout)).redraw(cx);
+    }
+}
+
 impl MatchEvent for App {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
         let mut nav_action: Option<NavCommand> = None;
@@ -75,7 +110,7 @@ impl MatchEvent for App {
                 tab.watch.set_mode(next);
                 self.ui
                     .button(cx, ids!(watch_btn))
-                    .set_text(cx, next.label());
+                    .set_text(cx, &watch_button_text(next));
             }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
@@ -90,6 +125,16 @@ impl MatchEvent for App {
         }
         if self.ui.button(cx, ids!(home_btn)).clicked(actions) {
             nav_action = Some(NavCommand::Navigate(HOME_URL.into()));
+        }
+        if self.ui.button(cx, ids!(dock_btn)).clicked(actions) {
+            self.menu_at_bottom = !self.menu_at_bottom;
+            let text = if self.menu_at_bottom { "🔽" } else { "🔼" };
+            self.ui.button(cx, ids!(dock_btn)).set_text(cx, text);
+            self.apply_menu_dock(cx);
+            self.needs_paint = true;
+            self.idle_frames = 0;
+            self.next_frame = cx.new_next_frame();
+            cx.redraw_all();
         }
         if self
             .ui
@@ -131,6 +176,12 @@ impl MatchEvent for App {
         }
 
         // --- Tab bar events ---
+        if self.ui.button(cx, ids!(tab_scroll_left_btn)).clicked(actions) {
+            self.scroll_tabs(cx, -1.0);
+        }
+        if self.ui.button(cx, ids!(tab_scroll_right_btn)).clicked(actions) {
+            self.scroll_tabs(cx, 1.0);
+        }
         if self.ui.button(cx, ids!(new_tab_btn)).clicked(actions) {
             self.add_tab(cx);
             // Reset cursor — the button moves when a tab is added, so
@@ -257,7 +308,7 @@ impl MatchEvent for App {
                                 if idx == self.active_tab_idx {
                                     self.ui
                                         .button(cx, ids!(watch_btn))
-                                        .set_text(cx, mode.label());
+                                        .set_text(cx, &watch_button_text(mode));
                                 }
                                 mode_to_wire(tab.watch.mode())
                             } else {
@@ -446,6 +497,8 @@ impl AppMain for App {
             self.needs_paint = true;
             self.idle_frames = 0;
             self.next_frame = cx.new_next_frame();
+            self.apply_menu_dock(cx);
+            self.sync_tab_bar(cx);
             cx.redraw_all();
             // Update DPI factor if it changed (e.g., moved to different-DPI monitor)
             if re.new_geom.dpi_factor > 0.0 && re.new_geom.dpi_factor != self.dpi_factor {

@@ -1,9 +1,15 @@
 use euclid::Scale;
 use makepad_widgets::*;
+use makepad_widgets::turtle::RowAlign;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 
-use super::{App, HaviWebViewDelegate};
+use super::{App, HaviWebViewDelegate, watch_button_text};
+
+const TAB_MIN_WIDTH: f64 = 120.0;
+const TAB_MAX_WIDTH: f64 = 220.0;
+const TAB_SCROLL_STEP: f64 = 180.0;
+const TOOLBAR_WRAP_THRESHOLD: f64 = 860.0;
 
 /// Default start page URL.
 pub(super) const HOME_URL: &str = "hppr://u/web/index.html";
@@ -72,6 +78,46 @@ impl App {
 
         let template_source = self.tab_template_source.clone();
 
+        let wrap_width = self.ui.view(cx, ids!(tab_bar_wrap)).area().rect(cx).size.x;
+        let reserved = 46.0 * 3.0 + 28.0 + 12.0;
+        let usable = (wrap_width - reserved).max(120.0);
+        let tab_count = self.tabs.len().max(1) as f64;
+        let tab_width = (usable / tab_count).clamp(TAB_MIN_WIDTH, TAB_MAX_WIDTH);
+        let total_tabs_width = tab_width * self.tabs.len() as f64;
+        let overflow = total_tabs_width > usable;
+
+        self.ui
+            .button(cx, ids!(tab_scroll_left_btn))
+            .set_visible(cx, overflow);
+        self.ui
+            .button(cx, ids!(tab_scroll_right_btn))
+            .set_visible(cx, overflow);
+
+        if !overflow {
+            self.tab_scroll_x = 0.0;
+        }
+        let max_scroll = (total_tabs_width - usable).max(0.0);
+        if self.tab_scroll_x > max_scroll {
+            self.tab_scroll_x = max_scroll;
+        }
+        self.ui
+            .view(cx, ids!(tab_bar))
+            .set_scroll_pos(cx, dvec2(self.tab_scroll_x, 0.0));
+
+        if let Some(mut toolbar) = self.ui.view(cx, ids!(toolbar)).borrow_mut() {
+            toolbar.layout.flow = if wrap_width < TOOLBAR_WRAP_THRESHOLD {
+                Flow::Right {
+                    row_align: RowAlign::Top,
+                    wrap: true,
+                }
+            } else {
+                Flow::Right {
+                    row_align: RowAlign::Top,
+                    wrap: false,
+                }
+            };
+        }
+
         let mut new_children: Vec<(LiveId, WidgetRef)> = Vec::new();
 
         for (i, tab) in self.tabs.iter().enumerate() {
@@ -94,6 +140,7 @@ impl App {
                 [0.96, 0.96, 0.96, 1.0] // light gray (inactive)
             };
             if let Some(mut view) = widget.borrow_mut::<View>() {
+                view.walk.width = Size::Fixed(tab_width);
                 view.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &bg);
             }
 
@@ -108,17 +155,6 @@ impl App {
             }
 
             new_children.push((widget_id, widget));
-        }
-
-        // Preserve the new_tab_btn widget.
-        if let Some(tb) = tab_bar_ref.borrow_mut() {
-            if let Some(entry) = tb
-                .children
-                .iter()
-                .find(|(id, _)| *id == live_id!(new_tab_btn))
-            {
-                new_children.push(entry.clone());
-            }
         }
 
         // Replace children.
@@ -260,9 +296,25 @@ impl App {
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.ui
             .button(cx, ids!(watch_btn))
-            .set_text(cx, self.tabs[idx].watch.mode().label());
+            .set_text(cx, &watch_button_text(self.tabs[idx].watch.mode()));
         self.needs_paint = true;
         self.sync_tab_bar(cx);
+    }
+
+    pub(super) fn scroll_tabs(&mut self, cx: &mut Cx, dir: f64) {
+        let wrap_width = self.ui.view(cx, ids!(tab_bar_wrap)).area().rect(cx).size.x;
+        let reserved = 46.0 * 3.0 + 28.0 + 12.0;
+        let usable = (wrap_width - reserved).max(120.0);
+        let tab_count = self.tabs.len().max(1) as f64;
+        let tab_width = (usable / tab_count).clamp(TAB_MIN_WIDTH, TAB_MAX_WIDTH);
+        let total_tabs_width = tab_width * self.tabs.len() as f64;
+        let max_scroll = (total_tabs_width - usable).max(0.0);
+
+        self.tab_scroll_x = (self.tab_scroll_x + dir * TAB_SCROLL_STEP).clamp(0.0, max_scroll);
+        self.ui
+            .view(cx, ids!(tab_bar))
+            .set_scroll_pos(cx, dvec2(self.tab_scroll_x, 0.0));
+        self.ui.view(cx, ids!(tab_bar)).redraw(cx);
     }
 
     /// Find tab index by webview id.

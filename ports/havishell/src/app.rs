@@ -40,7 +40,10 @@ script_mod! {
 
                 pass.clear_color: vec4(1.0, 1.0, 1.0, 1.0)
                 body +: {
-                    flow: Down
+                    main_layout := View{
+                        width: Fill
+                        height: Fill
+                        flow: Down
 
                     // --- Tab bar ---
                     tab_bar_wrap := View{
@@ -49,6 +52,13 @@ script_mod! {
                         draw_bg.color: #xffffff
                         show_bg: true
                         align: Align{y: 1.0}
+
+                        tab_scroll_left_btn := Button{
+                            visible: false
+                            text: "◀"
+                            width: 28 height: 28
+                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                        }
 
                         tab_bar := View{
                             flow: Right
@@ -102,16 +112,24 @@ script_mod! {
                                 }
                             }
 
-                            new_tab_btn := Button{
-                                text: "+"
-                                width: 28 height: 28
-                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
-                                draw_text.color: #x111111
-                                draw_text.text_style.font_size: 16.0
-                                draw_bg +: {
-                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
-                                }
+                        }
+
+                        tab_scroll_right_btn := Button{
+                            visible: false
+                            text: "▶"
+                            width: 28 height: 28
+                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                        }
+
+                        new_tab_btn := Button{
+                            text: "+"
+                            width: 28 height: 28
+                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                            draw_text.color: #x111111
+                            draw_text.text_style.font_size: 16.0
+                            draw_bg +: {
+                                pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
                             }
                         }
 
@@ -168,20 +186,21 @@ script_mod! {
                         draw_bg.color: #xf5f5f5
                         show_bg: true
 
-                        back_btn := Button{ text: "←" }
-                        forward_btn := Button{ text: "→" }
-                        reload_btn := Button{ text: "↻" }
+                        back_btn := Button{ text: "⬅️" }
+                        forward_btn := Button{ text: "➡️" }
+                        reload_btn := Button{ text: "🔄" }
 
                         url_input := TextInput{
                             width: Fill height: Fit
                             empty_text: "Enter URC..."
                         }
 
-                        go_btn := Button{ text: "Go" }
-                        edit_btn := Button{ text: "✏" }
-                        watch_btn := Button{ text: "W:Off" }
+                        go_btn := Button{ text: "🚀" }
+                        edit_btn := Button{ text: "✏️" }
+                        watch_btn := Button{ text: "👁️ Off" }
                         share_btn := Button{ text: "🔗" }
-                        home_btn := Button{ text: "⌂" }
+                        home_btn := Button{ text: "🏠" }
+                        dock_btn := Button{ text: "↕️" }
 
                         repo_mode_label := Label{
                             text: ""
@@ -271,6 +290,7 @@ script_mod! {
                             }
                         }
                     } // end content_area
+                    } // end main_layout
                 }
             }
         }
@@ -300,6 +320,16 @@ fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
         havi_protocols::watch::WatchMode::Dev => "dev",
     }
     .to_string()
+}
+
+fn watch_button_text(mode: havi_protocols::watch::WatchMode) -> String {
+    let suffix = match mode {
+        havi_protocols::watch::WatchMode::Off => "Off",
+        havi_protocols::watch::WatchMode::Notify => "Notify",
+        havi_protocols::watch::WatchMode::Auto => "Auto",
+        havi_protocols::watch::WatchMode::Dev => "Dev",
+    };
+    format!("👁️ {}", suffix)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -544,6 +574,13 @@ pub struct App {
     /// Latest advertised public via from pylon listener events.
     #[rust]
     shared_public_via: Option<String>,
+
+    /// True when tab/toolbar chrome is docked to the bottom.
+    #[rust]
+    menu_at_bottom: bool,
+
+    #[rust]
+    tab_scroll_x: f64,
 
     // --- Tab state ---
     #[rust]
