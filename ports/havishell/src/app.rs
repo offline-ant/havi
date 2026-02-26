@@ -38,7 +38,7 @@ script_mod! {
                 window.title: "havi"
                 window.inner_size: vec2(1280, 800)
 
-                pass.clear_color: vec4(0.165, 0.165, 0.165, 1.0)
+                pass.clear_color: vec4(1.0, 1.0, 1.0, 1.0)
                 body +: {
                     flow: Down
 
@@ -46,7 +46,7 @@ script_mod! {
                     tab_bar_wrap := View{
                         flow: Right
                         width: Fill height: Fit
-                        draw_bg.color: #x1e1e1e
+                        draw_bg.color: #xffffff
                         show_bg: true
                         align: Align{y: 1.0}
 
@@ -54,8 +54,8 @@ script_mod! {
                             flow: Right
                             event_order: Down
                             width: Fill height: Fit
-                            padding: Inset{left: 4 right: 0 top: 4 bottom: 0}
-                            spacing: 1
+                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                            spacing: 0
                             align: Align{y: 1.0}
                             scroll_bars: ScrollBarsTabs{
                                 show_scroll_x: true
@@ -72,28 +72,30 @@ script_mod! {
                                 cursor: MouseCursor.Hand
                                 flow: Right
                                 width: Fit height: Fit
-                                padding: Inset{left: 12 right: 4 top: 6 bottom: 6}
+                                padding: Inset{left: 10 right: 4 top: 5 bottom: 5}
                                 spacing: 6
                                 align: Align{y: 0.5}
                                 show_bg: true
                                 draw_bg +: {
-                                    color: uniform(#x2a2a2a)
-                                    border_radius: uniform(6.0)
+                                    color: uniform(#xffffff)
+                                    border_color: uniform(#xcccccc)
                                     pixel: fn() {
                                         let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y + self.border_radius self.border_radius)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
                                         sdf.fill(self.color)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.stroke(self.border_color, 1.0)
                                         return sdf.result
                                     }
                                 }
                                 tab_label := Label{
                                     text: "New Tab"
-                                    draw_text.color: #xcccccc
+                                    draw_text.color: #x111111
                                     draw_text.text_style.font_size: 11.0
                                 }
                                 tab_close := Label{
                                     text: "×"
-                                    draw_text.color: #x666666
+                                    draw_text.color: #x999999
                                     draw_text.text_style.font_size: 13.0
                                     width: 20 height: 20
                                     align: Align{x: 0.5 y: 0.5}
@@ -105,7 +107,7 @@ script_mod! {
                                 width: 28 height: 28
                                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
                                 margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
-                                draw_text.color: #x999999
+                                draw_text.color: #x111111
                                 draw_text.text_style.font_size: 16.0
                                 draw_bg +: {
                                     pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
@@ -123,7 +125,7 @@ script_mod! {
                                 text: "—"
                                 width: 46 height: 32
                                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                                draw_text.color: #x999999
+                                draw_text.color: #x555555
                                 draw_text.text_style.font_size: 10.0
                                 align: Align{x: 0.5 y: 0.5}
                                 draw_bg +: {
@@ -134,7 +136,7 @@ script_mod! {
                                 text: "□"
                                 width: 46 height: 32
                                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                                draw_text.color: #x999999
+                                draw_text.color: #x555555
                                 draw_text.text_style.font_size: 10.0
                                 align: Align{x: 0.5 y: 0.5}
                                 draw_bg +: {
@@ -145,7 +147,7 @@ script_mod! {
                                 text: "X"
                                 width: 46 height: 32
                                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                                draw_text.color: #x999999
+                                draw_text.color: #x555555
                                 draw_text.text_style.font_size: 11.0
                                 align: Align{x: 0.5 y: 0.5}
                                 draw_bg +: {
@@ -163,7 +165,7 @@ script_mod! {
                         padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
                         spacing: 4
                         align: Align{y: 0.5}
-                        draw_bg.color: #x2a2a2a
+                        draw_bg.color: #xf5f5f5
                         show_bg: true
 
                         back_btn := Button{ text: "←" }
@@ -183,7 +185,7 @@ script_mod! {
 
                         repo_mode_label := Label{
                             text: ""
-                            draw_text.color: #x666666
+                            draw_text.color: #x444444
                             draw_text.text_style.font_size: 9.0
                             width: Fit height: Fit
                             margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
@@ -213,23 +215,23 @@ script_mod! {
                             abs_pos: vec2(-1000.0, -1000.0)
                             width: Fit height: Fit
                             flow: Down
-                            padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
-                            spacing: 2
+                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                            spacing: 0
                             show_bg: true
-                            draw_bg.color: #x2a2a2a
+                            draw_bg.color: #xffffff
 
                             context_copy_btn := Button{
                                 text: "Copy"
                                 width: 160 height: 28
                                 padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
-                                draw_text.color: #xcccccc
+                                draw_text.color: #x111111
                                 draw_text.text_style.font_size: 12.0
                                 draw_bg +: {
-                                    color: uniform(#x2a2a2a)
-                                    color_hover: uniform(#x3a3a3a)
+                                    color: uniform(#xffffff)
+                                    color_hover: uniform(#xf0f0f0)
                                     pixel: fn() {
                                         let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
                                         sdf.fill(mix(self.color, self.color_hover, self.hover))
                                         return sdf.result
                                     }
@@ -239,14 +241,14 @@ script_mod! {
                                 text: "Go to Editor"
                                 width: 160 height: 28
                                 padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
-                                draw_text.color: #xcccccc
+                                draw_text.color: #x111111
                                 draw_text.text_style.font_size: 12.0
                                 draw_bg +: {
-                                    color: uniform(#x2a2a2a)
-                                    color_hover: uniform(#x3a3a3a)
+                                    color: uniform(#xffffff)
+                                    color_hover: uniform(#xf0f0f0)
                                     pixel: fn() {
                                         let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.box(0.0 0.0 self.rect_size.x self.rect_size.y 4.0)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
                                         sdf.fill(mix(self.color, self.color_hover, self.hover))
                                         return sdf.result
                                     }

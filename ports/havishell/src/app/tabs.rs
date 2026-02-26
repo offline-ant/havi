@@ -88,11 +88,10 @@ impl App {
                 .widget(cx, ids!(tab_label))
                 .set_text(cx, &title);
 
-            // Active/inactive bg color — bright blue for debugging.
             let bg: [f32; 4] = if is_active {
-                [0.0, 0.25, 0.9, 1.0] // bright blue (active)
+                [1.0, 1.0, 1.0, 1.0] // white (active)
             } else {
-                [0.0, 0.15, 0.6, 1.0] // darker blue (inactive)
+                [0.96, 0.96, 0.96, 1.0] // light gray (inactive)
             };
             if let Some(mut view) = widget.borrow_mut::<View>() {
                 view.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &bg);
@@ -100,9 +99,9 @@ impl App {
 
             // Label text color.
             let text_color = if is_active {
-                Vec4f { x: 0.9, y: 0.9, z: 0.9, w: 1.0 }
+                Vec4f { x: 0.067, y: 0.067, z: 0.067, w: 1.0 } // #111
             } else {
-                Vec4f { x: 0.6, y: 0.6, z: 0.6, w: 1.0 }
+                Vec4f { x: 0.33, y: 0.33, z: 0.33, w: 1.0 } // #555
             };
             if let Some(mut label) = widget.widget(cx, ids!(tab_label)).borrow_mut::<Label>() {
                 label.draw_text.color = text_color;
