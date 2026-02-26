@@ -52,6 +52,7 @@ TRIPLE_TO_ABI = {
 
 DEFAULT_ANDROID_TRIPLE = "aarch64-linux-android"
 EMULATOR_TRIPLE = "x86_64-linux-android"
+DEFAULT_IOS_NAME = "havi"
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +636,7 @@ def _maybe_consume_positional_platform(args: argparse.Namespace) -> None:
         return
 
     # Explicit flags always win.
-    if getattr(args, "android", False) or getattr(args, "emulator", False):
+    if getattr(args, "android", False) or getattr(args, "emulator", False) or getattr(args, "ios_simulator", False):
         return
 
     platform_token = extra[0]
@@ -648,10 +649,13 @@ def _maybe_consume_positional_platform(args: argparse.Namespace) -> None:
         extra = extra[1:]
     elif platform_token == "desktop":
         extra = extra[1:]
+    elif platform_token in ("ios", "ios-sim", "ios-simulator"):
+        args.ios_simulator = True
+        extra = extra[1:]
     else:
         return
 
-    if extra and not getattr(args, "target", None):
+    if (args.android or args.emulator) and extra and not getattr(args, "target", None):
         arch_token = extra[0]
         arch_to_triple = {
             "aarch64": "aarch64-linux-android",
@@ -669,6 +673,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     _maybe_consume_positional_platform(args)
     if args.android or args.emulator:
         return _build_android(args)
+    if args.ios_simulator:
+        return _run_ios_simulator(args)
     return _build_desktop(args)
 
 
@@ -800,6 +806,27 @@ def _cargo_makepad_desktop_cmd() -> list[str]:
     return cmd
 
 
+def _cargo_makepad_ios_cmd() -> list[str]:
+    """Base repo-local cargo-makepad apple ios command."""
+    cmd = _cargo_makepad_cmd_base()
+    cmd.extend(["apple", "ios", f"--org={DEFAULT_IOS_NAME}", f"--app={DEFAULT_IOS_NAME}"])
+    return cmd
+
+
+def _run_ios_simulator(args: argparse.Namespace) -> int:
+    """Build, install, and launch HAVI in the booted iOS Simulator."""
+    cmd = _cargo_makepad_ios_cmd()
+    cmd.append("run-sim")
+    cmd.extend(["-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    if args.extra:
+        cmd.extend(args.extra)
+
+    _log("ios simulator run", cmd=cmd)
+    return subprocess.call(cmd, cwd=str(HAVI_ROOT))
+
+
 def _build_android(args: argparse.Namespace) -> int:
     _ensure_cargo_makepad_ndk()
     target_triple = args.target or (EMULATOR_TRIPLE if args.emulator else DEFAULT_ANDROID_TRIPLE)
@@ -881,10 +908,13 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    _maybe_consume_positional_platform(args)
     if args.emulator:
         return _run_emulator(args)
     if args.android:
         return _run_android(args)
+    if args.ios_simulator:
+        return _run_ios_simulator(args)
     return _run_desktop(args)
 
 
@@ -994,6 +1024,8 @@ def run(topdir: str) -> int:
                         help=f"{verb} for/on a physical Android device")
         p.add_argument("--emulator", "-e", action="store_true",
                         help=f"{verb} on Android emulator (implies --target {EMULATOR_TRIPLE})")
+        p.add_argument("--ios-simulator", action="store_true",
+                        help=f"{verb} on iOS Simulator")
         p.add_argument("--avd", default=None,
                         help="AVD name for --emulator (default: first available)")
         p.add_argument("--target", "-t", default=None,

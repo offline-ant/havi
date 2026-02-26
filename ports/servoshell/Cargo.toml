@@ -39,7 +39,7 @@ OriginalFilename = "servo.exe"
 ProductName = "Servo"
 
 [features]
-default = ["gamepad", "libservo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr"]
+default = ["gamepad", "libservo/clipboard", "js_jit", "max_log_level", "webgpu"]
 crown = ["libservo/crown"]
 debugmozjs = ["libservo/debugmozjs"]
 gamepad = ["libservo/gamepad"]
@@ -109,7 +109,6 @@ xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
 base = { workspace = true }
 nix = { workspace = true, features = ["fs"] }
 serde_json = { workspace = true }
-surfman = { workspace = true, features = ["sm-angle-default"] }
 
 [target.'cfg(not(any(target_os = "android", target_env = "ohos")))'.dependencies]
 dirs = "6.0"
@@ -123,7 +122,6 @@ headers = { workspace = true }
 serde_json = { workspace = true }
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
 servo_allocator = { path = "../../components/allocator" }
-surfman = { workspace = true, features = ["sm-raw-window-handle-06", "sm-x11"] }
 winit = { workspace = true }
 
 [target.'cfg(any(all(target_os = "linux", not(target_env = "ohos")), target_os = "macos"))'.dependencies]

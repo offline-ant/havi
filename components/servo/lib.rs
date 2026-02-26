@@ -46,10 +46,7 @@ pub use net_traits::pub_domains::is_reg_domain;
 pub use paint::WebRenderDebugOption;
 pub use paint_api::gl_device;
 pub use paint_api::rendering_context;
-pub use paint_api::rendering_context::{
-    MakepadRenderingContext, OffscreenRenderingContext, RenderingContext, SoftwareRenderingContext,
-    WindowRenderingContext,
-};
+pub use paint_api::rendering_context::{MakepadRenderingContext, RenderingContext};
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
 pub use resources;
