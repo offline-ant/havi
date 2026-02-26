@@ -66,7 +66,8 @@ script_mod! {
                                 }
                             }
 
-                            // Template tab — extracted at init, not displayed directly
+                            // Template tab — extracted once by sync_tab_bar, then
+                            // removed from children. Never kept as a hidden child.
                             tab_template := View{
                                 cursor: MouseCursor.Hand
                                 flow: Right
@@ -76,7 +77,7 @@ script_mod! {
                                 align: Align{y: 0.5}
                                 show_bg: true
                                 draw_bg +: {
-                                    color: uniform(#xff00ff)
+                                    color: uniform(#x2a2a2a)
                                     border_radius: uniform(6.0)
                                     pixel: fn() {
                                         let sdf = Sdf2d.viewport(self.pos * self.rect_size)
@@ -512,6 +513,11 @@ pub struct App {
     tabs: Vec<TabInfo>,
     #[rust]
     active_tab_idx: usize,
+    /// Cached ScriptObjectRef for the tab_template View. Extracted once from
+    /// tab_bar children so the template widget is never kept as a hidden child
+    /// (which caused ghost DrawQuad rendering artifacts on Linux/OpenGL).
+    #[rust]
+    tab_template_source: ScriptObjectRef,
 
     // --- IPC single-instance listener ---
     #[rust]

@@ -2,201 +2,283 @@
 
 ## Symptom
 
-Two dark rectangular blocks appear in the tab bar on Linux/Wayland, covering
-parts of the tab label text. They are stable — they do not flicker and do not
-disappear after mouse moves or any user interaction.
+Dark rectangular blocks appear in the tab bar on Linux/Wayland, covering parts
+of tab label text. They are stable — they do not flicker and do not disappear
+after mouse moves, redraws, or any user interaction.
 
-Screenshot pixel analysis shows the blocks are solid dark grey (~rgb 42-55),
-matching the tab `draw_bg` background color. They are not truly black; they are
-tab View backgrounds drawn at stale positions with no text on top.
+Pixel analysis shows the blocks are solid dark grey (~rgb 42-55), matching the
+tab View `draw_bg` background color (#2a2a2a). They are tab-background-colored
+rectangles drawn on top of text at wrong positions.
 
-Observed positions (1280×800 window):
-- Block 1: approximately x=55–70, y=16–31 (covers "De" in "HAVI Demo")
-- Block 2: approximately x=138–166, y=16–41 (covers gap between tab labels)
+Observable behaviors:
 
-Not reproduced on macOS (Metal) or Windows.
+- With one tab active, two dark blocks cover portions of the tab label.
+- Switching focus to the second tab makes the blocks on the first tab
+  nearly invisible (because the first tab's background and the block color
+  both become #2a2a2a — they merge).
+- Closing the first tab does not remove the artifacts. They persist at the
+  same screen positions even when the surviving tab shifts left.
+- The blocks are NOT the configured tab background color. When tab bg was
+  changed to bright blue (#0040e6), the blocks remained dark grey. The
+  block color comes from the `draw_bg` default in the live DSL template
+  (`uniform(#x2a2a2a)`), not from the runtime `set_uniform` call.
+
+Not reproduced on macOS (Metal) or Windows (D3D11).
 
 ## Widget Tree Evidence
 
 `havi-makepad-cli dump` shows orphaned widgets with parent `-1`:
 
 ```
-22 -1 tab_label Label 283 17 11 14
-23 -1 tab_close Label 506 23 12 12
-24 -1 tab_label Label 21 17 11 14
-25 -1 tab_close Label 244 23 12 12
+22 -1 tab_label Label 20 15 18 17
+23 -1 tab_close Label 263 23 12 12
+24 -1 tab_label Label 300 15 18 17
+25 -1 tab_close Label 542 23 12 12
 ```
 
 These are `tab_label` and `tab_close` children of dynamically-instantiated tab
 View widgets. They have no parent in the widget tree graph because their parent
 View was created via `script_from_value` and is not part of the static tree.
-Their `area` coordinates reflect the last position they were drawn.
 
-## Root Cause (under investigation — prior hypothesis invalidated)
+## How tabs are created
 
-The initial root cause analysis attributed the ghost blocks to stale VBO data
-retained after widget instances were dropped. Both the mechanism and the fix
-were wrong.
+`sync_tab_bar` in `havi/ports/havishell/src/app/tabs.rs`:
 
-**The VBO tail hypothesis is mechanically incorrect.** `update_array_buffer`
-calls `glBufferData` with the exact byte count of the current instances slice.
-`glBufferData` replaces the entire GL buffer with that data. No tail is
-retained; the GPU buffer is exactly as large as the upload.
+1. Extracts `ScriptObjectRef` source from the `tab_template` View.
+2. For each tab, calls `WidgetRef::script_from_value(vm, template_val)` to
+   create a new View widget from the template.
+3. Sets label text via `widget.widget(cx, ids!(tab_label)).set_text(cx, ...)`.
+4. Sets bg color via `view.draw_bg.draw_vars.set_uniform(cx, ...)`.
+5. Replaces `tab_bar.children` with the new widget list.
+6. Calls `cx.redraw_all()`.
 
-**Widget reuse (Attempt 4) does not fix the artifact.** If the ghost were
-caused by stale data from dropped widgets, reusing the same `WidgetRef` would
-prevent it. It does not.
+The template itself is kept in `new_children` as the first entry, hidden via
+`set_visible(cx, false)`.
 
-**Attempts 1 and 2 confirm the ghost items are fresh, not stale.** Both
-attempts filtered on `draw_item.redraw_id != list_redraw_id`. Neither fixed the
-artifact because the ghost draw items carry the current-frame `redraw_id` —
-they are not leftover from a prior frame. The wrong geometry is being written
-into fresh draw items in the current draw pass.
+## Key finding: the live DSL template color leaks through
 
-### What is known about the actual mechanism
+The `tab_template` definition in the live DSL sets:
 
-The ghost blocks are solid-color DrawQuad instances at positions that do not
-correspond to any current tab widget's layout position. They are rendered from
-fresh, current-frame draw items (redraw_id matches). The wrong data is being
-written to those items during the current draw pass.
+```
+draw_bg +: { color: uniform(#x2a2a2a) ... }
+```
 
-Two paths in Makepad update instance position data without setting
-`instance_dirty`:
+At runtime, `sync_tab_bar` overrides this via `set_uniform(cx, ...)` to either
+#353535 (active) or #2a2a2a (inactive). When the active tab color was changed
+to bright blue, the ghost blocks stayed dark grey (#2a2a2a). This means the
+ghost blocks are rendered from a draw path that uses the template's compiled-in
+uniform default, NOT the runtime-applied uniform value.
 
-- `Area::set_rect()` — called by `draw_quad.end()` to patch the final rect
-  after layout. Does not set `instance_dirty`.
-- `move_align_list()` — called by the turtle to shift aligned instances into
-  their final positions for `Fit`-sized widgets. Does not set `instance_dirty`.
+This rules out the blocks being a simple z-order or draw-order issue between
+the bg and text of the same widget. The ghost is a separate DrawQuad instance
+carrying stale/default uniform values.
 
-Both paths rely on `instance_dirty = true` having been set upstream by
-`push_item` (which `clear_draw_items` triggers at the start of a full redraw).
-In a full redraw this chain is correct. The ghost persisting through
-`redraw_all()` means either:
+## What has been ruled out
 
-1. The position patch is not being applied (silent `set_rect` early-return due
-   to `redraw_id` mismatch between the area and the draw list), leaving the
-   DrawQuad's stale struct-field `rect_pos`/`rect_size` in the VBO, or
-2. The patch is applied but to the wrong instance offset, or
-3. A draw item is produced by a code path that does not go through the normal
-   `begin()`/`end()` pair and therefore never receives the correct rect.
+### VBO tail data (ruled out early)
 
-`Area::set_rect()` early-returns silently when
-`draw_list.redraw_id != inst.redraw_id`. If `draw_bg.begin()` and
-`draw_bg.end()` execute in frames with different `cx.redraw_id` values — which
-the `DrawState` async mechanism permits for widgets whose draw spans multiple
-ticks — the patch is skipped and the VBO is uploaded with the DrawQuad struct's
-previous-frame `rect_pos`/`rect_size`.
+`update_array_buffer` calls `glBufferData` with exact byte count. No tail
+is retained. The GPU buffer is exactly as large as the upload.
 
-Whether the tab View widgets created via `script_from_value` can span draw
-ticks (via `script_async` or `on_render`) has not been confirmed.
+### Stale draw items from prior frames (ruled out)
 
-### Why `visible = false` / `set_visible` does not help
+Attempts 1 and 2 filtered on `draw_item.redraw_id != list_redraw_id`. Neither
+fixed the artifact because the ghost draw items carry the current-frame
+`redraw_id`. The wrong geometry is written into fresh draw items during the
+current draw pass.
 
-`View::draw_walk` early-outs when `!self.visible`, suppressing new draw calls.
-This cannot affect already-rendered ghost blocks because those come from fresh
-draw calls in the same frame, not from the hidden widget.
+### Widget reuse (ruled out — Attempt 4)
 
-### Why `redraw_all` does not help
+Caching `WidgetRef` in `TabInfo` and reusing across `sync_tab_bar` calls
+instead of creating new widgets each time. Did not fix the artifact.
+
+### `visible = false` / `set_visible` (ruled out)
+
+`View::draw_walk` early-outs when `!self.visible`. This cannot suppress the
+ghost because the ghost comes from a fresh draw call in the same frame, not
+from the hidden widget.
+
+### `redraw_all` (ruled out)
 
 `redraw_all` clears all draw lists and re-runs every widget's `draw_walk`.
-The ghost is written during the re-run itself — it is not a holdover from a
-prior frame.
+The ghost is written during the re-run itself.
 
-## Architecture: how inline drawing works
+### `instance_dirty` flag on `set_rect` and `move_align_list` (tested, no effect)
 
-Plain `View{}` widgets without `optimize: DrawList` or `optimize: Texture` draw
-directly into the parent draw list (no sub-list). Their `draw_bg` `DrawQuad`
-and child `Label` draw calls all land as `CxDrawItem` entries in the tab bar's
-`CxDrawList`. The `CxDrawItems` pool reuses slots by position (`used` index),
-not by identity. When a widget is dropped and a smaller or different set of
-widgets draws next frame, the tail of the pool (slots beyond the new `used`
-count) retains old GPU data but is not rendered — except when the draw list
-itself is not fully redrawn (partial redraw), in which case `clear_draw_items`
-is never called and all old items remain active.
+Added `instance_dirty = true` + `paint_dirty = true` to:
 
-The orphaned `tab_label`/`tab_close` Labels from dynamically-created tab Views
-register themselves in the global widget tree graph with no parent (because
-their parent View is not in the static tree). They show up as roots in the dump
-with parent `-1`.
+- `Area::set_rect()` in `platform/src/area.rs`
+- `move_align_list()` in `draw/src/turtle.rs`
+- `clip_and_shift_align_list()` in `draw/src/turtle.rs`
 
-## What was tried
+Hypothesis: the OpenGL renderer skips re-uploading instance VBOs when
+`instance_dirty` is false, and these late-patching paths don't set the flag.
 
-### Attempt 1: `redraw_id` staleness skip in `render_view` (makepad)
+Result: artifact persists unchanged. The issue is not about stale GPU data
+from a missed upload — the wrong data is in the CPU-side instance buffer
+itself.
 
-Added a check in `platform/src/os/linux/opengl.rs` `render_view` to skip draw
-items whose `redraw_id` does not match the draw list's current `redraw_id`.
-Removed after confirming it did not fix the artifact. The stale items are being
-reused (written at the same pool slot with the correct `redraw_id`) but via
-`append_to_draw_call` rather than `new_draw_call`, so the redraw_id matches
-even for partially-stale geometry.
+### Unconditional VBO upload in OpenGL renderer (tested, no effect)
 
-### Attempt 2: zero instances on stale items in `render_view` (makepad)
+Changed `platform/src/os/linux/opengl.rs` to always call
+`update_array_buffer` on every draw call, removing the `instance_dirty` guard.
 
-Same location. When `draw_item.redraw_id != list_redraw_id`, clear
-`draw_item.instances` and set `instance_dirty = true`, so the zero-length
-upload goes to the VBO and the `instances == 0` guard skips the draw. Did not
-fix the artifact. Same reason as above — the items are being reused correctly
-by index so their `redraw_id` matches.
+Result: artifact persists. Confirms the problem is in the CPU-side instance
+data, not in a missed GPU upload.
 
-### Attempt 3: remove `tab_template` from children (havi)
+### Disabling background-lane cross-content batching on Linux (tested, no effect)
 
-On first `sync_tab_bar` call, extract `template_source` and immediately remove
-`tab_template` from `tab_bar.children` via `retain`. Cache the source as
-`ScriptValue` in `App::tab_template_source`. This eliminated the `tab_template`
-widget pair from the dump (down from 4 orphaned widgets to 2) but the visual
-artifact persisted. The artifact is caused by the instantiated tab widgets, not
-the template itself.
+In `find_appendable_drawcall`, prevented background-lane (lane 0) draw calls
+from crossing content-lane (lane 1) barriers on Linux, and also prevented
+background-lane draw calls from finding any appendable target at all.
 
-### Attempt 4: reuse widget instances across `sync_tab_bar` calls (havi)
+Result: artifact persists. The batching/append logic is not the cause.
 
-Added `widget: Option<WidgetRef>` to `TabInfo`. In `sync_tab_bar`, use the
-cached widget rather than calling `script_from_value` on every sync. This was
-the "most promising fix" in the previous investigation. It was implemented,
-built, and run. The artifact persists unchanged.
+### `new_batch: true` on tab template (tested, no effect)
+
+Added `new_batch: true` to the `tab_template` View definition, forcing each
+tab to use its own `CxDrawList` (DrawList optimization). This isolates each
+tab's draw calls from the parent draw list pool.
+
+Result: artifact persists. The ghost DrawQuad is not caused by draw-list
+pool slot reuse between tabs.
+
+## What is known about the mechanism
+
+1. The ghost blocks are DrawQuad instances at positions that don't correspond
+   to any current tab widget's layout position.
+
+2. They carry the current frame's `redraw_id` — they are freshly created
+   draw items, not leftovers.
+
+3. Their color is the live DSL template default (#2a2a2a), NOT the runtime
+   uniform value set by `set_uniform`. This means they come from a draw
+   path that executes `draw_bg.begin()`/`draw_bg.end()` using the template's
+   compiled defaults, separate from the path where `set_uniform` is applied.
+
+4. They persist across `redraw_all()`, across tab switches, and across tab
+   closes. Their screen positions are stable.
+
+5. The `tab_template` hidden widget (first child, `set_visible(false)`) is
+   ruled out as the source — removing it from children (Attempt 3) reduced
+   orphaned widgets but did not eliminate the artifact.
+
+6. None of the following Makepad-level changes affect it:
+   - `instance_dirty` on all instance-mutation paths
+   - unconditional VBO upload
+   - draw-call batching changes
+   - `new_batch: true` (DrawList isolation)
+
+## Architecture notes
+
+### Inline drawing
+
+Plain `View{}` widgets without `optimize: DrawList` draw directly into the
+parent draw list. Their `draw_bg` DrawQuad and child Label draw calls land as
+`CxDrawItem` entries in the tab bar's `CxDrawList`.
+
+### `script_from_value` widget creation
+
+`WidgetRef::script_from_value(vm, value)` calls `script_new()` then
+`script_apply()`. The `#[source]` ScriptObjectRef on View captures the live
+DSL object. `script_apply` reads properties from that object to initialize
+the widget. Layout properties (`padding`, `width`, `height`) are stored in
+the `#[layout]` and `#[walk]` fields — whether these flow through
+`script_apply` from the source object was not conclusively verified.
+
+Confirmed: changing `padding` in the live DSL template had no visible effect
+on the rendered tab widgets, suggesting layout properties may NOT propagate
+through `script_from_value`. The tab widgets may be using default Layout
+values.
+
+### `set_uniform` vs compiled defaults
+
+`draw_vars.set_uniform(cx, id, value)` patches the draw call's
+`dyn_uniforms` buffer for an existing Area. This only works if the widget's
+Area is valid (correct `redraw_id`). If the Area becomes invalid between
+widget creation and uniform application, the set_uniform is silently
+dropped and the compiled default from the live DSL template is used instead.
+
+## Hypotheses still open
+
+### 1. `script_from_value` creates widgets whose draw_bg.begin() fires before Area is valid
+
+When `sync_tab_bar` creates a widget via `script_from_value`, the widget
+exists but has not yet been drawn. The `set_uniform` call may target an Area
+that is either empty or from a prior frame. The uniform patch is silently
+dropped. When `cx.redraw_all()` triggers the actual draw, `draw_bg` uses its
+compiled-in default color.
+
+This would explain why the ghost color is always #2a2a2a (template default)
+regardless of what `set_uniform` sets.
+
+To test: move `set_uniform` calls to happen AFTER the first draw pass, or
+set color directly on the DrawQuad struct field before drawing.
+
+### 2. Multiple draw_bg.begin()/end() calls per widget
+
+If `script_from_value` or `script_apply` triggers an implicit draw during
+widget construction, a DrawQuad instance is created with template defaults.
+Then the normal `draw_walk` in the redraw pass creates a second instance.
+The first instance persists in the draw list at a stale position with
+template-default uniforms.
+
+To test: add a counter/log to DrawQuad begin() calls for draw_bg instances
+with the tab template's shader, and check if there are 2× the expected
+number of instances.
+
+### 3. The hidden tab_template widget draws despite set_visible(false)
+
+`set_visible` sets a field on the widget. If `draw_walk` is called before
+`set_visible` takes effect (e.g., during `script_apply` or a redraw queued
+before the visibility flag is set), the template widget draws with its
+default position and default uniforms.
+
+To test: instead of `set_visible(false)`, remove the template from children
+entirely and cache only the ScriptObjectRef source.
+
+## Reproduction
+
+```bash
+cd havi && ./debug-artifact.sh
+```
+
+Automated: builds, launches HAVI with `--makepad-socket`, waits for ready,
+takes a screenshot, crops the top-left 640×120 region. Output path is
+printed to stdout.
 
 ## How testing was done
 
-- `havi-makepad-cli --socket $HAVI_MAKEPAD_SOCKET screenshot /tmp/out.png`
-  for visual confirmation.
-- `havi-makepad-cli --socket $HAVI_MAKEPAD_SOCKET dump` to inspect the widget
-  tree and identify orphaned widgets.
-- Python/Pillow pixel sampling to characterize the artifact color and bounds
-  precisely.
-- Two-screenshot diff (`ImageChops.difference`) to confirm the artifact is
-  stable across frames (not a flicker).
-- Mouse move between screenshots to confirm the artifact persists through
-  redraws triggered by hover state changes.
+- `havi-makepad-cli --socket $SOCKET screenshot /tmp/out.png`
+- `havi-makepad-cli --socket $SOCKET dump` for widget tree
+- Python/Pillow pixel sampling for artifact color characterization
+- Two-screenshot diff to confirm stability
+- Color override experiments (blue active, green inactive, magenta template)
+  to trace which draw path produces the ghost blocks
+- `debug-artifact.sh` for automated build+run+screenshot cycle
 
 ## Current state
 
-Attempt 4 (widget reuse) is in place in the codebase. It does not fix the
-artifact. The root cause is not yet fully understood.
+All speculative Makepad-level fixes have been reverted. The working tree is
+clean except for `debug-artifact.sh` (added foreground build step).
 
-## Open questions
+The artifact is unfixed. The root cause is in how `script_from_value` tab
+widgets interact with the draw system — specifically, how their `draw_bg`
+DrawQuad instances get created with template-default uniforms at wrong
+positions, in a way that none of the standard Makepad draw-list, batching,
+or VBO upload mechanisms can prevent.
 
-1. Do `script_from_value` tab View widgets use `script_async` or `on_render`
-   in a way that causes their `draw_walk` to span multiple `cx.redraw_id`
-   cycles? If so, `set_rect` would silently skip the rect patch.
+## Next steps
 
-2. Is there a draw path for dynamically-created Views that bypasses
-   `draw_bg.end()` entirely, leaving `rect_pos`/`rect_size` at their stale
-   struct-field values when the VBO is uploaded?
+1. Test hypothesis 1: set draw_bg color via struct field
+   (`draw_bg.color = ...`) instead of `set_uniform`, before any draw pass.
 
-3. Does `move_align_list` correctly address the instance offset for the tab
-   View's draw_bg when the tab View is not in the static widget tree?
+2. Test hypothesis 2: count DrawQuad instances per tab to detect double-draw.
 
-## Next investigative step
+3. Test hypothesis 3: remove template from children entirely, cache only
+   the ScriptObjectRef source in App state.
 
-Confirm whether `draw_bg.end()` → `area.set_rect()` is actually patching the
-correct rect for the tab View widgets, or silently returning. Add a log or
-assert inside `Area::set_rect` that fires when the redraw_id mismatch
-early-return is taken, and re-run HAVI to see if it triggers.
-
-## Step-back option
-
-Add `optimize: DrawList` to the tab template definition. Each tab widget then
-has its own isolated `CxDrawList`. Its draw calls do not interact with the
-parent's draw list pool. Partial and full redraws are both handled correctly
-through the existing sub-list mechanism. This eliminates the entire class of
-inline-draw-list position-update races without requiring further diagnosis of
-the exact broken path.
+4. Step-back option: stop using `script_from_value` for tab creation. Build
+   tab widgets manually (construct View, add Label children, set properties)
+   without cloning from a template. This eliminates the entire template
+   draw-path interaction.

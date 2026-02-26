@@ -422,10 +422,7 @@ impl AppMain for App {
                     }
                     // Check each tab
                     if let Some(tab_bar) = self.ui.view(cx, ids!(tab_bar)).borrow() {
-                        for (child_id, child_widget) in tab_bar.children.iter() {
-                            if *child_id == live_id!(tab_template) {
-                                continue;
-                            }
+                        for (_child_id, child_widget) in tab_bar.children.iter() {
                             let r = child_widget.area().rect(cx);
                             if r.contains(dvec2(dq.abs.x, dq.abs.y)) {
                                 over_interactive = true;

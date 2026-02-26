@@ -14,6 +14,9 @@ SOCKET="$OUT_DIR/havi-debug.sock"
 
 cd "$HAVI_DIR"
 
+# Build in the foreground first so compile errors are printed directly.
+./mach-havi build
+
 # Kill older HAVI runs so the socket/screenshot target is unambiguous.
 pkill -f '/havi/target/debug/havi' >/dev/null 2>&1 || true
 pkill -f 'mach-havi run --makepad-socket' >/dev/null 2>&1 || true

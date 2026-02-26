@@ -36,108 +36,97 @@ pub(super) struct TabInfo {
 
 impl App {
     /// Synchronize the tab bar UI: rebuild children from tab state.
+    ///
+    /// Tab widgets are created from a live DSL template via `script_from_value`.
+    /// The template ScriptObjectRef is extracted once and cached in
+    /// `self.tab_template_source`. The template widget is removed from
+    /// tab_bar children permanently — keeping it as a hidden child caused
+    /// ghost DrawQuad rendering artifacts on Linux/OpenGL.
     pub(super) fn sync_tab_bar(&mut self, cx: &mut Cx) {
         let tab_bar_ref = self.ui.view(cx, ids!(tab_bar));
 
-        // Extract template source ScriptObjectRef (clone to release borrow)
-        let template_source = {
-            let tab_bar = tab_bar_ref.borrow_mut();
-            tab_bar.and_then(|tb| {
-                tb.children
-                    .iter()
-                    .find(|(id, _)| *id == live_id!(tab_template))
-                    .and_then(|(_, w)| {
-                        let view_borrow = w.borrow_mut::<View>();
-                        view_borrow.map(|v| v.source.clone())
-                    })
-            })
-        };
-
-        let Some(template_source) = template_source else {
-            return;
-        };
-
-        // Build new tab widgets from the template
-        let mut new_children: Vec<(LiveId, WidgetRef)> = Vec::new();
-
-        // Keep the template (hidden)
-        {
-            if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb
-                    .children
-                    .iter()
-                    .find(|(id, _)| *id == live_id!(tab_template))
-                {
-                    let entry = entry.clone();
-                    entry.1.set_visible(cx, false);
-                    new_children.push(entry);
+        // First call: extract and cache the template source, remove from children.
+        if self.tab_template_source.is_zero() {
+            let source = {
+                let tab_bar = tab_bar_ref.borrow_mut();
+                tab_bar.and_then(|tb| {
+                    tb.children
+                        .iter()
+                        .find(|(id, _)| *id == live_id!(tab_template))
+                        .and_then(|(_, w)| {
+                            w.borrow_mut::<View>().map(|v| v.source.clone())
+                        })
+                })
+            };
+            if let Some(src) = source {
+                self.tab_template_source = src;
+                if let Some(mut tb) = tab_bar_ref.borrow_mut() {
+                    tb.children.retain(|(id, _)| *id != live_id!(tab_template));
                 }
             }
         }
 
-        // Create a tab widget for each tab
+        if self.tab_template_source.is_zero() {
+            return;
+        }
+
+        let template_source = self.tab_template_source.clone();
+
+        let mut new_children: Vec<(LiveId, WidgetRef)> = Vec::new();
+
         for (i, tab) in self.tabs.iter().enumerate() {
             let is_active = i == self.active_tab_idx;
+            let title = tab.title.clone();
+            let widget_id = tab.widget_id;
+
             let widget = cx.with_vm(|vm| {
                 let template_val: ScriptValue = template_source.as_object().into();
                 WidgetRef::script_from_value(vm, template_val)
             });
-            // Set label text — prefixed to confirm fresh build
-            widget.widget(cx, ids!(tab_label)).set_text(cx, &format!("★ {}", tab.title));
-            // Set active/inactive bg color
-            let bg = if is_active {
-                [0.0f32, 0.25, 0.9, 1.0] // debug active: blue
+
+            widget
+                .widget(cx, ids!(tab_label))
+                .set_text(cx, &title);
+
+            // Active/inactive bg color — bright blue for debugging.
+            let bg: [f32; 4] = if is_active {
+                [0.0, 0.25, 0.9, 1.0] // bright blue (active)
             } else {
-                [0.0f32, 0.8, 0.2, 1.0] // debug inactive: green
+                [0.0, 0.15, 0.6, 1.0] // darker blue (inactive)
             };
-            // Set bg color via View's draw_bg uniform
             if let Some(mut view) = widget.borrow_mut::<View>() {
                 view.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &bg);
             }
-            // Set label text color
+
+            // Label text color.
             let text_color = if is_active {
-                Vec4f {
-                    x: 0.9,
-                    y: 0.9,
-                    z: 0.9,
-                    w: 1.0,
-                }
+                Vec4f { x: 0.9, y: 0.9, z: 0.9, w: 1.0 }
             } else {
-                Vec4f {
-                    x: 0.6,
-                    y: 0.6,
-                    z: 0.6,
-                    w: 1.0,
-                }
+                Vec4f { x: 0.6, y: 0.6, z: 0.6, w: 1.0 }
             };
-            let label_widget = widget.widget(cx, ids!(tab_label));
-            if let Some(mut label) = label_widget.borrow_mut::<Label>() {
+            if let Some(mut label) = widget.widget(cx, ids!(tab_label)).borrow_mut::<Label>() {
                 label.draw_text.color = text_color;
             }
-            new_children.push((tab.widget_id, widget));
+
+            new_children.push((widget_id, widget));
         }
 
-        // Preserve the new_tab_btn widget from the original children
-        {
-            if let Some(tb) = tab_bar_ref.borrow_mut() {
-                if let Some(entry) = tb
-                    .children
-                    .iter()
-                    .find(|(id, _)| *id == live_id!(new_tab_btn))
-                {
-                    new_children.push(entry.clone());
-                }
+        // Preserve the new_tab_btn widget.
+        if let Some(tb) = tab_bar_ref.borrow_mut() {
+            if let Some(entry) = tb
+                .children
+                .iter()
+                .find(|(id, _)| *id == live_id!(new_tab_btn))
+            {
+                new_children.push(entry.clone());
             }
         }
 
-        // Replace children
-        {
-            let mut tab_bar_borrow = tab_bar_ref.borrow_mut();
-            if let Some(ref mut tab_bar) = tab_bar_borrow {
-                tab_bar.children.clear();
-                for entry in new_children {
-                    tab_bar.children.push(entry);
-                }
+        // Replace children.
+        if let Some(ref mut tab_bar) = tab_bar_ref.borrow_mut() {
+            tab_bar.children.clear();
+            for entry in new_children {
+                tab_bar.children.push(entry);
             }
         }
         cx.redraw_all();
