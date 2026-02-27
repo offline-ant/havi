@@ -4912,7 +4912,6 @@ dependencies = [
  "png 0.17.16",
  "ravif",
  "rayon",
- "rgb",
  "tiff",
  "zune-core 0.4.12",
  "zune-jpeg 0.4.21",

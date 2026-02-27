@@ -25,7 +25,7 @@ refcell_backtrace = ["accountable-refcell"]
 testbinding = ["script_bindings/testbinding"]
 tracing = ["dep:tracing", "script_bindings/tracing"]
 webgl_backtrace = ["canvas_traits/webgl_backtrace"]
-webgpu = ["script_bindings/webgpu", "script_traits/webgpu"]
+webgpu = ["dep:webgpu_traits", "script_bindings/webgpu", "script_traits/webgpu"]
 webxr = ["gamepad", "webxr-api", "script_bindings/webxr"]
 
 [lints.rust]
@@ -163,7 +163,7 @@ urlpattern = { workspace = true }
 utf-8 = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 webdriver = { workspace = true }
-webgpu_traits = { workspace = true }
+webgpu_traits = { workspace = true, optional = true }
 webrender_api = { workspace = true }
 webxr-api = { workspace = true, optional = true }
 wgpu-core = { workspace = true }
