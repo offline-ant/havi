@@ -236,7 +236,6 @@ def setup_android_env(target_triple: str) -> dict[str, str]:
     env.setdefault("CC", "clang")
     env.setdefault("CXX", "clang++")
     env.setdefault("RUSTFLAGS", "")
-    env.setdefault("CARGO_TARGET_DIR", str(HAVI_ROOT / "target" / "android"))
     env["ANDROID_NDK_ROOT"] = ndk_root
     env["ANDROID_SDK_ROOT"] = sdk_root
 
