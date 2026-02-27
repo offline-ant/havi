@@ -196,6 +196,50 @@ impl MatchEvent for App {
             }
         }
 
+        // --- Pylon dot click ---
+        if self.ui.view(cx, ids!(pylon_dot)).finger_down(actions).is_some() {
+            if self.pylon_menu_open {
+                self.hide_pylon_menu(cx);
+            } else {
+                // Refresh status before showing.
+                self.refresh_pylon_status(cx);
+                self.show_pylon_menu(cx);
+            }
+        }
+
+        // --- Pylon menu buttons ---
+        if self.ui.button(cx, ids!(pylon_hpprd_start_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "start", Some("hpprd"), None);
+        }
+        if self.ui.button(cx, ids!(pylon_hpprd_stop_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "stop", Some("hpprd"), None);
+        }
+        if self.ui.button(cx, ids!(pylon_nfs_start_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "start", Some("hppr-nfs"), None);
+        }
+        if self.ui.button(cx, ids!(pylon_nfs_stop_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "stop", Some("hppr-nfs"), None);
+        }
+        if self.ui.button(cx, ids!(pylon_mount_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "mount", None, None);
+        }
+        if self.ui.button(cx, ids!(pylon_unmount_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "unmount", None, None);
+        }
+        if self.ui.button(cx, ids!(pylon_shutdown_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            self.pylon_command(cx, "shutdown", None, None);
+            self.pylon_status.health = pylon_menu::PylonHealth::Red;
+            self.pylon_command_client = None;
+            self.update_pylon_dot(cx);
+        }
+
         // --- Tab bar events ---
         if self.ui.button(cx, ids!(tab_scroll_left_btn)).clicked(actions) {
             self.scroll_tabs(cx, -1.0);
@@ -438,13 +482,18 @@ impl AppMain for App {
                             pool.set_endpoint(self.watch_fallback_endpoint.clone());
                         }
                         self.pylon_events = Some(pylon_events);
-                        self.set_repo_mode_label(cx, "pylon", false);
+                        // Create command client for interactive pylon commands.
+                        if let Ok(cmd_client) = havi_protocols::pylon::PylonClient::connect(pylon_port) {
+                            self.pylon_command_client = Some(cmd_client);
+                        }
+                        self.refresh_pylon_status(cx);
                         self.complete_startup_navigation(cx);
                     }
                     PylonInitResult::Failed { reason } => {
                         self.startup_state = StartupState::Failed;
                         eprintln!("[havi] startup: state={:?} reason={}", self.startup_state, reason);
-                        self.set_repo_mode_label(cx, &reason, true);
+                        self.pylon_status.health = pylon_menu::PylonHealth::Red;
+                        self.update_pylon_dot(cx);
                         self.complete_startup_navigation(cx);
                     }
                 }
@@ -457,27 +506,36 @@ impl AppMain for App {
 
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
-            // Drain pylon events and update toolbar status
-            if let Some(ref rx) = self.pylon_events {
-                while let Ok(ev) = rx.try_recv() {
-                    let label = match (ev.event.as_str(), ev.service.as_deref()) {
-                        ("service_started", Some(svc)) => format!("pylon: {} ●", svc),
-                        ("service_stopped", Some(svc)) => format!("pylon: {} ○", svc),
-                        _ => String::new(),
-                    };
-                    if !label.is_empty() {
-                        self.set_repo_mode_label(cx, &label, false);
-                    }
+            // Drain pylon events and update status dot
+            {
+                let mut status_changed = false;
+                if let Some(ref rx) = self.pylon_events {
+                    while let Ok(ev) = rx.try_recv() {
+                        match (ev.event.as_str(), ev.service.as_deref()) {
+                            ("service_started", Some(svc)) => {
+                                self.pylon_status.apply_event(svc, "running", ev.pid, ev.port);
+                                status_changed = true;
+                            }
+                            ("service_stopped", Some(svc)) => {
+                                self.pylon_status.apply_event(svc, "stopped", None, None);
+                                status_changed = true;
+                            }
+                            _ => {}
+                        }
 
-                    if ev.event == "listener" && ev.service.as_deref() == Some("hpprd") {
-                        if let Some(via) = ev.public_via.as_ref() {
-                            self.shared_public_via = Some(via.clone());
-                        } else if ev.present == Some(false)
-                            || ev.source.as_deref() == Some("nat")
-                        {
-                            self.shared_public_via = None;
+                        if ev.event == "listener" && ev.service.as_deref() == Some("hpprd") {
+                            if let Some(via) = ev.public_via.as_ref() {
+                                self.shared_public_via = Some(via.clone());
+                            } else if ev.present == Some(false)
+                                || ev.source.as_deref() == Some("nat")
+                            {
+                                self.shared_public_via = None;
+                            }
                         }
                     }
+                }
+                if status_changed {
+                    self.update_pylon_dot(cx);
                 }
             }
 

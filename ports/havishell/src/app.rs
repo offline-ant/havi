@@ -16,11 +16,13 @@ mod context_menu;
 mod delegate;
 mod input_handling;
 mod navigation;
+mod pylon_menu;
 mod runtime;
 mod tabs;
 
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
+use pylon_menu::PylonStatus;
 use tabs::{HOME_URL, LOADING_URL, TabInfo, next_tab_live_id, title_from_url};
 
 
@@ -53,87 +55,97 @@ script_mod! {
                         show_bg: true
                         align: Align{y: 1.0}
 
-                        tab_scroll_left_btn := Button{
-                            visible: false
-                            text: "◀"
-                            width: 28 height: 28
-                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
-                        }
-
-                        tab_bar := View{
+                        // Tabs area: fills remaining space after window controls
+                        tab_area := View{
                             flow: Right
-                            event_order: Down
                             width: Fill height: Fit
-                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                            spacing: 0
                             align: Align{y: 1.0}
-                            scroll_bars: ScrollBarsTabs{
-                                show_scroll_x: true
-                                show_scroll_y: false
-                                scroll_bar_x +: {
-                                    bar_size: 4.0
-                                    use_vertical_finger_scroll: true
-                                }
+
+                            tab_scroll_left_btn := Button{
+                                visible: false
+                                text: "◀"
+                                width: 28 height: 28
+                                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
                             }
 
-                            // Template tab — extracted once by sync_tab_bar, then
-                            // removed from children. Never kept as a hidden child.
-                            tab_template := View{
-                                cursor: MouseCursor.Hand
+                            tab_bar := View{
                                 flow: Right
-                                width: Fit height: Fit
-                                padding: Inset{left: 10 right: 4 top: 5 bottom: 5}
-                                spacing: 6
-                                align: Align{y: 0.5}
-                                show_bg: true
-                                draw_bg +: {
-                                    color: uniform(#xffffff)
-                                    border_color: uniform(#xcccccc)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(self.color)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.stroke(self.border_color, 1.0)
-                                        return sdf.result
+                                event_order: Down
+                                width: Fill height: Fit
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                spacing: 0
+                                align: Align{y: 1.0}
+                                scroll_bars: ScrollBarsTabs{
+                                    show_scroll_x: true
+                                    show_scroll_y: false
+                                    scroll_bar_x +: {
+                                        bar_size: 4.0
+                                        use_vertical_finger_scroll: true
                                     }
                                 }
-                                tab_label := Label{
-                                    text: "New Tab"
-                                    draw_text.color: #x111111
-                                    draw_text.text_style.font_size: 11.0
+
+                                // Template tab — extracted once by sync_tab_bar, then
+                                // removed from children. Never kept as a hidden child.
+                                tab_template := View{
+                                    cursor: MouseCursor.Hand
+                                    flow: Right
+                                    width: 150 height: Fit
+                                    padding: Inset{left: 10 right: 4 top: 5 bottom: 5}
+                                    spacing: 6
+                                    align: Align{y: 0.5}
+                                    show_bg: true
+                                    draw_bg +: {
+                                        color: uniform(#xffffff)
+                                        border_color: uniform(#xcccccc)
+                                        pixel: fn() {
+                                            let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                            sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                            sdf.fill(self.color)
+                                            sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                            sdf.stroke(self.border_color, 1.0)
+                                            return sdf.result
+                                        }
+                                    }
+                                    tab_label := Label{
+                                        text: "New Tab"
+                                        draw_text.color: #x111111
+                                        draw_text.text_style.font_size: 11.0
+                                    }
+                                    tab_spacer := View{
+                                        width: Fill height: 1
+                                    }
+                                    tab_close := Label{
+                                        text: "×"
+                                        draw_text.color: #x999999
+                                        draw_text.text_style.font_size: 13.0
+                                        width: 20 height: 20
+                                        align: Align{x: 0.5 y: 0.5}
+                                    }
                                 }
-                                tab_close := Label{
-                                    text: "×"
-                                    draw_text.color: #x999999
-                                    draw_text.text_style.font_size: 13.0
-                                    width: 20 height: 20
-                                    align: Align{x: 0.5 y: 0.5}
-                                }
+
                             }
 
-                        }
+                            tab_scroll_right_btn := Button{
+                                visible: false
+                                text: "▶"
+                                width: 28 height: 28
+                                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                            }
 
-                        tab_scroll_right_btn := Button{
-                            visible: false
-                            text: "▶"
-                            width: 28 height: 28
-                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
-                        }
-
-                        new_tab_btn := Button{
-                            text: "+"
-                            width: 28 height: 28
-                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                            margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
-                            draw_text.color: #x111111
-                            draw_text.text_style.font_size: 16.0
-                            draw_bg +: {
-                                pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                            new_tab_btn := Button{
+                                text: "+"
+                                width: 28 height: 28
+                                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 16.0
+                                draw_bg +: {
+                                    pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) }
+                                }
                             }
                         }
 
-                        // Window control buttons
+                        // Window control buttons — pinned to top-right
                         window_controls := View{
                             width: Fit height: 32
                             flow: Right
@@ -186,8 +198,8 @@ script_mod! {
                         draw_bg.color: #xf5f5f5
                         show_bg: true
 
-                        back_btn := Button{ text: "⬅️" }
-                        forward_btn := Button{ text: "➡️" }
+                        back_btn := Button{ text: "◀" }
+                        forward_btn := Button{ text: "▶" }
                         reload_btn := Button{ text: "🔄" }
 
                         url_input := TextInput{
@@ -197,25 +209,26 @@ script_mod! {
 
                         go_btn := Button{ text: "🚀" }
                         edit_btn := Button{ text: "✏️" }
-                        watch_btn := Button{ text: "👁️ Off" }
+                        watch_btn := Button{ text: "👁️" }
                         share_btn := Button{ text: "🔗" }
                         home_btn := Button{ text: "🏠" }
                         dock_btn := Button{ text: "↕️" }
 
-                        repo_mode_label := Label{
-                            text: ""
-                            draw_text.color: #x444444
-                            draw_text.text_style.font_size: 9.0
-                            width: Fit height: Fit
+                        pylon_dot := View{
+                            cursor: MouseCursor.Hand
+                            width: 16 height: 16
                             margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
-                        }
-                        repo_mode_label_off := Label{
-                            visible: false
-                            text: ""
-                            draw_text.color: #xff4444
-                            draw_text.text_style.font_size: 9.0
-                            width: Fit height: Fit
-                            margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
+                            show_bg: true
+                            draw_bg +: {
+                                color: uniform(#x888888)
+                                pixel: fn() {
+                                    let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                    let r = min(self.rect_size.x, self.rect_size.y) * 0.4
+                                    sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, r)
+                                    sdf.fill(self.color)
+                                    return sdf.result
+                                }
+                            }
                         }
                     }
 
@@ -289,6 +302,173 @@ script_mod! {
                                 }
                             }
                         }
+                        // Pylon status dropdown menu
+                        pylon_menu := View{
+                            visible: false
+                            abs_pos: vec2(-1000.0, -1000.0)
+                            width: 240 height: Fit
+                            flow: Down
+                            padding: Inset{left: 8 right: 8 top: 6 bottom: 6}
+                            spacing: 2
+                            show_bg: true
+                            draw_bg +: {
+                                color: uniform(#xffffff)
+                                border_color: uniform(#xcccccc)
+                                pixel: fn() {
+                                    let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                    sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                    sdf.fill(self.color)
+                                    sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                    sdf.stroke(self.border_color, 1.0)
+                                    return sdf.result
+                                }
+                            }
+
+                            pylon_menu_header := Label{
+                                text: "Pylon"
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                width: Fill height: Fit
+                                margin: Inset{left: 0 right: 0 top: 0 bottom: 4}
+                            }
+
+                            pylon_menu_services := Label{
+                                text: ""
+                                draw_text.color: #x333333
+                                draw_text.text_style.font_size: 10.0
+                                width: Fill height: Fit
+                                margin: Inset{left: 0 right: 0 top: 0 bottom: 4}
+                            }
+
+                            pylon_hpprd_start_btn := Button{
+                                visible: false
+                                text: "Start hpprd"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+                            pylon_hpprd_stop_btn := Button{
+                                visible: false
+                                text: "Stop hpprd"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_nfs_start_btn := Button{
+                                visible: false
+                                text: "Start NFS"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+                            pylon_nfs_stop_btn := Button{
+                                visible: false
+                                text: "Stop NFS"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_mount_btn := Button{
+                                visible: false
+                                text: "Mount"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+                            pylon_unmount_btn := Button{
+                                visible: false
+                                text: "Unmount"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_shutdown_btn := Button{
+                                text: "Shutdown pylon"
+                                width: Fill height: 28
+                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                draw_text.color: #xcc3333
+                                draw_text.text_style.font_size: 11.0
+                                draw_bg +: {
+                                    color: uniform(#xf5f5f5)
+                                    color_hover: uniform(#xfce8e8)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                        return sdf.result
+                                    }
+                                }
+                            }
+                        }
                     } // end content_area
                     } // end main_layout
                 }
@@ -322,14 +502,13 @@ fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
     .to_string()
 }
 
-fn watch_button_text(mode: havi_protocols::watch::WatchMode) -> String {
-    let suffix = match mode {
-        havi_protocols::watch::WatchMode::Off => "Off",
-        havi_protocols::watch::WatchMode::Notify => "Notify",
-        havi_protocols::watch::WatchMode::Auto => "Auto",
-        havi_protocols::watch::WatchMode::Dev => "Dev",
-    };
-    format!("👁️ {}", suffix)
+fn watch_button_text(mode: havi_protocols::watch::WatchMode) -> &'static str {
+    match mode {
+        havi_protocols::watch::WatchMode::Off => "👁️",
+        havi_protocols::watch::WatchMode::Notify => "🔔",
+        havi_protocols::watch::WatchMode::Auto => "🔁",
+        havi_protocols::watch::WatchMode::Dev => "⚡",
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -575,6 +754,19 @@ pub struct App {
     /// Latest advertised public via from pylon listener events.
     #[rust]
     shared_public_via: Option<String>,
+
+    /// Pylon aggregate status for the status dot and dropdown menu.
+    #[rust]
+    pylon_status: PylonStatus,
+
+    /// Whether the pylon dropdown menu is open.
+    #[rust]
+    pylon_menu_open: bool,
+
+    /// Second pylon TCP connection for sending commands (start/stop/mount).
+    /// The first connection is consumed by `subscribe()` for event streaming.
+    #[rust]
+    pylon_command_client: Option<havi_protocols::pylon::PylonClient>,
 
     /// True when tab/toolbar chrome is docked to the bottom.
     #[rust]

@@ -394,16 +394,11 @@ impl App {
             .text_input(cx, ids!(url_input))
             .set_text(cx, &initial_url_str);
 
-        // Startup overlay + repo mode indicator
-        let pylon_disabled_reason = if pylon_mode == PylonMode::None {
-            Some("pylon: off (--no-pylon)".to_string())
-        } else {
-            None
-        };
-        let repo_mode_text = pylon_disabled_reason
-            .clone()
-            .unwrap_or_else(|| "pylon: starting…".to_string());
-        self.set_repo_mode_label(cx, &repo_mode_text, pylon_disabled_reason.is_some());
+        // Set initial pylon dot state.
+        if pylon_mode == PylonMode::None {
+            self.pylon_status.health = pylon_menu::PylonHealth::Red;
+        }
+        self.update_pylon_dot(cx);
 
         // Set window title caption to "havi"
         self.ui
@@ -671,18 +666,5 @@ impl App {
         ));
     }
 
-    pub(super) fn set_repo_mode_label(&self, cx: &mut Cx, text: &str, off: bool) {
-        self.ui
-            .widget(cx, ids!(repo_mode_label))
-            .set_visible(cx, !off);
-        self.ui
-            .widget(cx, ids!(repo_mode_label_off))
-            .set_visible(cx, off);
 
-        if off {
-            self.ui.label(cx, ids!(repo_mode_label_off)).set_text(cx, text);
-        } else {
-            self.ui.label(cx, ids!(repo_mode_label)).set_text(cx, text);
-        }
-    }
 }

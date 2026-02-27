@@ -65,6 +65,9 @@ impl App {
                             if self.context_menu_open {
                                 self.hide_context_menu(cx);
                             }
+                            if self.pylon_menu_open {
+                                self.hide_pylon_menu(cx);
+                            }
                             self.finger_down_pos = Some(*abs);
                             self.is_touch_scrolling = false;
                             self.is_mouse_gesture = *is_mouse;
@@ -247,7 +250,15 @@ impl App {
 
                     // ----- Keyboard events -----
                     ServoWebViewAction::KeyDown { key_event } => {
-                        // Escape dismisses context menu
+                        // Escape dismisses menus
+                        if self.pylon_menu_open {
+                            if key_event.key_code
+                                == makepad_widgets::makepad_platform::KeyCode::Escape
+                            {
+                                self.hide_pylon_menu(cx);
+                                handled_input = true;
+                            }
+                        }
                         if self.context_menu_open {
                             if key_event.key_code
                                 == makepad_widgets::makepad_platform::KeyCode::Escape
