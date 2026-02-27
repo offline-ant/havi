@@ -101,6 +101,7 @@ impl App {
 
         self.initialized = true;
         self.dpi_factor = dpi_factor;
+        log!("[havishell] init_servo: dpi={} size={}x{}", dpi_factor, inner.x, inner.y);
 
         // Init resource reader
         servo::resources::set(Box::new(ResourceReader));
@@ -353,6 +354,7 @@ impl App {
 
         self.servo = Some(servo);
         self.rendering_context = Some(rendering_context);
+        log!("[havishell] servo created, pylon_mode={:?}", pylon_mode);
 
         // Step 4: Assign texture to the ServoWebView widget
         self.texture = Some(texture);

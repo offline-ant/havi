@@ -499,9 +499,7 @@ impl AppMain for App {
                 match result {
                     PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events } => {
                         self.startup_state = StartupState::Ready;
-                        eprintln!("PYLON=127.0.0.1:{}", pylon_port);
-                        eprintln!("[havi] startup: state={:?}", self.startup_state);
-                        log!("[havishell] Pylon hpprd on port {}", hpprd_port);
+                        log!("[havishell] pylon ready: pylon_port={} hpprd_port={}", pylon_port, hpprd_port);
                         self.watch_fallback_endpoint = format!("127.0.0.1:{}", hpprd_port);
                         if let Some(pool) = &mut self.watch_pool {
                             pool.set_endpoint(self.watch_fallback_endpoint.clone());
@@ -516,7 +514,7 @@ impl AppMain for App {
                     }
                     PylonInitResult::Failed { reason } => {
                         self.startup_state = StartupState::Failed;
-                        eprintln!("[havi] startup: state={:?} reason={}", self.startup_state, reason);
+                        log!("[havishell] pylon failed: {}", reason);
                         self.pylon_status.health = pylon_menu::PylonHealth::Red;
                         self.update_pylon_dot(cx);
                         self.complete_startup_navigation(cx);
