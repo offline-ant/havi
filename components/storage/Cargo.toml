@@ -32,7 +32,6 @@ servo_url = { path = "../url" }
 storage_traits = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
-tokio-rustls = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true, features = ["codec", "io"] }
 uuid = { workspace = true }

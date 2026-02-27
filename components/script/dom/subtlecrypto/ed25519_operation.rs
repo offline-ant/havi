@@ -2,8 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use aws_lc_rs::encoding::{AsBigEndian, AsDer};
-use aws_lc_rs::signature::{ED25519, Ed25519KeyPair, KeyPair, ParsedPublicKey, UnparsedPublicKey};
+use pkcs8::der::asn1::{BitStringRef, OctetString};
+use pkcs8::der::{Decode, Encode};
+use pkcs8::{AlgorithmIdentifierRef, ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfoRef};
+use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use js::context::JSContext;
 use rand::TryRngCore;
 use rand::rngs::OsRng;
@@ -23,6 +25,7 @@ use crate::dom::subtlecrypto::{
 };
 
 const ED25519_SEED_LENGTH: usize = 32;
+const ED25519_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.101.112");
 
 /// <https://w3c.github.io/webcrypto/#ed25519-operations-sign>
 pub(crate) fn sign(key: &CryptoKey, message: &[u8]) -> Result<Vec<u8>, Error> {
@@ -73,10 +76,7 @@ pub(crate) fn verify(key: &CryptoKey, message: &[u8], signature: &[u8]) -> Resul
     // Step 5. Let result be a boolean with the value true if the signature is valid and the value
     // false otherwise.
     let public_key = UnparsedPublicKey::new(&ED25519, key.handle().as_bytes());
-    let result = match public_key.verify(message, signature) {
-        Ok(()) => true,
-        Err(aws_lc_rs::error::Unspecified) => false,
-    };
+    let result = public_key.verify(message, signature).is_ok();
 
     // Step 6. Return result.
     Ok(result)
@@ -202,11 +202,22 @@ pub(crate) fn import_key(
             // is present, then throw a DataError.
             // Step 2.6. Let publicKey be the Ed25519 public key identified by the subjectPublicKey
             // field of spki.
-            let public_key = ParsedPublicKey::new(&ED25519, key_data).map_err(|error| {
-                Error::Data(Some(format!(
-                    "The key was rejected for the following reason: {error}"
-                )))
-            })?;
+            let spki = SubjectPublicKeyInfoRef::from_der(key_data)
+                .map_err(|e| Error::Data(Some(format!("Failed to parse SPKI: {e}"))))?;
+            if spki.algorithm.oid != ED25519_OID {
+                return Err(Error::Data(Some(
+                    "Algorithm OID is not Ed25519".into(),
+                )));
+            }
+            if spki.algorithm.parameters.is_some() {
+                return Err(Error::Data(Some(
+                    "Algorithm parameters must not be present".into(),
+                )));
+            }
+            let public_key_bytes = spki
+                .subject_public_key
+                .as_bytes()
+                .ok_or_else(|| Error::Data(Some("Invalid public key bits".into())))?;
 
             // Step 2.9. Let algorithm be a new KeyAlgorithm.
             // Step 2.10. Set the name attribute of algorithm to "Ed25519".
@@ -224,7 +235,7 @@ pub(crate) fn import_key(
                 extractable,
                 KeyAlgorithmAndDerivatives::KeyAlgorithm(algorithm),
                 usages,
-                Handle::Ed25519(public_key.as_ref().to_vec()),
+                Handle::Ed25519(public_key_bytes.to_vec()),
             )
         },
         // If format is "pkcs8":
@@ -245,7 +256,8 @@ pub(crate) fn import_key(
             // Step 2.5. If the parameters field of the privateKeyAlgorithm
             // PrivateKeyAlgorithmIdentifier field of privateKeyInfo is present, then throw a
             // DataError.
-            let private_key_info = Ed25519KeyPair::from_pkcs8(key_data).map_err(|error| {
+            // Validate the PKCS8 can be parsed by ring
+            let _ = Ed25519KeyPair::from_pkcs8(key_data).map_err(|error| {
                 Error::Data(Some(format!(
                     "The key was rejected for the following reason: {error}"
                 )))
@@ -256,18 +268,12 @@ pub(crate) fn import_key(
             // as the ASN.1 CurvePrivateKey structure specified in Section 7 of [RFC8410], and
             // exactData set to true.
             // Step 2.7. If an error occurred while parsing, then throw a DataError.
-            let curve_private_key = private_key_info
-                .seed()
-                .map_err(|_| {
-                    Error::Data(Some("Failed to get the seed from the private key".into()))
-                })?
-                .as_be_bytes()
-                .map_err(|_| {
-                    Error::Data(Some(
-                        "Failed to serialize the seed of the private key".into(),
-                    ))
-                })?
-                .as_ref()
+            let pkcs8_info = PrivateKeyInfo::from_der(key_data)
+                .map_err(|e| Error::Data(Some(format!("Failed to parse PKCS#8: {e}"))))?;
+            // The privateKey field is a CurvePrivateKey (OCTET STRING wrapping the seed)
+            let curve_private_key = OctetString::from_der(pkcs8_info.private_key)
+                .map_err(|e| Error::Data(Some(format!("Failed to parse CurvePrivateKey: {e}"))))?
+                .as_bytes()
                 .to_vec();
 
             // Step 2.10. Let algorithm be a new KeyAlgorithm.
@@ -489,23 +495,23 @@ pub(crate) fn export_key(format: KeyFormat, key: &CryptoKey) -> Result<ExportedK
             //         Set the algorithm object identifier to the id-Ed25519 OID defined in
             //         [RFC8410].
             //     Set the subjectPublicKey field to keyData.
-            let data = ParsedPublicKey::new(&ED25519, key_data).map_err(|error| {
-                Error::Operation(Some(format!(
-                    "The key was rejected for the following reason: {error}"
-                )))
-            })?;
+            let algorithm = AlgorithmIdentifierRef {
+                oid: ED25519_OID,
+                parameters: None,
+            };
+            let spki = SubjectPublicKeyInfoRef {
+                algorithm,
+                subject_public_key: BitStringRef::from_bytes(key_data).map_err(|_| {
+                    Error::Operation(Some("Failed to encode public key bits".into()))
+                })?,
+            };
 
             // Step 3.3. Let result be the result of DER-encoding data.
-            ExportedKey::Bytes(
-                data.as_der()
-                    .map_err(|_| {
-                        Error::Operation(Some(
-                            "Failed to serialize the key into a DER format".into(),
-                        ))
-                    })?
-                    .as_ref()
-                    .to_vec(),
-            )
+            ExportedKey::Bytes(spki.to_der().map_err(|_| {
+                Error::Operation(Some(
+                    "Failed to serialize the key into a DER format".into(),
+                ))
+            })?)
         },
         // If format is "pkcs8":
         KeyFormat::Pkcs8 => {
@@ -527,21 +533,29 @@ pub(crate) fn export_key(format: KeyFormat, key: &CryptoKey) -> Result<ExportedK
             //     Set the privateKey field to the result of DER-encoding a CurvePrivateKey ASN.1
             //     type, as defined in Section 7 of [RFC8410], that represents the Ed25519 private
             //     key represented by the [[handle]] internal slot of key
-            let data = Ed25519KeyPair::from_seed_unchecked(key_data)
-                .map_err(|error| {
-                    Error::Operation(Some(format!(
-                        "The key was rejected for the following reason: {error}"
-                    )))
-                })?
-                .to_pkcs8v1()
-                .map_err(|_| {
-                    Error::Operation(Some(
-                        "Failed to serialize the key into a PKCS#8 format".into(),
-                    ))
-                })?;
+            // Encode the seed as a CurvePrivateKey (OCTET STRING)
+            let curve_private_key = OctetString::new(key_data).map_err(|_| {
+                Error::Operation(Some("Failed to encode private key".into()))
+            })?;
+            let curve_private_key_der = curve_private_key.to_der().map_err(|_| {
+                Error::Operation(Some("Failed to DER-encode private key".into()))
+            })?;
+            let algorithm = AlgorithmIdentifierRef {
+                oid: ED25519_OID,
+                parameters: None,
+            };
+            let pkcs8 = PrivateKeyInfo {
+                algorithm,
+                private_key: &curve_private_key_der,
+                public_key: None,
+            };
 
             // Step 3.3. Let result be the result of DER-encoding data.
-            ExportedKey::Bytes(data.as_ref().to_vec())
+            ExportedKey::Bytes(pkcs8.to_der().map_err(|_| {
+                Error::Operation(Some(
+                    "Failed to serialize the key into a PKCS#8 format".into(),
+                ))
+            })?)
         },
         // If format is "jwk":
         KeyFormat::Jwk => {

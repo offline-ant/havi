@@ -6,8 +6,6 @@
 
 use std::borrow::ToOwned;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::thread;
@@ -19,8 +17,8 @@ use crossbeam_channel::Sender;
 use devtools_traits::DevtoolsControlMsg;
 use embedder_traits::GenericEmbedderProxy;
 use hyper_serde::Serde;
-use ipc_channel::ipc::{IpcReceiver, IpcSender};
-use log::{debug, trace, warn};
+use ipc_channel::ipc::IpcSender;
+use log::{debug, warn};
 use net_traits::blob_url_store::parse_blob_url;
 use net_traits::filemanager_thread::FileTokenCheck;
 use net_traits::pub_domains::public_suffix_list_size_of;
@@ -30,7 +28,7 @@ use net_traits::{
     AsyncRuntime, CookieAsyncResponse, CookieData, CookieSource, CoreResourceMsg,
     CoreResourceThread, CustomResponseMediator, DiscardFetch, FetchChannels, FetchTaskTarget,
     HpprProtocolError, HpprViaSpec, ResourceFetchTiming, ResourceThreads, ResourceTimingType,
-    WebSocketDomAction, WebSocketNetworkEvent,
+    WebSocketNetworkEvent,
 };
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{
@@ -40,24 +38,21 @@ use profile_traits::mem::{
 use profile_traits::path;
 use profile_traits::time::ProfilerChan;
 use rustc_hash::FxHashMap;
-use rustls_pki_types::CertificateDer;
-use rustls_pki_types::pem::PemObject;
+
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::async_runtime::{init_async_runtime, spawn_task};
-use crate::connector::{
-    CACertificates, CertificateErrorOverrideManager, create_http_client, create_tls_config,
-};
+use crate::connector::create_http_client;
 use crate::cookie::ServoCookie;
 use crate::cookie_storage::CookieStorage;
 use crate::embedder::NetToEmbedderMsg;
 use crate::fetch::cors_cache::CorsCache;
 use crate::fetch::fetch_params::{FetchParams, SharedPreloadedResources};
 use crate::fetch::methods::{
-    CancellationListener, FetchContext, SharedInflightKeepAliveRecords, WebSocketChannel, fetch,
+    CancellationListener, FetchContext, SharedInflightKeepAliveRecords, fetch,
 };
 use crate::filemanager_thread::FileManager;
 use crate::hsts::{self, HstsList};
@@ -65,44 +60,21 @@ use crate::http_cache::HttpCache;
 use crate::http_loader::{HttpState, http_redirect_fetch};
 use crate::protocols::ProtocolRegistry;
 use crate::request_interceptor::RequestInterceptor;
-use crate::websocket_loader::create_handshake_request;
 
-/// Load a file with CA certificate and produce a RootCertStore with the results.
-fn load_root_cert_store_from_file(file_path: String) -> io::Result<Vec<CertificateDer<'static>>> {
-    let mut pem = BufReader::new(File::open(file_path)?);
-
-    let certs = CertificateDer::pem_reader_iter(&mut pem)
-        .filter_map(|cert| {
-            cert.inspect_err(|e| log::error!("Could not load certificate ({e}). Ignoring it."))
-                .ok()
-        })
-        .collect();
-    Ok(certs)
-}
 
 /// Returns a tuple of (public, private) senders to the new threads.
-#[expect(clippy::too_many_arguments)]
 pub fn new_resource_threads(
     devtools_sender: Option<Sender<DevtoolsControlMsg>>,
     time_profiler_chan: ProfilerChan,
     mem_profiler_chan: MemProfilerChan,
     embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
     config_dir: Option<PathBuf>,
-    certificate_path: Option<String>,
-    ignore_certificate_errors: bool,
+    _certificate_path: Option<String>,
+    _ignore_certificate_errors: bool,
     protocols: Arc<ProtocolRegistry>,
     hppr_home_target: HpprViaSpec,
 ) -> (ResourceThreads, ResourceThreads, Box<dyn AsyncRuntime>) {
-    // Initialize the async runtime, and get a handle to it for use in clean shutdown.
     let async_runtime = init_async_runtime();
-
-    let ca_certificates = certificate_path
-        .and_then(|path| {
-            Some(CACertificates::Override(
-                load_root_cert_store_from_file(path).ok()?,
-            ))
-        })
-        .unwrap_or_default();
 
     let (public_core, private_core) = new_core_resource_thread(
         devtools_sender,
@@ -110,8 +82,6 @@ pub fn new_resource_threads(
         mem_profiler_chan.clone(),
         embedder_proxy,
         config_dir.clone(),
-        ca_certificates,
-        ignore_certificate_errors,
         protocols,
         hppr_home_target,
     );
@@ -123,15 +93,12 @@ pub fn new_resource_threads(
 }
 
 /// Create a CoreResourceThread
-#[expect(clippy::too_many_arguments)]
 pub fn new_core_resource_thread(
     devtools_sender: Option<Sender<DevtoolsControlMsg>>,
     time_profiler_chan: ProfilerChan,
     mem_profiler_chan: MemProfilerChan,
     embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
     config_dir: Option<PathBuf>,
-    ca_certificates: CACertificates<'static>,
-    ignore_certificate_errors: bool,
     protocols: Arc<ProtocolRegistry>,
     hppr_home_target: HpprViaSpec,
 ) -> (CoreResourceThread, CoreResourceThread) {
@@ -146,16 +113,12 @@ pub fn new_core_resource_thread(
                 devtools_sender,
                 time_profiler_chan,
                 embedder_proxy.clone(),
-                ca_certificates.clone(),
-                ignore_certificate_errors,
                 hppr_home_target,
             );
 
             let mut channel_manager = ResourceChannelManager {
                 resource_manager,
                 config_dir,
-                ca_certificates,
-                ignore_certificate_errors,
                 cancellation_listeners: Default::default(),
                 cookie_listeners: Default::default(),
             };
@@ -182,8 +145,6 @@ pub fn new_core_resource_thread(
 struct ResourceChannelManager {
     resource_manager: CoreResourceManager,
     config_dir: Option<PathBuf>,
-    ca_certificates: CACertificates<'static>,
-    ignore_certificate_errors: bool,
     cancellation_listeners: FxHashMap<RequestId, Weak<CancellationListener>>,
     cookie_listeners: FxHashMap<CookieStoreId, IpcSender<CookieAsyncResponse>>,
 }
@@ -191,8 +152,6 @@ struct ResourceChannelManager {
 /// This returns a tuple HttpState and a private HttpState.
 fn create_http_states(
     config_dir: Option<&Path>,
-    ca_certificates: CACertificates<'static>,
-    ignore_certificate_errors: bool,
     embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
 ) -> (Arc<HttpState>, Arc<HttpState>) {
     let mut hsts_list = HstsList::default();
@@ -204,35 +163,23 @@ fn create_http_states(
         base::read_json_from_file(&mut cookie_jar, config_dir, "cookie_jar.json");
     }
 
-    let override_manager = CertificateErrorOverrideManager::new();
     let http_state = HttpState {
         hsts_list: RwLock::new(hsts_list),
         cookie_jar: RwLock::new(cookie_jar),
         auth_cache: RwLock::new(auth_cache),
         history_states: RwLock::new(FxHashMap::default()),
         http_cache: HttpCache::default(),
-        client: create_http_client(create_tls_config(
-            ca_certificates.clone(),
-            ignore_certificate_errors,
-            override_manager.clone(),
-        )),
-        override_manager,
+        client: create_http_client(),
         embedder_proxy: embedder_proxy.clone(),
     };
 
-    let override_manager = CertificateErrorOverrideManager::new();
     let private_http_state = HttpState {
         hsts_list: RwLock::new(HstsList::default()),
         cookie_jar: RwLock::new(CookieStorage::new(150)),
         auth_cache: RwLock::new(AuthCache::default()),
         history_states: RwLock::new(FxHashMap::default()),
         http_cache: HttpCache::default(),
-        client: create_http_client(create_tls_config(
-            ca_certificates,
-            ignore_certificate_errors,
-            override_manager.clone(),
-        )),
-        override_manager,
+        client: create_http_client(),
         embedder_proxy,
     };
 
@@ -250,8 +197,6 @@ impl ResourceChannelManager {
     ) {
         let (public_http_state, private_http_state) = create_http_states(
             self.config_dir.as_deref(),
-            self.ca_certificates.clone(),
-            self.ignore_certificate_errors,
             embedder_proxy,
         );
 
@@ -381,21 +326,8 @@ impl ResourceChannelManager {
                         protocols,
                     );
                 },
-                FetchChannels::WebSocket {
-                    event_sender,
-                    action_receiver,
-                } => {
-                    let cancellation_listener =
-                        self.get_or_create_cancellation_listener(request_builder.id);
-
-                    self.resource_manager.websocket_connect(
-                        request_builder,
-                        event_sender,
-                        action_receiver,
-                        http_state,
-                        cancellation_listener,
-                        protocols,
-                    )
+                FetchChannels::WebSocket { event_sender, .. } => {
+                    let _ = event_sender.send(WebSocketNetworkEvent::Fail);
                 },
                 FetchChannels::Prefetch => self.resource_manager.fetch(
                     request_builder,
@@ -717,8 +649,6 @@ pub struct CoreResourceManager {
     sw_managers: HashMap<ImmutableOrigin, IpcSender<CustomResponseMediator>>,
     filemanager: FileManager,
     request_interceptor: RequestInterceptor,
-    ca_certificates: CACertificates<'static>,
-    ignore_certificate_errors: bool,
     preloaded_resources: SharedPreloadedResources,
     /// <https://fetch.spec.whatwg.org/#concept-fetch-record>
     in_flight_keep_alive_records: SharedInflightKeepAliveRecords,
@@ -730,8 +660,6 @@ impl CoreResourceManager {
         devtools_sender: Option<Sender<DevtoolsControlMsg>>,
         _profiler_chan: ProfilerChan,
         embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
-        ca_certificates: CACertificates<'static>,
-        ignore_certificate_errors: bool,
         hppr_home_target: HpprViaSpec,
     ) -> CoreResourceManager {
         CoreResourceManager {
@@ -739,8 +667,6 @@ impl CoreResourceManager {
             sw_managers: Default::default(),
             filemanager: FileManager::new(embedder_proxy.clone()),
             request_interceptor: RequestInterceptor::new(embedder_proxy),
-            ca_certificates,
-            ignore_certificate_errors,
             preloaded_resources: Default::default(),
             in_flight_keep_alive_records: Default::default(),
             hppr_state: Arc::new(crate::hppr_pool::HpprAsyncState::new(hppr_home_target)),
@@ -815,8 +741,6 @@ impl CoreResourceManager {
             _ => (FileTokenCheck::NotRequired, None),
         };
 
-        let ca_certificates = self.ca_certificates.clone();
-        let ignore_certificate_errors = self.ignore_certificate_errors;
         let in_flight_keep_alive_records = self.in_flight_keep_alive_records.clone();
         let hppr_state = self.hppr_state.clone();
         let preloaded_resources = self.preloaded_resources.clone();
@@ -827,10 +751,6 @@ impl CoreResourceManager {
         }
 
         spawn_task(async move {
-            // XXXManishearth: Check origin against pipeline id (also ensure that the mode is allowed)
-            // todo load context / mimesniff in fetch
-            // todo referrer policy?
-            // todo service worker stuff
             let context = FetchContext {
                 state: http_state,
                 user_agent: servo_config::pref!(user_agent),
@@ -842,8 +762,6 @@ impl CoreResourceManager {
                 timing: ServoArc::new(Mutex::new(ResourceFetchTiming::new(request.timing_type()))),
                 protocols,
                 websocket_chan: None,
-                ca_certificates,
-                ignore_certificate_errors,
                 preloaded_resources,
                 in_flight_keep_alive_records,
                 hppr_state,
@@ -879,75 +797,7 @@ impl CoreResourceManager {
         });
     }
 
-    /// <https://websockets.spec.whatwg.org/#concept-websocket-establish>
-    fn websocket_connect(
-        &self,
-        mut request: RequestBuilder,
-        event_sender: IpcSender<WebSocketNetworkEvent>,
-        action_receiver: IpcReceiver<WebSocketDomAction>,
-        http_state: &Arc<HttpState>,
-        cancellation_listener: Arc<CancellationListener>,
-        protocols: Arc<ProtocolRegistry>,
-    ) {
-        let http_state = http_state.clone();
-        let devtools_chan = self.devtools_sender.clone();
-        let filemanager = self.filemanager.clone();
-        let request_interceptor = self.request_interceptor.clone();
 
-        let ca_certificates = self.ca_certificates.clone();
-        let ignore_certificate_errors = self.ignore_certificate_errors;
-        let in_flight_keep_alive_records = self.in_flight_keep_alive_records.clone();
-        let hppr_state = self.hppr_state.clone();
-        let preloaded_resources = self.preloaded_resources.clone();
-
-        spawn_task(async move {
-            let mut event_sender = event_sender;
-
-            // Let requestURL be a copy of url, with its scheme set to "http", if url’s scheme is
-            // "ws"; otherwise to "https"
-            let scheme = match request.url.scheme() {
-                "ws" => "http",
-                _ => "https",
-            };
-            request
-                .url
-                .as_mut_url()
-                .set_scheme(scheme)
-                .unwrap_or_else(|_| panic!("Can't set scheme to {scheme}"));
-
-            match create_handshake_request(request, http_state.clone()) {
-                Ok(request) => {
-                    let context = FetchContext {
-                        state: http_state,
-                        user_agent: servo_config::pref!(user_agent),
-                        devtools_chan,
-                        filemanager,
-                        file_token: FileTokenCheck::NotRequired,
-                        request_interceptor: Arc::new(TokioMutex::new(request_interceptor)),
-                        cancellation_listener,
-                        timing: ServoArc::new(Mutex::new(ResourceFetchTiming::new(
-                            request.timing_type(),
-                        ))),
-                        protocols: protocols.clone(),
-                        websocket_chan: Some(Arc::new(Mutex::new(WebSocketChannel::new(
-                            event_sender.clone(),
-                            Some(action_receiver),
-                        )))),
-                        ca_certificates,
-                        ignore_certificate_errors,
-                        preloaded_resources,
-                        in_flight_keep_alive_records,
-                        hppr_state,
-                    };
-                    fetch(request, &mut event_sender, &context).await;
-                },
-                Err(e) => {
-                    trace!("unable to create websocket handshake request {:?}", e);
-                    let _ = event_sender.send(WebSocketNetworkEvent::Fail);
-                },
-            }
-        });
-    }
 }
 
 // --- Chunk manifest reassembly for JS API ---

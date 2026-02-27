@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use aws_lc_rs::digest;
+use ring::digest;
 
 use crate::dom::bindings::error::Error;
 use crate::dom::subtlecrypto::{ALG_SHA1, ALG_SHA256, ALG_SHA384, ALG_SHA512, SubtleAlgorithm};

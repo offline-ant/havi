@@ -4,7 +4,7 @@
 
 use std::num::NonZero;
 
-use aws_lc_rs::pbkdf2;
+use ring::pbkdf2;
 use js::context::JSContext;
 
 use crate::dom::bindings::codegen::Bindings::CryptoKeyBinding::{KeyType, KeyUsage};

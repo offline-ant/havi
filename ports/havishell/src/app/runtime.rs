@@ -102,11 +102,6 @@ impl App {
         self.initialized = true;
         self.dpi_factor = dpi_factor;
 
-        // Init crypto provider
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .ok();
-
         // Init resource reader
         servo::resources::set(Box::new(ResourceReader));
 

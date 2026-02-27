@@ -28,7 +28,6 @@ pub mod test_util;
 mod stream_in_loader;
 mod stream_out_loader;
 mod watch_loader;
-mod websocket_loader;
 
 /// An implementation of the [Fetch specification](https://fetch.spec.whatwg.org/)
 pub mod fetch {

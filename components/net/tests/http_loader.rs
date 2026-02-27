@@ -50,7 +50,7 @@ use url::Url;
 
 use crate::{
     create_generic_embedder_proxy_and_receiver, fetch, fetch_with_context, make_body, make_server,
-    make_ssl_server, mock_origin, new_fetch_context, receive_credential_prompt_msgs,
+    mock_origin, new_fetch_context, receive_credential_prompt_msgs,
     replace_host_table, spawn_blocking_task,
 };
 
@@ -1992,80 +1992,6 @@ fn collect_all_network_events(devtools_port: &Receiver<DevtoolsControlMsg>) -> V
         }
     }
     events
-}
-
-#[test]
-fn test_security_info_for_https_connection() {
-    let handler =
-        move |_: HyperRequest<Incoming>,
-              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
-            *response.body_mut() = make_body(b"Hello HTTPS!".to_vec());
-        };
-
-    let (server, mut url) = make_ssl_server(handler);
-    url.as_mut_url().set_scheme("https").unwrap();
-
-    let (devtools_sender, devtools_receiver) = unbounded();
-
-    let mut context = new_fetch_context(Some(devtools_sender), None);
-
-    // The server certificate is self-signed, so we need to add an override
-    // so that the connection works properly.
-    for certificate in server.certificates.as_ref().unwrap().iter() {
-        context.state.override_manager.add_override(certificate);
-    }
-
-    let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
-        .method(Method::GET)
-        .body(None)
-        .destination(Destination::Document)
-        .origin(url.clone().origin())
-        .pipeline_id(Some(TEST_PIPELINE_ID))
-        .policy_container(Default::default())
-        .build();
-
-    let response = fetch_with_context(request, &mut context);
-    server.close();
-
-    assert!(response.status.code().is_success());
-
-    let events = collect_all_network_events(&devtools_receiver);
-    let security_info_event = events.iter().find_map(|event| {
-        if let NetworkEvent::SecurityInfo(info) = event {
-            Some(info)
-        } else {
-            None
-        }
-    });
-
-    assert!(
-        security_info_event.is_some(),
-        "Expected to receive a SecurityInfo event for HTTPS connection"
-    );
-
-    let security_info = security_info_event.unwrap();
-    assert!(
-        security_info.security_info.is_some(),
-        "Expected security_info to contain TLS details for HTTPS connection"
-    );
-
-    let tls_info = security_info.security_info.as_ref().unwrap();
-    assert!(
-        tls_info.protocol_version.is_some(),
-        "Expected protocol_version to be set for HTTPS connection"
-    );
-
-    let protocol = tls_info.protocol_version.as_ref().unwrap();
-    assert!(
-        protocol.starts_with("TLS"),
-        "Expected TLS protocol version, got: {}",
-        protocol
-    );
-
-    assert!(
-        tls_info.cipher_suite.is_some(),
-        "Expected cipher_suite to be set for HTTPS connection"
-    );
 }
 
 #[test]

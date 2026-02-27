@@ -35,7 +35,6 @@ libservo = { path = "../../components/servo", features = ["background_hang_monit
 url = "2"
 log = "0.4"
 keyboard-types = "0.8"
-rustls = { version = "0.23", features = ["aws-lc-rs"] }
 dpi = "0.1"
 euclid = "0.22"
 havi-protocols = { path = "../../havi-protocols" }

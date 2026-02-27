@@ -22,7 +22,7 @@ use headers::authorization::Basic;
 use headers::{
     AccessControlAllowCredentials, AccessControlAllowHeaders, AccessControlAllowMethods,
     AccessControlMaxAge, AccessControlRequestMethod, Authorization, CacheControl, ContentLength,
-    HeaderMapExt, IfModifiedSince, LastModified, Pragma, Referer, StrictTransportSecurity,
+    HeaderMapExt, IfModifiedSince, LastModified, Pragma, Referer,
     UserAgent,
 };
 use http::header::{
@@ -60,7 +60,7 @@ use net_traits::response::{
 use net_traits::{
     CookieSource, DOCUMENT_ACCEPT_HEADER_VALUE, DebugVec, FetchMetadata, NetworkError,
     RedirectEndValue, RedirectStartValue, ReferrerPolicy, ResourceAttribute, ResourceFetchTiming,
-    ResourceTimeValue, TlsSecurityInfo, TlsSecurityState,
+    ResourceTimeValue,
 };
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{Report, ReportKind};
@@ -75,9 +75,7 @@ use tokio::sync::mpsc::{
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::async_runtime::spawn_task;
-use crate::connector::{
-    CertificateErrorOverrideManager, ServoClient, TlsHandshakeInfo, create_tls_config,
-};
+use crate::connector::ServoClient;
 use crate::cookie::ServoCookie;
 use crate::cookie_storage::CookieStorage;
 use crate::decoder::Decoder;
@@ -91,7 +89,7 @@ use crate::http_cache::{
     CacheKey, CachedResourcesOrGuard, HttpCache, construct_response, invalidate, refresh,
 };
 use crate::resource_thread::{AuthCache, AuthCacheEntry};
-use crate::websocket_loader::start_websocket;
+
 
 /// The various states an entry of the HttpCache can be in.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,7 +109,6 @@ pub struct HttpState {
     pub auth_cache: RwLock<AuthCache>,
     pub history_states: RwLock<FxHashMap<HistoryStateId, Vec<u8>>>,
     pub client: ServoClient,
-    pub override_manager: CertificateErrorOverrideManager,
     pub embedder_proxy: GenericEmbedderProxy<NetToEmbedderMsg>,
 }
 
@@ -366,41 +363,6 @@ fn set_cookies_from_headers(
         if let Ok(cookie_str) = std::str::from_utf8(cookie_bytes) {
             set_cookie_for_url(cookie_jar, url, cookie_str);
         }
-    }
-}
-
-fn build_tls_security_info(handshake: &TlsHandshakeInfo, hsts_enabled: bool) -> TlsSecurityInfo {
-    // Simplified security state determination:
-    // Servo uses rustls, which only supports TLS 1.2+ and secure cipher suites (GCM, ChaCha20-Poly1305).
-    // rustls does NOT support TLS 1.0, TLS 1.1, SSL, or weak ciphers (RC4, 3DES, CBC, etc).
-    // Therefore, any successful TLS connection is secure by design.
-    //
-    // We only check for missing handshake information as a defensive measure.
-
-    let state = if handshake.protocol_version.is_none() || handshake.cipher_suite.is_none() {
-        // Missing handshake information indicates an incomplete or failed connection
-        TlsSecurityState::Insecure
-    } else {
-        // rustls guarantees TLS 1.2+ with secure ciphers
-        TlsSecurityState::Secure
-    };
-
-    TlsSecurityInfo {
-        state,
-        weakness_reasons: Vec::new(), // rustls never negotiates weak crypto
-        protocol_version: handshake.protocol_version.clone(),
-        cipher_suite: handshake.cipher_suite.clone(),
-        kea_group_name: handshake.kea_group_name.clone(),
-        signature_scheme_name: handshake.signature_scheme_name.clone(),
-        alpn_protocol: handshake.alpn_protocol.clone(),
-        certificate_chain_der: handshake.certificate_chain_der.clone(),
-        certificate_transparency: None,
-        hsts: hsts_enabled,
-        hpkp: false,
-        used_ech: handshake.used_ech,
-        used_delegated_credentials: false,
-        used_ocsp: false,
-        used_private_dns: false,
     }
 }
 
@@ -822,8 +784,6 @@ async fn obtain_response(
         let method = method.clone();
         let send_start = CrossProcessInstant::now();
 
-        let host = request.uri().host().unwrap_or("").to_owned();
-        let override_manager = context.state.override_manager.clone();
         let headers = headers.clone();
         let is_secure_scheme = url.is_secure_scheme();
 
@@ -874,10 +834,7 @@ async fn obtain_response(
             })
             .map_err(move |error| {
                 warn!("network error: {error:?}");
-                NetworkError::from_hyper_error(
-                    &error,
-                    override_manager.remove_certificate_failing_verification(host.as_str()),
-                )
+                NetworkError::from_hyper_error(&error)
             })
             .await
     }
@@ -2058,52 +2015,10 @@ async fn http_network_fetch(
     let browsing_context_id = request.target_webview_id.map(Into::into);
 
     let (res, msg) = match &request.mode {
-        RequestMode::WebSocket {
-            protocols,
-            original_url: _,
-        } => {
-            // https://fetch.spec.whatwg.org/#websocket-opening-handshake
-
-            let (resource_event_sender, dom_action_receiver) = {
-                let mut websocket_chan = context.websocket_chan.as_ref().unwrap().lock();
-                (
-                    websocket_chan.sender.clone(),
-                    websocket_chan.receiver.take().unwrap(),
-                )
-            };
-
-            let mut tls_config = create_tls_config(
-                context.ca_certificates.clone(),
-                context.ignore_certificate_errors,
-                context.state.override_manager.clone(),
-            );
-            tls_config.alpn_protocols = vec!["http/1.1".to_string().into()];
-
-            let response = match start_websocket(
-                context.state.clone(),
-                resource_event_sender,
-                protocols,
-                request,
-                tls_config,
-                dom_action_receiver,
-            )
-            .await
-            {
-                Ok(response) => response,
-                Err(error) => {
-                    return Response::network_error(NetworkError::WebsocketConnectionFailure(
-                        format!("{error:?}"),
-                    ));
-                },
-            };
-
-            let response = response.map(|r| match r {
-                Some(body) => Full::from(body).map_err(|_| unreachable!()).boxed(),
-                None => http_body_util::Empty::new()
-                    .map_err(|_| unreachable!())
-                    .boxed(),
-            });
-            (Decoder::detect(response, url.is_secure_scheme()), None)
+        RequestMode::WebSocket { .. } => {
+            return Response::network_error(NetworkError::HttpError(
+                "WebSocket not supported".into(),
+            ));
         },
         _ => {
             let response_future = obtain_response(
@@ -2181,20 +2096,6 @@ async fn http_network_fetch(
 
     let timing = context.timing.lock().clone();
     let mut response = Response::new(url.clone(), timing);
-
-    if let Some(handshake_info) = res.extensions().get::<TlsHandshakeInfo>() {
-        let mut hsts_enabled = url
-            .host_str()
-            .is_some_and(|host| context.state.hsts_list.read().is_host_secure(host));
-
-        if url.scheme() == "https" {
-            if let Some(sts) = res.headers().typed_get::<StrictTransportSecurity>() {
-                // max-age > 0 enables HSTS, max-age = 0 disables it (RFC 6797 Section 6.1.1)
-                hsts_enabled = sts.max_age().as_secs() > 0;
-            }
-        }
-        response.tls_security_info = Some(build_tls_security_info(handshake_info, hsts_enabled));
-    }
 
     let status_text = res
         .extensions()

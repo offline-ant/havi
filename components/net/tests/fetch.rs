@@ -28,11 +28,9 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 use mime::{self, Mime};
 use net::async_runtime::spawn_blocking_task;
-use net::connector::CACertificates;
 use net::fetch::cors_cache::CorsCache;
 use net::fetch::methods::{self, FetchContext};
 use net::filemanager_thread::FileManager;
-use net::hsts::HstsEntry;
 use net::protocols::ProtocolRegistry;
 use net::request_interceptor::RequestInterceptor;
 use net_traits::filemanager_thread::FileTokenCheck;
@@ -42,7 +40,7 @@ use net_traits::request::{
 };
 use net_traits::response::{CacheState, Response, ResponseBody, ResponseType};
 use net_traits::{
-    FetchTaskTarget, IncludeSubdomains, NetworkError, ReferrerPolicy, ResourceFetchTiming,
+    FetchTaskTarget, NetworkError, ReferrerPolicy, ResourceFetchTiming,
     ResourceTimingType,
 };
 use parking_lot::Mutex;
@@ -55,7 +53,7 @@ use crate::http_loader::{devtools_response_with_body, expect_devtools_http_reque
 use crate::{
     DEFAULT_USER_AGENT, create_generic_embedder_proxy, create_generic_embedder_proxy_and_receiver,
     create_http_state, fetch, fetch_with_context, fetch_with_cors_cache, make_body, make_server,
-    make_ssl_server, mock_origin, new_fetch_context,
+    mock_origin, new_fetch_context,
 };
 
 // TODO write a struct that impls Handler for storing test values
@@ -732,210 +730,6 @@ fn test_fetch_with_local_urls_only() {
 //
 // And make sure to specify `localhost` as the server name.
 #[test]
-fn test_fetch_with_hsts() {
-    static MESSAGE: &'static [u8] = b"";
-    let handler =
-        move |_: HyperRequest<Incoming>,
-              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
-            *response.body_mut() = make_body(MESSAGE.to_vec());
-        };
-
-    let (server, url) = make_ssl_server(handler);
-
-    let embedder_proxy = create_generic_embedder_proxy();
-
-    let mut context = FetchContext {
-        state: Arc::new(create_http_state(None)),
-        user_agent: DEFAULT_USER_AGENT.into(),
-        devtools_chan: None,
-        filemanager: FileManager::new(embedder_proxy.clone()),
-        file_token: FileTokenCheck::NotRequired,
-        request_interceptor: Arc::new(TokioMutex::new(RequestInterceptor::new(embedder_proxy))),
-        cancellation_listener: Arc::new(Default::default()),
-        timing: ServoArc::new(Mutex::new(ResourceFetchTiming::new(
-            ResourceTimingType::Navigation,
-        ))),
-        protocols: Arc::new(ProtocolRegistry::default()),
-        websocket_chan: None,
-        ca_certificates: CACertificates::Default,
-        ignore_certificate_errors: false,
-        preloaded_resources: Default::default(),
-        in_flight_keep_alive_records: Default::default(),
-        hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
-    };
-
-    // The server certificate is self-signed, so we need to add an override
-    // so that the connection works properly.
-    for certificate in server.certificates.as_ref().unwrap().iter() {
-        context.state.override_manager.add_override(certificate);
-    }
-
-    {
-        let mut list = context.state.hsts_list.write();
-        list.push(
-            HstsEntry::new("localhost".to_owned(), IncludeSubdomains::NotIncluded, None).unwrap(),
-        );
-    }
-    let mut request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
-        .origin(url.origin())
-        .policy_container(Default::default())
-        .build();
-    // Set the flag.
-    request.local_urls_only = false;
-    let response = fetch_with_context(request, &mut context);
-    server.close();
-    assert_eq!(
-        response.internal_response.unwrap().url().unwrap().scheme(),
-        "https"
-    );
-}
-
-#[test]
-fn test_load_adds_host_to_hsts_list_when_url_is_https() {
-    let handler =
-        move |_: HyperRequest<Incoming>,
-              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
-            response
-                .headers_mut()
-                .typed_insert(StrictTransportSecurity::excluding_subdomains(
-                    Duration::from_secs(31536000),
-                ));
-            *response.body_mut() = make_body(b"Yay!".to_vec());
-        };
-
-    let (server, mut url) = make_ssl_server(handler);
-    url.as_mut_url().set_scheme("https").unwrap();
-
-    let embedder_proxy = create_generic_embedder_proxy();
-
-    let mut context = FetchContext {
-        state: Arc::new(create_http_state(None)),
-        user_agent: DEFAULT_USER_AGENT.into(),
-        devtools_chan: None,
-        filemanager: FileManager::new(embedder_proxy.clone()),
-        file_token: FileTokenCheck::NotRequired,
-        request_interceptor: Arc::new(TokioMutex::new(RequestInterceptor::new(embedder_proxy))),
-        cancellation_listener: Arc::new(Default::default()),
-        timing: ServoArc::new(Mutex::new(ResourceFetchTiming::new(
-            ResourceTimingType::Navigation,
-        ))),
-        protocols: Arc::new(ProtocolRegistry::default()),
-        websocket_chan: None,
-        ca_certificates: CACertificates::Default,
-        ignore_certificate_errors: false,
-        preloaded_resources: Default::default(),
-        in_flight_keep_alive_records: Default::default(),
-        hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
-    };
-
-    // The server certificate is self-signed, so we need to add an override
-    // so that the connection works properly.
-    for certificate in server.certificates.as_ref().unwrap().iter() {
-        context.state.override_manager.add_override(certificate);
-    }
-
-    let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
-        .method(Method::GET)
-        .body(None)
-        .destination(Destination::Document)
-        .origin(url.clone().origin())
-        .pipeline_id(Some(TEST_PIPELINE_ID))
-        .policy_container(Default::default())
-        .build();
-
-    let response = fetch_with_context(request, &mut context);
-
-    let _ = server.close();
-
-    assert!(
-        response
-            .internal_response
-            .unwrap()
-            .status
-            .code()
-            .is_success()
-    );
-    assert!(
-        context
-            .state
-            .hsts_list
-            .read()
-            .is_host_secure(url.host_str().unwrap())
-    );
-}
-
-#[test]
-fn test_fetch_self_signed() {
-    let handler =
-        move |_: HyperRequest<Incoming>,
-              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
-            *response.body_mut() = make_body(b"Yay!".to_vec());
-        };
-
-    let (server, mut url) = make_ssl_server(handler);
-    url.as_mut_url().set_scheme("https").unwrap();
-
-    let embedder_proxy = create_generic_embedder_proxy();
-
-    let mut context = FetchContext {
-        state: Arc::new(create_http_state(None)),
-        user_agent: DEFAULT_USER_AGENT.into(),
-        devtools_chan: None,
-        filemanager: FileManager::new(embedder_proxy.clone()),
-        file_token: FileTokenCheck::NotRequired,
-        request_interceptor: Arc::new(TokioMutex::new(RequestInterceptor::new(embedder_proxy))),
-        cancellation_listener: Arc::new(Default::default()),
-        timing: ServoArc::new(Mutex::new(ResourceFetchTiming::new(
-            ResourceTimingType::Navigation,
-        ))),
-        protocols: Arc::new(ProtocolRegistry::default()),
-        websocket_chan: None,
-        ca_certificates: CACertificates::Default,
-        ignore_certificate_errors: false,
-        preloaded_resources: Default::default(),
-        in_flight_keep_alive_records: Default::default(),
-        hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
-    };
-
-    let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
-        .method(Method::GET)
-        .body(None)
-        .destination(Destination::Document)
-        .origin(url.clone().origin())
-        .pipeline_id(Some(TEST_PIPELINE_ID))
-        .policy_container(Default::default())
-        .build();
-
-    let response = fetch_with_context(request, &mut context);
-
-    assert!(matches!(
-        response.get_network_error(),
-        Some(NetworkError::SslValidation(..))
-    ));
-
-    // The server certificate is self-signed, so we need to add an override
-    // so that the connection works properly.
-    for certificate in server.certificates.as_ref().unwrap().iter() {
-        context.state.override_manager.add_override(certificate);
-    }
-
-    let request = RequestBuilder::new(Some(TEST_WEBVIEW_ID), url.clone(), Referrer::NoReferrer)
-        .method(Method::GET)
-        .body(None)
-        .destination(Destination::Document)
-        .origin(url.clone().origin())
-        .pipeline_id(Some(TEST_PIPELINE_ID))
-        .policy_container(Default::default())
-        .build();
-
-    let response = fetch_with_context(request, &mut context);
-
-    assert!(response.status.code().is_success());
-
-    let _ = server.close();
-}
-
-#[test]
 fn test_fetch_with_sri_network_error() {
     static MESSAGE: &'static [u8] = b"alert('Hello, Network Error');";
     let handler =
@@ -1541,8 +1335,6 @@ fn test_fetch_request_intercepted() {
         ))),
         protocols: Arc::new(ProtocolRegistry::default()),
         websocket_chan: None,
-        ca_certificates: CACertificates::Default,
-        ignore_certificate_errors: false,
         preloaded_resources: Default::default(),
         in_flight_keep_alive_records: Default::default(),
         hppr_state: Arc::new(net::hppr_pool::HpprAsyncState::from_env()),
