@@ -47,5 +47,8 @@ crossbeam-channel = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 serde_json = { workspace = true }
 
+[build-dependencies]
+cc = "1"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 libservo = { path = "../../components/servo", features = ["background_hang_monitor", "no-wgl"] }

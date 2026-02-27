@@ -197,6 +197,25 @@ def _log(action: str, *, target: str | None = None, abi: str | None = None,
         print(f"  $ {' '.join(cmd)}")
 
 
+def _run_logged(cmd: list[str], **kwargs: Any) -> int:
+    """Run a command, teeing combined output to a log file."""
+    log_file = tempfile.NamedTemporaryFile(
+        prefix="mach-havi-", suffix=".log", delete=False, mode="w",
+    )
+    print(f"  log: {log_file.name}")
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs,
+    )
+    assert proc.stdout is not None
+    for raw_line in iter(proc.stdout.readline, b""):
+        text = raw_line.decode("utf-8", errors="replace")  # type: ignore[union-attr]
+        sys.stdout.write(text)
+        log_file.write(text)
+    proc.wait()
+    log_file.close()
+    return proc.returncode
+
+
 # ---------------------------------------------------------------------------
 # Environment setup
 # ---------------------------------------------------------------------------
@@ -659,9 +678,37 @@ def _cargo_makepad_desktop_cmd() -> list[str]:
     return cmd
 
 
-def _cargo_makepad_ios_cmd() -> list[str]:
+def _load_ios_env() -> dict[str, str]:
+    """Load defaults from env.ios (key=value, # comments)."""
+    env_file = HAVI_ROOT / "env.ios"
+    result: dict[str, str] = {}
+    if env_file.is_file():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            if value:
+                result[key.strip()] = value.strip()
+    return result
+
+
+def _cargo_makepad_ios_cmd(cert: str | None = None,
+                           profile: str | None = None,
+                           device_id: str | None = None) -> list[str]:
+    ios_env = _load_ios_env()
+    cert = cert or ios_env.get("cert")
+    profile = profile or ios_env.get("profile")
+    device_id = device_id or ios_env.get("device")
+
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["apple", "ios", f"--org={DEFAULT_IOS_NAME}", f"--app={DEFAULT_IOS_NAME}"])
+    if cert:
+        cmd.append(f"--cert={cert}")
+    if profile:
+        cmd.append(f"--profile={profile}")
+    if device_id:
+        cmd.append(f"--device={device_id}")
     return cmd
 
 
@@ -743,7 +790,11 @@ def _build_android(args: argparse.Namespace) -> int:
 
 
 def _build_ios(args: argparse.Namespace) -> int:
-    cmd = _cargo_makepad_ios_cmd()
+    cmd = _cargo_makepad_ios_cmd(
+        cert=getattr(args, "cert", None),
+        profile=getattr(args, "profile", None),
+        device_id=getattr(args, "device_id", None),
+    )
     cmd.append("build")
     cmd.extend(["-p", "havishell"])
     if args.release:
@@ -879,8 +930,13 @@ def _run_emulator(args: argparse.Namespace) -> int:
 
 
 def _run_ios(args: argparse.Namespace) -> int:
-    cmd = _cargo_makepad_ios_cmd()
-    cmd.append("run-sim")
+    device = getattr(args, "device", False)
+    cmd = _cargo_makepad_ios_cmd(
+        cert=getattr(args, "cert", None),
+        profile=getattr(args, "profile", None),
+        device_id=getattr(args, "device_id", None),
+    )
+    cmd.append("run-device" if device else "run-sim")
     cmd.extend(["-p", "havishell"])
     if args.release:
         cmd.append("--release")
@@ -888,7 +944,8 @@ def _run_ios(args: argparse.Namespace) -> int:
     if extra:
         cmd.extend(extra)
 
-    _log("ios simulator run", cmd=cmd)
+    label = "ios device run" if device else "ios simulator run"
+    _log(label, cmd=cmd)
     return subprocess.call(cmd, cwd=str(HAVI_ROOT))
 
 
@@ -916,6 +973,13 @@ def _add_common_flags(p: argparse.ArgumentParser) -> None:
 def _add_release_flag(p: argparse.ArgumentParser) -> None:
     """Add only --release (for parent parsers that have subparsers)."""
     p.add_argument("--release", "-r", action="store_true", help="Release mode")
+
+
+def _add_ios_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--device", action="store_true", help="Run on physical device instead of simulator")
+    p.add_argument("--cert", default=None, help="Signing identity (passed as --cert to cargo-makepad)")
+    p.add_argument("--profile", default=None, help="Provisioning profile (passed as --profile to cargo-makepad)")
+    p.add_argument("--device-id", default=None, help="Device identifier (passed as --device to cargo-makepad)")
 
 
 def _add_android_flags(p: argparse.ArgumentParser) -> None:
@@ -953,8 +1017,9 @@ def run(topdir: str) -> int:
     p_build_android.set_defaults(func=cmd_build, platform="android")
 
     # build ios
-    p_build_ios = build_sub.add_parser("ios", help="Build for iOS Simulator")
+    p_build_ios = build_sub.add_parser("ios", help="Build for iOS")
     _add_common_flags(p_build_ios)
+    _add_ios_flags(p_build_ios)
     p_build_ios.set_defaults(func=cmd_build, platform="ios")
 
     # --- check ---
@@ -989,8 +1054,9 @@ def run(topdir: str) -> int:
     p_run_emulator.set_defaults(func=cmd_run, platform="emulator")
 
     # run ios
-    p_run_ios = run_sub.add_parser("ios", help="Run on iOS Simulator")
+    p_run_ios = run_sub.add_parser("ios", help="Run on iOS device or simulator")
     _add_common_flags(p_run_ios)
+    _add_ios_flags(p_run_ios)
     p_run_ios.set_defaults(func=cmd_run, platform="ios")
 
     # --- studio ---

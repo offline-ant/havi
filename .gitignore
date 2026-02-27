@@ -80,3 +80,4 @@ justfile
 **/dist/
 /repo/
 /resources/icon-raster-runtime/havi.log
+env.ios
