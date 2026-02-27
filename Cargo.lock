@@ -6159,6 +6159,7 @@ dependencies = [
 [[package]]
 name = "mozjs"
 version = "0.15.2"
+source = "git+https://github.com/offline-ant/mozjs?branch=main#1cce9a44e70574603ff6645560b9712f379276de"
 dependencies = [
  "bindgen",
  "cc",
@@ -6172,6 +6173,7 @@ dependencies = [
 [[package]]
 name = "mozjs_sys"
 version = "0.140.7-0"
+source = "git+https://github.com/offline-ant/mozjs?branch=main#1cce9a44e70574603ff6645560b9712f379276de"
 dependencies = [
  "bindgen",
  "cc",
