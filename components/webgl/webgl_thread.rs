@@ -413,19 +413,15 @@ impl WebGLThread {
         false
     }
 
-    fn get_or_create_device_for_painter(&mut self, painter_id: PainterId) -> Rc<GlDevice> {
-        self.device_map
-            .entry(painter_id)
-            .or_insert_with(|| {
-                let gl_details = self
-                    .painter_gl_details_map
-                    .get(painter_id)
-                    .expect("no GL details found for painter");
-                let device = GlDevice::new(&gl_details.display_info);
+    fn get_or_create_device_for_painter(&mut self, painter_id: PainterId) -> Option<Rc<GlDevice>> {
+        if let Some(device) = self.device_map.get(&painter_id) {
+            return Some(device.clone());
+        }
 
-                Rc::new(device)
-            })
-            .clone()
+        let gl_details = self.painter_gl_details_map.get(painter_id)?;
+        let device = Rc::new(GlDevice::new(&gl_details.display_info));
+        self.device_map.insert(painter_id, device.clone());
+        Some(device)
     }
 
     #[cfg(feature = "webxr")]
@@ -524,7 +520,9 @@ impl WebGLThread {
         // Clear it to ensure that  make_current() is called in subsequent commands.
         self.bound_context_id = None;
 
-        let device = self.get_or_create_device_for_painter(painter_id);
+        let Some(device) = self.get_or_create_device_for_painter(painter_id) else {
+            return Err("WebGL is unavailable: missing GL display info for painter".to_string());
+        };
         let api_type = match device.gl_api() {
             GlApi::GL => GlType::Gl,
             GlApi::GLES => GlType::Gles,

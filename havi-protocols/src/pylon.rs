@@ -580,7 +580,7 @@ fn is_pid_alive(pid: u32) -> bool {
     {
         std::path::Path::new(&format!("/proc/{}", pid)).exists()
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         std::process::Command::new("kill")
             .args(["-0", &pid.to_string()])

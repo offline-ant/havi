@@ -3,27 +3,27 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 #[cfg(all(
-    any(target_os = "linux", target_os = "macos"),
+    any(target_os = "linux", target_os = "macos", target_os = "ios"),
     not(target_os = "android"),
     not(target_env = "ohos")
 ))]
 use base::text::{UnicodeBlock, UnicodeBlockMethod};
 #[cfg(all(
-    any(target_os = "linux", target_os = "macos"),
+    any(target_os = "linux", target_os = "macos", target_os = "ios"),
     not(target_os = "android"),
     not(target_env = "ohos")
 ))]
 use unicode_script::Script;
 
 #[cfg(all(
-    any(target_os = "linux", target_os = "macos"),
+    any(target_os = "linux", target_os = "macos", target_os = "ios"),
     not(target_os = "android"),
     not(target_env = "ohos")
 ))]
 use crate::FallbackFontSelectionOptions;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use crate::platform::freetype::{font, font_list};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use crate::platform::macos::{core_text_font_cache, font, font_list};
 #[cfg(target_os = "windows")]
 pub use crate::platform::windows::{font, font_list};
@@ -31,7 +31,7 @@ pub use crate::platform::windows::{font, font_list};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod freetype;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod macos {
     pub mod core_text_font_cache;
     pub mod font;
@@ -45,7 +45,7 @@ mod windows {
 }
 
 #[cfg(all(
-    any(target_os = "linux", target_os = "macos"),
+    any(target_os = "linux", target_os = "macos", target_os = "ios"),
     not(target_os = "android"),
     not(target_env = "ohos")
 ))]

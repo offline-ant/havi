@@ -444,7 +444,7 @@ fn start_hpprd_with_runtime(
 struct ResourceReader;
 
 impl servo::resources::ResourceReaderMethods for ResourceReader {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn read(&self, file: servo::resources::Resource) -> Vec<u8> {
         let mut path = std::env::current_exe().unwrap().canonicalize().unwrap();
         while path.pop() {
@@ -458,7 +458,7 @@ impl servo::resources::ResourceReaderMethods for ResourceReader {
         panic!("Can't find resources directory");
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     fn read(&self, res: servo::resources::Resource) -> Vec<u8> {
         use servo::resources::Resource;
         Vec::from(match res {

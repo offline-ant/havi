@@ -230,12 +230,16 @@ impl Paint {
         }
 
         let painter = Painter::new(rendering_context.clone(), self);
-        let display_info = rendering_context
-            .gl_display_info()
-            .expect("RenderingContext must provide gl_display_info for WebGL");
-        let painter_gl_details = PainterGlDetails { display_info };
-        self.painter_gl_details_map
-            .insert(painter.painter_id, painter_gl_details);
+        if let Some(display_info) = rendering_context.gl_display_info() {
+            let painter_gl_details = PainterGlDetails { display_info };
+            self.painter_gl_details_map
+                .insert(painter.painter_id, painter_gl_details);
+        } else {
+            warn!(
+                "RenderingContext for painter {:?} does not provide gl_display_info; WebGL disabled",
+                painter.painter_id
+            );
+        }
 
         let painter_id = painter.painter_id;
         self.painters.push(Rc::new(RefCell::new(painter)));

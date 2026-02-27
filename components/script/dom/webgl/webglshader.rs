@@ -12,6 +12,7 @@ use canvas_traits::webgl::{
     WebGLVersion, webgl_channel,
 };
 use dom_struct::dom_struct;
+#[cfg(not(target_os = "ios"))]
 use mozangle::shaders::{BuiltInResources, CompileOptions, Output, ShaderValidator};
 
 use crate::dom::bindings::cell::DomRefCell;
@@ -51,6 +52,7 @@ static GLSLANG_INITIALIZATION: Once = Once::new();
 
 impl WebGLShader {
     fn new_inherited(context: &WebGLRenderingContext, id: WebGLShaderId, shader_type: u32) -> Self {
+        #[cfg(not(target_os = "ios"))]
         GLSLANG_INITIALIZATION.call_once(|| ::mozangle::shaders::initialize().unwrap());
         Self {
             webgl_object: WebGLObject::new_inherited(context),
@@ -117,6 +119,18 @@ impl WebGLShader {
 
         let source = self.source.borrow();
 
+        #[cfg(target_os = "ios")]
+        {
+            self.upcast()
+                .send_command(WebGLCommand::CompileShader(self.id, source.str().to_string()));
+            self.compilation_status
+                .set(ShaderCompilationStatus::Succeeded);
+            *self.info_log.borrow_mut() = "".into();
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "ios"))]
+        {
         let mut params = BuiltInResources {
             MaxVertexAttribs: limits.max_vertex_attribs as c_int,
             MaxVertexUniformVectors: limits.max_vertex_uniform_vectors as c_int,
@@ -225,6 +239,7 @@ impl WebGLShader {
         }
 
         *self.info_log.borrow_mut() = validator.info_log().into();
+        }
 
         Ok(())
     }

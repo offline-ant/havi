@@ -123,7 +123,7 @@ imsz = "0.4"
 indexmap = { version = "2.11.4", features = ["std"] }
 ipc-channel = "0.21"
 itertools = "0.14"
-js = { package = "mozjs", version = "=0.15.0", default-features = false, features = ["libz-sys", "intl"] }
+js = { package = "mozjs", version = "=0.15.2", default-features = false, features = ["libz-sys", "intl"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 kurbo = { version = "0.12", features = ["euclid"] }
 layout_api = { path = "components/shared/layout" }
@@ -316,6 +316,8 @@ codegen-units = 1
 
 [patch.crates-io]
 svgtypes = { path = "components/vendored/svgtypes" }
+mozjs = { path = "../../mozjs/mozjs" }
+mozjs_sys = { path = "../../mozjs/mozjs-sys" }
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #

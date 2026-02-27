@@ -43,7 +43,11 @@ fn create_rendering_context(
     let (texture, gl_texture_id) =
         cx.create_gl_render_bridge_texture(&bridge, size.width as usize, size.height as usize);
 
-    let display_info = build_display_info(&bridge);
+    #[cfg(not(target_os = "ios"))]
+    let display_info = Some(build_display_info(&bridge));
+    #[cfg(target_os = "ios")]
+    let display_info = None;
+
     let gl_api = match bridge.gl_api() {
         GlApi::GL => servo::gl_device::GlApi::GL,
         GlApi::GLES => servo::gl_device::GlApi::GLES,
@@ -61,7 +65,7 @@ fn create_rendering_context(
             &|name| bridge.get_proc_address(name) as *const std::ffi::c_void,
             gl_api,
             texture_target,
-            Some(display_info),
+            display_info,
         )
     }?;
     rc.set_external_texture(gl_texture_id, size);

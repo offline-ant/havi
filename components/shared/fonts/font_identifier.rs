@@ -89,7 +89,7 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod platform {
     use std::fs::File;
     use std::path::Path;

@@ -238,7 +238,7 @@ pub fn spawn_multiprocess(content: UnprivilegedContent) -> Result<Process, IpcEr
 }
 
 #[cfg(target_os = "ios")]
-pub fn spawn_multiprocess(_content: UnprivilegedContent) -> Result<Process, Error> {
+pub fn spawn_multiprocess(_content: UnprivilegedContent) -> Result<Process, IpcError> {
     log::error!("Multiprocess is not supported on iOS.");
     process::exit(1);
 }

@@ -27,6 +27,7 @@ mod sampler_windows;
 pub use self::background_hang_monitor::*;
 #[cfg(any(
     not(feature = "sampler"),
+    target_os = "ios",
     all(
         target_os = "linux",
         any(

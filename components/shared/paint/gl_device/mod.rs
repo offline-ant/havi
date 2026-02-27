@@ -16,7 +16,7 @@ use std::rc::Rc;
 use euclid::default::Size2D;
 use glow::{self as gl, HasContext};
 
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
 pub mod egl;
 #[cfg(target_os = "macos")]
 pub mod cgl;
@@ -61,7 +61,7 @@ pub struct GlSurfaceInfo {
 }
 
 /// Platform display info for creating a GlDevice.
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
 pub type GlDisplayInfo = egl::EglDisplayInfo;
 #[cfg(target_os = "macos")]
 pub type GlDisplayInfo = cgl::CglDisplayInfo;
@@ -71,7 +71,7 @@ pub type GlDisplayInfo = cgl::CglDisplayInfo;
 /// All GL contexts created by a single `GlDevice` share a texture namespace,
 /// enabling cross-context texture sampling (e.g. WebGL → WebRender compositor).
 pub struct GlDevice {
-    #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
     backend: egl::EglBackend,
     #[cfg(target_os = "macos")]
     backend: cgl::CglBackend,
@@ -93,7 +93,7 @@ impl GlDevice {
     /// Create a device from platform display info.
     pub fn new(info: &GlDisplayInfo) -> Self {
         GlDevice {
-            #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
             backend: egl::EglBackend::new(info),
             #[cfg(target_os = "macos")]
             backend: cgl::CglBackend::new(info),
