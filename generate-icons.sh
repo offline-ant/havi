@@ -67,7 +67,10 @@ for blob in blobs:
 ico_path.write_bytes(out)
 PY
 
-echo "[generate-icons] wrote desktop resources:"
+# iOS app icon — only needs 1024x1024 (already generated above as icon_1024.png)
+# cargo-makepad apple build picks up resources/icon_1024.png automatically.
+
+echo "[generate-icons] wrote desktop resources (also used by iOS):"
 ls -l \
   "$OUT_DIR/icon_32.png" \
   "$OUT_DIR/icon_64.png" \
