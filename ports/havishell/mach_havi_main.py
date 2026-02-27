@@ -246,9 +246,6 @@ def setup_android_env(target_triple: str) -> dict[str, str]:
 
     # cc-rs underscore-separated target triple vars.
     # Force these (not setdefault) to ensure a single consistent NDK toolchain.
-    # If the parent env already has CXX_x86_64_linux_android pointing at a
-    # different NDK (e.g. r28), mixing it with our NDK's libc++_shared.so
-    # causes ABI mismatches at runtime.
     u = target_triple.replace("-", "_")
     env[f"CC_{u}"] = env.get("TARGET_CC", "")
     env[f"CXX_{u}"] = env.get("TARGET_CXX", "")
@@ -267,7 +264,6 @@ def _find_xauthority() -> str | None:
         return os.environ["XAUTHORITY"]
     if platform.system() == "Windows":
         return None
-    # KDE Wayland / XWayland writes a temp xauth file; pick the newest one.
     import glob as _glob
     uid = os.getuid()
     home = os.path.expanduser("~")
@@ -304,21 +300,12 @@ def setup_desktop_env() -> dict[str, str]:
     if not is_windows:
         env.setdefault("CC", "clang")
         env.setdefault("CXX", "clang++")
-    # Match Makepad Studio's build_server which sets MAKEPAD=lines so that
-    # cfg(lines) is consistent between CLI builds and Studio builds.  Without
-    # this, switching between mach-havi build and Studio triggers a full
-    # rebuild because makepad-platform's build.rs declares
-    # cargo:rerun-if-env-changed=MAKEPAD.
     env.setdefault("MAKEPAD", "lines")
-    # Ensure XAUTHORITY is set so stdin-loop children can connect to XWayland.
     if not is_windows and "XAUTHORITY" not in env:
         xauth = _find_xauthority()
         if xauth:
             env["XAUTHORITY"] = xauth
     env.setdefault("RUSTFLAGS", "")
-
-    # Custom desktop icons are auto-detected by cargo-makepad desktop from
-    # crate-local resources/, so mach-havi does not need to set icon env vars.
 
     if "LIBCLANG_PATH" not in env:
         candidates = []
@@ -348,13 +335,11 @@ def setup_desktop_env() -> dict[str, str]:
                 break
         if not found and is_windows:
             _ensure_llvm_windows()
-            # Retry after install
             pf = os.environ.get("ProgramFiles", r"C:\Program Files")
             llvm_lib = os.path.join(pf, "LLVM", "lib")
             if os.path.isdir(llvm_lib):
                 env["LIBCLANG_PATH"] = llvm_lib
 
-    # Ensure LLVM tools are on PATH on Windows so cargo-makepad can find llvm-rc.
     if is_windows:
         llvm_bin_candidates = []
         pf = os.environ.get("ProgramFiles", r"C:\Program Files")
@@ -388,7 +373,6 @@ def _wait_for_device(adb: str, timeout: int = 120) -> bool:
     print(f"[mach-havi] waiting for device (timeout {timeout}s)...")
     deadline = time.time() + timeout
 
-    # First wait for adb to see the device
     try:
         subprocess.run(
             [adb, "wait-for-device"],
@@ -398,7 +382,6 @@ def _wait_for_device(adb: str, timeout: int = 120) -> bool:
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
 
-    # Then wait for boot to complete
     while time.time() < deadline:
         try:
             result = subprocess.run(
@@ -425,12 +408,10 @@ def _find_system_image() -> str | None:
     si_root = sdk / "system-images"
     if not si_root.is_dir():
         return None
-    # Prefer google_apis, fall back to google_apis_playstore, then default
     for api_dir in sorted(si_root.iterdir(), reverse=True):
         for variant in ("google_apis", "google_apis_playstore", "default"):
             x86_dir = api_dir / variant / "x86_64"
             if (x86_dir / "system.img").is_file():
-                # e.g. "system-images;android-36;google_apis_playstore;x86_64"
                 return f"system-images;{api_dir.name};{variant};x86_64"
     return None
 
@@ -459,7 +440,7 @@ def _create_avd(avd_name: str) -> None:
 
 
 def _emulator_env() -> dict[str, str]:
-    """Environment for the emulator process. Always sets XDG_RUNTIME_DIR."""
+    """Environment for the emulator process."""
     env = os.environ.copy()
     runtime_dir = os.path.join(tempfile.gettempdir(), "android-emu-runtime")
     os.makedirs(runtime_dir, exist_ok=True)
@@ -468,16 +449,11 @@ def _emulator_env() -> dict[str, str]:
 
 
 def _ensure_emulator(avd_name: str | None = None) -> str | None:
-    """Ensure an emulator is running. Returns the serial (e.g. 'emulator-5554')
-    or None on failure.
-
-    If an emulator is already running, reuses it. Otherwise creates an AVD
-    if needed and launches one."""
+    """Ensure an emulator is running. Returns the serial or None."""
     adb = _find_tool("adb")
     if not adb:
         sys.exit("error: adb not found. Install Android SDK platform-tools.")
 
-    # Check if an emulator is already online
     try:
         out = subprocess.check_output([adb, "devices"], encoding="utf-8")
         for line in out.strip().splitlines()[1:]:
@@ -489,7 +465,6 @@ def _ensure_emulator(avd_name: str | None = None) -> str | None:
     except (subprocess.CalledProcessError, OSError):
         pass
 
-    # Need to launch one
     emulator_bin = _find_tool("emulator")
     if not emulator_bin:
         sys.exit("error: emulator not found. Install via Android SDK Manager.")
@@ -497,7 +472,6 @@ def _ensure_emulator(avd_name: str | None = None) -> str | None:
     if not avd_name:
         avd_name = DEFAULT_AVD_NAME
 
-    # Create AVD if it doesn't exist
     avds = _list_avds()
     if avd_name not in avds:
         _create_avd(avd_name)
@@ -514,7 +488,6 @@ def _ensure_emulator(avd_name: str | None = None) -> str | None:
     if not _wait_for_device(adb, timeout=180):
         sys.exit("error: emulator failed to boot within timeout")
 
-    # Re-detect serial
     try:
         out = subprocess.check_output([adb, "devices"], encoding="utf-8")
         for line in out.strip().splitlines()[1:]:
@@ -546,10 +519,8 @@ def _install_and_launch_apk(serial: str, apk_path: str, package: str) -> int:
         print("[mach-havi] launch failed")
         return ret
 
-    # Tail logcat for the app
     print(f"[mach-havi] tailing logcat (Ctrl+C to stop)...")
     try:
-        # Get PID
         for _ in range(30):
             result = subprocess.run(
                 [adb, "-s", serial, "shell", "pidof", package],
@@ -575,9 +546,6 @@ def _install_and_launch_apk(serial: str, apk_path: str, package: str) -> int:
 
 def _find_apk(target_triple: str, release: bool) -> str | None:
     """Find the APK that cargo-makepad built."""
-    profile = "release" if release else "debug"
-    # havishell is a workspace member, so output lands in the workspace target dir.
-    # cargo-makepad puts APKs in target/makepad-android-apk/<crate>/apk/
     search_roots = [
         HAVI_ROOT / "target",
     ]
@@ -590,92 +558,8 @@ def _find_apk(target_triple: str, release: bool) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Commands
+# cargo-makepad helpers
 # ---------------------------------------------------------------------------
-
-
-def _copy_windows_angle_dlls(profile: str) -> int:
-    """Copy ANGLE runtime DLLs (libEGL/libGLESv2) next to havi.exe.
-
-    libservo's `no-wgl` feature enables `mozangle/build_dlls`, which emits
-    ANGLE DLLs under target/<profile>/build/**. Makepad loads libEGL.dll at
-    runtime on Windows, so keep these DLLs in the executable directory.
-    """
-    if platform.system() != "Windows":
-        return 0
-
-    exe_dir = HAVI_ROOT / "target" / profile
-    build_dir = exe_dir / "build"
-    if not build_dir.is_dir():
-        print(f"error: expected build artifacts at {build_dir}")
-        return 1
-
-    for dll in ("libEGL.dll", "libGLESv2.dll"):
-        matches = sorted(build_dir.rglob(dll), key=lambda p: p.stat().st_mtime, reverse=True)
-        if not matches:
-            print(f"error: could not find required ANGLE DLL: {dll}")
-            print("hint: this should be produced by mozangle/build_dlls")
-            return 1
-        src = matches[0]
-        dst = exe_dir / dll
-        shutil.copy2(src, dst)
-        print(f"[mach-havi] copied {dll}: {src} -> {dst}")
-
-    return 0
-
-
-def _maybe_consume_positional_platform(args: argparse.Namespace) -> None:
-    """Compat shim: allow `mach-havi build android aarch64 --release` style.
-
-    Historically `mach-havi` used flags (`--android --target ...`). This
-    accepts the first positional tokens as platform/arch and strips them from
-    `args.extra` before forwarding to cargo.
-    """
-    extra = list(getattr(args, "extra", []) or [])
-    if not extra:
-        return
-
-    # Explicit flags always win.
-    if getattr(args, "android", False) or getattr(args, "emulator", False) or getattr(args, "ios_simulator", False):
-        return
-
-    platform_token = extra[0]
-    if platform_token == "android":
-        args.android = True
-        extra = extra[1:]
-    elif platform_token == "emulator":
-        args.emulator = True
-        args.android = True
-        extra = extra[1:]
-    elif platform_token == "desktop":
-        extra = extra[1:]
-    elif platform_token in ("ios", "ios-sim", "ios-simulator"):
-        args.ios_simulator = True
-        extra = extra[1:]
-    else:
-        return
-
-    if (args.android or args.emulator) and extra and not getattr(args, "target", None):
-        arch_token = extra[0]
-        arch_to_triple = {
-            "aarch64": "aarch64-linux-android",
-            "x86_64": "x86_64-linux-android",
-            "armv7": "armv7-linux-androideabi",
-            "i686": "i686-linux-android",
-        }
-        args.target = arch_to_triple.get(arch_token, arch_token)
-        extra = extra[1:]
-
-    args.extra = extra
-
-
-def cmd_build(args: argparse.Namespace) -> int:
-    _maybe_consume_positional_platform(args)
-    if args.android or args.emulator:
-        return _build_android(args)
-    if args.ios_simulator:
-        return _run_ios_simulator(args)
-    return _build_desktop(args)
 
 
 DEFAULT_PACKAGE_NAME = "dev.makepad.havishell"
@@ -685,19 +569,9 @@ _EXPECTED_NDK_VERSION = "28.2.13676358"
 
 
 def _ensure_cargo_makepad_ndk() -> None:
-    """Make sure the cargo-makepad SDK dir contains the expected NDK.
-
-    Strategy:
-      1. If the NDK dir already exists with the right version → nothing to do.
-      2. If a system NDK r28 is available → symlink it in.
-      3. Otherwise → run ``cargo makepad android install-toolchain``.
-
-    This lets ``./mach-havi build`` work out-of-the-box for new devs.
-    """
+    """Make sure the cargo-makepad SDK dir contains the expected NDK."""
     cm_sdk = _detect_cargo_makepad_sdk()
     if cm_sdk is None:
-        # No SDK dir at all — create the expected one so install-toolchain
-        # has somewhere to put things, then fall through.
         tag = _host_os_tag()
         cm_sdk = CARGO_MAKEPAD_DIR / f"android_33_{tag}"
         cm_sdk.mkdir(parents=True, exist_ok=True)
@@ -706,11 +580,9 @@ def _ensure_cargo_makepad_ndk() -> None:
     expected = ndk_parent / _EXPECTED_NDK_VERSION
 
     if expected.is_dir():
-        # Quick sanity: does it look like an NDK?
         if (expected / "toolchains").is_dir() or (expected / "source.properties").is_file():
-            return  # Already good.
+            return
 
-    # ---------- Try symlinking a system NDK r28 ----------
     sys_sdk = _find_android_sdk()
     if sys_sdk:
         for ndk_dir in sorted((sys_sdk / "ndk").iterdir()) if (sys_sdk / "ndk").is_dir() else []:
@@ -722,18 +594,15 @@ def _ensure_cargo_makepad_ndk() -> None:
                         ver = line.split("=")[-1].strip().split(".")[0]
                         if ver == "28" and (ndk_dir / "toolchains").is_dir():
                             ndk_parent.mkdir(parents=True, exist_ok=True)
-                            # Remove stale entry if present (e.g. broken symlink).
                             if expected.is_symlink() or expected.exists():
                                 if expected.is_symlink():
                                     expected.unlink()
                                 else:
-                                    import shutil as _sh
-                                    _sh.rmtree(expected)
+                                    shutil.rmtree(expected)
                             expected.symlink_to(ndk_dir.resolve())
-                            print(f"[mach-havi] Symlinked system NDK r28: {ndk_dir} → {expected}")
+                            print(f"[mach-havi] Symlinked system NDK r28: {ndk_dir} -> {expected}")
                             return
 
-    # ---------- Fall back to downloading via repo-local cargo-makepad ----------
     print("[mach-havi] NDK r28 not found locally. Running cargo-makepad android install-toolchain...")
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["android", f"--sdk-path={cm_sdk}", "install-toolchain"])
@@ -743,22 +612,12 @@ def _ensure_cargo_makepad_ndk() -> None:
 
 
 def _ensure_cargo_makepad_binary_windows() -> pathlib.Path:
-    """Build repo-local cargo-makepad and return its executable path.
-
-    Windows keeps executables file-locked while running. Invoking cargo-makepad
-    via `cargo run` during each mach-havi command can race with replacement of
-    makepad/target/debug/cargo-makepad.exe and fail with os error 5.
-
-    Build first, then execute the binary directly.
-    """
+    """Build repo-local cargo-makepad and return its executable path."""
     manifest = MAKEPAD_ROOT / "Cargo.toml"
     cmd = [
-        "cargo",
-        "build",
-        "--manifest-path",
-        str(manifest),
-        "-p",
-        "cargo-makepad",
+        "cargo", "build",
+        "--manifest-path", str(manifest),
+        "-p", "cargo-makepad",
     ]
     ret = subprocess.call(cmd, cwd=str(HAVI_ROOT))
     if ret != 0:
@@ -777,18 +636,14 @@ def _cargo_makepad_cmd_base() -> list[str]:
         return [str(exe)]
 
     return [
-        "cargo",
-        "run",
-        "--manifest-path",
-        str(MAKEPAD_ROOT / "Cargo.toml"),
-        "-p",
-        "cargo-makepad",
+        "cargo", "run",
+        "--manifest-path", str(MAKEPAD_ROOT / "Cargo.toml"),
+        "-p", "cargo-makepad",
         "--",
     ]
 
 
 def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> list[str]:
-    """Base repo-local cargo-makepad android command with --abi and --sdk-path."""
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["android", f"--abi={abi}"])
     cm_sdk = _detect_cargo_makepad_sdk()
@@ -800,83 +655,64 @@ def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> lis
 
 
 def _cargo_makepad_desktop_cmd() -> list[str]:
-    """Base repo-local cargo-makepad desktop command."""
     cmd = _cargo_makepad_cmd_base()
     cmd.append("desktop")
     return cmd
 
 
 def _cargo_makepad_ios_cmd() -> list[str]:
-    """Base repo-local cargo-makepad apple ios command."""
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["apple", "ios", f"--org={DEFAULT_IOS_NAME}", f"--app={DEFAULT_IOS_NAME}"])
     return cmd
 
 
-def _run_ios_simulator(args: argparse.Namespace) -> int:
-    """Build, install, and launch HAVI in the booted iOS Simulator."""
-    cmd = _cargo_makepad_ios_cmd()
-    cmd.append("run-sim")
-    cmd.extend(["-p", "havishell"])
-    if args.release:
-        cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
+def _copy_windows_angle_dlls(profile: str) -> int:
+    """Copy ANGLE runtime DLLs next to havi.exe on Windows."""
+    if platform.system() != "Windows":
+        return 0
 
-    _log("ios simulator run", cmd=cmd)
-    return subprocess.call(cmd, cwd=str(HAVI_ROOT))
+    exe_dir = HAVI_ROOT / "target" / profile
+    build_dir = exe_dir / "build"
+    if not build_dir.is_dir():
+        print(f"error: expected build artifacts at {build_dir}")
+        return 1
 
-
-def _build_android(args: argparse.Namespace) -> int:
-    _ensure_cargo_makepad_ndk()
-    target_triple = args.target or (EMULATOR_TRIPLE if args.emulator else DEFAULT_ANDROID_TRIPLE)
-    abi = triple_to_abi(target_triple)
-    env = setup_android_env(target_triple)
-    package_name = getattr(args, "package_name", None)
-
-    cmd = _cargo_makepad_android_cmd(abi, package_name)
-    cmd.append("build")
-    cmd.extend(["-p", "havishell"])
-    if args.release:
-        cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
-
-    _log("android build", target=target_triple, abi=abi, env=env, cmd=cmd)
-    ret = subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
-    if ret != 0:
-        return ret
-
-    if args.emulator:
-        return _emulator_install_and_run(args, target_triple)
+    for dll in ("libEGL.dll", "libGLESv2.dll"):
+        matches = sorted(build_dir.rglob(dll), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not matches:
+            print(f"error: could not find required ANGLE DLL: {dll}")
+            return 1
+        src = matches[0]
+        dst = exe_dir / dll
+        shutil.copy2(src, dst)
+        print(f"[mach-havi] copied {dll}: {src} -> {dst}")
 
     return 0
 
 
-def _emulator_install_and_run(args: argparse.Namespace, target_triple: str) -> int:
-    """After a successful build, launch emulator, install APK, start app."""
-    serial = _ensure_emulator(getattr(args, "avd", None))
-    if not serial:
-        sys.exit("error: could not connect to emulator")
+# ---------------------------------------------------------------------------
+# Build commands
+# ---------------------------------------------------------------------------
 
-    apk = _find_apk(target_triple, args.release)
-    if not apk:
-        sys.exit("error: APK not found after build. Check cargo-makepad output above.")
 
-    print(f"[mach-havi] APK: {apk}")
-    package = getattr(args, "package_name", None) or DEFAULT_PACKAGE_NAME
-    return _install_and_launch_apk(serial, apk, package)
+def cmd_build(args: argparse.Namespace) -> int:
+    platform_cmd = getattr(args, "platform", None)
+    if platform_cmd == "android":
+        return _build_android(args)
+    if platform_cmd == "ios":
+        return _build_ios(args)
+    return _build_desktop(args)
 
 
 def _build_desktop(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
-
     cmd = _cargo_makepad_desktop_cmd()
     cmd.extend(["build", "-p", "havishell"])
     if args.release:
         cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
 
     _log("desktop build", env=env, cmd=cmd)
     ret = subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
@@ -887,39 +723,7 @@ def _build_desktop(args: argparse.Namespace) -> int:
     return _copy_windows_angle_dlls(profile)
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    """Run cargo check with the same environment as build/run."""
-    env = setup_desktop_env()
-    cmd = _cargo_makepad_desktop_cmd()
-    cmd.extend(["check", "-p", "havishell"])
-    if args.release:
-        cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
-
-    _log("desktop check", env=env, cmd=cmd)
-    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
-
-
-def cmd_studio(args: argparse.Namespace) -> int:
-    """Launch Makepad Studio with the havi workspace."""
-    env = setup_desktop_env()
-    return run_studio(HAVI_ROOT, MAKEPAD_ROOT, env, getattr(args, "extra", None))
-
-
-def cmd_run(args: argparse.Namespace) -> int:
-    _maybe_consume_positional_platform(args)
-    if args.emulator:
-        return _run_emulator(args)
-    if args.android:
-        return _run_android(args)
-    if args.ios_simulator:
-        return _run_ios_simulator(args)
-    return _run_desktop(args)
-
-
-def _run_android(args: argparse.Namespace) -> int:
-    """Build + run via cargo makepad android run (physical device)."""
+def _build_android(args: argparse.Namespace) -> int:
     _ensure_cargo_makepad_ndk()
     target_triple = args.target or DEFAULT_ANDROID_TRIPLE
     abi = triple_to_abi(target_triple)
@@ -927,39 +731,65 @@ def _run_android(args: argparse.Namespace) -> int:
     package_name = getattr(args, "package_name", None)
 
     cmd = _cargo_makepad_android_cmd(abi, package_name)
-    cmd.append("run")
-    cmd.extend(["-p", "havishell"])
-    if args.release:
-        cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
-
-    _log("android run (device)", target=target_triple, abi=abi, env=env, cmd=cmd)
-    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
-
-
-def _run_emulator(args: argparse.Namespace) -> int:
-    """Build for x86_64, boot emulator, install, launch, tail logcat."""
-    target_triple = args.target or EMULATOR_TRIPLE
-    abi = triple_to_abi(target_triple)
-    env = setup_android_env(target_triple)
-    package_name = getattr(args, "package_name", None)
-
-    # Build
-    cmd = _cargo_makepad_android_cmd(abi, package_name)
     cmd.append("build")
     cmd.extend(["-p", "havishell"])
     if args.release:
         cmd.append("--release")
-    if args.extra:
-        cmd.extend(args.extra)
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
 
-    _log("emulator build", target=target_triple, abi=abi, env=env, cmd=cmd)
-    ret = subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
-    if ret != 0:
-        return ret
+    _log("android build", target=target_triple, abi=abi, env=env, cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
-    return _emulator_install_and_run(args, target_triple)
+
+def _build_ios(args: argparse.Namespace) -> int:
+    cmd = _cargo_makepad_ios_cmd()
+    cmd.append("build")
+    cmd.extend(["-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("ios build", cmd=cmd)
+    return subprocess.call(cmd, cwd=str(HAVI_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# Check command
+# ---------------------------------------------------------------------------
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    env = setup_desktop_env()
+    cmd = _cargo_makepad_desktop_cmd()
+    cmd.extend(["check", "-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("desktop check", env=env, cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# Run commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    platform_cmd = getattr(args, "platform", None)
+    if platform_cmd == "android":
+        return _run_android(args)
+    if platform_cmd == "emulator":
+        return _run_emulator(args)
+    if platform_cmd == "ios":
+        return _run_ios(args)
+    return _run_desktop(args)
 
 
 def _run_desktop(args: argparse.Namespace) -> int:
@@ -967,13 +797,15 @@ def _run_desktop(args: argparse.Namespace) -> int:
     profile = "release" if args.release else "debug"
     binary = HAVI_ROOT / "target" / profile / "havi"
 
+    # Build first (reuse _build_desktop with same args)
     ret = _build_desktop(args)
     if ret != 0:
         return ret
 
     cmd = [str(binary)]
-    if args.extra:
-        cmd.extend(args.extra)
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
 
     if getattr(args, "makepad_socket", False):
         return run_desktop_makepad_socket(
@@ -990,9 +822,108 @@ def _run_desktop(args: argparse.Namespace) -> int:
         return 130
 
 
+def _run_android(args: argparse.Namespace) -> int:
+    _ensure_cargo_makepad_ndk()
+    target_triple = args.target or DEFAULT_ANDROID_TRIPLE
+    abi = triple_to_abi(target_triple)
+    env = setup_android_env(target_triple)
+    package_name = getattr(args, "package_name", None)
+
+    cmd = _cargo_makepad_android_cmd(abi, package_name)
+    cmd.append("run")
+    cmd.extend(["-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("android run (device)", target=target_triple, abi=abi, env=env, cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+
+
+def _run_emulator(args: argparse.Namespace) -> int:
+    target_triple = args.target or EMULATOR_TRIPLE
+    abi = triple_to_abi(target_triple)
+    env = setup_android_env(target_triple)
+    package_name = getattr(args, "package_name", None)
+
+    _ensure_cargo_makepad_ndk()
+
+    # Build
+    cmd = _cargo_makepad_android_cmd(abi, package_name)
+    cmd.append("build")
+    cmd.extend(["-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("emulator build", target=target_triple, abi=abi, env=env, cmd=cmd)
+    ret = subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+    if ret != 0:
+        return ret
+
+    # Install + launch
+    serial = _ensure_emulator(getattr(args, "avd", None))
+    if not serial:
+        sys.exit("error: could not connect to emulator")
+
+    apk = _find_apk(target_triple, args.release)
+    if not apk:
+        sys.exit("error: APK not found after build. Check cargo-makepad output above.")
+
+    print(f"[mach-havi] APK: {apk}")
+    package = package_name or DEFAULT_PACKAGE_NAME
+    return _install_and_launch_apk(serial, apk, package)
+
+
+def _run_ios(args: argparse.Namespace) -> int:
+    cmd = _cargo_makepad_ios_cmd()
+    cmd.append("run-sim")
+    cmd.extend(["-p", "havishell"])
+    if args.release:
+        cmd.append("--release")
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("ios simulator run", cmd=cmd)
+    return subprocess.call(cmd, cwd=str(HAVI_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# Studio command
+# ---------------------------------------------------------------------------
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    env = setup_desktop_env()
+    return run_studio(HAVI_ROOT, MAKEPAD_ROOT, env, getattr(args, "extra", None))
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing & entry point
 # ---------------------------------------------------------------------------
+
+
+def _add_common_flags(p: argparse.ArgumentParser) -> None:
+    """Add --release and extra positional args shared by build/check/run."""
+    p.add_argument("--release", "-r", action="store_true", help="Release mode")
+    p.add_argument("extra", nargs="*", help="Extra arguments forwarded to cargo")
+
+
+def _add_release_flag(p: argparse.ArgumentParser) -> None:
+    """Add only --release (for parent parsers that have subparsers)."""
+    p.add_argument("--release", "-r", action="store_true", help="Release mode")
+
+
+def _add_android_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--target", "-t", default=None,
+                   help="Target triple (default: aarch64-linux-android)")
+    p.add_argument("--package-name", default=None,
+                   help=f"Android package name (default: {DEFAULT_PACKAGE_NAME})")
 
 
 def run(topdir: str) -> int:
@@ -1004,42 +935,69 @@ def run(topdir: str) -> int:
 
     parser = argparse.ArgumentParser(
         prog="mach-havi",
-        description="Build entry point for the havishell port of havi",
+        description="Build system for the havishell port of havi",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_studio = sub.add_parser("studio", help="Launch Makepad Studio with havi workspace")
-    p_studio.add_argument("extra", nargs="*", help="Extra arguments forwarded to cargo")
-    p_studio.set_defaults(func=cmd_studio)
+    # --- build ---
+    p_build = sub.add_parser("build", help="Build havishell")
+    build_sub = p_build.add_subparsers(dest="platform")
 
-    for name, handler, verb in [
-        ("build", cmd_build, "Build"),
-        ("check", cmd_check, "Check"),
-        ("run", cmd_run, "Run"),
-    ]:
-        p = sub.add_parser(name, help=f"{verb} havishell")
-        p.add_argument("--release", "-r", action="store_true",
-                        help=f"{verb} in release mode")
-        p.add_argument("--android", action="store_true",
-                        help=f"{verb} for/on a physical Android device")
-        p.add_argument("--emulator", "-e", action="store_true",
-                        help=f"{verb} on Android emulator (implies --target {EMULATOR_TRIPLE})")
-        p.add_argument("--ios-simulator", action="store_true",
-                        help=f"{verb} on iOS Simulator")
-        p.add_argument("--avd", default=None,
-                        help="AVD name for --emulator (default: first available)")
-        p.add_argument("--target", "-t", default=None,
-                        help="Target triple (e.g. aarch64-linux-android, x86_64-linux-android)")
-        p.add_argument("--package-name", default=None,
-                        help="Android package name (default: dev.makepad.havishell)")
-        if name == "run":
-            p.add_argument("--makepad-socket", action="store_true",
-                            help="Launch with Makepad event socket for havi-makepad-cli")
-            p.add_argument("--makepad-socket-path", default=None,
-                            help="Use explicit Unix socket path (default: random in /tmp)")
-        p.add_argument("extra", nargs="*",
-                        help="Extra arguments forwarded to cargo")
-        p.set_defaults(func=handler)
+    # build (desktop, default)
+    _add_release_flag(p_build)
+    p_build.set_defaults(func=cmd_build)
+
+    # build android
+    p_build_android = build_sub.add_parser("android", help="Build for Android")
+    _add_common_flags(p_build_android)
+    _add_android_flags(p_build_android)
+    p_build_android.set_defaults(func=cmd_build, platform="android")
+
+    # build ios
+    p_build_ios = build_sub.add_parser("ios", help="Build for iOS Simulator")
+    _add_common_flags(p_build_ios)
+    p_build_ios.set_defaults(func=cmd_build, platform="ios")
+
+    # --- check ---
+    p_check = sub.add_parser("check", help="Check havishell (desktop only)")
+    _add_common_flags(p_check)
+    p_check.set_defaults(func=cmd_check)
+
+    # --- run ---
+    p_run = sub.add_parser("run", help="Run havishell")
+    run_sub = p_run.add_subparsers(dest="platform")
+
+    # run (desktop, default)
+    _add_release_flag(p_run)
+    p_run.add_argument("--makepad-socket", action="store_true",
+                       help="Launch with Makepad event socket for havi-makepad-cli")
+    p_run.add_argument("--makepad-socket-path", default=None,
+                       help="Explicit Unix socket path (default: random in /tmp)")
+    p_run.set_defaults(func=cmd_run)
+
+    # run android
+    p_run_android = run_sub.add_parser("android", help="Run on Android device")
+    _add_common_flags(p_run_android)
+    _add_android_flags(p_run_android)
+    p_run_android.set_defaults(func=cmd_run, platform="android")
+
+    # run emulator
+    p_run_emulator = run_sub.add_parser("emulator", help="Run on Android emulator")
+    _add_common_flags(p_run_emulator)
+    _add_android_flags(p_run_emulator)
+    p_run_emulator.add_argument("--avd", default=None,
+                                help=f"AVD name (default: {DEFAULT_AVD_NAME})")
+    p_run_emulator.set_defaults(func=cmd_run, platform="emulator")
+
+    # run ios
+    p_run_ios = run_sub.add_parser("ios", help="Run on iOS Simulator")
+    _add_common_flags(p_run_ios)
+    p_run_ios.set_defaults(func=cmd_run, platform="ios")
+
+    # --- studio ---
+    p_studio = sub.add_parser("studio", help="Launch Makepad Studio with havi workspace")
+    p_studio.add_argument("extra", nargs="*", help="Extra arguments")
+    p_studio.set_defaults(func=cmd_studio)
 
     args = parser.parse_args()
     return args.func(args)
