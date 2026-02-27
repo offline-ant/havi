@@ -6,15 +6,9 @@ use std::process::Command;
 fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os == "ios" {
-        // Compatibility stubs for iOS < 17:
-        // - JIT W^X: SpiderMonkey calls BrowserEngineKit symbols; we
-        //   provide them via pthread_jit_write_protect_np (iOS 14+).
-        // - libc++ __libcpp_verbose_abort: missing from older libc++.
-        //
-        // Always compiled so a single binary runs on iOS 15 through
-        // current.  On iOS 17+ the JIT stubs are harmless (same
-        // underlying primitive) and the libc++ stub is unused (the
-        // system dylib symbol wins via two-level namespacing).
+        // libc++ __libcpp_verbose_abort is missing from iOS 15's
+        // libc++.  Provide a fallback so a single binary runs on
+        // iOS 15 through current.
         cc::Build::new()
             .cpp(true)
             .file("ios_compat_stubs.cpp")
