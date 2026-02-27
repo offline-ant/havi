@@ -3936,6 +3936,7 @@ name = "havishell"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cc",
  "crossbeam-channel",
  "dpi",
  "env_logger",
@@ -6158,7 +6159,6 @@ dependencies = [
 [[package]]
 name = "mozjs"
 version = "0.15.2"
-source = "git+https://github.com/offline-ant/mozjs?branch=main#e04d8f5f573f5db1794abbae06d61a0b8aa74b2a"
 dependencies = [
  "bindgen",
  "cc",
@@ -6172,7 +6172,6 @@ dependencies = [
 [[package]]
 name = "mozjs_sys"
 version = "0.140.7-0"
-source = "git+https://github.com/offline-ant/mozjs?branch=main#e04d8f5f573f5db1794abbae06d61a0b8aa74b2a"
 dependencies = [
  "bindgen",
  "cc",
