@@ -1,11 +1,5 @@
 fn main() {
-    // Handle --version before Makepad takes over args.
-    if std::env::args().any(|a| a == "--version") {
-        println!("havi {} (havishell)", env!("CARGO_PKG_VERSION"),);
-        return;
-    }
-
-    // Parse HAVI-specific flags before Makepad takes over args.
+    // Parse args and extract argv0 basename for dispatch.
     let args: Vec<String> = std::env::args().collect();
     let argv0 = std::path::Path::new(args.first().map(|s| s.as_str()).unwrap_or("havi"))
         .file_name()
@@ -14,17 +8,12 @@ fn main() {
         .to_string();
 
     // argv0 self-name service dispatch: if invoked as managed service name,
-    // route directly through pylon dispatch.
+    // route directly through pylon dispatch. This must be first — before
+    // --version, flag parsing, or any GUI initialization — so that symlinks
+    // like `ln -s havi hpprd && ./hpprd` always take the pylon path.
     if pylon::catalog::service_from_argv0(&argv0).is_some() {
         env_logger::init();
         pylon::cli::main_with_argv(args);
-        return;
-    }
-
-    // Pylon subcommand: `havi pylon [args...]`
-    if args.get(1).map(|s| s.as_str()) == Some("pylon") {
-        env_logger::init();
-        pylon::cli::main(args[2..].to_vec());
         return;
     }
 
@@ -37,6 +26,19 @@ fn main() {
     {
         env_logger::init();
         pylon::cli::main(args[1..].to_vec());
+        return;
+    }
+
+    // Pylon subcommand: `havi pylon [args...]`
+    if args.get(1).map(|s| s.as_str()) == Some("pylon") {
+        env_logger::init();
+        pylon::cli::main(args[2..].to_vec());
+        return;
+    }
+
+    // Handle --version before Makepad takes over args.
+    if args.iter().any(|a| a == "--version") {
+        println!("havi {} (havishell)", env!("CARGO_PKG_VERSION"),);
         return;
     }
 

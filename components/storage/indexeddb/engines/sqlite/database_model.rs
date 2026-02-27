@@ -13,7 +13,7 @@ pub enum Column {
     Version,
 }
 
-#[expect(dead_code)]
+#[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Model {
     pub name: String,
