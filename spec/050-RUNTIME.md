@@ -15,12 +15,12 @@ Format:
 
 Startup flow:
 
-1. launch first tab on `havi:///loading`
+1. show native splash screen with logo and status
 2. start pylon/hpprd bootstrap in background
 3. HELLO to get home repo key
 4. load credentials for that key
 5. if missing, bootstrap with `ring0/init`
-6. navigate to the canonical startup URL
+6. hide splash screen, open first tab on `havi:///`
 
 Site credentials for route operations are cached in memory per group/app.
 

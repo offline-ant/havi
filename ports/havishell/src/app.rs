@@ -23,7 +23,7 @@ mod tabs;
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
 use pylon_menu::PylonStatus;
-use tabs::{HOME_URL, LOADING_URL, TabInfo, next_tab_live_id, title_from_url};
+use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
 
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
@@ -42,6 +42,7 @@ script_mod! {
 
                 pass.clear_color: vec4(1.0, 1.0, 1.0, 1.0)
                 body +: {
+                    flow: Overlay
                     main_layout := View{
                         width: Fill
                         height: Fill
@@ -239,21 +240,6 @@ script_mod! {
                         web_view := ServoWebView{
                             width: Fill
                             height: Fill
-                        }
-
-                        loading_overlay := View{
-                            visible: false
-                            width: Fill
-                            height: Fill
-                            show_bg: true
-                            draw_bg.color: #x00000022
-                            align: Align{x: 0.5, y: 0.5}
-
-                            loading_label := Label{
-                                text: "Starting pylon…"
-                                draw_text.color: #x333333
-                                draw_text.text_style.font_size: 12.0
-                            }
                         }
 
                         // Context menu overlay (starts off-screen; show_context_menu positions it)
@@ -471,6 +457,29 @@ script_mod! {
                         }
                     } // end content_area
                     } // end main_layout
+                    splash_screen := View{
+                        visible: true
+                        width: Fill
+                        height: Fill
+                        flow: Down
+                        align: Align{x: 0.5, y: 0.5}
+                        show_bg: true
+                        draw_bg.color: #xffffff
+
+                        splash_title := Label{
+                            text: "HAVI"
+                            draw_text.color: #x111111
+                            draw_text.text_style.font_size: 48.0
+                            align: Align{x: 0.5 y: 0.5}
+                        }
+                        splash_status := Label{
+                            text: "Starting…"
+                            draw_text.color: #x999999
+                            draw_text.text_style.font_size: 12.0
+                            margin: Inset{top: 16}
+                            align: Align{x: 0.5 y: 0.5}
+                        }
+                    }
                 }
             }
         }
@@ -825,6 +834,10 @@ pub struct App {
     /// Declared after `watch_pool` so watch tasks are aborted before runtime teardown.
     #[rust]
     havi_runtime: Option<tokio::runtime::Runtime>,
+
+    /// Timer for splash screen timeout (3 seconds max during pylon boot).
+    #[rust]
+    splash_timeout: Timer,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.

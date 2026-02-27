@@ -155,7 +155,7 @@ impl App {
         // Fallback target used locally until pylon/hpprd startup resolves.
 
         let pylon_mode = pylon_mode_from_env();
-        self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| HOME_URL.to_string());
+        self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());
         self.start_navigation_done = pylon_mode == PylonMode::None;
 
         // Startup state machine: Booting -> Ready/Failed.
@@ -351,37 +351,10 @@ impl App {
         servo.set_delegate(Rc::new(HaviServoDelegate));
         servo.setup_logging();
 
-        // Step 4: Create first WebView with proper HiDPI scale factor.
-        // During backend bootstrap, render the internal loading page first.
-        let initial_url_str = if pylon_mode == PylonMode::None {
-            self.start_url.clone()
-        } else {
-            LOADING_URL.to_string()
-        };
-        let url = servo::BrowserUrl::parse(&initial_url_str).unwrap();
-        let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
-            Scale::new(self.dpi_factor as f32);
-        let webview = servo::WebViewBuilder::new(&servo, rendering_context.clone())
-            .url(url)
-            .hidpi_scale_factor(hidpi)
-            .delegate(Rc::new(HaviWebViewDelegate))
-            .build();
-
-        let webview_id = webview.id();
-        self.tabs.push(TabInfo {
-            webview_id,
-            webview,
-            title: title_from_url(&initial_url_str),
-            url: initial_url_str.clone(),
-            widget_id: next_tab_live_id(),
-            watch: Default::default(),
-        });
-        self.active_tab_idx = 0;
-
         self.servo = Some(servo);
         self.rendering_context = Some(rendering_context);
 
-        // Step 5: Assign texture to the ServoWebView widget
+        // Step 4: Assign texture to the ServoWebView widget
         self.texture = Some(texture);
         if let Some(texture) = &self.texture {
             self.ui
@@ -389,10 +362,31 @@ impl App {
                 .set_texture(cx, Some(texture.clone()));
         }
 
-        // Set initial URL in the text input
-        self.ui
-            .text_input(cx, ids!(url_input))
-            .set_text(cx, &initial_url_str);
+        // Step 5: Create first WebView or show splash screen.
+        if pylon_mode == PylonMode::None {
+            // No pylon boot — create webview immediately, hide splash.
+            let initial_url_str = self.start_url.clone();
+            if let Some(webview) = self.create_webview(&initial_url_str) {
+                let webview_id = webview.id();
+                self.tabs.push(TabInfo {
+                    webview_id,
+                    webview,
+                    title: title_from_url(&initial_url_str),
+                    url: initial_url_str.clone(),
+                    widget_id: next_tab_live_id(),
+                    watch: Default::default(),
+                });
+                self.active_tab_idx = 0;
+            }
+            self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
+            self.ui
+                .text_input(cx, ids!(url_input))
+                .set_text(cx, &self.start_url);
+        } else {
+            // Pylon booting — show splash screen, start 3s timeout.
+            self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);
+            self.splash_timeout = cx.start_timeout(3.0);
+        }
 
         // Set initial pylon dot state.
         if pylon_mode == PylonMode::None {

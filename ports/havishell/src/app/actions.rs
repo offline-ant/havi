@@ -54,11 +54,32 @@ impl App {
         self.start_navigation_done = true;
         self.scroll_y_estimate = 0.0;
         self.content_height_estimate = 0.0;
-        self.navigate(&self.start_url);
-        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-            tab.url = self.start_url.clone();
-            tab.title = title_from_url(&self.start_url);
+
+        // Create the first webview if none exists yet (splash screen path).
+        if self.tabs.is_empty() {
+            if let Some(webview) = self.create_webview(&self.start_url) {
+                let webview_id = webview.id();
+                self.tabs.push(TabInfo {
+                    webview_id,
+                    webview,
+                    title: title_from_url(&self.start_url),
+                    url: self.start_url.clone(),
+                    widget_id: next_tab_live_id(),
+                    watch: Default::default(),
+                });
+                self.active_tab_idx = 0;
+                self.activate_tab_webview(0);
+            }
+        } else {
+            self.navigate(&self.start_url);
+            if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+                tab.url = self.start_url.clone();
+                tab.title = title_from_url(&self.start_url);
+            }
         }
+
+        // Hide splash screen, show chrome.
+        self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, &self.start_url);
@@ -497,6 +518,22 @@ impl AppMain for App {
                         self.complete_startup_navigation(cx);
                     }
                 }
+                self.needs_paint = true;
+                self.idle_frames = 0;
+                self.next_frame = cx.new_next_frame();
+                cx.redraw_all();
+            }
+        }
+
+        // Handle splash screen timeout (3s max).
+        if self.splash_timeout.is_event(event).is_some() {
+            self.splash_timeout = Timer::empty();
+            if !self.start_navigation_done {
+                if self.startup_state == StartupState::Booting {
+                    self.startup_state = StartupState::Failed;
+                    eprintln!("[havi] splash timeout: pylon did not finish in 3s, proceeding");
+                }
+                self.complete_startup_navigation(cx);
                 self.needs_paint = true;
                 self.idle_frames = 0;
                 self.next_frame = cx.new_next_frame();

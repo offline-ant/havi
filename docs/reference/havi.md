@@ -10,7 +10,7 @@ Launches the HAVI browser.
 
 - `URL` may be any HAVI-supported scheme (`hppr://`, `hppr-setup://`,
   `hppr-sandbox://`, `hppr-browse://`, `hppr-editor://`, `havi://`).
-- If `URL` is omitted, HAVI opens `havi:///overview`.
+- If `URL` is omitted, HAVI opens `havi:///`.
 
 If another HAVI instance is already running, sends the URL to it via IPC
 and exits.
