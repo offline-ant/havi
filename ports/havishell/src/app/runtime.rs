@@ -28,6 +28,14 @@ fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::cgl::CglDisp
     }
 }
 
+#[cfg(target_os = "ios")]
+fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::eagl::EaglDisplayInfo {
+    servo::gl_device::eagl::EaglDisplayInfo {
+        share_context: bridge.eagl_context(),
+        opengles_framework: bridge.opengles_framework(),
+    }
+}
+
 /// Create the GL render bridge, shared texture, and rendering context.
 /// Unified path for all platforms via makepad's GlRenderBridge.
 fn create_rendering_context(
@@ -43,10 +51,7 @@ fn create_rendering_context(
     let (texture, gl_texture_id) =
         cx.create_gl_render_bridge_texture(&bridge, size.width as usize, size.height as usize);
 
-    #[cfg(not(target_os = "ios"))]
     let display_info = Some(build_display_info(&bridge));
-    #[cfg(target_os = "ios")]
-    let display_info = None;
 
     let gl_api = match bridge.gl_api() {
         GlApi::GL => servo::gl_device::GlApi::GL,

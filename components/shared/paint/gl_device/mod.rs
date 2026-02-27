@@ -16,10 +16,12 @@ use std::rc::Rc;
 use euclid::default::Size2D;
 use glow::{self as gl, HasContext};
 
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
 pub mod egl;
 #[cfg(target_os = "macos")]
 pub mod cgl;
+#[cfg(target_os = "ios")]
+pub mod eagl;
 
 pub mod surface;
 pub mod swap_chain;
@@ -61,20 +63,24 @@ pub struct GlSurfaceInfo {
 }
 
 /// Platform display info for creating a GlDevice.
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
 pub type GlDisplayInfo = egl::EglDisplayInfo;
 #[cfg(target_os = "macos")]
 pub type GlDisplayInfo = cgl::CglDisplayInfo;
+#[cfg(target_os = "ios")]
+pub type GlDisplayInfo = eagl::EaglDisplayInfo;
 
 /// Cross-platform GL device. Manages context creation and surface operations.
 ///
 /// All GL contexts created by a single `GlDevice` share a texture namespace,
 /// enabling cross-context texture sampling (e.g. WebGL → WebRender compositor).
 pub struct GlDevice {
-    #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
     backend: egl::EglBackend,
     #[cfg(target_os = "macos")]
     backend: cgl::CglBackend,
+    #[cfg(target_os = "ios")]
+    backend: eagl::EaglBackend,
 }
 
 /// An opaque GL context handle.
@@ -93,10 +99,12 @@ impl GlDevice {
     /// Create a device from platform display info.
     pub fn new(info: &GlDisplayInfo) -> Self {
         GlDevice {
-            #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "ios"))]
+            #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
             backend: egl::EglBackend::new(info),
             #[cfg(target_os = "macos")]
             backend: cgl::CglBackend::new(info),
+            #[cfg(target_os = "ios")]
+            backend: eagl::EaglBackend::new(info),
         }
     }
 
