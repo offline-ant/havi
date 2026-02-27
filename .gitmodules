@@ -1,3 +1,0 @@
-[submodule "vendor/mozjs"]
-	path = vendor/mozjs
-	url = /Users/claude/Projects/git/mozjs.git

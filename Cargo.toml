@@ -37,7 +37,6 @@ app_units = "0.7"
 arboard = "3"
 argon2 = { version = "0.5", features = ["alloc"] }
 arrayvec = "0.7"
-async-tungstenite = { version = "0.32", features = ["tokio-rustls-webpki-roots"] }
 atomic_refcell = "0.1.13"
 aws-lc-rs = { version = "1.16", default-features = false, features = ["aws-lc-sys"] }
 background_hang_monitor_api = { path = "components/shared/background_hang_monitor" }
@@ -113,7 +112,6 @@ html5ever = "0.38"
 http = "1.4"
 http-body-util = "0.1"
 hyper = "1.8"
-hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "logging", "tls12", "webpki-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio", "client-proxy"] }
 hyper_serde = { path = "components/hyper_serde" }
 icu_locid = "1.5.0"
@@ -173,11 +171,10 @@ rayon = "1"
 read-fonts = "0.35.0"
 regex = "1.12"
 resvg = "0.47.0"
+ring = "0.17"
 rsa = { version = "0.9.10", features = ["sha1", "sha2"] }
 rustc-hash = "2.1.1"
-rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"] }
-rustls-pki-types = "1.14"
-rustls-platform-verifier = "0.6.2"
+
 script_traits = { path = "components/shared/script" }
 sea-query = { version = "1.0.0-rc.31", default-features = false, features = ["backend-sqlite", "derive"] }
 sea-query-rusqlite = { version = "0.8.0-rc.15" }
@@ -214,14 +211,12 @@ tikv-jemalloc-sys = "0.6.1"
 tikv-jemallocator = "0.6.1"
 time = { package = "time", version = "0.3", features = ["large-dates", "local-offset", "serde"] }
 tokio = "1"
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7.18", default-features = false }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 tracing = "0.1.44"
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3.22"
-tungstenite = "0.28"
 unicode-bidi = "0.3.18"
 unicode-properties = { version = "0.1.4", features = ["emoji"] }
 unicode-script = "0.5"
@@ -234,7 +229,6 @@ vello = "0.6"
 vello_cpu = "0.0.4"
 webdriver = "0.53.0"
 webgpu_traits = { path = "components/shared/webgpu" }
-webpki-roots = "1.0"
 webrender = { version = "0.68", features = ["capture"] }
 webrender_api = "0.68"
 webxr-api = { path = "components/shared/webxr" }
@@ -316,8 +310,8 @@ codegen-units = 1
 
 [patch.crates-io]
 svgtypes = { path = "components/vendored/svgtypes" }
-mozjs = { path = "vendor/mozjs/mozjs" }
-mozjs_sys = { path = "vendor/mozjs/mozjs-sys" }
+mozjs = { git = "ssh://claude@mac/Projects/git/mozjs.git", branch = "main" }
+mozjs_sys = { git = "ssh://claude@mac/Projects/git/mozjs.git", branch = "main" }
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #
