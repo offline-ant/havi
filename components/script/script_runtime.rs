@@ -1046,7 +1046,9 @@ pub struct JSEngineSetup(JSEngine);
 
 impl Default for JSEngineSetup {
     fn default() -> Self {
-        let engine = JSEngine::init().unwrap();
+        let engine = JSEngine::init().unwrap_or_else(|e| {
+            panic!("JSEngine::init failed: {:?}", e);
+        });
         *JS_ENGINE.lock().unwrap() = Some(engine.handle());
         Self(engine)
     }

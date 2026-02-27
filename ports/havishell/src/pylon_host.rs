@@ -1,4 +1,4 @@
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 use anyhow::anyhow;
 
 /// Pylon host startup mode for desktop targets.
@@ -14,24 +14,24 @@ pub enum PylonHostMode {
 ///
 /// Host startup policy:
 /// - desktop targets: process-host startup (`pylon` binary, optional self-exec fallback)
-/// - android target: inline host startup (spawn pylon in-process on a thread)
+/// - android/ios target: inline host startup (spawn pylon in-process on a thread)
 pub fn ensure_pylon(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
     host_mode: PylonHostMode,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         return ensure_pylon_inline_host(repo_dir, home_addr);
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         ensure_pylon_process_host(repo_dir, home_addr, host_mode)
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn ensure_pylon_process_host(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
@@ -49,7 +49,7 @@ fn ensure_pylon_process_host(
     )
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn ensure_pylon_inline_host(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
@@ -70,7 +70,7 @@ fn ensure_pylon_inline_host(
         let repo_dir = repo_dir.to_path_buf();
         let home_addr = home_addr.map(|s| s.to_string());
         std::thread::spawn(move || {
-            let runtime = tokio::runtime::Runtime::new().expect("android pylon runtime");
+            let runtime = tokio::runtime::Runtime::new().expect("inline pylon runtime");
             let pylon_mode = if let Some(hpprd_addr) = home_addr {
                 pylon::PylonMode::Remote { hpprd_addr }
             } else {
@@ -89,6 +89,6 @@ fn ensure_pylon_inline_host(
         std::thread::sleep(std::time::Duration::from_millis(CONNECT_RETRY_DELAY_MS));
     }
 
-    Err(anyhow!("android pylon thread did not become reachable"))
-        .context("failed to initialize pylon control plane on android")
+    Err(anyhow!("inline pylon thread did not become reachable"))
+        .context("failed to initialize pylon control plane (inline host)")
 }
