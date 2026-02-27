@@ -1,0 +1,3 @@
+[submodule "vendor/mozjs"]
+	path = vendor/mozjs
+	url = ../../mozjs
