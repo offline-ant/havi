@@ -44,7 +44,7 @@ impl ProtocolHandler for HaviHandler {
     }
 
     fn is_fetchable(&self) -> bool {
-        false
+        true
     }
 
     fn is_secure(&self) -> bool {

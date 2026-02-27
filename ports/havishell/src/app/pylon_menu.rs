@@ -136,7 +136,7 @@ fn compute_health(services: &[PylonServiceInfo]) -> PylonHealth {
 const DOT_GREEN: [f32; 4] = [0.267, 0.733, 0.267, 1.0]; // #44bb44
 const DOT_ORANGE: [f32; 4] = [0.867, 0.533, 0.0, 1.0]; // #dd8800
 const DOT_RED: [f32; 4] = [0.867, 0.2, 0.2, 1.0]; // #dd3333
-const MENU_WIDTH: f64 = 240.0;
+const MENU_WIDTH: f64 = 200.0;
 
 impl App {
     /// Set the pylon dot color based on current health.

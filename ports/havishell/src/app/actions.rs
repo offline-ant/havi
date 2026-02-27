@@ -253,6 +253,10 @@ impl MatchEvent for App {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "unmount", None, None);
         }
+        if self.ui.button(cx, ids!(pylon_services_btn)).clicked(actions) {
+            self.hide_pylon_menu(cx);
+            nav_action = Some(NavCommand::Navigate("havi:///services".into()));
+        }
         if self.ui.button(cx, ids!(pylon_shutdown_btn)).clicked(actions) {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "shutdown", None, None);

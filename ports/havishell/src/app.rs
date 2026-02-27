@@ -292,10 +292,10 @@ script_mod! {
                         pylon_menu := View{
                             visible: false
                             abs_pos: vec2(-1000.0, -1000.0)
-                            width: 240 height: Fit
+                            width: 200 height: Fit
                             flow: Down
-                            padding: Inset{left: 8 right: 8 top: 6 bottom: 6}
-                            spacing: 2
+                            padding: Inset{left: 6 right: 6 top: 4 bottom: 4}
+                            spacing: 1
                             show_bg: true
                             draw_bg +: {
                                 color: uniform(#xffffff)
@@ -313,146 +313,97 @@ script_mod! {
                             pylon_menu_header := Label{
                                 text: "Pylon"
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
+                                draw_text.text_style.font_size: 10.0
                                 width: Fill height: Fit
-                                margin: Inset{left: 0 right: 0 top: 0 bottom: 4}
+                                margin: Inset{left: 0 right: 0 top: 0 bottom: 2}
                             }
 
                             pylon_menu_services := Label{
                                 text: ""
                                 draw_text.color: #x333333
-                                draw_text.text_style.font_size: 10.0
+                                draw_text.text_style.font_size: 9.0
                                 width: Fill height: Fit
-                                margin: Inset{left: 0 right: 0 top: 0 bottom: 4}
+                                margin: Inset{left: 0 right: 0 top: 0 bottom: 2}
                             }
 
                             pylon_hpprd_start_btn := Button{
                                 visible: false
                                 text: "Start hpprd"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
                             pylon_hpprd_stop_btn := Button{
                                 visible: false
                                 text: "Stop hpprd"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
-
                             pylon_nfs_start_btn := Button{
                                 visible: false
                                 text: "Start NFS"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
                             pylon_nfs_stop_btn := Button{
                                 visible: false
                                 text: "Stop NFS"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
-
                             pylon_mount_btn := Button{
                                 visible: false
                                 text: "Mount"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
                             pylon_unmount_btn := Button{
                                 visible: false
                                 text: "Unmount"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #x111111
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xe8e8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
-
+                            pylon_services_btn := Button{
+                                text: "Services page"
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+                                margin: Inset{left: 0 right: 0 top: 2 bottom: 0}
+                                draw_text.color: #x111111
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+                            }
                             pylon_shutdown_btn := Button{
-                                text: "Shutdown pylon"
-                                width: Fill height: 28
-                                padding: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                text: "Shutdown"
+                                width: Fill height: 22
+                                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
                                 draw_text.color: #xcc3333
-                                draw_text.text_style.font_size: 11.0
-                                draw_bg +: {
-                                    color: uniform(#xf5f5f5)
-                                    color_hover: uniform(#xfce8e8)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
-                                }
+                                draw_text.text_style.font_size: 10.0
+                                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xfce8e8)
+                                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
                             }
                         }
                     } // end content_area
