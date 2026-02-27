@@ -3084,16 +3084,7 @@ impl WebGLRenderingContextMethods<crate::DomTypeHolder> for WebGLRenderingContex
     /// <https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.9>
     fn CompileShader(&self, shader: &WebGLShader) {
         handle_potential_webgl_error!(self, self.validate_ownership(shader), return);
-        handle_potential_webgl_error!(
-            self,
-            shader.compile(
-                self.api_type,
-                self.webgl_version,
-                self.glsl_version,
-                &self.limits,
-                &self.extension_manager,
-            )
-        )
+        handle_potential_webgl_error!(self, shader.compile())
     }
 
     /// <https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.5>

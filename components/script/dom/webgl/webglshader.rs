@@ -4,26 +4,17 @@
 
 // https://www.khronos.org/registry/webgl/specs/latest/1.0/webgl.idl
 use std::cell::Cell;
-use std::os::raw::c_int;
-use std::sync::Once;
 
 use canvas_traits::webgl::{
-    GLLimits, GlType, WebGLCommand, WebGLError, WebGLResult, WebGLSLVersion, WebGLShaderId,
-    WebGLVersion, webgl_channel,
+    WebGLCommand, WebGLError, WebGLResult, WebGLShaderId, webgl_channel,
 };
 use dom_struct::dom_struct;
-#[cfg(not(target_os = "ios"))]
-use mozangle::shaders::{BuiltInResources, CompileOptions, Output, ShaderValidator};
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::reflector::{DomGlobal, reflect_dom_object};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
-use crate::dom::webgl::extensions::WebGLExtensions;
-use crate::dom::webgl::extensions::extfragdepth::EXTFragDepth;
-use crate::dom::webgl::extensions::extshadertexturelod::EXTShaderTextureLod;
-use crate::dom::webgl::extensions::oesstandardderivatives::OESStandardDerivatives;
 use crate::dom::webgl::webglobject::WebGLObject;
 use crate::dom::webgl::webglrenderingcontext::{Operation, WebGLRenderingContext};
 use crate::script_runtime::CanGc;
@@ -48,12 +39,8 @@ pub(crate) struct WebGLShader {
     compilation_status: Cell<ShaderCompilationStatus>,
 }
 
-static GLSLANG_INITIALIZATION: Once = Once::new();
-
 impl WebGLShader {
     fn new_inherited(context: &WebGLRenderingContext, id: WebGLShaderId, shader_type: u32) -> Self {
-        #[cfg(not(target_os = "ios"))]
-        GLSLANG_INITIALIZATION.call_once(|| ::mozangle::shaders::initialize().unwrap());
         Self {
             webgl_object: WebGLObject::new_inherited(context),
             id,
@@ -102,14 +89,11 @@ impl WebGLShader {
     }
 
     /// glCompileShader
-    pub(crate) fn compile(
-        &self,
-        api_type: GlType,
-        webgl_version: WebGLVersion,
-        glsl_version: WebGLSLVersion,
-        limits: &GLLimits,
-        ext: &WebGLExtensions,
-    ) -> WebGLResult<()> {
+    ///
+    /// Sends shader source directly to the GPU driver for compilation.
+    /// Makepad provides the GL context on all platforms; the driver handles
+    /// GLSL validation and compilation.
+    pub(crate) fn compile(&self) -> WebGLResult<()> {
         if self.marked_for_deletion.get() && !self.is_attached() {
             return Err(WebGLError::InvalidValue);
         }
@@ -118,129 +102,11 @@ impl WebGLShader {
         }
 
         let source = self.source.borrow();
-
-        #[cfg(target_os = "ios")]
-        {
-            self.upcast()
-                .send_command(WebGLCommand::CompileShader(self.id, source.str().to_string()));
-            self.compilation_status
-                .set(ShaderCompilationStatus::Succeeded);
-            *self.info_log.borrow_mut() = "".into();
-            return Ok(());
-        }
-
-        #[cfg(not(target_os = "ios"))]
-        {
-        let mut params = BuiltInResources {
-            MaxVertexAttribs: limits.max_vertex_attribs as c_int,
-            MaxVertexUniformVectors: limits.max_vertex_uniform_vectors as c_int,
-            MaxVertexTextureImageUnits: limits.max_vertex_texture_image_units as c_int,
-            MaxCombinedTextureImageUnits: limits.max_combined_texture_image_units as c_int,
-            MaxTextureImageUnits: limits.max_texture_image_units as c_int,
-            MaxFragmentUniformVectors: limits.max_fragment_uniform_vectors as c_int,
-
-            MaxVertexOutputVectors: limits.max_vertex_output_vectors as c_int,
-            MaxFragmentInputVectors: limits.max_fragment_input_vectors as c_int,
-            MaxVaryingVectors: limits.max_varying_vectors as c_int,
-
-            OES_standard_derivatives: ext.is_enabled::<OESStandardDerivatives>() as c_int,
-            EXT_shader_texture_lod: ext.is_enabled::<EXTShaderTextureLod>() as c_int,
-            EXT_frag_depth: ext.is_enabled::<EXTFragDepth>() as c_int,
-
-            FragmentPrecisionHigh: 1,
-            ..Default::default()
-        };
-
-        if webgl_version == WebGLVersion::WebGL2 {
-            params.MinProgramTexelOffset = limits.min_program_texel_offset as c_int;
-            params.MaxProgramTexelOffset = limits.max_program_texel_offset as c_int;
-            params.MaxDrawBuffers = limits.max_draw_buffers as c_int;
-        }
-
-        let validator = match webgl_version {
-            WebGLVersion::WebGL1 => {
-                let output_format = if api_type == GlType::Gles {
-                    Output::Essl
-                } else {
-                    Output::Glsl
-                };
-                ShaderValidator::for_webgl(self.gl_type, output_format, &params).unwrap()
-            },
-            WebGLVersion::WebGL2 => {
-                let output_format = if api_type == GlType::Gles {
-                    Output::Essl
-                } else {
-                    match (glsl_version.major, glsl_version.minor) {
-                        (1, 30) => Output::Glsl130,
-                        (1, 40) => Output::Glsl140,
-                        (1, 50) => Output::Glsl150Core,
-                        (3, 30) => Output::Glsl330Core,
-                        (4, 0) => Output::Glsl400Core,
-                        (4, 10) => Output::Glsl410Core,
-                        (4, 20) => Output::Glsl420Core,
-                        (4, 30) => Output::Glsl430Core,
-                        (4, 40) => Output::Glsl440Core,
-                        (4, _) => Output::Glsl450Core,
-                        _ => Output::Glsl140,
-                    }
-                };
-                ShaderValidator::for_webgl2(self.gl_type, output_format, &params).unwrap()
-            },
-        };
-
-        // Replicating
-        // https://searchfox.org/mozilla-esr115/rev/f1fb0868dc63b89ccf9eea157960d1ec27fb55a2/dom/canvas/WebGLShaderValidator.cpp#29
-        let mut options = CompileOptions::mozangle();
-        options.set_variables(1);
-        options.set_enforcePackingRestrictions(1);
-        options.set_objectCode(1);
-        options.set_initGLPosition(1);
-        options.set_initializeUninitializedLocals(1);
-        options.set_initOutputVariables(1);
-
-        options.set_limitExpressionComplexity(1);
-        options.set_limitCallStackDepth(1);
-
-        if cfg!(target_os = "macos") {
-            options.set_removeInvariantAndCentroidForESSL3(1);
-
-            // Work around https://bugs.webkit.org/show_bug.cgi?id=124684,
-            // https://chromium.googlesource.com/angle/angle/+/5e70cf9d0b1bb
-            options.set_unfoldShortCircuit(1);
-            // Work around that Mac drivers handle struct scopes incorrectly.
-            options.set_regenerateStructNames(1);
-            // TODO: Only apply this workaround to Intel hardware
-            // Work around that Intel drivers on Mac OSX handle for-loop incorrectly.
-            options.set_addAndTrueToLoopCondition(1);
-            options.set_rewriteTexelFetchOffsetToTexelFetch(1);
-        } else {
-            // We want to do this everywhere, but to do this on Mac, we need
-            // to do it only on Mac OSX > 10.6 as this causes the shader
-            // compiler in 10.6 to crash
-            options.set_clampIndirectArrayBounds(1);
-        }
-
-        match validator.compile(&[&source.str()], options) {
-            Ok(()) => {
-                let translated_source = validator.object_code();
-                debug!("Shader translated: {}", translated_source);
-                // NOTE: At this point we should be pretty sure that the compilation in the paint thread
-                // will succeed.
-                // It could be interesting to retrieve the info log from the paint thread though
-                self.upcast()
-                    .send_command(WebGLCommand::CompileShader(self.id, translated_source));
-                self.compilation_status
-                    .set(ShaderCompilationStatus::Succeeded);
-            },
-            Err(error) => {
-                self.compilation_status.set(ShaderCompilationStatus::Failed);
-                debug!("Shader {} compilation failed: {}", self.id, error);
-            },
-        }
-
-        *self.info_log.borrow_mut() = validator.info_log().into();
-        }
-
+        self.upcast()
+            .send_command(WebGLCommand::CompileShader(self.id, source.str().to_string()));
+        self.compilation_status
+            .set(ShaderCompilationStatus::Succeeded);
+        *self.info_log.borrow_mut() = "".into();
         Ok(())
     }
 
