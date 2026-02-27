@@ -4143,6 +4143,7 @@ name = "hppr-nat"
 version = "0.1.0"
 dependencies = [
  "crab_nat",
+ "serde",
  "serde_json",
  "tokio",
 ]

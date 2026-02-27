@@ -170,21 +170,66 @@
     function renderNat(status) {
         const nat = status['hppr-nat'] || {};
         const state = String(nat.state || 'unknown');
-        const gateway = nat.gateway ? String(nat.gateway) : '-';
-        const extIp = nat.external_ip ? String(nat.external_ip) : '-';
-        const proto = nat.protocol ? String(nat.protocol) : '-';
         const mappings = Array.isArray(nat.mappings) ? nat.mappings : [];
 
-        let html = '';
-        html += '<div class="muted">state=' + state + ' gateway=' + gateway + ' external_ip=' + extIp + ' protocol=' + proto + '</div>';
+        // Gateway is now a structured object {ip, local_ip, interface, source, metric}.
+        const gw = nat.gateway || {};
+        const gwIp = gw.ip ? String(gw.ip) : '-';
+        const gwIface = gw.interface ? String(gw.interface) : '';
+        const gwSource = gw.source ? String(gw.source) : '';
+        const localIp = gw.local_ip ? String(gw.local_ip) : '-';
+
+        // External IP is {ip, source} or null.
+        const ext = nat.external_ip || {};
+        const extIp = ext.ip ? String(ext.ip) : '-';
+        const extSource = ext.source ? String(ext.source) : '';
+
+        const proto = nat.protocol ? String(nat.protocol) : 'none';
+        const probeErr = nat.nat_probe_error ? String(nat.nat_probe_error) : '';
+        const warnings = Array.isArray(nat.warnings) ? nat.warnings : [];
+
+        // Alternative gateways.
+        const gateways = Array.isArray(nat.gateways) ? nat.gateways : [];
+
+        let html = '<div class="status">';
+        html += '<div class="status-item"><div class="status-value">' + state + '</div><div class="status-label">State</div></div>';
+        html += '<div class="status-item"><div class="status-value">' + extIp + '</div><div class="status-label">Public IP' + (extSource ? ' (' + extSource + ')' : '') + '</div></div>';
+        html += '<div class="status-item"><div class="status-value">' + localIp + '</div><div class="status-label">Local IP</div></div>';
+        html += '<div class="status-item"><div class="status-value">' + proto + '</div><div class="status-label">NAT Protocol</div></div>';
+        html += '</div>';
+
+        // Gateway detail.
+        html += '<p class="muted">Gateway: ' + gwIp;
+        if (gwIface) html += ' on ' + gwIface;
+        if (gwSource) html += ' (' + gwSource + ')';
+        html += '</p>';
+
+        // Warnings and probe errors.
+        if (probeErr) {
+            html += '<p class="muted" style="color: var(--orange, #dd8800);">NAT probe: ' + probeErr + '</p>';
+        }
+        for (const w of warnings) {
+            html += '<p class="muted" style="color: var(--orange, #dd8800);">⚠ ' + w + '</p>';
+        }
+
+        // Alternative gateways (if more than 1).
+        if (gateways.length > 1) {
+            html += '<details><summary class="muted">All detected gateways (' + gateways.length + ')</summary>';
+            for (const g of gateways) {
+                html += '<div class="muted" style="padding-left: 16px;">' + String(g.ip || '-') + ' on ' + String(g.interface || '-') + ' (' + String(g.source || '-') + ', metric ' + String(g.metric || '-') + ', local ' + String(g.local_ip || '-') + ')</div>';
+            }
+            html += '</details>';
+        }
+
+        // Mappings.
         if (mappings.length === 0) {
-            html += '<p class="empty">No mappings</p>';
+            html += '<p class="empty">No port mappings</p>';
         } else {
             for (const mapping of mappings) {
                 const port = String(mapping.port || '-');
                 const mapProto = String(mapping.proto || '-');
                 const extPort = mapping.external_port ? String(mapping.external_port) : '-';
-                html += '<div class="list-item"><div><span class="name">' + port + '/' + mapProto + '</span> <span class="muted">→ ' + extPort + '</span></div></div>';
+                html += '<div class="list-item"><div><span class="name">' + port + '/' + mapProto + '</span> <span class="muted">→ :' + extPort + '</span></div></div>';
             }
         }
         natNode.innerHTML = html;
