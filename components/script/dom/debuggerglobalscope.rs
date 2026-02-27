@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::borrow::Cow;
 use std::cell::RefCell;
 
 use base::generic_channel::{GenericCallback, GenericSender, channel};
@@ -12,8 +11,8 @@ use devtools_traits::{
     DevtoolScriptControlMsg, EvaluateJSReply, ScriptToDevtoolsControlMsg, SourceInfo, WorkerId,
 };
 use dom_struct::dom_struct;
+use embedder_traits::ScriptToEmbedderChan;
 use embedder_traits::resources::{self, Resource};
-use embedder_traits::{JavaScriptEvaluationError, ScriptToEmbedderChan};
 use js::context::JSContext;
 use js::jsval::UndefinedValue;
 use js::rust::wrappers2::JS_DefineDebuggerObject;
@@ -24,7 +23,6 @@ use script_bindings::codegen::GenericBindings::DebuggerGetPossibleBreakpointsEve
 use script_bindings::codegen::GenericBindings::DebuggerGlobalScopeBinding::{
     DebuggerGlobalScopeMethods, NotifyNewSource, PipelineIdInit,
 };
-use script_bindings::realms::InRealm;
 use script_bindings::reflector::DomObject;
 use script_bindings::str::DOMString;
 use servo_url::{ImmutableOrigin, MutableOrigin, ServoUrl};
@@ -34,7 +32,6 @@ use crate::dom::bindings::codegen::Bindings::DebuggerGlobalScopeBinding;
 use crate::dom::bindings::codegen::Bindings::DebuggerInterruptEventBinding::{
     FrameInfo, PauseReason,
 };
-use crate::dom::bindings::error::report_pending_exception;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::utils::define_all_exposed_interfaces;
@@ -129,34 +126,18 @@ impl DebuggerGlobalScope {
         self.upcast::<GlobalScope>()
     }
 
-    fn evaluate_js(
-        &self,
-        script: Cow<'_, str>,
-        cx: &mut JSContext,
-    ) -> Result<(), JavaScriptEvaluationError> {
+    pub(crate) fn execute(&self, cx: &mut JSContext) {
+        let mut realm = enter_auto_realm(cx, self);
+        let cx = &mut realm.current_realm();
+
         rooted!(&in(cx) let mut rval = UndefinedValue());
-        self.global_scope.evaluate_js_on_global(
-            script,
+        let _ = self.global_scope.evaluate_js_on_global(
+            cx,
+            resources::read_string(Resource::DebuggerJS).into(),
             "",
             None,
             rval.handle_mut(),
-            CanGc::from_cx(cx),
-        )
-    }
-
-    pub(crate) fn execute(&self, cx: &mut JSContext) {
-        if self
-            .evaluate_js(resources::read_string(Resource::DebuggerJS).into(), cx)
-            .is_err()
-        {
-            let mut realm = enter_auto_realm(cx, self);
-            let mut realm = realm.current_realm();
-            let in_realm_proof = (&mut realm).into();
-            let in_realm = InRealm::Already(&in_realm_proof);
-
-            let cx = &mut realm;
-            report_pending_exception(cx.into(), true, in_realm, CanGc::from_cx(cx));
-        }
+        );
     }
 
     pub(crate) fn fire_add_debuggee(
