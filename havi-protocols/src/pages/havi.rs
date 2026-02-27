@@ -596,10 +596,6 @@ fn render_services_page() -> String {
                 <div class="status-label">Connection</div>
             </div>
         </div>
-    </div>
-
-    <div class="card">
-        <h2>Services</h2>
         <p class="muted">Manage hpprd, hppr-nat, lokid, unlokid, hppr-nfs, hppr-fuse.</p>
         <div id="servicesList"><p class="empty">Loading...</p></div>
     </div>
@@ -614,6 +610,11 @@ fn render_services_page() -> String {
     </div>
 
     <div class="card">
+        <h2>NAT Runtime</h2>
+        <div id="natInfo"><p class="empty">Loading...</p></div>
+    </div>
+
+    <div class="card">
         <h2>Mounts</h2>
         <div id="mountsList"><p class="empty">Loading...</p></div>
         <div class="inline-row">
@@ -623,11 +624,6 @@ fn render_services_page() -> String {
             <label><input type="checkbox" id="mountRw"> rw</label>
             <button onclick="createMount()">Mount</button>
         </div>
-    </div>
-
-    <div class="card">
-        <h2>NAT Runtime</h2>
-        <div id="natInfo"><p class="empty">Loading...</p></div>
     </div>
 
     <p><button onclick="loadStatus()" class="secondary">Refresh</button></p>
