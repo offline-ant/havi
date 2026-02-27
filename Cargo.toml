@@ -310,8 +310,8 @@ codegen-units = 1
 
 [patch.crates-io]
 svgtypes = { path = "components/vendored/svgtypes" }
-mozjs = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
-mozjs_sys = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
+mozjs = { path = "/Users/claude/Projects/mozjs/mozjs" }
+mozjs_sys = { path = "/Users/claude/Projects/mozjs/mozjs-sys" }
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #
