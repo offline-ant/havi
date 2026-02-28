@@ -789,6 +789,11 @@ def _build_android(args: argparse.Namespace) -> int:
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
 
+def _ios_no_jit_flags() -> list[str]:
+    """Build havishell for iOS without JS JIT (required on-device)."""
+    return ["--no-default-features", "--features", "embedded-services,max_log_level"]
+
+
 def _build_ios(args: argparse.Namespace) -> int:
     cmd = _cargo_makepad_ios_cmd(
         cert=getattr(args, "cert", None),
@@ -797,6 +802,7 @@ def _build_ios(args: argparse.Namespace) -> int:
     )
     cmd.append("build")
     cmd.extend(["-p", "havishell"])
+    cmd.extend(_ios_no_jit_flags())
     if args.release:
         cmd.append("--release")
     extra = getattr(args, "extra", None)
@@ -931,6 +937,11 @@ def _run_emulator(args: argparse.Namespace) -> int:
 
 def _run_ios(args: argparse.Namespace) -> int:
     device = getattr(args, "device", False)
+    # Default to device mode when env.ios has a device configured.
+    if not device:
+        ios_env = _load_ios_env()
+        if ios_env.get("device"):
+            device = True
     cmd = _cargo_makepad_ios_cmd(
         cert=getattr(args, "cert", None),
         profile=getattr(args, "profile", None),
@@ -938,6 +949,7 @@ def _run_ios(args: argparse.Namespace) -> int:
     )
     cmd.append("run-device" if device else "run-sim")
     cmd.extend(["-p", "havishell"])
+    cmd.extend(_ios_no_jit_flags())
     if args.release:
         cmd.append("--release")
     extra = getattr(args, "extra", None)

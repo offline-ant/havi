@@ -51,6 +51,7 @@ impl App {
         if self.start_navigation_done {
             return;
         }
+        log!("[havishell] complete_startup_navigation: url={}", self.start_url);
         self.start_navigation_done = true;
         self.scroll_y_estimate = 0.0;
         self.content_height_estimate = 0.0;

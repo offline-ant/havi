@@ -14,7 +14,7 @@ name = "havi"
 path = "src/main.rs"
 
 [features]
-default = ["js_jit", "max_log_level", "embedded-services"]
+default = ["max_log_level", "embedded-services"]
 embedded-services = ["pylon/embedded-services"]
 crown = ["libservo/crown"]
 debugmozjs = ["libservo/debugmozjs"]

@@ -101,7 +101,7 @@ impl App {
 
         self.initialized = true;
         self.dpi_factor = dpi_factor;
-        log!("[havishell] init_servo: dpi={} size={}x{}", dpi_factor, inner.x, inner.y);
+        log!("[havishell] init_servo: dpi={} size={}x{} platform={}", dpi_factor, inner.x, inner.y, std::env::consts::OS);
 
         // Init resource reader
         servo::resources::set(Box::new(ResourceReader));
@@ -114,8 +114,12 @@ impl App {
 
         // Create rendering context + texture via the unified GL render bridge.
         let size = dpi::PhysicalSize::new(width, height);
+        log!("[havishell] init_servo: creating rendering context {}x{}", width, height);
         let (texture, bridge, rendering_context) = match create_rendering_context(cx, size) {
-            Ok(result) => result,
+            Ok(result) => {
+                log!("[havishell] init_servo: rendering context created successfully");
+                result
+            },
             Err(e) => {
                 log!("[havishell] FAILED to create rendering context: {:?}", e);
                 return;
@@ -343,12 +347,14 @@ impl App {
             preferences.devtools_server_listen_address = "0".to_string();
         }
 
+        log!("[havishell] init_servo: building servo instance");
         let servo = servo::ServoBuilder::default()
             .event_loop_waker(Box::new(MakepadEventLoopWaker))
             .preferences(preferences)
             .protocol_registry(protocol_registry)
             .hppr_home_target(fallback_target.clone())
             .build();
+        log!("[havishell] init_servo: servo built, setting delegate");
         servo.set_delegate(Rc::new(HaviServoDelegate));
         servo.setup_logging();
 
@@ -608,6 +614,7 @@ impl App {
 
         let active_webview = self.tabs.get(self.active_tab_idx).map(|t| &t.webview);
         if let (Some(webview), Some(rc)) = (active_webview, &self.rendering_context) {
+            log!("[havishell] paint: rendering webview content");
             // Tell WebRender to render the current state.
             // This renders to the shared GL context's FBO texture.
             webview.paint();
