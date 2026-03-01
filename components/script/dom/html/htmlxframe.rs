@@ -464,10 +464,7 @@ impl HTMLXFrame {
     }
 
     /// Destroy child navigable
-    #[expect(unsafe_code)]
-    fn destroy_child_navigable(&self, _can_gc: CanGc) {
-        let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
-        let cx = &mut cx;
+    fn destroy_child_navigable(&self, cx: &mut JSContext) {
         let blocker = &self.load_blocker;
         LoadBlocker::terminate(blocker, cx);
 
@@ -526,7 +523,8 @@ impl HTMLXFrame {
     }
 
     /// Start or update watching based on current attributes.
-    fn update_watch(&self, can_gc: CanGc) {
+    fn update_watch(&self, cx: &mut JSContext) {
+        let can_gc = CanGc::from_cx(cx);
         let new_prefix = self.compute_watch_prefix();
         let old_prefix = self.watch_prefix.borrow().clone();
 
@@ -567,8 +565,7 @@ impl HTMLXFrame {
     }
 
     /// Called by WatchSocket when a watch message arrives.
-    #[expect(unsafe_code)]
-    pub(crate) fn on_watch_message(&self, data: &str, _can_gc: CanGc) {
+    pub(crate) fn on_watch_message(&self, data: &str, cx: &mut JSContext) {
         let (op, coord) = match data.split_once(' ') {
             Some((op, coord)) => (op, coord),
             None => return,
@@ -585,14 +582,13 @@ impl HTMLXFrame {
         let coord_base = coord.split("/|/").next().unwrap_or(coord);
         let coord_base = coord_base.trim_end_matches('/');
         if coord_base == our_loc || coord_base.starts_with(&format!("{}/", our_loc)) {
-            let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
-            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, &mut cx);
+            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, cx);
         }
     }
 
     /// Called by WatchSocket on connection error.
-    pub(crate) fn on_watch_error(&self, can_gc: CanGc) {
-        self.upcast::<EventTarget>().fire_event(atom!("error"), can_gc);
+    pub(crate) fn on_watch_error(&self, cx: &mut JSContext) {
+        self.upcast::<EventTarget>().fire_event(atom!("error"), CanGc::from_cx(cx));
     }
 }
 
@@ -679,12 +675,12 @@ impl VirtualMethods for HTMLXFrame {
                 if self.upcast::<Node>().is_connected_with_browsing_context() {
                     debug!("<x> src set while in browsing context.");
                     self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, cx);
-                    self.update_watch(CanGc::from_cx(cx));
+                    self.update_watch(cx);
                 }
             },
             ref name if *name == LocalName::from("watch") => {
                 if self.upcast::<Node>().is_connected_with_browsing_context() {
-                    self.update_watch(CanGc::from_cx(cx));
+                    self.update_watch(cx);
                 }
             },
             _ => {},
@@ -728,7 +724,7 @@ impl VirtualMethods for HTMLXFrame {
 
         // Process the <x> attributes
         self.process_the_iframe_attributes(ProcessingMode::FirstTime, cx);
-        self.update_watch(CanGc::from_cx(cx));
+        self.update_watch(cx);
     }
 
     fn bind_to_tree(&self, context: &BindContext, can_gc: CanGc) {
@@ -739,6 +735,7 @@ impl VirtualMethods for HTMLXFrame {
     }
 
     /// Removing steps for <x> element
+    #[expect(unsafe_code)]
     fn unbind_from_tree(&self, context: &UnbindContext, can_gc: CanGc) {
         self.super_type().unwrap().unbind_from_tree(context, can_gc);
 
@@ -746,7 +743,8 @@ impl VirtualMethods for HTMLXFrame {
         self.stop_watch();
 
         // Destroy the child navigable
-        self.destroy_child_navigable(can_gc);
+        let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
+        self.destroy_child_navigable(&mut cx);
 
         self.owner_document().invalidate_iframes_collection();
     }

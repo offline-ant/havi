@@ -193,9 +193,9 @@ impl WatchSocket {
             .retain(|s| &**s as *const _ != el as *const _);
     }
 
-    pub(crate) fn notify_watch_subscribers(&self, data: &str, can_gc: CanGc) {
+    pub(crate) fn notify_watch_subscribers(&self, data: &str, cx: &mut js::context::JSContext) {
         for sub in self.watch_subscribers.borrow().iter() {
-            sub.on_watch_message(data, can_gc);
+            sub.on_watch_message(data, cx);
         }
     }
 
@@ -326,7 +326,7 @@ impl TaskOnce for MessageReceivedTask {
         );
 
         // Notify <x watch> subscribers
-        ws.notify_watch_subscribers(&self.data, CanGc::from_cx(cx));
+        ws.notify_watch_subscribers(&self.data, cx);
     }
 }
 
@@ -365,7 +365,7 @@ impl TaskOnce for CloseTask {
         // Notify <x watch> subscribers of error
         if self.error.is_some() {
             for sub in ws.watch_subscribers.borrow().iter() {
-                sub.on_watch_error(can_gc);
+                sub.on_watch_error(cx);
             }
         }
     }
