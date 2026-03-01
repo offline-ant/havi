@@ -155,11 +155,9 @@ impl ConstellationWebView {
 
         if let InputEvent::MouseMove(_) = &event.event.event {
             update_hovered_browsing_context(Some(pipeline.browsing_context_id), true);
-            self.last_mouse_move_point = event
-                .hit_test_result
-                .as_ref()
-                .expect("MouseMove events should always have hit tests.")
-                .point_in_viewport;
+            if let Some(hit_test) = &event.hit_test_result {
+                self.last_mouse_move_point = hit_test.point_in_viewport;
+            }
         }
 
         let _ = pipeline
