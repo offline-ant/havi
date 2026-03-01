@@ -6,6 +6,14 @@ const dbg = new Debugger;
 const debuggeesToPipelineIds = new Map;
 const debuggeesToWorkerIds = new Map;
 const sourceIdsToScripts = new Map;
+const frameActorsToFrames = new Map;
+
+// <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#155>
+// Possible values for the `why.type` attribute in "paused" event
+const PAUSE_REASONS = {
+  INTERRUPTED: "interrupted", // Associated with why.onNext attribute
+  RESUME_LIMIT: "resumeLimit",
+};
 
 // Find script by scriptId within a script tree
 function findScriptById(script, scriptId) {
@@ -27,6 +35,14 @@ function walkScriptTree(script, callback) {
     }
 }
 
+// Find a key by a value in a map
+function findKeyByValue(map, search) {
+    for (const [key, value] of map) {
+        if (value === search) return key;
+    }
+    return undefined;
+}
+
 dbg.uncaughtExceptionHook = function(error) {
     console.error(`[debugger] Uncaught exception at ${error.fileName}:${error.lineNumber}:${error.columnNumber}: ${error.name}: ${error.message}`);
 };
@@ -45,11 +61,14 @@ dbg.onNewScript = function(script) {
     });
 };
 
+// Track a new debuggee global
 addEventListener("addDebuggee", event => {
-    const {global, pipelineId: {namespaceId, index}, workerId} = event;
+    const {global, pipelineId, workerId} = event;
     const debuggerObject = dbg.addDebuggee(global);
-    debuggeesToPipelineIds.set(debuggerObject, { namespaceId, index });
-    debuggeesToWorkerIds.set(debuggerObject, workerId);
+    debuggeesToPipelineIds.set(debuggerObject, pipelineId);
+    if (workerId !== undefined) {
+        debuggeesToWorkerIds.set(debuggerObject, workerId);
+    }
 });
 
 // Create a result value object from a debuggee value.
@@ -78,13 +97,16 @@ function createValueResult(value) {
     }
 }
 
+// Evaluate some javascript code in the global context of the debuggee
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Object.html#executeinglobal-code-options>
 addEventListener("eval", event => {
-    const {code, pipelineId: {namespaceId, index}, workerId} = event;
-    let object = debuggeesToPipelineIds.keys().next().value;
-    let completionValue = object.executeInGlobal(code);
+    const {code, pipelineId, workerId} = event;
+    const object = workerId !== undefined ?
+        findKeyByValue(debuggeesToWorkerIds, workerId) :
+        findKeyByValue(debuggeesToPipelineIds, pipelineId);
 
     // Completion values: <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#completion-values>
+    const completionValue = object.executeInGlobal(code);
     let resultValue;
 
     if (completionValue === null) {
@@ -129,6 +151,56 @@ addEventListener("getPossibleBreakpoints", event => {
     getPossibleBreakpointsResult(event, result);
 });
 
+function handlePauseAndRespond(frame, pauseReason) {
+    // Get the pipeline ID for this debuggee
+    const pipelineId = debuggeesToPipelineIds.get(frame.script.global);
+    if (!pipelineId) {
+        console.error("[debugger] No pipeline ID for frame's global");
+        return undefined;
+    }
+
+    let frameActorId = findKeyByValue(frameActorsToFrames, frame);
+    if (!frameActorId) {
+        // TODO: Check if we already have an actor for this frame
+        frameActorId = registerFrameActor(pipelineId, {
+            // TODO: Some properties throw if terminated is true
+            // TODO: arguments: frame.arguments,
+            displayName: frame.script.displayName,
+            onStack: frame.onStack,
+            oldest: frame.older == null,
+            terminated: frame.terminated,
+            type_: frame.type,
+            url: frame.script.url,
+        });
+
+        if (!frameActorId) {
+            console.error("[debugger] Couldn't create frame");
+            return undefined;
+        }
+        frameActorsToFrames.set(frameActorId, frame);
+    }
+
+    // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Script.html#getoffsetmetadata-offset>
+    const offset = frame.offset;
+    const offsetMetadata = frame.script.getOffsetMetadata(offset);
+    const frameOffset = {
+        frameActorId,
+        column: offsetMetadata.columnNumber - 1,
+        line: offsetMetadata.lineNumber
+    };
+
+    // Notify devtools and enter pause loop. This blocks until Resume.
+    pauseAndRespond(
+        pipelineId,
+        frameOffset,
+        pauseReason
+    );
+
+    // <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#resumption-values>
+    // Return undefined to continue execution normally after resume.
+    return undefined;
+}
+
 addEventListener("setBreakpoint", event => {
     const {spidermonkeyId, scriptId, offset} = event;
     const script = sourceIdsToScripts.get(spidermonkeyId);
@@ -137,53 +209,16 @@ addEventListener("setBreakpoint", event => {
         target.setBreakpoint(offset, {
             // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Script.html#setbreakpoint-offset-handler>
             // The hit handler receives a Debugger.Frame instance representing the currently executing stack frame.
-            hit: (frame) => {
-                // Get the pipeline ID for this debuggee
-                const pipelineId = debuggeesToPipelineIds.get(frame.script.global);
-                if (!pipelineId) {
-                    console.error("[debugger] No pipeline ID for frame's global");
-                    return undefined;
-                }
-
-                const result = {
-                    column: frame.script.startColumn,
-                    displayName: frame.script.displayName,
-                    line: frame.script.startLine,
-                    onStack: frame.onStack,
-                    oldest: frame.older == null,
-                    terminated: frame.terminated,
-                    type_: frame.type,
-                    url: frame.script.url,
-                };
-
-                // Notify devtools and enter pause loop. This blocks until Resume.
-                notifyBreakpointHit(pipelineId, result);
-                // <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#resumption-values>
-                // Return undefined to continue execution normally after resume.
-                return undefined;
-            }
+            hit: (frame) => handlePauseAndRespond(frame, {type_: "breakpoint"})
         });
     }
 });
 
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Frame.html>
-addEventListener("pause", event => {
+addEventListener("interrupt", event => {
     dbg.onEnterFrame = function(frame) {
         dbg.onEnterFrame = undefined;
-        // TODO: Some properties throw if terminated is true
-        // TODO: Check if start line / column is correct or we need the proper breakpoint
-        const result = {
-            // TODO: arguments: frame.arguments,
-            column: frame.script.startColumn,
-            displayName: frame.script.displayName,
-            line: frame.script.startLine,
-            onStack: frame.onStack,
-            oldest: frame.older == null,
-            terminated: frame.terminated,
-            type_: frame.type,
-            url: frame.script.url,
-        };
-        getFrameResult(event, result);
+        handlePauseAndRespond(frame, { type_:PAUSE_REASONS.INTERRUPTED, onNext: true});
     };
 });
 

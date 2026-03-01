@@ -225,10 +225,6 @@ impl HTMLLinkElement {
         }
         self.cssom_stylesheet.set(None);
     }
-
-    pub(crate) fn line_number(&self) -> u32 {
-        self.line_number as u32
-    }
 }
 
 fn get_attr(element: &Element, local_name: &LocalName) -> Option<String> {
@@ -755,7 +751,7 @@ impl HTMLLinkElement {
         let trusted_node = Trusted::new(self);
         let window = self.owner_window();
         let request_generation_id = self.get_request_generation_id();
-        window.register_image_cache_listener(id, move |response| {
+        window.register_image_cache_listener(id, move |response, _| {
             let trusted_node = trusted_node.clone();
             let link_element = trusted_node.root();
             let window = link_element.owner_window();
@@ -1138,11 +1134,7 @@ impl FetchResponseListener for FaviconFetchContext {
 
     fn process_csp_violations(&mut self, _request_id: RequestId, violations: Vec<Violation>) {
         let global = &self.resource_timing_global();
-        let link = self.link.root();
-        let source_position = link
-            .upcast::<Element>()
-            .compute_source_position(link.line_number as u32);
-        global.report_csp_violations(violations, None, Some(source_position));
+        global.report_csp_violations(violations, None, None);
     }
 }
 

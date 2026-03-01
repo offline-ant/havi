@@ -4,7 +4,6 @@
 
 use std::array::from_ref;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::mem;
 use std::rc::Rc;
@@ -15,8 +14,8 @@ use constellation_traits::{KeyboardScroll, ScriptToConstellationMessage};
 use embedder_traits::{
     Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventAndId,
     InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton, MouseButtonAction,
-    MouseButtonEvent, MouseLeftViewportEvent, ScrollEvent, TouchEvent as EmbedderTouchEvent,
-    TouchEventType, TouchId, UntrustedNodeAddress, WheelEvent as EmbedderWheelEvent,
+    MouseButtonEvent, MouseLeftViewportEvent, TouchEvent as EmbedderTouchEvent, TouchEventType,
+    TouchId, UntrustedNodeAddress, WheelEvent as EmbedderWheelEvent,
 };
 #[cfg(feature = "gamepad")]
 use embedder_traits::{
@@ -26,6 +25,7 @@ use euclid::{Point2D, Vector2D};
 use js::jsapi::JSAutoRealm;
 use keyboard_types::{Code, Key, KeyState, Modifiers, NamedKey};
 use layout_api::{ScrollContainerQueryFlags, node_id_from_scroll_id};
+use rustc_hash::FxHashMap;
 use script_bindings::codegen::GenericBindings::DocumentBinding::DocumentMethods;
 use script_bindings::codegen::GenericBindings::SelectionBinding::SelectionMethods;
 use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
@@ -42,6 +42,7 @@ use script_bindings::str::DOMString;
 use script_traits::ConstellationInputEvent;
 use servo_config::pref;
 use style_traits::CSSPixel;
+use webrender_api::ExternalScrollId;
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::refcounted::Trusted;
@@ -164,7 +165,7 @@ pub(crate) struct DocumentEventHandler {
     #[no_trace]
     active_keyboard_modifiers: Cell<Modifiers>,
     /// Map from touch identifier to pointer ID for active touch points
-    active_pointer_ids: DomRefCell<HashMap<i32, i32>>,
+    active_pointer_ids: DomRefCell<FxHashMap<i32, i32>>,
     /// Counter for generating unique pointer IDs for touch inputs
     next_touch_pointer_id: Cell<i32>,
     /// Whether a text selection drag is in progress.
@@ -279,10 +280,6 @@ impl DocumentEventHandler {
                 },
                 InputEvent::EditingAction(editing_action_event) => {
                     self.handle_editing_action(None, editing_action_event, can_gc)
-                },
-                InputEvent::Scroll(scroll_event) => {
-                    self.handle_embedder_scroll_event(scroll_event);
-                    InputEventResult::default()
                 },
             };
 
@@ -1067,7 +1064,7 @@ impl DocumentEventHandler {
             self.active_touch_points
                 .borrow()
                 .iter()
-                .filter(|t| t.Target() == touch_dispatch_target)
+                .filter(|touch| touch.Target() == touch_dispatch_target)
                 .cloned(),
         );
 
@@ -1101,31 +1098,30 @@ impl DocumentEventHandler {
         event.flags().into()
     }
 
-    // If hittest fails, we still need to update the active point information.
+    /// Updates the active touch points when a hit test fails early.
+    ///
+    /// - For `Down`: No action needed; a failed down event won't create an active point.
+    /// - For `Move`: No action needed; position information is unavailable, so we cannot update.
+    /// - For `Up`/`Cancel`: Remove the corresponding touch point and its pointer ID mapping.
+    ///
+    /// When a touchup or touchcancel occurs at that touch point,
+    /// a warning is triggered: Received touchup/touchcancel event for a non-active touch point.
     fn update_active_touch_points_when_early_return(&self, event: EmbedderTouchEvent) {
         match event.event_type {
-            TouchEventType::Down => {
-                // If the touchdown fails, we don't need to do anything.
-                // When a touchmove or touchdown occurs at that touch point,
-                // a warning is triggered: Got a touchmove/touchend event for a non-active touch point
-            },
-            TouchEventType::Move => {
-                // The failure of touchmove does not affect the number of active points.
-                // Since there is no position information when it fails, we do not need to update.
-            },
+            TouchEventType::Down | TouchEventType::Move => {},
             TouchEventType::Up | TouchEventType::Cancel => {
-                // Remove an existing touch point
                 let mut active_touch_points = self.active_touch_points.borrow_mut();
-                match active_touch_points
+                if let Some(index) = active_touch_points
                     .iter()
                     .position(|t| t.Identifier() == event.touch_id.0)
                 {
-                    Some(i) => {
-                        active_touch_points.swap_remove(i);
-                        // Also remove pointer ID mapping when touch ends/cancels on early return
-                        self.remove_pointer_id_for_touch(event.touch_id.0);
-                    },
-                    None => warn!("Got a touchend event for a non-active touch point"),
+                    active_touch_points.swap_remove(index);
+                    self.remove_pointer_id_for_touch(event.touch_id.0);
+                } else {
+                    warn!(
+                        "Received {:?} for a non-active touch point {}",
+                        event.event_type, event.touch_id.0
+                    );
                 }
             },
         }
@@ -1695,17 +1691,17 @@ impl DocumentEventHandler {
         }
     }
 
-    /// Handle scroll event triggered by user interactions from embedder side.
+    /// Handle a scroll event triggered by user interactions from the embedder.
     /// <https://drafts.csswg.org/cssom-view/#scrolling-events>
     #[expect(unsafe_code)]
-    fn handle_embedder_scroll_event(&self, event: ScrollEvent) {
+    pub(crate) fn handle_embedder_scroll_event(&self, scrolled_node: ExternalScrollId) {
         // If it is a viewport scroll.
         let document = self.window.Document();
-        if event.external_id.is_root() {
+        if scrolled_node.is_root() {
             document.handle_viewport_scroll_event();
         } else {
             // Otherwise, check whether it is for a relevant element within the document.
-            let Some(node_id) = node_id_from_scroll_id(event.external_id.0 as usize) else {
+            let Some(node_id) = node_id_from_scroll_id(scrolled_node.0 as usize) else {
                 return;
             };
             let node = unsafe {

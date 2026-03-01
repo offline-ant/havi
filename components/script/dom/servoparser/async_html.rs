@@ -47,27 +47,27 @@ use crate::script_runtime::CanGc;
 
 type ParseNodeId = usize;
 
-#[derive(Clone, JSTraceable, MallocSizeOf)]
+#[derive(Clone, Debug, JSTraceable, MallocSizeOf)]
 pub(crate) struct ParseNode {
     id: ParseNodeId,
     #[no_trace]
     qual_name: Option<QualName>,
 }
 
-#[derive(JSTraceable, MallocSizeOf)]
+#[derive(Debug, JSTraceable, MallocSizeOf)]
 enum NodeOrText {
     Node(ParseNode),
     Text(String),
 }
 
-#[derive(JSTraceable, MallocSizeOf)]
+#[derive(Debug, JSTraceable, MallocSizeOf)]
 struct Attribute {
     #[no_trace]
     name: QualName,
     value: String,
 }
 
-#[derive(JSTraceable, MallocSizeOf)]
+#[derive(Debug, JSTraceable, MallocSizeOf)]
 enum ParseOperation {
     GetTemplateContents {
         target: ParseNodeId,
@@ -216,6 +216,7 @@ pub(crate) struct Tokenizer {
     #[conditional_malloc_size_of]
     custom_element_reaction_stack: Rc<CustomElementReactionStack>,
     current_line: Cell<u64>,
+    has_ended: Cell<bool>,
 }
 
 impl Tokenizer {
@@ -244,6 +245,7 @@ impl Tokenizer {
             parsing_algorithm: algorithm,
             custom_element_reaction_stack,
             current_line: Cell::new(1),
+            has_ended: Cell::new(false),
         };
         tokenizer.insert_node(0, Dom::from_ref(document.upcast()));
 
@@ -290,7 +292,7 @@ impl Tokenizer {
     pub(crate) fn feed(
         &self,
         input: &BufferQueue,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) -> TokenizerResult<DomRoot<HTMLScriptElement>> {
         let mut send_tendrils = VecDeque::new();
         while let Some(str) = input.pop_front() {
@@ -306,13 +308,21 @@ impl Tokenizer {
             .unwrap();
 
         loop {
+            debug_assert!(!self.has_ended.get());
+
             match self
                 .from_parser_thread_receiver
                 .recv()
                 .expect("Unexpected channel panic in main thread.")
             {
                 FromParserThreadMsg::ProcessOperation(parse_op) => {
-                    self.process_operation(parse_op, can_gc)
+                    self.process_operation(parse_op, cx);
+
+                    // The parser might have been aborted during the execution
+                    // of `parse_op`.
+                    if self.has_ended.get() {
+                        return TokenizerResult::Done;
+                    }
                 },
                 FromParserThreadMsg::TokenizerResultDone { updated_input } => {
                     let buffer_queue = create_buffer_queue(updated_input);
@@ -334,10 +344,15 @@ impl Tokenizer {
         }
     }
 
-    pub(crate) fn end(&self, can_gc: CanGc) {
+    pub(crate) fn end(&self, cx: &mut js::context::JSContext) {
+        if self.has_ended.replace(true) {
+            return;
+        }
+
         self.to_parser_thread_sender
             .send(ToParserThreadMsg::End)
             .unwrap();
+
         loop {
             match self
                 .from_parser_thread_receiver
@@ -345,7 +360,7 @@ impl Tokenizer {
                 .expect("Unexpected channel panic in main thread.")
             {
                 FromParserThreadMsg::ProcessOperation(parse_op) => {
-                    self.process_operation(parse_op, can_gc)
+                    self.process_operation(parse_op, cx);
                 },
                 FromParserThreadMsg::TokenizerResultDone { updated_input: _ } |
                 FromParserThreadMsg::TokenizerResultScript {
@@ -436,7 +451,7 @@ impl Tokenizer {
         x.is_in_same_home_subtree(y)
     }
 
-    fn process_operation(&self, op: ParseOperation, can_gc: CanGc) {
+    fn process_operation(&self, op: ParseOperation, cx: &mut js::context::JSContext) {
         let document = DomRoot::from_ref(&**self.get_node(&0));
         let document = document
             .downcast::<Document>()
@@ -447,7 +462,10 @@ impl Tokenizer {
                 let template = target
                     .downcast::<HTMLTemplateElement>()
                     .expect("Tried to extract contents from non-template element while parsing");
-                self.insert_node(contents, Dom::from_ref(template.Content(can_gc).upcast()));
+                self.insert_node(
+                    contents,
+                    Dom::from_ref(template.Content(CanGc::from_cx(cx)).upcast()),
+                );
             },
             ParseOperation::CreateElement {
                 node,
@@ -467,19 +485,20 @@ impl Tokenizer {
                     ElementCreator::ParserCreated(current_line),
                     ParsingAlgorithm::Normal,
                     &self.custom_element_reaction_stack,
-                    can_gc,
+                    cx,
                 );
                 self.insert_node(node, Dom::from_ref(element.upcast()));
             },
             ParseOperation::CreateComment { text, node } => {
-                let comment = Comment::new(DOMString::from(text), document, None, can_gc);
+                let comment =
+                    Comment::new(DOMString::from(text), document, None, CanGc::from_cx(cx));
                 self.insert_node(node, Dom::from_ref(comment.upcast()));
             },
             ParseOperation::AppendBeforeSibling { sibling, node } => {
-                self.append_before_sibling(sibling, node, can_gc);
+                self.append_before_sibling(sibling, node, CanGc::from_cx(cx));
             },
             ParseOperation::Append { parent, node } => {
-                self.append(parent, node, can_gc);
+                self.append(parent, node, CanGc::from_cx(cx));
             },
             ParseOperation::AppendBasedOnParentNode {
                 element,
@@ -487,9 +506,9 @@ impl Tokenizer {
                 node,
             } => {
                 if self.has_parent_node(element) {
-                    self.append_before_sibling(element, node, can_gc);
+                    self.append_before_sibling(element, node, CanGc::from_cx(cx));
                 } else {
-                    self.append(prev_element, node, can_gc);
+                    self.append(prev_element, node, CanGc::from_cx(cx));
                 }
             },
             ParseOperation::AppendDoctypeToDocument {
@@ -502,12 +521,12 @@ impl Tokenizer {
                     Some(DOMString::from(public_id)),
                     Some(DOMString::from(system_id)),
                     document,
-                    can_gc,
+                    CanGc::from_cx(cx),
                 );
 
                 document
                     .upcast::<Node>()
-                    .AppendChild(doctype.upcast(), can_gc)
+                    .AppendChild(doctype.upcast(), CanGc::from_cx(cx))
                     .expect("Appending failed");
             },
             ParseOperation::AddAttrsIfMissing { target, attrs } => {
@@ -520,13 +539,15 @@ impl Tokenizer {
                         attr.name,
                         DOMString::from(attr.value),
                         None,
-                        can_gc,
+                        CanGc::from_cx(cx),
                     );
                 }
             },
             ParseOperation::RemoveFromParent { target } => {
                 if let Some(ref parent) = self.get_node(&target).GetParentNode() {
-                    parent.RemoveChild(&self.get_node(&target), can_gc).unwrap();
+                    parent
+                        .RemoveChild(&self.get_node(&target), CanGc::from_cx(cx))
+                        .unwrap();
                 }
             },
             ParseOperation::MarkScriptAlreadyStarted { node } => {
@@ -540,7 +561,7 @@ impl Tokenizer {
                 let parent = self.get_node(&parent);
                 let new_parent = self.get_node(&new_parent);
                 while let Some(child) = parent.GetFirstChild() {
-                    new_parent.AppendChild(&child, can_gc).unwrap();
+                    new_parent.AppendChild(&child, CanGc::from_cx(cx)).unwrap();
                 }
             },
             ParseOperation::AssociateWithForm {
@@ -569,7 +590,7 @@ impl Tokenizer {
                 let control = elem.and_then(|e| e.as_maybe_form_control());
 
                 if let Some(control) = control {
-                    control.set_form_owner_from_parser(&form, can_gc);
+                    control.set_form_owner_from_parser(&form, CanGc::from_cx(cx));
                 }
             },
             ParseOperation::Pop { node } => {
@@ -580,7 +601,7 @@ impl Tokenizer {
                     DOMString::from(target),
                     DOMString::from(data),
                     document,
-                    can_gc,
+                    CanGc::from_cx(cx),
                 );
                 self.insert_node(node, Dom::from_ref(pi.upcast()));
             },

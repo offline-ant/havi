@@ -109,13 +109,13 @@ impl HTMLXFrame {
         &self,
         load_data: LoadData,
         history_handling: NavigationHistoryBehavior,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) {
         self.start_new_pipeline(
             load_data,
             PipelineType::Navigation,
             history_handling,
-            can_gc,
+            cx,
         );
     }
 
@@ -124,7 +124,7 @@ impl HTMLXFrame {
         load_data: LoadData,
         pipeline_type: PipelineType,
         history_handling: NavigationHistoryBehavior,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) {
         let browsing_context_id = match self.browsing_context_id() {
             None => return warn!("Attempted to start a new pipeline on an unattached <x>."),
@@ -142,7 +142,7 @@ impl HTMLXFrame {
             let load_blocker = &self.load_blocker;
             // Any oustanding load is finished from the point of view of the blocked
             // document; the new navigation will continue blocking it.
-            LoadBlocker::terminate(load_blocker, can_gc);
+            LoadBlocker::terminate(load_blocker, cx);
         }
 
         match load_data.js_eval_result {
@@ -240,7 +240,7 @@ impl HTMLXFrame {
     }
 
     /// Process the <x> attributes
-    fn process_the_iframe_attributes(&self, mode: ProcessingMode, can_gc: CanGc) {
+    fn process_the_iframe_attributes(&self, mode: ProcessingMode, cx: &mut js::context::JSContext) {
         let window = self.owner_window();
 
         if mode == ProcessingMode::FirstTime &&
@@ -290,12 +290,12 @@ impl HTMLXFrame {
             NavigationHistoryBehavior::Push
         };
 
-        self.navigate_or_reload_child_browsing_context(load_data, history_handling, can_gc);
+        self.navigate_or_reload_child_browsing_context(load_data, history_handling, cx);
     }
 
     /// Create a new child navigable for <x>
     /// Synchronously create a new browsing context (This is not a navigation).
-    fn create_nested_browsing_context(&self, can_gc: CanGc) {
+    fn create_nested_browsing_context(&self, cx: &mut js::context::JSContext) {
         let url = BrowserUrl::parse("about:blank").unwrap();
         let document = self.owner_document();
         let window = self.owner_window();
@@ -325,7 +325,7 @@ impl HTMLXFrame {
             load_data,
             PipelineType::InitialAboutBlank,
             NavigationHistoryBehavior::Push,
-            can_gc,
+            cx,
         );
     }
 
@@ -341,7 +341,7 @@ impl HTMLXFrame {
         &self,
         new_pipeline_id: PipelineId,
         reason: UpdatePipelineIdReason,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) {
         // For all updates except the one for the initial blank document,
         // we need to set the flag back to false because the navigation is complete.
@@ -360,7 +360,7 @@ impl HTMLXFrame {
         // The load blocker will be terminated for a navigation in iframe_load_event_steps.
         if reason == UpdatePipelineIdReason::Traversal {
             let blocker = &self.load_blocker;
-            LoadBlocker::terminate(blocker, can_gc);
+            LoadBlocker::terminate(blocker, cx);
         }
 
         self.upcast::<Node>().dirty(NodeDamage::Other);
@@ -427,7 +427,7 @@ impl HTMLXFrame {
     }
 
     /// Load event steps for <x>
-    pub(crate) fn iframe_load_event_steps(&self, loaded_pipeline: PipelineId, can_gc: CanGc) {
+    pub(crate) fn iframe_load_event_steps(&self, loaded_pipeline: PipelineId, cx: &mut js::context::JSContext) {
         if Some(loaded_pipeline) != self.pending_pipeline_id.get() {
             return;
         }
@@ -445,28 +445,31 @@ impl HTMLXFrame {
         };
         if should_fire_event {
             self.upcast::<EventTarget>()
-                .fire_event(atom!("load"), can_gc);
+                .fire_event(atom!("load"), CanGc::from_cx(cx));
         }
 
         let blocker = &self.load_blocker;
-        LoadBlocker::terminate(blocker, can_gc);
+        LoadBlocker::terminate(blocker, cx);
     }
 
     /// Destroy document and its descendants
-    pub(crate) fn destroy_document_and_its_descendants(&self, can_gc: CanGc) {
+    pub(crate) fn destroy_document_and_its_descendants(&self, cx: &mut js::context::JSContext) {
         let Some(pipeline_id) = self.pipeline_id.get() else {
             return;
         };
         if let Some(exited_document) = ScriptThread::find_document(pipeline_id) {
-            exited_document.destroy_document_and_its_descendants(can_gc);
+            exited_document.destroy_document_and_its_descendants(cx);
         }
         self.destroy_nested_browsing_context();
     }
 
     /// Destroy child navigable
-    fn destroy_child_navigable(&self, can_gc: CanGc) {
+    #[expect(unsafe_code)]
+    fn destroy_child_navigable(&self, _can_gc: CanGc) {
+        let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
+        let cx = &mut cx;
         let blocker = &self.load_blocker;
-        LoadBlocker::terminate(blocker, CanGc::note());
+        LoadBlocker::terminate(blocker, cx);
 
         let Some(browsing_context_id) = self.browsing_context_id() else {
             return;
@@ -488,7 +491,7 @@ impl HTMLXFrame {
             return;
         };
         if let Some(exited_document) = ScriptThread::find_document(pipeline_id) {
-            exited_document.destroy_document_and_its_descendants(can_gc);
+            exited_document.destroy_document_and_its_descendants(cx);
         }
     }
 
@@ -564,7 +567,8 @@ impl HTMLXFrame {
     }
 
     /// Called by WatchSocket when a watch message arrives.
-    pub(crate) fn on_watch_message(&self, data: &str, can_gc: CanGc) {
+    #[expect(unsafe_code)]
+    pub(crate) fn on_watch_message(&self, data: &str, _can_gc: CanGc) {
         let (op, coord) = match data.split_once(' ') {
             Some((op, coord)) => (op, coord),
             None => return,
@@ -581,7 +585,8 @@ impl HTMLXFrame {
         let coord_base = coord.split("/|/").next().unwrap_or(coord);
         let coord_base = coord_base.trim_end_matches('/');
         if coord_base == our_loc || coord_base.starts_with(&format!("{}/", our_loc)) {
-            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, can_gc);
+            let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
+            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, &mut cx);
         }
     }
 
@@ -660,23 +665,26 @@ impl VirtualMethods for HTMLXFrame {
         Some(self.upcast::<HTMLElement>() as &dyn VirtualMethods)
     }
 
-    fn attribute_mutated(&self, attr: &Attr, mutation: AttributeMutation, can_gc: CanGc) {
+    #[expect(unsafe_code)]
+    fn attribute_mutated(&self, attr: &Attr, mutation: AttributeMutation, _can_gc: CanGc) {
+        let mut cx = unsafe { script_bindings::script_runtime::temp_cx() };
+        let cx = &mut cx;
         self.super_type()
             .unwrap()
-            .attribute_mutated(attr, mutation, can_gc);
+            .attribute_mutated(attr, mutation, CanGc::from_cx(cx));
         match *attr.local_name() {
             local_name!("src") => {
                 // When src attribute is set, changed, or removed,
                 // process the <x> attributes.
                 if self.upcast::<Node>().is_connected_with_browsing_context() {
                     debug!("<x> src set while in browsing context.");
-                    self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, can_gc);
-                    self.update_watch(can_gc);
+                    self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, cx);
+                    self.update_watch(CanGc::from_cx(cx));
                 }
             },
             ref name if *name == LocalName::from("watch") => {
                 if self.upcast::<Node>().is_connected_with_browsing_context() {
-                    self.update_watch(can_gc);
+                    self.update_watch(CanGc::from_cx(cx));
                 }
             },
             _ => {},
@@ -709,8 +717,6 @@ impl VirtualMethods for HTMLXFrame {
         if let Some(s) = self.super_type() {
             s.post_connection_steps(cx);
         }
-        let can_gc = CanGc::from_cx(cx);
-
         if !self.upcast::<Node>().is_connected_with_browsing_context() {
             return;
         }
@@ -718,11 +724,11 @@ impl VirtualMethods for HTMLXFrame {
         debug!("<<x>> running post connection steps");
 
         // Create a new child navigable
-        self.create_nested_browsing_context(can_gc);
+        self.create_nested_browsing_context(cx);
 
         // Process the <x> attributes
-        self.process_the_iframe_attributes(ProcessingMode::FirstTime, can_gc);
-        self.update_watch(can_gc);
+        self.process_the_iframe_attributes(ProcessingMode::FirstTime, cx);
+        self.update_watch(CanGc::from_cx(cx));
     }
 
     fn bind_to_tree(&self, context: &BindContext, can_gc: CanGc) {

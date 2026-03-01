@@ -15,13 +15,12 @@ use http_body_util::combinators::BoxBody;
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 use net::test_util::{make_body, make_server, replace_host_table};
-use servo::user_contents::UserStyleSheet;
 use servo::{
     ContextMenuAction, ContextMenuElementInformation, ContextMenuElementInformationFlags,
     ContextMenuItem, CreateNewWebViewRequest, Cursor, EmbedderControl, InputEvent, InputMethodType,
     JSValue, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
-    MouseMoveEvent, RenderingContext, Servo, SimpleDialog, Theme, UserContentManager, UserScript,
-    WebView, WebViewBuilder, WebViewDelegate,
+    MouseMoveEvent, RenderingContext, SimpleDialog, Theme, WebView, WebViewBuilder,
+    WebViewDelegate,
 };
 use servo_config::prefs::Preferences;
 use servo_url::BrowserUrl;

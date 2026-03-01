@@ -62,6 +62,7 @@ use net_traits::{
 use profile_traits::{ipc as profile_ipc, mem as profile_mem, time as profile_time};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use script_bindings::interfaces::GlobalScopeHelpers;
+use script_bindings::settings_stack::run_a_script;
 use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use strum::VariantArray;
@@ -76,6 +77,7 @@ use super::bindings::codegen::Bindings::WebGPUBinding::GPUDeviceLostReason;
 use super::bindings::trace::{HashMapTracedValues, RootedTraceableBox};
 use super::serviceworkerglobalscope::ServiceWorkerGlobalScope;
 use super::transformstream::CrossRealmTransform;
+use crate::DomTypeHolder;
 use crate::dom::bindings::cell::{DomRefCell, RefMut};
 use crate::dom::bindings::codegen::Bindings::BroadcastChannelBinding::BroadcastChannelMethods;
 use crate::dom::bindings::codegen::Bindings::EventSourceBinding::EventSource_Binding::EventSourceMethods;
@@ -96,7 +98,7 @@ use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
 use crate::dom::bindings::reflector::{DomGlobal, DomObject};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
-use crate::dom::bindings::settings_stack::{AutoEntryScript, entry_global, incumbent_global};
+use crate::dom::bindings::settings_stack::{entry_global, incumbent_global};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::bindings::structuredclone;
 use crate::dom::bindings::trace::CustomTraceable;
@@ -228,6 +230,9 @@ pub(crate) struct GlobalScope {
 
     /// <https://cookiestore.spec.whatwg.org/#globals>
     cookie_store: MutNullableDom<CookieStore>,
+
+    /// <https://w3c.github.io/IndexedDB/#factory-interface>
+    indexeddb: MutNullableDom<IDBFactory>,
 
     /// <https://w3c.github.io/ServiceWorker/#environment-settings-object-service-worker-object-map>
     worker_map: DomRefCell<HashMapTracedValues<ServiceWorkerId, Dom<ServiceWorker>, FxBuildHasher>>,
@@ -775,6 +780,7 @@ impl GlobalScope {
             crypto: Default::default(),
             registration_map: DomRefCell::new(HashMapTracedValues::new_fx()),
             cookie_store: Default::default(),
+            indexeddb: Default::default(),
             worker_map: DomRefCell::new(HashMapTracedValues::new_fx()),
             pipeline_id,
             devtools_wants_updates: Default::default(),
@@ -1479,70 +1485,77 @@ impl GlobalScope {
             // Note: this is necessary, on top of entering the realm above,
             // for the call to `GlobalScope::incumbent`,
             // in `MessagePort::post_message_impl` to succeed.
-            let _aes = AutoEntryScript::new(self);
-
-            // Let deserializeRecord be StructuredDeserializeWithTransfer(serializeWithTransferResult, targetRealm).
-            // Let newPorts be a new frozen array
-            // consisting of all MessagePort objects in deserializeRecord.[[TransferredValues]],
-            // if any, maintaining their relative order.
-            // Note: both done in `structuredclone::read`.
-            if let Ok(ports) = structuredclone::read(self, data, message_clone.handle_mut(), can_gc)
-            {
-                // Note: if this port is used to transfer a stream, we handle the events in Rust.
-                if let Some(transform) = cross_realm_transform.deref().as_ref() {
+            run_a_script::<DomTypeHolder, _>(self, || {
+                // Let deserializeRecord be StructuredDeserializeWithTransfer(serializeWithTransferResult, targetRealm).
+                // Let newPorts be a new frozen array
+                // consisting of all MessagePort objects in deserializeRecord.[[TransferredValues]],
+                // if any, maintaining their relative order.
+                // Note: both done in `structuredclone::read`.
+                if let Ok(ports) =
+                    structuredclone::read(self, data, message_clone.handle_mut(), can_gc)
+                {
+                    // Note: if this port is used to transfer a stream, we handle the events in Rust.
+                    if let Some(transform) = cross_realm_transform.deref().as_ref() {
+                        match transform {
+                            // Add a handler for port’s message event with the following steps:
+                            // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformreadable>
+                            CrossRealmTransform::Readable(readable) => {
+                                readable.handle_message(
+                                    cx,
+                                    self,
+                                    &dom_port,
+                                    message_clone.handle(),
+                                    comp,
+                                    can_gc,
+                                );
+                            },
+                            // Add a handler for port’s message event with the following steps:
+                            // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformwritable>
+                            CrossRealmTransform::Writable(writable) => {
+                                writable.handle_message(
+                                    cx,
+                                    self,
+                                    message_clone.handle(),
+                                    comp,
+                                    can_gc,
+                                );
+                            },
+                        }
+                    } else {
+                        // Fire an event named message at messageEventTarget,
+                        // using MessageEvent,
+                        // with the data attribute initialized to messageClone
+                        // and the ports attribute initialized to newPorts.
+                        MessageEvent::dispatch_jsval(
+                            message_event_target,
+                            self,
+                            message_clone.handle(),
+                            Some(&origin.ascii_serialization()),
+                            None,
+                            ports,
+                            can_gc,
+                        );
+                    }
+                } else if let Some(transform) = cross_realm_transform.deref().as_ref() {
                     match transform {
-                        // Add a handler for port’s message event with the following steps:
+                        // Add a handler for port’s messageerror event with the following steps:
                         // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformreadable>
                         CrossRealmTransform::Readable(readable) => {
-                            readable.handle_message(
-                                cx,
-                                self,
-                                &dom_port,
-                                message_clone.handle(),
-                                comp,
-                                can_gc,
-                            );
+                            readable.handle_error(cx, self, &dom_port, comp, can_gc);
                         },
-                        // Add a handler for port’s message event with the following steps:
+                        // Add a handler for port’s messageerror event with the following steps:
                         // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformwritable>
                         CrossRealmTransform::Writable(writable) => {
-                            writable.handle_message(cx, self, message_clone.handle(), comp, can_gc);
+                            writable.handle_error(cx, self, &dom_port, comp, can_gc);
                         },
                     }
                 } else {
-                    // Fire an event named message at messageEventTarget,
-                    // using MessageEvent,
-                    // with the data attribute initialized to messageClone
-                    // and the ports attribute initialized to newPorts.
-                    MessageEvent::dispatch_jsval(
-                        message_event_target,
-                        self,
-                        message_clone.handle(),
-                        Some(&origin.ascii_serialization()),
-                        None,
-                        ports,
-                        can_gc,
-                    );
+                    // If this throws an exception, catch it,
+                    // fire an event named messageerror at messageEventTarget,
+                    // using MessageEvent, and then return.
+                    MessageEvent::dispatch_error(message_event_target, self, can_gc);
                 }
-            } else if let Some(transform) = cross_realm_transform.deref().as_ref() {
-                match transform {
-                    // Add a handler for port’s messageerror event with the following steps:
-                    // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformreadable>
-                    CrossRealmTransform::Readable(readable) => {
-                        readable.handle_error(cx, self, &dom_port, comp, can_gc);
-                    },
-                    // Add a handler for port’s messageerror event with the following steps:
-                    // from <https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformwritable>
-                    CrossRealmTransform::Writable(writable) => {
-                        writable.handle_error(cx, self, &dom_port, comp, can_gc);
-                    },
-                }
-            } else {
-                // If this throws an exception, catch it,
-                // fire an event named messageerror at messageEventTarget,
-                // using MessageEvent, and then return.
-                MessageEvent::dispatch_error(message_event_target, self, can_gc);
-            }
+            });
         }
     }
 
@@ -2621,9 +2634,7 @@ impl GlobalScope {
             return document.get_referrer_policy();
         }
         if let Some(worker) = self.downcast::<WorkerGlobalScope>() {
-            let policy_container = worker.policy_container().to_owned();
-
-            return policy_container.get_referrer_policy();
+            return worker.policy_container().get_referrer_policy();
         }
         unreachable!();
     }
@@ -2834,38 +2845,44 @@ impl GlobalScope {
     /// Evaluate JS code on this global scope.
     pub(crate) fn evaluate_js_on_global(
         &self,
+        cx: &mut CurrentRealm,
         code: Cow<'_, str>,
         filename: &str,
         introduction_type: Option<&'static CStr>,
         rval: MutableHandleValue,
-        can_gc: CanGc,
     ) -> Result<(), JavaScriptEvaluationError> {
-        let cx = GlobalScope::get_cx();
-        let ar = enter_realm(self);
-        let _aes = AutoEntryScript::new(self);
+        let in_realm_proof = cx.into();
+        let in_realm = InRealm::Already(&in_realm_proof);
 
-        let url = self.api_base_url();
-        let fetch_options = ScriptFetchOptions::default_classic_script(self);
+        run_a_script::<DomTypeHolder, _>(self, || {
+            let url = self.api_base_url();
+            let fetch_options = ScriptFetchOptions::default_classic_script(self);
 
-        rooted!(in(*cx) let mut compiled_script = std::ptr::null_mut::<JSScript>());
-        compiled_script.set(compile_script(cx, &code, filename, 1, introduction_type));
+            rooted!(&in(cx) let mut compiled_script = std::ptr::null_mut::<JSScript>());
+            compiled_script.set(compile_script(
+                cx.into(),
+                &code,
+                filename,
+                1,
+                introduction_type,
+            ));
 
-        if compiled_script.is_null() {
-            debug!("error compiling Dom string");
-            report_pending_exception(cx, true, InRealm::Entered(&ar), can_gc);
-            return Err(JavaScriptEvaluationError::CompilationFailure);
-        }
+            if compiled_script.is_null() {
+                debug!("error compiling Dom string");
+                report_pending_exception(cx.into(), true, in_realm, CanGc::from_cx(cx));
+                return Err(JavaScriptEvaluationError::CompilationFailure);
+            }
 
-        let script = NonNull::new(*compiled_script).expect("Can't be null");
+            let script = NonNull::new(*compiled_script).expect("Can't be null");
 
-        if !evaluate_script(cx, script, url, fetch_options, rval) {
-            let error_info =
-                take_and_report_pending_exception_for_api(cx, InRealm::Entered(&ar), can_gc);
-            return Err(JavaScriptEvaluationError::EvaluationFailure(error_info));
-        }
+            if !evaluate_script(cx.into(), script, url, fetch_options, rval) {
+                let error_info = take_and_report_pending_exception_for_api(cx);
+                return Err(JavaScriptEvaluationError::EvaluationFailure(error_info));
+            }
 
-        maybe_resume_unwind();
-        Ok(())
+            maybe_resume_unwind();
+            Ok(())
+        })
     }
 
     /// <https://html.spec.whatwg.org/multipage/#timer-initialisation-steps>
@@ -2951,22 +2968,21 @@ impl GlobalScope {
     }
 
     /// Returns the idb factory for this global.
-    /// TODO: move the idb to the global itself.
     pub(crate) fn get_indexeddb(&self) -> DomRoot<IDBFactory> {
-        if let Some(window) = self.downcast::<Window>() {
-            return window.IndexedDB();
-        } else if let Some(worker) = self.downcast::<WorkerGlobalScope>() {
-            return worker.IndexedDB();
-        }
-        unreachable!("IndexedDB is only exposed on Window and WorkerGlobalScope.");
+        self.indexeddb
+            .or_init(|| IDBFactory::new(self, CanGc::note()))
+    }
+
+    pub(crate) fn get_existing_indexeddb(&self) -> Option<DomRoot<IDBFactory>> {
+        self.indexeddb.get()
     }
 
     /// Perform a microtask checkpoint.
-    pub(crate) fn perform_a_microtask_checkpoint(&self, can_gc: CanGc) {
+    pub(crate) fn perform_a_microtask_checkpoint(&self, cx: &mut js::context::JSContext) {
         if let Some(window) = self.downcast::<Window>() {
-            window.perform_a_microtask_checkpoint(can_gc);
+            window.perform_a_microtask_checkpoint(cx);
         } else if let Some(worker) = self.downcast::<WorkerGlobalScope>() {
-            worker.perform_a_microtask_checkpoint(can_gc);
+            worker.perform_a_microtask_checkpoint(cx);
         }
     }
 
@@ -3585,8 +3601,8 @@ impl GlobalScopeHelpers<crate::DomTypeHolder> for GlobalScope {
         GlobalScope::incumbent()
     }
 
-    fn perform_a_microtask_checkpoint(&self, can_gc: CanGc) {
-        GlobalScope::perform_a_microtask_checkpoint(self, can_gc)
+    fn perform_a_microtask_checkpoint(&self, cx: &mut js::context::JSContext) {
+        GlobalScope::perform_a_microtask_checkpoint(self, cx)
     }
 
     fn get_url(&self) -> BrowserUrl {

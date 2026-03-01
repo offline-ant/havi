@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 
 use atomic_refcell::AtomicRefCell;
-use base::generic_channel::{GenericSender, channel};
-use devtools_traits::DevtoolScriptControlMsg;
+use base::generic_channel::GenericSender;
+use devtools_traits::{DevtoolScriptControlMsg, PauseReason};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -30,20 +30,11 @@ struct ThreadAttached {
     recording_endpoint: u32,
     execution_point: u32,
     popped_frames: Vec<PoppedFrameMsg>,
-    why: WhyMsg,
+    why: PauseReason,
 }
 
 #[derive(Serialize)]
 enum PoppedFrameMsg {}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WhyMsg {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_next: Option<bool>,
-}
 
 #[derive(Serialize)]
 struct ThreadResumedReply {
@@ -59,7 +50,7 @@ pub(crate) struct ThreadInterruptedReply {
     pub type_: String,
     pub actor: String,
     pub frame: FrameActorMsg,
-    pub why: WhyMsg,
+    pub why: PauseReason,
 }
 
 #[derive(Serialize)]
@@ -121,7 +112,7 @@ impl Actor for ThreadActor {
                     recording_endpoint: 0,
                     execution_point: 0,
                     popped_frames: vec![],
-                    why: WhyMsg {
+                    why: PauseReason {
                         type_: "attached".to_owned(),
                         on_next: None,
                     },
@@ -142,37 +133,10 @@ impl Actor for ThreadActor {
             },
 
             "interrupt" => {
-                let (tx, rx) = channel().ok_or(ActorError::Internal)?;
                 self.script_sender
-                    .send(DevtoolScriptControlMsg::Pause(tx))
+                    .send(DevtoolScriptControlMsg::Interrupt)
                     .map_err(|_| ActorError::Internal)?;
-                let result = rx.recv().map_err(|_| ActorError::Internal)?;
 
-                let pause = registry.new_name::<PauseActor>();
-                registry.register(PauseActor {
-                    name: pause.clone(),
-                });
-
-                let source = self
-                    .source_manager
-                    .find_source(registry, &result.url)
-                    .ok_or(ActorError::Internal)?;
-
-                let frame = FrameActor::register(registry, source.name(), result);
-                self.frames.borrow_mut().insert(frame.clone());
-
-                let msg = ThreadInterruptedReply {
-                    from: self.name(),
-                    type_: "paused".to_owned(),
-                    actor: pause,
-                    frame: registry.encode::<FrameActor, _>(&frame),
-                    // TODO: Read the msg for on_next
-                    why: WhyMsg {
-                        type_: "interrupted".into(),
-                        on_next: Some(true),
-                    },
-                };
-                request.write_json_packet(&msg)?;
                 request.reply_final(&EmptyReplyMsg { from: self.name() })?
             },
 

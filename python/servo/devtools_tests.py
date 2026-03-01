@@ -161,7 +161,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response1["breakpointList"]["actor"], response2["breakpointList"]["actor"])
 
     def test_breakpoint_pause(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/breakpoint/breakpoint_hit.html")
+        self.run_servoshell(url=f"{self.base_urls[0]}/debugger/loop.html")
         with Devtools.connect() as devtools:
             thread_actor = devtools.targets[0]["threadActor"]
             devtools.client.send_receive({"to": thread_actor, "type": "attach"})
@@ -173,7 +173,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
                 for [resource_type, sources] in data.get("array", []):
                     if resource_type == "source":
                         for source in sources:
-                            if "breakpoint/breakpoint_hit.html" in source.get("url", ""):
+                            if "debugger/loop.html" in source.get("url", ""):
                                 source_future.set_result(source["actor"])
 
             devtools.client.add_event_listener(
@@ -191,14 +191,14 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             line_str = min(positions.keys(), key=int)
             line, column = int(line_str), positions[line_str][0]
 
-            # Set breakpoint
+            # Set breakpoint at the first available position
             breakpoint_list = devtools.watcher.get_breakpoint_list_actor()
             devtools.client.send_receive(
                 {
                     "to": breakpoint_list["breakpointList"]["actor"],
                     "type": "setBreakpoint",
                     "location": {
-                        "sourceUrl": f"{self.base_urls[0]}/breakpoint/breakpoint_hit.html",
+                        "sourceUrl": f"{self.base_urls[0]}/debugger/loop.html",
                         "line": line,
                         "column": column,
                     },
@@ -212,10 +212,6 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
                 paused_future.set_result(data)
 
             devtools.client.add_event_listener(thread_actor, "paused", on_paused)
-
-            # Trigger breakpoint
-            console = WebConsoleActor(devtools.client, devtools.targets[0]["consoleActor"])
-            console.evaluate_js_async("testBreakpointHit()")
 
             # Verify pause
             paused_data = paused_future.result(3)
@@ -959,6 +955,49 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
                 walker.get_mutations(False),
                 [{"attributeName": "foo", "newValue": "baz", "type": "attributes", "target": target["actor"]}],
             )
+
+    def test_console_actor_can_handle_self_referential_objects(self):
+        self.run_servoshell(url="data:text/html,")
+
+        js = open(self.get_test_path("console/log_object_containing_itself.js")).read()
+        self.evaluate_and_capture_console_log_output(js)
+
+        # We don't run any assertions on the result because we don't implement these circular references
+        # properly yet. The important part is that we didn't crash and didn't time out waiting for
+        # a console notification (meaning we got *something*).
+
+    def test_inspector_doesnt_crash_when_attribute_on_element_it_doesnt_know_about_is_mutated(self):
+        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        with Devtools.connect() as devtools:
+            inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
+            walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
+            console = WebConsoleActor(devtools.client, devtools.targets[0]["consoleActor"])
+
+            did_see_new_mutations = False
+            evaluation_result = Future()
+
+            async def on_new_mutations(data):
+                global did_see_new_mutations
+                did_see_new_mutations = True
+
+            async def on_evaluation_result(data: dict):
+                evaluation_result.set_result(data)
+
+            devtools.client.add_event_listener(
+                inspector.get_walker()["actor"], Events.Walker.NEW_MUTATIONS, on_new_mutations
+            )
+            devtools.client.add_event_listener(
+                console.actor_id, Events.WebConsole.EVALUATION_RESULT, on_evaluation_result
+            )
+
+            # Modify the nodes attribute
+            console.evaluate_js_async("document.body.firstElementChild.setAttribute('foo', 'baz');")
+            evaluation_result.result(1)
+
+            # Wait for a bit for unwanted notifications to arrive - we should not get any.
+            time.sleep(1)
+            self.assertFalse(did_see_new_mutations)
+            self.assertEquals(walker.get_mutations(False), [])
 
     # Sets `base_url` and `web_server` and `web_server_thread`.
     @classmethod

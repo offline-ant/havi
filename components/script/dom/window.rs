@@ -58,8 +58,8 @@ use layout_api::{
     BoxAreaType, CSSPixelRectIterator, ElementsFromPointFlags, ElementsFromPointResult,
     FragmentType, Layout, LayoutImageDestination, PendingImage, PendingImageState,
     PendingRasterizationImage, PhysicalSides, QueryMsg, ReflowGoal, ReflowPhasesRun, ReflowRequest,
-    ReflowRequestRestyle, RestyleReason, ScrollContainerQueryFlags, ScrollContainerResponse,
-    TrustedNodeAddress, combine_id_with_fragment_type,
+    ReflowRequestRestyle, ReflowStatistics, RestyleReason, ScrollContainerQueryFlags,
+    ScrollContainerResponse, TrustedNodeAddress, combine_id_with_fragment_type,
 };
 use malloc_size_of::MallocSizeOf;
 use media::WindowGLContext;
@@ -79,7 +79,6 @@ use script_bindings::codegen::GenericBindings::WindowBinding::ScrollToOptions;
 use script_bindings::conversions::SafeToJSValConvertible;
 use script_bindings::interfaces::WindowHelpers;
 use script_bindings::root::Root;
-use script_bindings::script_runtime::temp_cx;
 use script_traits::{ConstellationInputEvent, ScriptThreadMessage};
 use selectors::attr::CaseSensitivity;
 use servo_arc::Arc as ServoArc;
@@ -218,7 +217,8 @@ fn default_hppr_endpoint() -> String {
 #[derive(MallocSizeOf)]
 pub struct PendingImageCallback(
     #[ignore_malloc_size_of = "dyn Fn is currently impossible to measure"]
-    Box<dyn Fn(PendingImageResponse) + 'static>,
+    #[expect(clippy::type_complexity)]
+    Box<dyn Fn(PendingImageResponse, &mut js::context::JSContext) + 'static>,
 );
 
 /// Current state of the window object
@@ -308,7 +308,6 @@ pub(crate) struct Window {
     document: MutNullableDom<Document>,
     location: MutNullableDom<Location>,
     history: MutNullableDom<History>,
-    indexeddb: MutNullableDom<IDBFactory>,
     custom_element_registry: MutNullableDom<CustomElementRegistry>,
     performance: MutNullableDom<Performance>,
     #[no_trace]
@@ -716,7 +715,7 @@ impl Window {
     pub(crate) fn register_image_cache_listener(
         &self,
         id: PendingImageId,
-        callback: impl Fn(PendingImageResponse) + 'static,
+        callback: impl Fn(PendingImageResponse, &mut js::context::JSContext) + 'static,
     ) -> ImageCacheResponseCallback {
         self.pending_image_callbacks
             .borrow_mut()
@@ -777,7 +776,11 @@ impl Window {
         nodes.remove();
     }
 
-    pub(crate) fn pending_image_notification(&self, response: PendingImageResponse) {
+    pub(crate) fn pending_image_notification(
+        &self,
+        response: PendingImageResponse,
+        cx: &mut js::context::JSContext,
+    ) {
         // We take the images here, in order to prevent maintaining a mutable borrow when
         // image callbacks are called. These, in turn, can trigger garbage collection.
         // Normally this shouldn't trigger more pending image notifications, but just in
@@ -789,7 +792,7 @@ impl Window {
         };
 
         for callback in callbacks.get() {
-            callback.0(response.clone());
+            callback.0(response.clone(), cx);
         }
 
         match response.response {
@@ -849,7 +852,7 @@ impl Window {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#nav-stop>
-    fn stop_loading(&self, can_gc: CanGc) {
+    fn stop_loading(&self, cx: &mut js::context::JSContext) {
         // 1. Let document be navigable's active document.
         let doc = self.Document();
 
@@ -865,11 +868,11 @@ impl Window {
         self.set_ongoing_navigation();
 
         // 3. Abort a document and its descendants given document.
-        doc.abort(can_gc);
+        doc.abort(cx);
     }
 
     /// <https://html.spec.whatwg.org/multipage/#destroy-a-top-level-traversable>
-    fn destroy_top_level_traversable(&self, can_gc: CanGc) {
+    fn destroy_top_level_traversable(&self, cx: &mut js::context::JSContext) {
         // Step 1. Let browsingContext be traversable's active browsing context.
         // TODO
         // Step 2. For each historyEntry in traversable's session history entries:
@@ -877,27 +880,27 @@ impl Window {
         // Step 2.1. Let document be historyEntry's document.
         let document = self.Document();
         // Step 2.2. If document is not null, then destroy a document and its descendants given document.
-        document.destroy_document_and_its_descendants(can_gc);
+        document.destroy_document_and_its_descendants(cx);
         // Step 3-6.
         self.send_to_constellation(ScriptToConstellationMessage::DiscardTopLevelBrowsingContext);
     }
 
     /// <https://html.spec.whatwg.org/multipage/#definitely-close-a-top-level-traversable>
-    fn definitely_close(&self, can_gc: CanGc) {
+    fn definitely_close(&self, cx: &mut js::context::JSContext) {
         let document = self.Document();
         // Step 1. Let toUnload be traversable's active document's inclusive descendant navigables.
         //
         // Implemented by passing `false` into the method below
         // Step 2. If the result of checking if unloading is canceled for toUnload is not "continue", then return.
-        if !document.check_if_unloading_is_cancelled(false, can_gc) {
+        if !document.check_if_unloading_is_cancelled(false, CanGc::from_cx(cx)) {
             return;
         }
         // Step 3. Append the following session history traversal steps to traversable:
         // TODO
         // Step 3.2. Unload a document and its descendants given traversable's active document, null, and afterAllUnloads.
-        document.unload(false, can_gc);
+        document.unload(false, CanGc::from_cx(cx));
         // Step 3.1. Let afterAllUnloads be an algorithm step which destroys traversable.
-        self.destroy_top_level_traversable(can_gc);
+        self.destroy_top_level_traversable(cx);
     }
 
     /// <https://html.spec.whatwg.org/multipage/#cannot-show-simple-dialogs>
@@ -932,8 +935,8 @@ impl Window {
         false
     }
 
-    pub(crate) fn perform_a_microtask_checkpoint(&self, can_gc: CanGc) {
-        self.script_thread().perform_a_microtask_checkpoint(can_gc);
+    pub(crate) fn perform_a_microtask_checkpoint(&self, cx: &mut js::context::JSContext) {
+        self.script_thread().perform_a_microtask_checkpoint(cx);
     }
 
     pub(crate) fn web_font_context(&self) -> WebFontDocumentContext {
@@ -1285,12 +1288,12 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-window-stop>
-    fn Stop(&self, can_gc: CanGc) {
+    fn Stop(&self, cx: &mut js::context::JSContext) {
         // 1. If this's navigable is null, then return.
         // Note: Servo doesn't have a concept of navigable yet.
 
         // 2. Stop loading this's navigable.
-        self.stop_loading(can_gc);
+        self.stop_loading(cx);
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-window-focus>
@@ -1331,12 +1334,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-opener>
-    fn GetOpener(
-        &self,
-        cx: SafeJSContext,
-        in_realm_proof: InRealm,
-        mut retval: MutableHandleValue,
-    ) -> Fallible<()> {
+    fn GetOpener(&self, cx: &mut CurrentRealm, mut retval: MutableHandleValue) -> Fallible<()> {
         // Step 1, Let current be this Window object's browsing context.
         let current = match self.window_proxy.get() {
             Some(proxy) => proxy,
@@ -1355,7 +1353,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
             return Ok(());
         }
         // Step 3 to 5.
-        current.opener(*cx, in_realm_proof, retval);
+        current.opener(cx, retval);
         Ok(())
     }
 
@@ -1418,9 +1416,9 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
 
                 // Step 6.2. Queue a task on the DOM manipulation task source to definitely close thisTraversable.
                 let this = Trusted::new(self);
-                let task = task!(window_close_browsing_context: move || {
+                let task = task!(window_close_browsing_context: move |cx| {
                     let window = this.root();
-                    window.definitely_close(CanGc::note());
+                    window.definitely_close(cx);
                 });
                 self.as_global_scope()
                     .task_manager()
@@ -1444,10 +1442,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
 
     /// <https://w3c.github.io/IndexedDB/#factory-interface>
     fn IndexedDB(&self) -> DomRoot<IDBFactory> {
-        self.indexeddb.or_init(|| {
-            let global_scope = self.upcast::<GlobalScope>();
-            IDBFactory::new(global_scope, CanGc::note())
-        })
+        self.upcast::<GlobalScope>().get_indexeddb()
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-window-customelements>
@@ -1890,18 +1885,15 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
         }
     }
 
-    fn WebdriverException(&self, cx: SafeJSContext, value: HandleValue, can_gc: CanGc) {
+    fn WebdriverException(&self, cx: &mut JSContext, value: HandleValue) {
         let webdriver_script_sender = self.webdriver_script_chan.borrow_mut().take();
         if let Some(webdriver_script_sender) = webdriver_script_sender {
-            let _ =
-                webdriver_script_sender.send(Err(JavaScriptEvaluationError::EvaluationFailure(
-                    Some(javascript_error_info_from_error_info(
-                        cx,
-                        &ErrorInfo::from_value(value, cx, can_gc),
-                        value,
-                        can_gc,
-                    )),
-                )));
+            let error_info = ErrorInfo::from_value(value, cx.into(), CanGc::from_cx(cx));
+            let _ = webdriver_script_sender.send(Err(
+                JavaScriptEvaluationError::EvaluationFailure(Some(
+                    javascript_error_info_from_error_info(cx, &error_info, value),
+                )),
+            ));
         }
     }
 
@@ -2614,7 +2606,7 @@ impl Window {
         // TODO Step 1
         // TODO(mrobinson, #18709): Add smooth scrolling support to WebRender so that we can
         // properly process ScrollBehavior here.
-        let reflow_phases_run =
+        let (reflow_phases_run, _) =
             self.reflow(ReflowGoal::UpdateScrollNode(scroll_id, Vector2D::new(x, y)));
         if reflow_phases_run.needs_frame() {
             self.paint_api()
@@ -2660,12 +2652,12 @@ impl Window {
     ///
     /// NOTE: This method should almost never be called directly! Layout and rendering updates should
     /// happen as part of the HTML event loop via *update the rendering*.
-    pub(crate) fn reflow(&self, reflow_goal: ReflowGoal) -> ReflowPhasesRun {
+    pub(crate) fn reflow(&self, reflow_goal: ReflowGoal) -> (ReflowPhasesRun, ReflowStatistics) {
         let document = self.Document();
 
         // Never reflow inactive Documents.
         if !document.is_fully_active() {
-            return ReflowPhasesRun::empty();
+            return Default::default();
         }
 
         self.Document().ensure_safe_to_run_script_or_layout();
@@ -2678,7 +2670,7 @@ impl Window {
             self.layout_blocker.get().layout_blocked()
         {
             debug!("Suppressing pre-load-event reflow pipeline {pipeline_id}");
-            return ReflowPhasesRun::empty();
+            return Default::default();
         }
 
         debug!("script: performing reflow for goal {reflow_goal:?}");
@@ -2772,7 +2764,7 @@ impl Window {
         };
 
         let Some(reflow_result) = self.layout.borrow_mut().reflow(reflow) else {
-            return ReflowPhasesRun::empty();
+            return Default::default();
         };
 
         debug!("script: layout complete");
@@ -2794,7 +2786,10 @@ impl Window {
 
         document.update_animations_post_reflow();
 
-        reflow_result.reflow_phases_run
+        (
+            reflow_result.reflow_phases_run,
+            reflow_result.reflow_statistics,
+        )
     }
 
     pub(crate) fn request_screenshot_readiness(&self, can_gc: CanGc) {
@@ -2912,7 +2907,7 @@ impl Window {
         // iframe size updates.
         //
         // See <https://github.com/servo/servo/issues/14719>
-        if self.Document().update_the_rendering().needs_frame() {
+        if self.Document().update_the_rendering().0.needs_frame() {
             self.paint_api()
                 .generate_frame(vec![self.webview_id().into()]);
         }
@@ -3545,13 +3540,13 @@ impl Window {
         self.unhandled_resize_event.borrow().is_some()
     }
 
-    pub(crate) fn suspend(&self, can_gc: CanGc) {
+    pub(crate) fn suspend(&self, cx: &mut js::context::JSContext) {
         // Suspend timer events.
         self.as_global_scope().suspend();
 
         // Set the window proxy to be a cross-origin window.
         if self.window_proxy().currently_active() == Some(self.global().pipeline_id()) {
-            self.window_proxy().unset_currently_active(can_gc);
+            self.window_proxy().unset_currently_active(cx);
         }
 
         // A hint to the JS runtime that now would be a good time to
@@ -3810,7 +3805,7 @@ impl Window {
             let mut images = self.pending_layout_images.borrow_mut();
             if !images.contains_key(&id) {
                 let trusted_node = Trusted::new(&*node);
-                let sender = self.register_image_cache_listener(id, move |response| {
+                let sender = self.register_image_cache_listener(id, move |response, _| {
                     trusted_node
                         .root()
                         .owner_window()
@@ -3915,8 +3910,8 @@ impl Window {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[expect(unsafe_code)]
     pub(crate) fn new(
+        cx: &mut js::context::JSContext,
         webview_id: WebViewId,
         runtime: Rc<Runtime>,
         script_chan: Sender<MainThreadScriptMsg>,
@@ -3953,7 +3948,6 @@ impl Window {
         theme: Theme,
         weak_script_thread: Weak<ScriptThread>,
     ) -> DomRoot<Self> {
-        let mut cx = unsafe { temp_cx() };
         let error_reporter = CSSErrorReporter {
             pipelineid: pipeline_id,
             script_chan: control_chan,
@@ -3987,7 +3981,6 @@ impl Window {
             navigator: Default::default(),
             location: Default::default(),
             history: Default::default(),
-            indexeddb: Default::default(),
             custom_element_registry: Default::default(),
             window_proxy: Default::default(),
             document: Default::default(),
@@ -4052,7 +4045,7 @@ impl Window {
             ring0: Default::default(),
         });
 
-        WindowBinding::Wrap::<crate::DomTypeHolder>(&mut cx, win)
+        WindowBinding::Wrap::<crate::DomTypeHolder>(cx, win)
     }
 
     pub(crate) fn pipeline_id(&self) -> PipelineId {

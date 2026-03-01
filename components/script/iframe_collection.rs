@@ -38,8 +38,8 @@ impl IFrame {
         self.element.browsing_context_id()
     }
 
-    pub fn destroy_document_and_its_descendants(&self, can_gc: CanGc) {
-        self.element.destroy_document_and_its_descendants(can_gc)
+    pub fn destroy_document_and_its_descendants(&self, cx: &mut js::context::JSContext) {
+        self.element.destroy_document_and_its_descendants(cx)
     }
 
     #[allow(non_snake_case)]

@@ -24,8 +24,8 @@ use layout_api::wrapper_traits::LayoutNode;
 use layout_api::{
     BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig, LayoutFactory,
     OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
-    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult, RegisterPropertyError,
-    ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
+    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult, ReflowStatistics,
+    RegisterPropertyError, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
 };
 use log::{debug, error, warn};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
@@ -957,6 +957,7 @@ impl LayoutThread {
             animating_images: reflow_request.animating_images.clone(),
             animation_timeline_value: reflow_request.animation_timeline_value,
         });
+        let mut reflow_statistics = Default::default();
 
         let (mut reflow_phases_run, iframe_sizes) = self.restyle_and_build_trees(
             &mut reflow_request,
@@ -970,7 +971,7 @@ impl LayoutThread {
         if self.build_stacking_context_tree_for_reflow(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::BuiltStackingContextTree);
         }
-        if self.build_display_list(&reflow_request, &image_resolver) {
+        if self.build_display_list(&reflow_request, &image_resolver, &mut reflow_statistics) {
             reflow_phases_run.insert(ReflowPhasesRun::BuiltDisplayList);
         }
         if self.handle_update_scroll_node_request(&reflow_request) {
@@ -989,6 +990,7 @@ impl LayoutThread {
             pending_rasterization_images,
             pending_svg_elements_for_serialization,
             iframe_sizes: Some(iframe_sizes),
+            reflow_statistics,
         })
     }
 
@@ -1320,6 +1322,7 @@ impl LayoutThread {
         &self,
         reflow_request: &ReflowRequest,
         image_resolver: &Arc<ImageResolver>,
+        reflow_statistics: &mut ReflowStatistics,
     ) -> bool {
         if !ReflowPhases::necessary(&reflow_request.reflow_goal)
             .contains(ReflowPhases::DisplayListConstruction)
@@ -1369,6 +1372,7 @@ impl LayoutThread {
             &self.debug,
             paint_timing_handler,
             reflow_request.selection.clone(),
+            reflow_statistics,
         );
         self.paint_api.send_display_list(
             self.webview_id,

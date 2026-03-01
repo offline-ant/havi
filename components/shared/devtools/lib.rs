@@ -132,8 +132,11 @@ pub enum ScriptToDevtoolsControlMsg {
 
     DomMutation(PipelineId, DomMutation),
 
-    /// A breakpoint was hit in script, sending frame information.
-    BreakpointHit(PipelineId, PauseFrameResult),
+    /// The debugger is paused, sending frame information.
+    DebuggerPause(PipelineId, FrameOffset, PauseReason),
+
+    /// Get frame information from script
+    CreateFrameActor(GenericSender<String>, PipelineId, FrameInfo),
 }
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
@@ -334,7 +337,7 @@ pub enum DevtoolScriptControlMsg {
     GetPossibleBreakpoints(u32, GenericSender<Vec<RecommendedBreakpointLocation>>),
     SetBreakpoint(u32, u32, u32),
     ClearBreakpoint(u32, u32, u32),
-    Pause(GenericSender<PauseFrameResult>),
+    Interrupt,
     Resume,
 }
 
@@ -569,10 +572,8 @@ pub struct RecommendedBreakpointLocation {
 
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PauseFrameResult {
-    pub column: u32,
+pub struct FrameInfo {
     pub display_name: String,
-    pub line: u32,
     pub on_stack: bool,
     pub oldest: bool,
     pub terminated: bool,
@@ -585,4 +586,19 @@ pub struct PauseFrameResult {
 pub struct EventListenerInfo {
     pub event_type: String,
     pub capturing: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseReason {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub on_next: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FrameOffset {
+    pub actor: String,
+    pub column: u32,
+    pub line: u32,
 }

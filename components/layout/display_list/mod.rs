@@ -13,9 +13,9 @@ use fonts::GlyphStore;
 use gradient::WebRenderGradient;
 use net_traits::image_cache::Image as CachedImage;
 use paint_api::display_list::{PaintDisplayListInfo, SpatialTreeNodeInfo};
-use paint_api::largest_contentful_paint_candidate::LCPCandidateID;
 use servo_arc::Arc as ServoArc;
 use servo_config::opts::DiagnosticsLogging;
+use layout_api::ReflowStatistics;
 use servo_config::pref;
 use servo_geometry::MaxRect;
 use style::Zero;
@@ -131,6 +131,8 @@ pub(crate) struct DisplayListBuilder<'a> {
     /// Tracks accumulated character count per text node for document selection rendering.
     /// Each text node may produce multiple text fragments; this maps node → chars seen so far.
     selection_char_acc: std::collections::HashMap<style::dom::OpaqueNode, usize>,
+
+    reflow_statistics: &'a mut ReflowStatistics,
 }
 
 struct InspectorHighlight {
@@ -181,6 +183,7 @@ impl DisplayListBuilder<'_> {
         debug: &DiagnosticsLogging,
         paint_timing_handler: &mut PaintTimingHandler,
         document_selection: Option<layout_api::DocumentSelection>,
+        reflow_statistics: &mut ReflowStatistics,
     ) -> BuiltDisplayList {
         // Build the rest of the display list which inclues all of the WebRender primitives.
         let paint_info = &mut stacking_context_tree.paint_info;
@@ -212,6 +215,7 @@ impl DisplayListBuilder<'_> {
             paint_timing_handler,
             document_selection,
             selection_char_acc: Default::default(),
+            reflow_statistics,
         };
 
         builder.add_all_spatial_nodes();
@@ -542,9 +546,9 @@ impl DisplayListBuilder<'_> {
 
     fn check_for_lcp_candidate(
         &mut self,
-        lcp_candidate_id: LCPCandidateID,
         clip_rect: LayoutRect,
         bounds: LayoutRect,
+        tag: Option<Tag>,
     ) {
         if !pref!(largest_contentful_paint_enabled) {
             return;
@@ -555,12 +559,8 @@ impl DisplayListBuilder<'_> {
             .scroll_tree
             .cumulative_node_to_root_transform(self.current_scroll_node_id);
 
-        self.paint_timing_handler.update_lcp_candidate(
-            lcp_candidate_id,
-            bounds,
-            clip_rect,
-            transform,
-        );
+        self.paint_timing_handler
+            .update_lcp_candidate(tag, bounds, clip_rect, transform);
     }
 }
 
@@ -687,12 +687,7 @@ impl Fragment {
                             );
                         }
 
-                        let lcp_candidate_id = image
-                            .base
-                            .tag
-                            .map(|tag| LCPCandidateID(tag.node.id()))
-                            .unwrap_or(LCPCandidateID(0));
-                        builder.check_for_lcp_candidate(lcp_candidate_id, common.clip_rect, rect);
+                        builder.check_for_lcp_candidate(common.clip_rect, rect, image.base.tag);
                     },
                     Visibility::Hidden => (),
                     Visibility::Collapse => (),
@@ -1541,16 +1536,10 @@ impl<'a> BuilderForBoxFragment<'a> {
                         // > background-size has non-zero width and height values.
                         builder.check_for_contentful_paint(layer.bounds, layer.common.clip_rect);
 
-                        let lcp_candidate_id = self
-                            .fragment
-                            .base
-                            .tag
-                            .map(|tag| LCPCandidateID(tag.node.id()))
-                            .unwrap_or(LCPCandidateID(0));
                         builder.check_for_lcp_candidate(
-                            lcp_candidate_id,
                             layer.common.clip_rect,
                             layer.bounds,
+                            self.fragment.base.tag,
                         );
                     }
                 },

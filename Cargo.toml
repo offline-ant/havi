@@ -37,6 +37,7 @@ app_units = "0.7"
 arboard = "3"
 argon2 = { version = "0.5", features = ["alloc"] }
 arrayvec = "0.7"
+async-tungstenite = { version = "0.33", features = ["tokio-rustls-webpki-roots"] }
 atomic_refcell = "0.1.13"
 aws-lc-rs = { version = "1.16", default-features = false, features = ["aws-lc-sys"] }
 background_hang_monitor_api = { path = "components/shared/background_hang_monitor" }
@@ -81,23 +82,23 @@ futures = { version = "0.3", default-features = false }
 futures-core = { version = "0.3", default-features = false }
 futures-util = { version = "0.3", default-features = false }
 gleam = "0.15"
-glib = "0.21"
-glib-sys = "0.21"
+glib = "0.22"
+glib-sys = "0.22"
 glow = "0.16.0"
-gstreamer = { version = "0.24", features = ["v1_18"] }
-gstreamer-app = "0.24"
-gstreamer-audio = "0.24"
-gstreamer-base = "0.24"
-gstreamer-gl = "0.24"
-gstreamer-gl-egl = "0.24"
-gstreamer-gl-sys = "0.24"
-gstreamer-gl-wayland = "0.24"
-gstreamer-gl-x11 = "0.24"
-gstreamer-play = "0.24"
-gstreamer-sdp = "0.24"
-gstreamer-sys = "0.24"
-gstreamer-video = "0.24"
-gstreamer-webrtc = { version = "0.24", features = ["v1_18"] }
+gstreamer = { version = "0.25", features = ["v1_18"] }
+gstreamer-app = "0.25"
+gstreamer-audio = "0.25"
+gstreamer-base = "0.25"
+gstreamer-gl = "0.25"
+gstreamer-gl-egl = "0.25"
+gstreamer-gl-sys = "0.25"
+gstreamer-gl-wayland = "0.25"
+gstreamer-gl-x11 = "0.25"
+gstreamer-play = "0.25"
+gstreamer-sdp = "0.25"
+gstreamer-sys = "0.25"
+gstreamer-video = "0.25"
+gstreamer-webrtc = { version = "0.25", features = ["v1_18"] }
 harfbuzz-sys = "0.6.1"
 headers = "0.4"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"] }
@@ -145,7 +146,7 @@ num-bigint-dig = "0.8"
 num-derive = "0.4.2"
 num-traits = "0.2"
 num_cpus = "1.17.0"
-objc2 = "0.6.3"
+objc2 = "0.6.4"
 objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-core-text = "0.3.2"
@@ -178,7 +179,7 @@ script_traits = { path = "components/shared/script" }
 sea-query = { version = "1.0.0-rc.31", default-features = false, features = ["backend-sqlite", "derive"] }
 sea-query-rusqlite = { version = "0.8.0-rc.15" }
 sec1 = "0.7"
-selectors = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
+selectors = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
 serde = "1.0.228"
 serde_bytes = "0.11"
 serde_core = "1.0.226"
@@ -187,7 +188,7 @@ servo-media = { path = "components/media/servo-media" }
 servo-media-dummy = { path = "components/media/backends/dummy" }
 servo-media-gstreamer = { path = "components/media/backends/gstreamer" }
 servo-tracing = { path = "components/servo_tracing" }
-servo_arc = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
+servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
 sha1 = "0.10"
 sha2 = "0.10"
 sha3 = "0.10"
@@ -196,12 +197,12 @@ smallvec = { version = "1.15", features = ["serde", "union"] }
 storage_traits = { path = "components/shared/storage" }
 string_cache = "0.9"
 strum = { version = "0.27", features = ["derive"] }
-stylo = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
-stylo_atoms = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
-stylo_dom = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
-stylo_malloc_size_of = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
-stylo_static_prefs = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
-stylo_traits = { git = "https://github.com/servo/stylo", rev = "9a413b4d05d899c3baedd7b648dbf2c23dc9b879" }
+stylo = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+stylo_atoms = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+stylo_dom = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+stylo_malloc_size_of = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+stylo_static_prefs = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+stylo_traits = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
 syn = { version = "2", default-features = false, features = ["clone-impls", "derive", "parsing"] }
 synstructure = "0.13"
 taffy = { version = "0.9.2", default-features = false, features = ["calc", "detailed_layout_info", "grid", "std"] }

@@ -74,6 +74,7 @@ use crate::dom::bindings::codegen::Bindings::ElementBinding::{
     ElementMethods, GetHTMLOptions, ScrollIntoViewContainer, ScrollLogicalPosition, ShadowRootInit,
 };
 use crate::dom::bindings::codegen::Bindings::FunctionBinding::Function;
+use crate::dom::bindings::codegen::Bindings::HTMLElementBinding::HTMLElementMethods;
 use crate::dom::bindings::codegen::Bindings::HTMLTemplateElementBinding::HTMLTemplateElementMethods;
 use crate::dom::bindings::codegen::Bindings::NodeBinding::NodeMethods;
 use crate::dom::bindings::codegen::Bindings::ShadowRootBinding::{
@@ -165,6 +166,7 @@ use crate::dom::node::{
 };
 use crate::dom::nodelist::NodeList;
 use crate::dom::promise::Promise;
+use crate::dom::range::Range;
 use crate::dom::raredata::ElementRareData;
 use crate::dom::scrolling_box::{ScrollAxisState, ScrollingBox};
 use crate::dom::servoparser::ServoParser;
@@ -947,6 +949,16 @@ impl Element {
             None,
             inner_target_rect,
         )
+    }
+
+    pub(crate) fn ensure_contenteditable_selection_range(
+        &self,
+        document: &Document,
+        can_gc: CanGc,
+    ) -> DomRoot<Range> {
+        self.ensure_rare_data()
+            .contenteditable_selection_range
+            .or_init(|| Range::new_with_doc(document, None, can_gc))
     }
 }
 
@@ -1773,7 +1785,7 @@ impl Element {
         }
 
         // <a>, <input>, <select>, and <textrea> are inherently focusable.
-        matches!(
+        if matches!(
             node.type_id(),
             NodeTypeId::Element(ElementTypeId::HTMLElement(
                 HTMLElementTypeId::HTMLAnchorElement,
@@ -1784,7 +1796,18 @@ impl Element {
             )) | NodeTypeId::Element(ElementTypeId::HTMLElement(
                 HTMLElementTypeId::HTMLTextAreaElement,
             ))
-        )
+        ) {
+            return true;
+        }
+
+        if node
+            .downcast::<HTMLElement>()
+            .is_some_and(|el| el.IsContentEditable())
+        {
+            return true;
+        }
+
+        false
     }
 
     /// Returns the focusable shadow host if this is a text control inner editor.
@@ -2603,10 +2626,10 @@ impl Element {
     }
 
     /// <https://www.w3.org/TR/CSP/#is-element-nonceable>
-    pub(crate) fn nonce_value_if_nonceable(&self) -> Option<String> {
+    pub(crate) fn is_nonceable(&self) -> bool {
         // Step 1: If element does not have an attribute named "nonce", return "Not Nonceable".
         if !self.has_attribute(&local_name!("nonce")) {
-            return None;
+            return false;
         }
         // Step 2: If element is a script element, then for each attribute of element’s attribute list:
         if self.downcast::<HTMLScriptElement>().is_some() {
@@ -2615,13 +2638,13 @@ impl Element {
                 // for "<script" or "<style", return "Not Nonceable".
                 let attr_name = attr.name().to_ascii_lowercase();
                 if attr_name.contains("<script") || attr_name.contains("<style") {
-                    return None;
+                    return false;
                 }
                 // Step 2.2: If attribute’s value contains an ASCII case-insensitive match
                 // for "<script" or "<style", return "Not Nonceable".
                 let attr_value = attr.value().to_ascii_lowercase();
                 if attr_value.contains("<script") || attr_value.contains("<style") {
-                    return None;
+                    return false;
                 }
             }
         }
@@ -2629,7 +2652,7 @@ impl Element {
         // TODO(https://github.com/servo/servo/issues/4577 and https://github.com/whatwg/html/issues/3257):
         // Figure out how to retrieve this information from the parser
         // Step 4: Return "Nonceable".
-        Some(self.nonce_value().trim().to_owned())
+        true
     }
 
     // https://dom.spec.whatwg.org/#insert-adjacent
@@ -2725,26 +2748,29 @@ impl Element {
     pub(crate) fn parse_fragment(
         &self,
         markup: DOMString,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) -> Fallible<DomRoot<DocumentFragment>> {
         // Steps 1-2.
         // TODO(#11995): XML case.
-        let new_children = ServoParser::parse_html_fragment(self, markup, false, can_gc);
+        let new_children = ServoParser::parse_html_fragment(self, markup, false, cx);
         // Step 3.
         // See https://github.com/w3c/DOM-Parsing/issues/61.
         let context_document = {
             if let Some(template) = self.downcast::<HTMLTemplateElement>() {
-                template.Content(can_gc).upcast::<Node>().owner_doc()
+                template
+                    .Content(CanGc::from_cx(cx))
+                    .upcast::<Node>()
+                    .owner_doc()
             } else {
                 self.owner_document()
             }
         };
-        let fragment = DocumentFragment::new(&context_document, can_gc);
+        let fragment = DocumentFragment::new(&context_document, CanGc::from_cx(cx));
         // Step 4.
         for child in new_children {
             fragment
                 .upcast::<Node>()
-                .AppendChild(&child, can_gc)
+                .AppendChild(&child, CanGc::from_cx(cx))
                 .unwrap();
         }
         // Step 5.
@@ -2899,6 +2925,48 @@ impl Element {
             line_number: line_number + 2,
             column_number: 0,
         }
+    }
+
+    /// <https://html.spec.whatwg.org/multipage/#dom-tabindex>
+    pub(crate) fn tab_index(&self) -> i32 {
+        // > The tabIndex getter steps are:
+        // > 1. Let attribute be this's tabindex attribute.
+        // > 2. If attribute is not null:
+        // >    1. Let parsedValue be the result of integer parsing attribute's value.
+        // >    2. If parsedValue is not an error and is within the long range, then return parsedValue.
+        if self.has_attribute(&local_name!("tabindex")) {
+            return self.get_int_attribute(&local_name!("tabindex"), 0);
+        }
+
+        // > 3. Return 0 if this is an a, area, button, frame, iframe, input, object, select, textarea,
+        // > or SVG a element, or is a summary element that is a summary for its parent details;
+        // > otherwise -1.
+        //
+        // Note: We do not currently support SVG `a` elements.
+        if matches!(
+            self.upcast::<Node>().type_id(),
+            NodeTypeId::Element(ElementTypeId::HTMLElement(
+                HTMLElementTypeId::HTMLAnchorElement |
+                    HTMLElementTypeId::HTMLAreaElement |
+                    HTMLElementTypeId::HTMLButtonElement |
+                    HTMLElementTypeId::HTMLFrameElement |
+                    HTMLElementTypeId::HTMLIFrameElement |
+                    HTMLElementTypeId::HTMLInputElement |
+                    HTMLElementTypeId::HTMLObjectElement |
+                    HTMLElementTypeId::HTMLSelectElement |
+                    HTMLElementTypeId::HTMLTextAreaElement
+            ))
+        ) {
+            return 0;
+        }
+        if self
+            .downcast::<HTMLElement>()
+            .is_some_and(|html_element| html_element.is_a_summary_for_its_parent_details())
+        {
+            return 0;
+        }
+
+        -1
     }
 }
 
@@ -3587,7 +3655,11 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-element-sethtmlunsafe>
-    fn SetHTMLUnsafe(&self, html: TrustedHTMLOrString, can_gc: CanGc) -> ErrorResult {
+    fn SetHTMLUnsafe(
+        &self,
+        cx: &mut js::context::JSContext,
+        html: TrustedHTMLOrString,
+    ) -> ErrorResult {
         // Step 1. Let compliantHTML be the result of invoking the
         // Get Trusted Type compliant string algorithm with TrustedHTML,
         // this's relevant global object, html, "Element setHTMLUnsafe", and "script".
@@ -3595,17 +3667,17 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
             &self.owner_global(),
             html,
             "Element setHTMLUnsafe",
-            can_gc,
+            CanGc::from_cx(cx),
         )?;
         // Step 2. Let target be this's template contents if this is a template element; otherwise this.
         let target = if let Some(template) = self.downcast::<HTMLTemplateElement>() {
-            DomRoot::upcast(template.Content(can_gc))
+            DomRoot::upcast(template.Content(CanGc::from_cx(cx)))
         } else {
             DomRoot::from_ref(self.upcast())
         };
 
         // Step 3. Unsafely set HTML given target, this, and compliantHTML
-        Node::unsafely_set_html(&target, self, html, can_gc);
+        Node::unsafely_set_html(&target, self, html, cx);
         Ok(())
     }
 
@@ -3643,7 +3715,11 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-element-innerhtml>
-    fn SetInnerHTML(&self, value: TrustedHTMLOrNullIsEmptyString, can_gc: CanGc) -> ErrorResult {
+    fn SetInnerHTML(
+        &self,
+        cx: &mut js::context::JSContext,
+        value: TrustedHTMLOrNullIsEmptyString,
+    ) -> ErrorResult {
         // Step 1: Let compliantString be the result of invoking the
         // Get Trusted Type compliant string algorithm with TrustedHTML,
         // this's relevant global object, the given value, "Element innerHTML", and "script".
@@ -3651,13 +3727,13 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
             &self.owner_global(),
             value.convert(),
             "Element innerHTML",
-            can_gc,
+            CanGc::from_cx(cx),
         )?;
         // https://github.com/w3c/DOM-Parsing/issues/1
         let target = if let Some(template) = self.downcast::<HTMLTemplateElement>() {
             // Step 4: If context is a template element, then set context to
             // the template element's template contents (a DocumentFragment).
-            DomRoot::upcast(template.Content(can_gc))
+            DomRoot::upcast(template.Content(CanGc::from_cx(cx)))
         } else {
             // Step 2: Let context be this.
             DomRoot::from_ref(self.upcast())
@@ -3672,15 +3748,15 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
                 .iter()
                 .any(|c| matches!(*c, b'&' | b'\0' | b'<' | b'\r'))
         {
-            return Node::SetTextContent(&target, Some(value), can_gc);
+            return Node::SetTextContent(&target, Some(value), CanGc::from_cx(cx));
         }
 
         // Step 3: Let fragment be the result of invoking the fragment parsing algorithm steps
         // with context and compliantString.
-        let frag = self.parse_fragment(value, can_gc)?;
+        let frag = self.parse_fragment(value, cx)?;
 
         // Step 5: Replace all with fragment within context.
-        Node::replace_all(Some(frag.upcast()), &target, can_gc);
+        Node::replace_all(Some(frag.upcast()), &target, CanGc::from_cx(cx));
         Ok(())
     }
 
@@ -3699,7 +3775,11 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-element-outerhtml>
-    fn SetOuterHTML(&self, value: TrustedHTMLOrNullIsEmptyString, can_gc: CanGc) -> ErrorResult {
+    fn SetOuterHTML(
+        &self,
+        cx: &mut js::context::JSContext,
+        value: TrustedHTMLOrNullIsEmptyString,
+    ) -> ErrorResult {
         // Step 1: Let compliantString be the result of invoking the
         // Get Trusted Type compliant string algorithm with TrustedHTML,
         // this's relevant global object, the given value, "Element outerHTML", and "script".
@@ -3707,7 +3787,7 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
             &self.owner_global(),
             value.convert(),
             "Element outerHTML",
-            can_gc,
+            CanGc::from_cx(cx),
         )?;
         let context_document = self.owner_document();
         let context_node = self.upcast::<Node>();
@@ -3735,7 +3815,7 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
                     ElementCreator::ScriptCreated,
                     CustomElementCreationMode::Synchronous,
                     None,
-                    can_gc,
+                    CanGc::from_cx(cx),
                 );
                 DomRoot::upcast(body_elem)
             },
@@ -3744,9 +3824,9 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
 
         // Step 6: Let fragment be the result of invoking the
         // fragment parsing algorithm steps given parent and compliantString.
-        let frag = parent.parse_fragment(value, can_gc)?;
+        let frag = parent.parse_fragment(value, cx)?;
         // Step 7: Replace this with fragment within this's parent.
-        context_parent.ReplaceChild(frag.upcast(), context_node, can_gc)?;
+        context_parent.ReplaceChild(frag.upcast(), context_node, CanGc::from_cx(cx))?;
         Ok(())
     }
 
@@ -3908,9 +3988,9 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
     /// <https://w3c.github.io/DOM-Parsing/#dom-element-insertadjacenthtml>
     fn InsertAdjacentHTML(
         &self,
+        cx: &mut js::context::JSContext,
         position: DOMString,
         text: TrustedHTMLOrString,
-        can_gc: CanGc,
     ) -> ErrorResult {
         // Step 1: Let compliantString be the result of invoking the
         // Get Trusted Type compliant string algorithm with TrustedHTML,
@@ -3919,7 +3999,7 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
             &self.owner_global(),
             text,
             "Element insertAdjacentHTML",
-            can_gc,
+            CanGc::from_cx(cx),
         )?;
         let position = position.parse::<AdjacentPosition>()?;
 
@@ -3951,15 +4031,15 @@ impl ElementMethods<crate::DomTypeHolder> for Element {
         let context = Element::fragment_parsing_context(
             &context.owner_doc(),
             context.downcast::<Element>(),
-            can_gc,
+            CanGc::from_cx(cx),
         );
 
         // Step 5: Let fragment be the result of invoking the
         // fragment parsing algorithm steps with context and compliantString.
-        let fragment = context.parse_fragment(text, can_gc)?;
+        let fragment = context.parse_fragment(text, cx)?;
 
         // Step 6.
-        self.insert_adjacent(position, fragment.upcast(), can_gc)
+        self.insert_adjacent(position, fragment.upcast(), CanGc::from_cx(cx))
             .map(|_| ())
     }
 
@@ -4549,15 +4629,17 @@ impl VirtualMethods for Element {
         if global.live_devtools_updates() {
             if let Some(sender) = global.devtools_chan() {
                 let pipeline_id = global.pipeline_id();
-                let devtools_message = ScriptToDevtoolsControlMsg::DomMutation(
-                    pipeline_id,
-                    DomMutation::AttributeModified {
-                        node: self.upcast::<Node>().unique_id(pipeline_id),
-                        attribute_name: attr.local_name().to_string(),
-                        new_value: mutation.new_value(attr).map(|value| value.to_string()),
-                    },
-                );
-                sender.send(devtools_message).unwrap();
+                if ScriptThread::devtools_want_updates_for_node(pipeline_id, self.upcast()) {
+                    let devtools_message = ScriptToDevtoolsControlMsg::DomMutation(
+                        pipeline_id,
+                        DomMutation::AttributeModified {
+                            node: self.upcast::<Node>().unique_id(pipeline_id),
+                            attribute_name: attr.local_name().to_string(),
+                            new_value: mutation.new_value(attr).map(|value| value.to_string()),
+                        },
+                    );
+                    sender.send(devtools_message).unwrap();
+                }
             }
         }
     }
@@ -4570,6 +4652,7 @@ impl VirtualMethods for Element {
                 AttrValue::from_serialized_tokenlist(value.into())
             },
             local_name!("exportparts") => AttrValue::from_shadow_parts(value.into()),
+            local_name!("tabindex") => AttrValue::from_i32(value.into(), -1),
             _ => self
                 .super_type()
                 .unwrap()

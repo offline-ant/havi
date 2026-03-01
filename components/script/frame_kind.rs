@@ -10,7 +10,6 @@
 
 use base::id::{BrowsingContextId, PipelineId};
 use constellation_traits::{LoadData, NavigationHistoryBehavior};
-use script_bindings::script_runtime::CanGc;
 use script_traits::UpdatePipelineIdReason;
 
 use crate::dom::bindings::codegen::Bindings::HTMLIFrameElementBinding::HTMLIFrameElementMethods;
@@ -58,18 +57,18 @@ impl FrameKind {
         &self,
         new_pipeline_id: PipelineId,
         reason: UpdatePipelineIdReason,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) {
         match self {
-            Self::IFrame(e) => e.update_pipeline_id(new_pipeline_id, reason, can_gc),
-            Self::XFrame(e) => e.update_pipeline_id(new_pipeline_id, reason, can_gc),
+            Self::IFrame(e) => e.update_pipeline_id(new_pipeline_id, reason, cx),
+            Self::XFrame(e) => e.update_pipeline_id(new_pipeline_id, reason, cx),
         }
     }
 
-    pub fn iframe_load_event_steps(&self, loaded_pipeline: PipelineId, can_gc: CanGc) {
+    pub fn iframe_load_event_steps(&self, loaded_pipeline: PipelineId, cx: &mut js::context::JSContext) {
         match self {
-            Self::IFrame(e) => e.iframe_load_event_steps(loaded_pipeline, can_gc),
-            Self::XFrame(e) => e.iframe_load_event_steps(loaded_pipeline, can_gc),
+            Self::IFrame(e) => e.iframe_load_event_steps(loaded_pipeline, cx),
+            Self::XFrame(e) => e.iframe_load_event_steps(loaded_pipeline, cx),
         }
     }
 
@@ -77,22 +76,22 @@ impl FrameKind {
         &self,
         load_data: LoadData,
         history_handling: NavigationHistoryBehavior,
-        can_gc: CanGc,
+        cx: &mut js::context::JSContext,
     ) {
         match self {
             Self::IFrame(e) => {
-                e.navigate_or_reload_child_browsing_context(load_data, history_handling, can_gc)
+                e.navigate_or_reload_child_browsing_context(load_data, history_handling, cx)
             },
             Self::XFrame(e) => {
-                e.navigate_or_reload_child_browsing_context(load_data, history_handling, can_gc)
+                e.navigate_or_reload_child_browsing_context(load_data, history_handling, cx)
             },
         }
     }
 
-    pub fn destroy_document_and_its_descendants(&self, can_gc: CanGc) {
+    pub fn destroy_document_and_its_descendants(&self, cx: &mut js::context::JSContext) {
         match self {
-            Self::IFrame(e) => e.destroy_document_and_its_descendants(can_gc),
-            Self::XFrame(e) => e.destroy_document_and_its_descendants(can_gc),
+            Self::IFrame(e) => e.destroy_document_and_its_descendants(cx),
+            Self::XFrame(e) => e.destroy_document_and_its_descendants(cx),
         }
     }
 
