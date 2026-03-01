@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use app_units::Au;
 use bitflags::bitflags;
-use fonts::{FontMetrics, GlyphStore};
+use fonts::{FontMetrics, FontRef, GlyphStore};
 use itertools::Either;
 use layout_api::wrapper_traits::SharedSelection;
 use malloc_size_of_derive::MallocSizeOf;
@@ -583,6 +583,7 @@ impl LineItemLayout<'_, '_> {
                 selected_style: text_item.inline_styles.selected.clone(),
                 font_metrics: text_item.font_metrics,
                 font_key: text_item.font_key,
+                font: text_item.font.clone(),
                 glyphs: text_item.text,
                 justification_adjustment: self.justification_adjustment,
                 offsets: text_item.offsets,
@@ -814,6 +815,7 @@ pub(super) struct TextRunLineItem {
     pub text: Vec<std::sync::Arc<GlyphStore>>,
     pub font_metrics: Arc<FontMetrics>,
     pub font_key: FontInstanceKey,
+    pub font: FontRef,
     /// The BiDi level of this [`TextRunLineItem`] to enable reordering.
     pub bidi_level: Level,
     /// When necessary, this field store the [`TextRunOffsets`] for a particular

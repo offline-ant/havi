@@ -27,6 +27,7 @@ data-url = { workspace = true }
 embedder_traits = { workspace = true }
 euclid = { workspace = true }
 fonts = { path = "../fonts" }
+havi-fonts = { path = "../../../havi-new/crates/fonts" }
 havi-types = { path = "../../../havi-new/crates/types" }
 fonts_traits = { workspace = true }
 html5ever = { workspace = true }

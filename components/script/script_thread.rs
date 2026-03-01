@@ -67,7 +67,6 @@ use ipc_channel::router::ROUTER;
 use js::glue::GetWindowProxyClass;
 use js::jsapi::{GCReason, JS_GC, JSContext as UnsafeJSContext};
 use js::jsval::UndefinedValue;
-use js::realm::CurrentRealm;
 use url::Position;
 use js::rust::ParentRuntime;
 use js::rust::wrappers2::{JS_AddInterruptCallback, SetWindowProxyClass};

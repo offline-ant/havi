@@ -640,6 +640,7 @@ app_main!(App);
 impl App {
     fn run(vm: &mut ScriptVm) -> Self {
         crate::makepad_widgets::script_mod(vm);
+        havi_render::shaders::script_mod(vm);
         crate::servo_web_view::script_mod(vm);
         App::from_script_mod(vm, self::script_mod)
     }

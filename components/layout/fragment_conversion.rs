@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use app_units::Au;
 
+use fonts_traits::FontIdentifier;
 use crate::fragment_tree::Fragment as LayoutFragment;
 
 /// Convert a slice of layout fragments to havi_types fragments for rendering.
@@ -64,6 +65,7 @@ fn convert_fragment(fragment: &LayoutFragment) -> Option<havi_types::Fragment> {
                 underline_size: f.font_metrics.underline_size,
                 strikeout_offset: f.font_metrics.strikeout_offset,
                 strikeout_size: f.font_metrics.strikeout_size,
+                font_handle: font_handle_from_font(&f.font),
             }))
         },
         LayoutFragment::Image(arc) => {
@@ -161,5 +163,30 @@ fn convert_collapsed_block_margins(
         collapsed_through: m.collapsed_through,
         start: havi_types::CollapsedMargin::new(m.start.solve()),
         end: havi_types::CollapsedMargin::new(m.end.solve()),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn font_handle_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontHandle> {
+    match font.identifier() {
+        FontIdentifier::Local(ref local) => Some(havi_fonts::FontHandle {
+            path: std::path::PathBuf::from(&*local.path),
+            index: local.index(),
+        }),
+        FontIdentifier::Web(_) => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn font_handle_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontHandle> {
+    match font.identifier() {
+        FontIdentifier::Local(ref local) => {
+            let native = local.native_font_handle();
+            Some(havi_fonts::FontHandle {
+                path: native.path,
+                index: native.index,
+            })
+        },
+        FontIdentifier::Web(_) => None,
     }
 }

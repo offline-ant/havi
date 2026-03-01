@@ -1640,6 +1640,7 @@ impl InlineFormattingContextLayout<'_> {
                 inline_styles: text_run.inline_styles.clone(),
                 font_metrics: font_metrics.clone(),
                 font_key,
+                font: font.clone(),
                 bidi_level,
                 offsets: offsets.map(Box::new),
             },

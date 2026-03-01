@@ -10,10 +10,6 @@ use havi_render::{DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor
 
 script_mod! {
     use mod.prelude.widgets.*
-    use mod.havi_render.DrawRoundedColor
-    use mod.havi_render.DrawBoxShadow
-    use mod.havi_render.DrawGradient
-    use mod.havi_render.DrawFilterImage
 
     mod.widgets.ServoWebViewBase = #(ServoWebView::register_widget(vm))
     mod.widgets.ServoWebView = set_type_default() do mod.widgets.ServoWebViewBase{
