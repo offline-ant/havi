@@ -140,6 +140,10 @@ pub struct ServoWebView {
     /// directly instead of using the GL texture.
     #[rust]
     shared_fragments: Option<layout_api::SharedFragmentTree>,
+    /// Data pointer of the last rendered fragment Arc, used to detect when the
+    /// fragment tree is replaced (navigation) so GPU caches can be cleared.
+    #[rust]
+    last_fragment_ptr: usize,
 
     // --- Scroll indicator overlay ---
     #[live]
@@ -254,6 +258,13 @@ impl Widget for ServoWebView {
         let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
             self.shared_fragments.as_ref().and_then(|sf| sf.get());
 
+        // Detect fragment tree replacement (navigation) and clear image textures.
+        let frag_ptr = fragments.as_ref().map_or(0, |f| Arc::as_ptr(f) as usize);
+        if frag_ptr != self.last_fragment_ptr {
+            self.last_fragment_ptr = frag_ptr;
+            self.texture_cache.0.clear();
+        }
+
         self.draw_bg.begin(cx, walk, Layout::default());
 
         if let Some(ref frags) = fragments {
@@ -344,6 +355,13 @@ impl ServoWebViewRef {
     pub fn set_shared_fragments(&self, shared: layout_api::SharedFragmentTree) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_fragments = Some(shared);
+            // Clear image textures since they are content-dependent.
+            inner.texture_cache.0.clear();
+            // NOTE: Do NOT clear opacity_passes, filter_passes, or
+            // transform_state. Makepad's DrawPass pool does not properly
+            // clean up freed entries — dropped passes remain in the pool
+            // with stale paint_dirty/parent fields, causing cycle panics.
+            // These passes are reconfigured each frame so reuse is safe.
         }
     }
 

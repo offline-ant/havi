@@ -78,6 +78,8 @@ bitflags! {
         const IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT = 1 << 0;
         /// `<br>` element.
         const IS_BR_ELEMENT = 1 << 1;
+        /// Skip painting backgrounds/borders/shadow (table wrappers, hidden empty cells).
+        const DO_NOT_PAINT = 1 << 7;
         /// Root element.
         const IS_ROOT_ELEMENT = 1 << 9;
     }

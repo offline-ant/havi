@@ -371,6 +371,14 @@ fn get_stacking_context_type(bf: &BoxFragment, is_float: bool) -> Option<Stackin
     let style = &bf.base.style;
     let flags = bf.base.flags;
 
+    // Table wrappers have DO_NOT_PAINT — they delegate painting (and stacking
+    // context creation) to the inner table grid box which shares the same
+    // OpaqueNode. Creating a stacking context here would produce two nested
+    // contexts with the same node_id, causing DrawPass self-cycles.
+    if flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+        return None;
+    }
+
     if establishes_stacking_context(style, flags) {
         return Some(StackingContextType::RealStackingContext);
     }

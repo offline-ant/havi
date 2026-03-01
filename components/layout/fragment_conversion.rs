@@ -118,6 +118,12 @@ fn convert_base_fragment(
     {
         flags |= havi_types::FragmentFlags::IS_ROOT_ELEMENT;
     }
+    if base
+        .flags
+        .contains(crate::fragment_tree::FragmentFlags::DO_NOT_PAINT)
+    {
+        flags |= havi_types::FragmentFlags::DO_NOT_PAINT;
+    }
 
     havi_types::BaseFragment {
         tag,
