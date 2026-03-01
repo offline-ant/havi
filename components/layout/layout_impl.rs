@@ -173,6 +173,9 @@ pub struct LayoutThread {
     /// Converted fragments for havi-render, updated after each layout.
     rendered_fragments: RefCell<Option<Arc<Vec<havi_types::Fragment>>>>,
 
+    /// Shared container for exposing fragments to the embedding layer.
+    shared_fragments: layout_api::SharedFragmentTree,
+
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
     // image data, or an error if the image cache failed to load/decode the image.
@@ -717,6 +720,7 @@ impl LayoutThread {
             box_tree: Default::default(),
             fragment_tree: Default::default(),
             rendered_fragments: Default::default(),
+            shared_fragments: config.shared_fragments.clone(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
@@ -1102,7 +1106,9 @@ impl LayoutThread {
 
         // Convert layout fragments to havi_types fragments for rendering.
         let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments);
-        *self.rendered_fragments.borrow_mut() = Some(Arc::new(converted));
+        let converted = Arc::new(converted);
+        *self.rendered_fragments.borrow_mut() = Some(converted.clone());
+        self.shared_fragments.set(converted);
 
         if self.debug.style_tree {
             println!(

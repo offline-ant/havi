@@ -61,6 +61,20 @@ use style_traits::CSSPixel;
 use webrender_api::units::{DeviceIntSize, LayoutPoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, ImageKey};
 
+/// Thread-safe container for sharing rendered fragments between layout and the embedding.
+#[derive(Clone, Default)]
+pub struct SharedFragmentTree(Arc<RwLock<Option<Arc<Vec<havi_types::Fragment>>>>>);
+
+impl SharedFragmentTree {
+    pub fn set(&self, fragments: Arc<Vec<havi_types::Fragment>>) {
+        *self.0.write() = Some(fragments);
+    }
+
+    pub fn get(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
+        self.0.read().clone()
+    }
+}
+
 pub trait GenericLayoutDataTrait: Any + MallocSizeOfTrait {
     fn as_any(&self) -> &dyn Any;
 }
@@ -238,6 +252,7 @@ pub struct LayoutConfig {
     pub user_stylesheets: Rc<Vec<DocumentStyleSheet>>,
     pub theme: Theme,
     pub accessibility_active: bool,
+    pub shared_fragments: SharedFragmentTree,
 }
 
 pub struct PropertyRegistration {
