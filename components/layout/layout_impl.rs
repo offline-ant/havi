@@ -170,6 +170,9 @@ pub struct LayoutThread {
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
 
+    /// Converted fragments for havi-render, updated after each layout.
+    rendered_fragments: RefCell<Option<Arc<Vec<havi_types::Fragment>>>>,
+
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
     // image data, or an error if the image cache failed to load/decode the image.
@@ -713,12 +716,18 @@ impl LayoutThread {
             need_overflow_calculation: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
+            rendered_fragments: Default::default(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
             user_stylesheets: config.user_stylesheets,
             accessibility_active: Cell::new(config.accessibility_active),
         }
+    }
+
+    /// Get the latest converted fragments for rendering.
+    pub fn rendered_fragments(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
+        self.rendered_fragments.borrow().clone()
     }
 
     fn build_shared_style_context<'a>(
@@ -1089,7 +1098,11 @@ impl LayoutThread {
             run_layout()
         });
 
-        *self.fragment_tree.borrow_mut() = Some(fragment_tree);
+        *self.fragment_tree.borrow_mut() = Some(fragment_tree.clone());
+
+        // Convert layout fragments to havi_types fragments for rendering.
+        let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments);
+        *self.rendered_fragments.borrow_mut() = Some(Arc::new(converted));
 
         if self.debug.style_tree {
             println!(

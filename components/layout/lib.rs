@@ -14,6 +14,7 @@ mod dom_traversal;
 mod flexbox;
 pub mod flow;
 mod formatting_contexts;
+mod fragment_conversion;
 mod fragment_tree;
 pub mod geom;
 mod layout_box_base;
