@@ -1206,7 +1206,7 @@ malloc_size_of_is_webrender_malloc_size_of!(webrender_api::FontVariation);
 malloc_size_of_is_webrender_malloc_size_of!(webrender_api::SpatialId);
 malloc_size_of_is_webrender_malloc_size_of!(webrender_api::StickyOffsetBounds);
 malloc_size_of_is_webrender_malloc_size_of!(webrender_api::TransformStyle);
-malloc_size_of_is_webrender_malloc_size_of!(webrender::FastTransform<webrender_api::units::LayoutPixel,webrender_api::units::LayoutPixel>);
+
 
 macro_rules! malloc_size_of_is_stylo_malloc_size_of(
     ($($ty:ty),+) => (

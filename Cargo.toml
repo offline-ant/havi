@@ -231,7 +231,6 @@ vello = "0.6"
 vello_cpu = "0.0.4"
 webdriver = "0.53.0"
 webgpu_traits = { path = "components/shared/webgpu" }
-webrender = { version = "0.68", features = ["capture"] }
 webrender_api = "0.68"
 webxr-api = { path = "components/shared/webxr" }
 wgpu-core = "26"

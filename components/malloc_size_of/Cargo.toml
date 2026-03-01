@@ -41,6 +41,5 @@ url = { workspace = true }
 urlpattern = { workspace = true }
 utf-8 = { workspace = true }
 uuid = { workspace = true }
-webrender = { workspace = true }
 webrender_api = { workspace = true }
 wr_malloc_size_of = { workspace = true }
