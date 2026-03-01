@@ -9,7 +9,6 @@
 
 mod cell;
 mod context;
-mod display_list;
 mod dom;
 mod dom_traversal;
 mod flexbox;

@@ -6,20 +6,24 @@ use app_units::{Au, MAX_AU, MIN_AU};
 use atomic_refcell::AtomicRefCell;
 use base::id::ScrollTreeNodeId;
 use base::print_tree::PrintTree;
-use euclid::Rect;
+use euclid::{Point2D, Rect, Size2D};
 use malloc_size_of_derive::MallocSizeOf;
 use servo_arc::Arc as ServoArc;
-use servo_geometry::f32_rect_to_au_rect;
+use servo_geometry::{au_rect_to_f32_rect, f32_rect_to_au_rect};
 use style::Zero;
 use style::computed_values::border_collapse::T as BorderCollapse;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
 use style::logical_geometry::WritingMode;
 use style::properties::ComputedValues;
+use style::values::computed::CSSPixelLength;
+use style::values::computed::angle::Angle;
+use style::values::generics::transform::{GenericRotate, GenericScale, GenericTranslate};
+use style_traits::CSSPixel;
+use webrender_api::units::LayoutTransform;
 
 use super::{BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags};
 use crate::SharedStyle;
-use crate::display_list::ToWebRender;
 use crate::formatting_contexts::Baselines;
 use crate::fragment_tree::BaseFragmentStyleRef;
 use crate::geom::{
@@ -27,6 +31,15 @@ use crate::geom::{
 };
 use crate::style_ext::ComputedValuesExt;
 use crate::table::SpecificTableGridInfo;
+
+type Length = CSSPixelLength;
+
+fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<Length, CSSPixel> {
+    Rect::new(
+        Point2D::new(rect.origin.x.into(), rect.origin.y.into()),
+        Size2D::new(rect.size.width.into(), rect.size.height.into()),
+    )
+}
 use crate::taffy::SpecificTaffyGridInfo;
 
 /// Describes how a [`BoxFragment`] paints its background.
@@ -415,7 +428,7 @@ impl BoxFragment {
         // contexts, but it is yet to happen.
         self.calculate_transform_matrix(&self.border_rect())
             .and_then(|transform| {
-                transform.outer_transformed_rect(&overflow.to_webrender().to_rect())
+                transform.outer_transformed_rect(&au_rect_to_f32_rect(overflow).cast_unit())
             })
             .map(|transformed_rect| f32_rect_to_au_rect(transformed_rect).cast_unit())
             .unwrap_or(overflow)
@@ -572,5 +585,56 @@ impl BoxFragment {
 
     pub(crate) fn spatial_tree_node(&self) -> Option<ScrollTreeNodeId> {
         *self.spatial_tree_node.borrow()
+    }
+
+    /// Calculate the 4x4 transform matrix for this fragment's CSS `transform` property,
+    /// including individual `translate`, `rotate`, and `scale` properties.
+    pub fn calculate_transform_matrix(
+        &self,
+        border_rect: &Rect<Au, CSSPixel>,
+    ) -> Option<LayoutTransform> {
+        let style = self.style();
+        let list = &style.get_box().transform;
+        let length_rect = au_rect_to_length_rect(border_rect);
+        let rotate = match style.clone_rotate() {
+            GenericRotate::Rotate(angle) => (0., 0., 1., angle),
+            GenericRotate::Rotate3D(x, y, z, angle) => (x, y, z, angle),
+            GenericRotate::None => (0., 0., 1., Angle::zero()),
+        };
+        let scale = match style.clone_scale() {
+            GenericScale::Scale(sx, sy, sz) => (sx, sy, sz),
+            GenericScale::None => (1., 1., 1.),
+        };
+        let translation = match style.clone_translate() {
+            GenericTranslate::Translate(x, y, z) => LayoutTransform::translation(
+                x.resolve(length_rect.size.width).px(),
+                y.resolve(length_rect.size.height).px(),
+                z.px(),
+            ),
+            GenericTranslate::None => LayoutTransform::identity(),
+        };
+
+        let angle = euclid::Angle::radians(rotate.3.radians());
+        let transform_base = list
+            .to_transform_3d_matrix(Some(&length_rect.to_untyped()))
+            .ok()?;
+        let transform = LayoutTransform::from_untyped(&transform_base.0)
+            .then_rotate(rotate.0, rotate.1, rotate.2, angle)
+            .then_scale(scale.0, scale.1, scale.2)
+            .then(&translation);
+
+        let transform_origin = &style.get_box().transform_origin;
+        let transform_origin_x = transform_origin
+            .horizontal
+            .to_used_value(border_rect.size.width)
+            .to_f32_px();
+        let transform_origin_y = transform_origin
+            .vertical
+            .to_used_value(border_rect.size.height)
+            .to_f32_px();
+        let transform_origin_z = transform_origin.depth.px();
+
+        use crate::style_ext::TransformExt;
+        Some(transform.change_basis(transform_origin_x, transform_origin_y, transform_origin_z))
     }
 }

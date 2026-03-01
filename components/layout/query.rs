@@ -13,10 +13,9 @@ use layout_api::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, LayoutElementType, LayoutNodeType,
     OffsetParentResponse, PhysicalSides, ScrollContainerQueryFlags, ScrollContainerResponse,
 };
-use paint_api::scroll_tree::ScrollTree;
 use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use servo_arc::Arc as ServoArc;
-use servo_geometry::{FastLayoutTransform, au_rect_to_f32_rect, f32_rect_to_au_rect};
+
 use servo_url::BrowserUrl;
 use style::computed_values::display::T as Display;
 use style::computed_values::position::T as Position;
@@ -43,8 +42,9 @@ use style::values::specified::box_::DisplayInside;
 use style::values::specified::text::TextTransformCase;
 use style_traits::{CSSPixel, ParsingMode, ToCss};
 
+use style::values::computed::CSSPixelLength;
+
 use crate::ArcRefCell;
-use crate::display_list::{StackingContextTree, au_rect_to_length_rect};
 use crate::dom::NodeExt;
 use crate::flow::inline::construct::{TextTransformation, WhitespaceCollapse, capitalize_string};
 use crate::fragment_tree::{
@@ -53,19 +53,11 @@ use crate::fragment_tree::{
 use crate::style_ext::ComputedValuesExt;
 use crate::taffy::SpecificTaffyGridInfo;
 
-/// Get a scroll node that would represents this [`ServoLayoutNode`]'s transform and
-/// calculate its cumulative transform from its root scroll node to the scroll node.
-fn root_transform_for_layout_node(
-    scroll_tree: &ScrollTree,
-    node: ServoThreadSafeLayoutNode<'_>,
-) -> Option<FastLayoutTransform> {
-    let fragments = node.fragments_for_pseudo(None);
-    let box_fragment = fragments
-        .first()
-        .and_then(Fragment::retrieve_box_fragment)?
-        .borrow();
-    let scroll_tree_node_id = box_fragment.spatial_tree_node()?;
-    Some(scroll_tree.cumulative_node_to_root_transform(scroll_tree_node_id))
+fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<CSSPixelLength, CSSPixel> {
+    Rect::new(
+        Point2D::new(rect.origin.x.into(), rect.origin.y.into()),
+        Size2D::new(rect.size.width.into(), rect.size.height.into()),
+    )
 }
 
 pub(crate) fn process_padding_request(
@@ -88,7 +80,6 @@ pub(crate) fn process_padding_request(
 }
 
 pub(crate) fn process_box_area_request(
-    stacking_context_tree: &StackingContextTree,
     node: ServoThreadSafeLayoutNode<'_>,
     area: BoxAreaType,
     exclude_transform_and_inline: bool,
@@ -108,21 +99,11 @@ pub(crate) fn process_box_area_request(
     rects.peek()?;
     let rect_union = rects.fold(Rect::zero(), |unioned_rect, rect| rect.union(&unioned_rect));
 
-    if exclude_transform_and_inline {
-        return Some(rect_union);
-    }
-
-    let Some(transform) =
-        root_transform_for_layout_node(&stacking_context_tree.paint_info.scroll_tree, node)
-    else {
-        return Some(Rect::new(rect_union.origin, Size2D::zero()));
-    };
-
-    transform_au_rectangle(rect_union, transform)
+    // TODO(havi-render): Apply cumulative scroll tree transform once wired.
+    Some(rect_union)
 }
 
 pub(crate) fn process_box_areas_request(
-    stacking_context_tree: &StackingContextTree,
     node: ServoThreadSafeLayoutNode<'_>,
     area: BoxAreaType,
 ) -> CSSPixelRectIterator {
@@ -131,13 +112,8 @@ pub(crate) fn process_box_areas_request(
         .into_iter()
         .filter_map(move |fragment| fragment.cumulative_box_area_rect(area));
 
-    let Some(transform) =
-        root_transform_for_layout_node(&stacking_context_tree.paint_info.scroll_tree, node)
-    else {
-        return Box::new(fragments.map(|rect| Rect::new(rect.origin, Size2D::zero())));
-    };
-
-    Box::new(fragments.filter_map(move |rect| transform_au_rectangle(rect, transform)))
+    // TODO(havi-render): Apply cumulative scroll tree transform once wired.
+    Box::new(fragments)
 }
 
 pub fn process_client_rect_request(node: ServoThreadSafeLayoutNode<'_>) -> Rect<i32, CSSPixel> {
@@ -645,7 +621,6 @@ fn offset_parent_fragments(node: ServoLayoutNode<'_>) -> Option<OffsetParentFrag
 
 #[inline]
 pub fn process_offset_parent_query(
-    scroll_tree: &ScrollTree,
     node: ServoLayoutNode<'_>,
 ) -> Option<OffsetParentResponse> {
     // Only consider the first fragment of the node found as per a
@@ -670,16 +645,6 @@ pub fn process_offset_parent_query(
         .first()
         .cloned()?;
     let mut border_box = fragment.cumulative_box_area_rect(BoxAreaType::Border)?;
-    let cumulative_sticky_offsets = fragment
-        .retrieve_box_fragment()
-        .and_then(|box_fragment| box_fragment.borrow().spatial_tree_node())
-        .map(|node_id| {
-            scroll_tree
-                .cumulative_sticky_offsets(node_id)
-                .map(Au::from_f32_px)
-                .cast_unit()
-        });
-    border_box = border_box.translate(cumulative_sticky_offsets.unwrap_or_default());
 
     // 2.  If the offsetParent of the element is null return the x-coordinate of the left
     //     border edge of the first CSS layout box associated with the element, relative to
@@ -730,18 +695,8 @@ pub fn process_offset_parent_query(
         }
     } else {
         parent_fragment.offset_by_containing_block(&parent_fragment.padding_rect())
-    }
-    .translate(
-        cumulative_sticky_offsets
-            .and_then(|_| parent_fragment.spatial_tree_node())
-            .map(|node_id| {
-                scroll_tree
-                    .cumulative_sticky_offsets(node_id)
-                    .map(Au::from_f32_px)
-                    .cast_unit()
-            })
-            .unwrap_or_default(),
-    );
+    };
+    // TODO(havi-render): Apply cumulative sticky offsets once scroll tree is wired.
 
     border_box = border_box.translate(-parent_offset_rect.origin.to_vector());
 
@@ -1299,7 +1254,6 @@ fn rendered_text_collection_steps(
 
 pub fn find_character_offset_in_fragment_descendants(
     node: &ServoThreadSafeLayoutNode,
-    stacking_context_tree: &StackingContextTree,
     point_in_viewport: Point2D<Au, CSSPixel>,
 ) -> Option<usize> {
     type ClosestFragment = Option<(Au, Point2D<Au, CSSPixel>, ArcRefCell<TextFragment>)>;
@@ -1343,13 +1297,16 @@ pub fn find_character_offset_in_fragment_descendants(
         }
     }
 
+    // TODO(havi-render): Apply spatial tree transform to convert viewport point to fragment-local.
     let mut closest_relative_fragment = None;
     for fragment in &node.fragments_for_pseudo(None) {
-        if let Some(point_in_fragment) =
-            stacking_context_tree.offset_in_fragment(fragment, point_in_viewport)
-        {
-            collect_relevant_children(fragment, point_in_fragment, &mut closest_relative_fragment);
-        }
+        let point_in_fragment = point_in_viewport
+            - fragment
+                .base()
+                .map(|base| base.rect.origin)
+                .unwrap_or_default()
+                .to_vector();
+        collect_relevant_children(fragment, point_in_fragment, &mut closest_relative_fragment);
     }
 
     closest_relative_fragment.map(|(_, point_in_parent, text_fragment)| {
@@ -1362,7 +1319,6 @@ pub fn find_character_offset_in_fragment_descendants(
 /// Used for document text selection where we need to identify the DOM text node.
 pub fn find_text_node_and_offset_in_fragment_descendants(
     node: &ServoThreadSafeLayoutNode,
-    stacking_context_tree: &StackingContextTree,
     point_in_viewport: Point2D<Au, CSSPixel>,
 ) -> Option<(OpaqueNode, usize)> {
     // Collect all text fragments with their points, in document order.
@@ -1387,13 +1343,17 @@ pub fn find_text_node_and_offset_in_fragment_descendants(
         }
     }
 
+    // TODO(havi-render): Apply spatial tree transform to convert viewport point to fragment-local.
     let mut all_frags: Vec<FragEntry> = Vec::new();
     let node_frags = node.fragments_for_pseudo(None);
     for fragment in &node_frags {
-        let has_offset = stacking_context_tree.offset_in_fragment(fragment, point_in_viewport);
-        if let Some(point_in_fragment) = has_offset {
-            collect_text_fragments(fragment, point_in_fragment, &mut all_frags);
-        }
+        let point_in_fragment = point_in_viewport
+            - fragment
+                .base()
+                .map(|base| base.rect.origin)
+                .unwrap_or_default()
+                .to_vector();
+        collect_text_fragments(fragment, point_in_fragment, &mut all_frags);
     }
     // Find the closest fragment to the point.
     let mut closest_idx = None;
@@ -1435,7 +1395,7 @@ pub fn find_text_node_and_offset_in_fragment_descendants(
 /// container element, because it iterates every box fragment in the stacking context
 /// tree rather than being scoped to one DOM node's fragments.
 pub fn find_text_node_at_viewport_point(
-    stacking_context_tree: &StackingContextTree,
+    fragment_tree: &FragmentTree,
     point_in_viewport: Point2D<Au, CSSPixel>,
 ) -> Option<(OpaqueNode, usize)> {
     type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
@@ -1459,13 +1419,15 @@ pub fn find_text_node_at_viewport_point(
         }
     }
 
+    // TODO(havi-render): Use hit testing to find fragments at viewport point.
     let mut all_frags: Vec<FragEntry> = Vec::new();
-    stacking_context_tree.for_each_box_at_viewport_point(
-        point_in_viewport,
-        &mut |fragment, point_in_box| {
-            collect_text_fragments(fragment, point_in_box, &mut all_frags);
-        },
-    );
+    for fragment in &fragment_tree.root_fragments {
+        let offset = fragment
+            .base()
+            .map(|base| base.rect.origin)
+            .unwrap_or_default();
+        collect_text_fragments(fragment, point_in_viewport - offset.to_vector(), &mut all_frags);
+    }
 
     // Find the closest fragment to the point.
     let mut closest_idx = None;
@@ -1596,16 +1558,4 @@ where
     Some(computed_values.clone_font())
 }
 
-pub(crate) fn transform_au_rectangle(
-    rect_to_transform: Rect<Au, CSSPixel>,
-    transform: FastLayoutTransform,
-) -> Option<Rect<Au, CSSPixel>> {
-    let rect_to_transform = &au_rect_to_f32_rect(rect_to_transform).cast_unit();
-    let outer_transformed_rect = match transform {
-        FastLayoutTransform::Offset(offset) => Some(rect_to_transform.translate(offset)),
-        FastLayoutTransform::Transform { transform, .. } => {
-            transform.outer_transformed_rect(rect_to_transform)
-        },
-    };
-    outer_transformed_rect.map(|transformed_rect| f32_rect_to_au_rect(transformed_rect).cast_unit())
-}
+

@@ -24,14 +24,13 @@ use layout_api::wrapper_traits::LayoutNode;
 use layout_api::{
     BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig, LayoutFactory,
     OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
-    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult, ReflowStatistics,
+    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
     RegisterPropertyError, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
 };
-use log::{debug, error, warn};
+use log::{debug, error};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
 use net_traits::image_cache::ImageCache;
-use paint_api::CrossProcessPaintApi;
-use paint_api::scroll_tree::ScrollType;
+
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{Report, ReportKind};
 use profile_traits::time::{
@@ -85,7 +84,6 @@ use webrender_api::ExternalScrollId;
 use webrender_api::units::{DevicePixel, LayoutVector2D};
 
 use crate::context::{CachedImageOrError, ImageResolver, LayoutContext};
-use crate::display_list::{DisplayListBuilder, HitTest, PaintTimingHandler, StackingContextTree};
 use crate::query::{
     find_character_offset_in_fragment_descendants, find_text_node_and_offset_in_fragment_descendants,
     find_text_node_at_viewport_point,
@@ -160,33 +158,17 @@ pub struct LayoutThread {
     device_has_changed: bool,
 
     /// Is this the first reflow in this LayoutThread?
-    have_ever_generated_display_list: Cell<bool>,
+    first_reflow: Cell<bool>,
 
     /// Whether a new overflow calculation needs to happen due to changes to the fragment
     /// tree. This is set to true every time a restyle requests overflow calculation.
     need_overflow_calculation: Cell<bool>,
-
-    /// Whether a new display list is necessary due to changes to layout or stacking
-    /// contexts. This is set to true every time layout changes, even when a display list
-    /// isn't requested for this layout, such as for layout queries. The next time a
-    /// layout requests a display list, it is produced unconditionally, even when the
-    /// layout trees remain the same.
-    need_new_display_list: Cell<bool>,
-
-    /// Whether or not the existing stacking context tree is dirty and needs to be
-    /// rebuilt. This happens after a relayout or overflow update. The reason that we
-    /// don't simply clear the stacking context tree when it becomes dirty is that we need
-    /// to preserve scroll offsets from the old tree to the new one.
-    need_new_stacking_context_tree: Cell<bool>,
 
     /// The box tree.
     box_tree: RefCell<Option<Arc<BoxTree>>>,
 
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
-
-    /// The [`StackingContextTree`] cached from previous layouts.
-    stacking_context_tree: RefCell<Option<StackingContextTree>>,
 
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
@@ -196,26 +178,9 @@ pub struct LayoutThread {
     /// The executors for paint worklets.
     registered_painters: RegisteredPaintersImpl,
 
-    /// Cross-process access to the `Paint` API.
-    paint_api: CrossProcessPaintApi,
-
     /// Debug options, copied from configuration to this `LayoutThread` in order
     /// to avoid having to constantly access the thread-safe global options.
     debug: DiagnosticsLogging,
-
-    /// Tracks the node that was highlighted by the devtools during the last reflow.
-    ///
-    /// If this changed, then we need to create a new display list.
-    previously_highlighted_dom_node: Cell<Option<OpaqueNode>>,
-
-    /// Tracks the document selection fingerprint from the last display list build.
-    /// (start_node, start_offset, end_node, end_offset) — if this changes, we
-    /// need a new display list.
-    previous_selection_key:
-        Cell<Option<(OpaqueNode, u32, OpaqueNode, u32)>>,
-
-    /// Handler for all Paint Timings
-    paint_timing_handler: RefCell<Option<PaintTimingHandler>>,
 
     /// Whether accessibility is active in this layout.
     /// (Note: this is a temporary field which will be replaced with an optional accessibility tree member.)
@@ -232,11 +197,10 @@ impl LayoutFactory for LayoutFactoryImpl {
 
 impl Drop for LayoutThread {
     fn drop(&mut self) {
-        let (keys, instance_keys) = self
+        // TODO(havi-render): Release font resources via new font management path.
+        let (_keys, _instance_keys) = self
             .font_context
             .collect_unused_webrender_resources(true /* all */);
-        self.paint_api
-            .remove_unused_font_resources(self.webview_id.into(), keys, instance_keys)
     }
 }
 
@@ -353,12 +317,7 @@ impl Layout for LayoutThread {
         }
 
         let node = unsafe { ServoLayoutNode::new(&node) };
-        let stacking_context_tree = self.stacking_context_tree.borrow();
-        let stacking_context_tree = stacking_context_tree
-            .as_ref()
-            .expect("Should always have a StackingContextTree for box area queries");
         process_box_area_request(
-            stacking_context_tree,
             node.to_threadsafe(),
             area,
             exclude_transform_and_inline,
@@ -378,11 +337,7 @@ impl Layout for LayoutThread {
         }
 
         let node = unsafe { ServoLayoutNode::new(&node) };
-        let stacking_context_tree = self.stacking_context_tree.borrow();
-        let stacking_context_tree = stacking_context_tree
-            .as_ref()
-            .expect("Should always have a StackingContextTree for box area queries");
-        process_box_areas_request(stacking_context_tree, node.to_threadsafe(), area)
+        process_box_areas_request(node.to_threadsafe(), area)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -405,12 +360,7 @@ impl Layout for LayoutThread {
     #[servo_tracing::instrument(skip_all)]
     fn query_offset_parent(&self, node: TrustedNodeAddress) -> OffsetParentResponse {
         let node = unsafe { ServoLayoutNode::new(&node) };
-        let stacking_context_tree = self.stacking_context_tree.borrow();
-        let stacking_context_tree = stacking_context_tree
-            .as_ref()
-            .expect("Should always have a StackingContextTree for offset parent queries");
-        process_offset_parent_query(&stacking_context_tree.paint_info.scroll_tree, node)
-            .unwrap_or_default()
+        process_offset_parent_query(node).unwrap_or_default()
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -504,9 +454,7 @@ impl Layout for LayoutThread {
         point_in_node: Point2D<Au, CSSPixel>,
     ) -> Option<usize> {
         let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
-        let stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let stacking_context_tree = stacking_context_tree.as_ref()?;
-        find_character_offset_in_fragment_descendants(&node, stacking_context_tree, point_in_node)
+        find_character_offset_in_fragment_descendants(&node, point_in_node)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -516,9 +464,7 @@ impl Layout for LayoutThread {
         point: Point2D<Au, CSSPixel>,
     ) -> Option<(OpaqueNode, usize)> {
         let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
-        let stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let stacking_context_tree = stacking_context_tree.as_ref()?;
-        find_text_node_and_offset_in_fragment_descendants(&node, stacking_context_tree, point)
+        find_text_node_and_offset_in_fragment_descendants(&node, point)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -526,22 +472,19 @@ impl Layout for LayoutThread {
         &self,
         point: Point2D<Au, CSSPixel>,
     ) -> Option<(OpaqueNode, usize)> {
-        let stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let stacking_context_tree = stacking_context_tree.as_ref()?;
-        find_text_node_at_viewport_point(stacking_context_tree, point)
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        find_text_node_at_viewport_point(fragment_tree, point)
     }
 
     #[servo_tracing::instrument(skip_all)]
     fn query_elements_from_point(
         &self,
-        point: webrender_api::units::LayoutPoint,
-        flags: layout_api::ElementsFromPointFlags,
+        _point: webrender_api::units::LayoutPoint,
+        _flags: layout_api::ElementsFromPointFlags,
     ) -> Vec<layout_api::ElementsFromPointResult> {
-        self.stacking_context_tree
-            .borrow_mut()
-            .as_mut()
-            .map(|tree| HitTest::run(tree, point, flags))
-            .unwrap_or_default()
+        // TODO(havi-render): Wire hit testing through havi-render.
+        Vec::new()
     }
 
     fn exit_now(&mut self) {}
@@ -588,12 +531,6 @@ impl Layout for LayoutThread {
                 .unwrap_or_default(),
         });
 
-        reports.push(Report {
-            path: path![formatted_url, "layout-thread", "stacking-context-tree"],
-            kind: ReportKind::ExplicitJemallocHeapSize,
-            size: self.stacking_context_tree.size_of(ops),
-        });
-
         reports.extend(self.image_cache.memory_reports(formatted_url, ops));
     }
 
@@ -610,13 +547,8 @@ impl Layout for LayoutThread {
         )
     }
 
-    fn ensure_stacking_context_tree(&self, viewport_details: ViewportDetails) {
-        if self.stacking_context_tree.borrow().is_some() &&
-            !self.need_new_stacking_context_tree.get()
-        {
-            return;
-        }
-        self.build_stacking_context_tree(viewport_details);
+    fn ensure_stacking_context_tree(&self, _viewport_details: ViewportDetails) {
+        // TODO(havi-render): Stacking context tree removed; havi-render handles paint order.
     }
 
     fn register_paint_worklet_modules(
@@ -629,33 +561,23 @@ impl Layout for LayoutThread {
 
     fn set_scroll_offsets_from_renderer(
         &mut self,
-        scroll_states: &FxHashMap<ExternalScrollId, LayoutVector2D>,
+        _scroll_states: &FxHashMap<ExternalScrollId, LayoutVector2D>,
     ) {
-        let mut stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let Some(stacking_context_tree) = stacking_context_tree.as_mut() else {
-            warn!("Received scroll offsets before finishing layout.");
-            return;
-        };
-
-        stacking_context_tree
-            .paint_info
-            .scroll_tree
-            .set_all_scroll_offsets(scroll_states);
+        // TODO(havi-render): Scroll offsets managed by havi-render.
     }
 
-    fn scroll_offset(&self, id: ExternalScrollId) -> Option<LayoutVector2D> {
-        self.stacking_context_tree
-            .borrow_mut()
-            .as_mut()
-            .and_then(|tree| tree.paint_info.scroll_tree.scroll_offset(id))
+    fn scroll_offset(&self, _id: ExternalScrollId) -> Option<LayoutVector2D> {
+        // TODO(havi-render): Scroll offsets managed by havi-render.
+        None
     }
 
     fn needs_new_display_list(&self) -> bool {
-        self.need_new_display_list.get()
+        // Always report true since we no longer track display list state.
+        true
     }
 
     fn set_needs_new_display_list(&self) {
-        self.need_new_display_list.set(true);
+        // No-op: display list tracking removed.
     }
 
     /// <https://drafts.css-houdini.org/css-properties-values-api-1/#the-registerproperty-function>
@@ -786,21 +708,14 @@ impl LayoutThread {
             image_cache: config.image_cache,
             font_context: config.font_context,
             have_added_user_agent_stylesheets: false,
-            have_ever_generated_display_list: Cell::new(false),
+            first_reflow: Cell::new(true),
             device_has_changed: false,
             need_overflow_calculation: Cell::new(false),
-            need_new_display_list: Cell::new(false),
-            need_new_stacking_context_tree: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
-            stacking_context_tree: Default::default(),
-            paint_api: config.paint_api,
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
-            previously_highlighted_dom_node: Cell::new(None),
-            previous_selection_key: Cell::new(None),
-            paint_timing_handler: Default::default(),
             user_stylesheets: config.user_stylesheets,
             accessibility_active: Cell::new(config.accessibility_active),
         }
@@ -879,17 +794,12 @@ impl LayoutThread {
         // If only the stacking context tree is required, and it's up-to-date,
         // layout is unnecessary, otherwise a layout is necessary.
         if necessary_phases == ReflowPhases::StackingContextTreeConstruction {
-            return self.stacking_context_tree.borrow().is_some() &&
-                !self.need_new_stacking_context_tree.get();
+            // Stacking context tree removed; always considered up-to-date.
+            return true;
         }
 
-        // Otherwise, the only interesting thing is whether the current display
-        // list is up-to-date.
-        assert_eq!(
-            necessary_phases,
-            ReflowPhases::StackingContextTreeConstruction | ReflowPhases::DisplayListConstruction
-        );
-        !self.need_new_display_list.get()
+        // Display list construction removed; always considered up-to-date.
+        true
     }
 
     fn maybe_print_reflow_event(&self, reflow_request: &ReflowRequest) {
@@ -952,7 +862,7 @@ impl LayoutThread {
             animating_images: reflow_request.animating_images.clone(),
             animation_timeline_value: reflow_request.animation_timeline_value,
         });
-        let mut reflow_statistics = Default::default();
+        let reflow_statistics = Default::default();
 
         let (mut reflow_phases_run, iframe_sizes) = self.restyle_and_build_trees(
             &mut reflow_request,
@@ -963,12 +873,7 @@ impl LayoutThread {
         if self.calculate_overflow() {
             reflow_phases_run.insert(ReflowPhasesRun::CalculatedOverflow);
         }
-        if self.build_stacking_context_tree_for_reflow(&reflow_request) {
-            reflow_phases_run.insert(ReflowPhasesRun::BuiltStackingContextTree);
-        }
-        if self.build_display_list(&reflow_request, &image_resolver, &mut reflow_statistics) {
-            reflow_phases_run.insert(ReflowPhasesRun::BuiltDisplayList);
-        }
+        // Stacking context tree and display list construction removed (havi-render).
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
         }
@@ -1085,19 +990,6 @@ impl LayoutThread {
         self.prepare_stylist_for_reflow(reflow_request, document, &guards, ua_stylesheets)
             .process_style(root_element, Some(&snapshot_map));
 
-        if self.previously_highlighted_dom_node.get() != reflow_request.highlighted_dom_node {
-            // Need to manually force layout to build a new display list regardless of whether the box tree
-            // changed or not.
-            self.need_new_display_list.set(true);
-        }
-
-        let new_selection_key = reflow_request.selection.as_ref().map(|s| {
-            (s.start.0, s.start.1, s.end.0, s.end.1)
-        });
-        if self.previous_selection_key.get() != new_selection_key {
-            self.need_new_display_list.set(true);
-        }
-
         let layout_context = LayoutContext {
             style_context: self.build_shared_style_context(
                 guards,
@@ -1177,12 +1069,7 @@ impl LayoutThread {
         if damage.contains(RestyleDamage::RECALCULATE_OVERFLOW) {
             self.need_overflow_calculation.set(true);
         }
-        if damage.contains(RestyleDamage::REBUILD_STACKING_CONTEXT) {
-            self.need_new_stacking_context_tree.set(true);
-        }
-        if damage.contains(RestyleDamage::REPAINT) {
-            self.need_new_display_list.set(true);
-        }
+        // REBUILD_STACKING_CONTEXT and REPAINT damage flags no longer tracked locally.
         if !damage.contains(RestyleDamage::RELAYOUT) {
             layout_context.style_context.stylist.rule_tree().maybe_gc();
             return (ReflowPhasesRun::empty(), IFrameSizes::default());
@@ -1243,193 +1130,16 @@ impl LayoutThread {
         }
 
         self.need_overflow_calculation.set(false);
-        assert!(self.need_new_display_list.get());
-        assert!(self.need_new_stacking_context_tree.get());
-
-        true
-    }
-
-    fn build_stacking_context_tree_for_reflow(&self, reflow_request: &ReflowRequest) -> bool {
-        if !ReflowPhases::necessary(&reflow_request.reflow_goal)
-            .contains(ReflowPhases::StackingContextTreeConstruction)
-        {
-            return false;
-        }
-        if !self.need_new_stacking_context_tree.get() {
-            return false;
-        }
-
-        self.build_stacking_context_tree(reflow_request.viewport_details)
-    }
-
-    #[servo_tracing::instrument(name = "Stacking Context Tree Construction", skip_all)]
-    fn build_stacking_context_tree(&self, viewport_details: ViewportDetails) -> bool {
-        let Some(fragment_tree) = &*self.fragment_tree.borrow() else {
-            return false;
-        };
-
-        let mut stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let old_scroll_offsets = stacking_context_tree
-            .as_ref()
-            .map(|tree| tree.paint_info.scroll_tree.scroll_offsets());
-
-        // Build the StackingContextTree. This turns the `FragmentTree` into a
-        // tree of fragments in CSS painting order and also creates all
-        // applicable spatial and clip nodes.
-        let mut new_stacking_context_tree = StackingContextTree::new(
-            fragment_tree,
-            viewport_details,
-            self.id.into(),
-            !self.have_ever_generated_display_list.get(),
-            &self.debug,
-        );
-
-        // When a new StackingContextTree is built, it contains a freshly built
-        // ScrollTree. We want to preserve any existing scroll offsets in that tree,
-        // adjusted by any new scroll constraints.
-        if let Some(old_scroll_offsets) = old_scroll_offsets {
-            new_stacking_context_tree
-                .paint_info
-                .scroll_tree
-                .set_all_scroll_offsets(&old_scroll_offsets);
-        }
-
-        if self.debug.scroll_tree {
-            new_stacking_context_tree
-                .paint_info
-                .scroll_tree
-                .debug_print();
-        }
-
-        *stacking_context_tree = Some(new_stacking_context_tree);
-
-        // The stacking context tree is up-to-date again.
-        self.need_new_stacking_context_tree.set(false);
-        assert!(self.need_new_display_list.get());
-
-        true
-    }
-
-    /// Build the display list for the current layout and send it to the renderer. If no display
-    /// list is built, returns false.
-    #[servo_tracing::instrument(name = "Display List Construction", skip_all)]
-    fn build_display_list(
-        &self,
-        reflow_request: &ReflowRequest,
-        image_resolver: &Arc<ImageResolver>,
-        reflow_statistics: &mut ReflowStatistics,
-    ) -> bool {
-        if !ReflowPhases::necessary(&reflow_request.reflow_goal)
-            .contains(ReflowPhases::DisplayListConstruction)
-        {
-            return false;
-        }
-        let Some(fragment_tree) = &*self.fragment_tree.borrow() else {
-            return false;
-        };
-        let mut stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let Some(stacking_context_tree) = stacking_context_tree.as_mut() else {
-            return false;
-        };
-
-        // If a non-display-list-generating reflow updated layout in a previous refow, we
-        // cannot skip display list generation here the next time a display list is
-        // requested.
-        if !self.need_new_display_list.get() {
-            return false;
-        }
-
-        // TODO: Eventually this should be set when `paint_info` is created, but that requires
-        // ensuring that the Epoch is passed to any method that can creates `StackingContextTree`.
-        stacking_context_tree.paint_info.epoch = reflow_request.epoch;
-
-        let mut paint_timing_handler = self.paint_timing_handler.borrow_mut();
-        // This ensures that we only create the PaintTimingHandler once per layout thread.
-        let paint_timing_handler = match paint_timing_handler.as_mut() {
-            Some(paint_timing_handler) => paint_timing_handler,
-            None => {
-                *paint_timing_handler = Some(PaintTimingHandler::new(
-                    stacking_context_tree
-                        .paint_info
-                        .viewport_details
-                        .layout_size(),
-                ));
-                paint_timing_handler.as_mut().unwrap()
-            },
-        };
-
-        let _built_display_list = DisplayListBuilder::build(
-            stacking_context_tree,
-            fragment_tree,
-            image_resolver.clone(),
-            self.device().device_pixel_ratio(),
-            reflow_request.highlighted_dom_node,
-            &self.debug,
-            paint_timing_handler,
-            reflow_request.selection.clone(),
-            reflow_statistics,
-        );
-        // TODO(Step 3): Display list transport removed; fragment tree will be passed directly.
-
-        if paint_timing_handler.did_lcp_candidate_update() {
-            if let Some(lcp_candidate) = paint_timing_handler.largest_contentful_paint_candidate() {
-                self.paint_api.send_lcp_candidate(
-                    lcp_candidate,
-                    self.webview_id,
-                    self.id,
-                    stacking_context_tree.paint_info.epoch,
-                );
-                paint_timing_handler.unset_lcp_candidate_updated();
-            }
-        }
-
-        let (keys, instance_keys) = self
-            .font_context
-            .collect_unused_webrender_resources(false /* all */);
-        self.paint_api
-            .remove_unused_font_resources(self.webview_id.into(), keys, instance_keys);
-
-        self.have_ever_generated_display_list.set(true);
-        self.need_new_display_list.set(false);
-        self.previously_highlighted_dom_node
-            .set(reflow_request.highlighted_dom_node);
-        self.previous_selection_key.set(
-            reflow_request.selection.as_ref().map(|s| {
-                (s.start.0, s.start.1, s.end.0, s.end.1)
-            }),
-        );
         true
     }
 
     fn set_scroll_offset_from_script(
         &self,
-        external_scroll_id: ExternalScrollId,
-        offset: LayoutVector2D,
+        _external_scroll_id: ExternalScrollId,
+        _offset: LayoutVector2D,
     ) -> bool {
-        let mut stacking_context_tree = self.stacking_context_tree.borrow_mut();
-        let Some(stacking_context_tree) = stacking_context_tree.as_mut() else {
-            return false;
-        };
-
-        if let Some(offset) = stacking_context_tree
-            .paint_info
-            .scroll_tree
-            .set_scroll_offset_for_node_with_external_scroll_id(
-                external_scroll_id,
-                offset,
-                ScrollType::Script,
-            )
-        {
-            self.paint_api.scroll_node_by_delta(
-                self.webview_id,
-                self.id.into(),
-                offset,
-                external_scroll_id,
-            );
-            true
-        } else {
-            false
-        }
+        // TODO(havi-render): Scroll offset management moved to havi-render.
+        false
     }
 
     /// Returns profiling information which is passed to the time profiler.
@@ -1441,10 +1151,11 @@ impl LayoutThread {
             } else {
                 TimerMetadataFrameType::RootWindow
             },
-            incremental: if self.have_ever_generated_display_list.get() {
-                TimerMetadataReflowType::Incremental
-            } else {
+            incremental: if self.first_reflow.get() {
+                self.first_reflow.set(false);
                 TimerMetadataReflowType::FirstReflow
+            } else {
+                TimerMetadataReflowType::Incremental
             },
         })
     }

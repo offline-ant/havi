@@ -6,9 +6,10 @@ use std::cell::Cell;
 
 use app_units::Au;
 use base::print_tree::PrintTree;
+use bitflags::bitflags;
 use malloc_size_of_derive::MallocSizeOf;
-use paint_api::scroll_tree::AxesScrollSensitivity;
 use rustc_hash::FxHashSet;
+use style::values::specified::Overflow;
 use style::animation::AnimationSetKey;
 use style::computed_values::position::T as Position;
 
@@ -16,6 +17,34 @@ use super::{BoxFragment, ContainingBlockManager, Fragment};
 use crate::ArcRefCell;
 use crate::context::LayoutContext;
 use crate::geom::PhysicalRect;
+
+/// A scroll type, describing what kind of action originated a scroll request.
+#[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq)]
+pub struct ScrollType(u8);
+
+bitflags! {
+    impl ScrollType: u8 {
+        const InputEvents = 1 << 0;
+        const Script = 1 << 1;
+    }
+}
+
+impl From<Overflow> for ScrollType {
+    fn from(overflow: Overflow) -> Self {
+        match overflow {
+            Overflow::Hidden => ScrollType::Script,
+            Overflow::Scroll | Overflow::Auto => ScrollType::Script | ScrollType::InputEvents,
+            Overflow::Visible | Overflow::Clip => ScrollType::empty(),
+        }
+    }
+}
+
+/// The scroll sensitivity of a node in the vertical and horizontal axes.
+#[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq)]
+pub struct AxesScrollSensitivity {
+    pub x: ScrollType,
+    pub y: ScrollType,
+}
 
 #[derive(MallocSizeOf)]
 pub struct FragmentTree {
