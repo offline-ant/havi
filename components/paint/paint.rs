@@ -393,14 +393,6 @@ impl Paint {
                     painter.notify_pipeline_exited(webview_id, pipeline_id, pipeline_exit_source);
                 }
             },
-            PaintMessage::NewWebRenderFrameReady(..) => {
-                unreachable!("New WebRender frames should be handled in the caller.");
-            },
-            PaintMessage::SendInitialTransaction(webview_id, pipeline_id) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.send_initial_pipeline_transaction(webview_id, pipeline_id);
-                }
-            },
             PaintMessage::ScrollNodeByDelta(
                 webview_id,
                 pipeline_id,
@@ -428,21 +420,6 @@ impl Paint {
             } => {
                 if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
                     painter.update_epoch(webview_id, pipeline_id, epoch);
-                }
-            },
-            PaintMessage::SendDisplayList {
-                webview_id,
-                display_list_descriptor,
-                display_list_info_receiver,
-                display_list_data_receiver,
-            } => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.handle_new_display_list(
-                        webview_id,
-                        display_list_descriptor,
-                        display_list_info_receiver,
-                        display_list_data_receiver,
-                    );
                 }
             },
             PaintMessage::GenerateFrame(painter_ids) => {
@@ -697,36 +674,11 @@ impl Paint {
     }
 
     #[servo_tracing::instrument(skip_all)]
-    pub fn handle_messages(&self, mut messages: Vec<PaintMessage>) {
-        // Pull out the `NewWebRenderFrameReady` messages from the list of messages and handle them
-        // at the end of this function. This prevents overdraw when more than a single message of
-        // this type of received. In addition, if any of these frames need a repaint, that reflected
-        // when calling `handle_new_webrender_frame_ready`.
-        let mut saw_webrender_frame_ready_for_painter = HashMap::new();
-        messages.retain(|message| match message {
-            PaintMessage::NewWebRenderFrameReady(painter_id, _document_id, need_repaint) => {
-                if let Some(painter) = self.maybe_painter(*painter_id) {
-                    painter.decrement_pending_frames();
-                    *saw_webrender_frame_ready_for_painter
-                        .entry(*painter_id)
-                        .or_insert(*need_repaint) |= *need_repaint;
-                }
-
-                false
-            },
-            _ => true,
-        });
-
+    pub fn handle_messages(&self, messages: Vec<PaintMessage>) {
         for message in messages {
             self.handle_browser_message(message);
             if self.shutdown_state() == ShutdownState::FinishedShuttingDown {
                 return;
-            }
-        }
-
-        for (painter_id, repaint_needed) in saw_webrender_frame_ready_for_painter.iter() {
-            if let Some(painter) = self.maybe_painter(*painter_id) {
-                painter.handle_new_webrender_frame_ready(*repaint_needed);
             }
         }
     }

@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use base::id::ScrollTreeNodeId;
 use euclid::Size2D;
-use paint_api::display_list::{
+use paint_api::scroll_tree::{
     AxesScrollSensitivity, ScrollTree, ScrollType, ScrollableNodeInfo, SpatialTreeNodeInfo,
 };
 use webrender_api::units::LayoutVector2D;

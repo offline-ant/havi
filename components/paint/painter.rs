@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use base::Epoch;
 use base::cross_process_instant::CrossProcessInstant;
-use base::generic_channel::{GenericReceiver, GenericSharedMemory};
+use base::generic_channel::GenericSharedMemory;
 use base::id::{PainterId, PipelineId, WebViewId};
 use constellation_traits::{EmbedderToConstellationMessage, PaintMetricEvent};
 use crossbeam_channel::Sender;
@@ -23,13 +23,13 @@ use gleam::gl::RENDERER;
 use image::RgbaImage;
 use log::{debug, error, info, warn};
 use media::WindowGLContext;
-use paint_api::display_list::{PaintDisplayListInfo, ScrollType};
+use paint_api::scroll_tree::ScrollType;
 use paint_api::largest_contentful_paint_candidate::LCPCandidate;
 use paint_api::rendering_context::RenderingContext;
 use paint_api::viewport_description::ViewportDescription;
 use paint_api::{
-    ImageUpdate, PipelineExitSource, SendableFrameTree, SerializableDisplayListPayload,
-    SerializableImageData, WebRenderExternalImageHandlers, WebRenderImageHandlerType, WebViewTrait,
+    ImageUpdate, PipelineExitSource, SendableFrameTree, SerializableImageData,
+    WebRenderExternalImageHandlers, WebRenderImageHandlerType, WebViewTrait,
 };
 use profile_traits::time::{ProfilerCategory, ProfilerChan};
 use profile_traits::time_profile;
@@ -46,7 +46,7 @@ use webrender_api::units::{
     WorldPoint,
 };
 use webrender_api::{
-    self, BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DirtyRect, DisplayListPayload,
+    self, ColorF, DirtyRect,
     DocumentId, Epoch as WebRenderEpoch, ExternalScrollId, FontInstanceFlags, FontInstanceKey,
     FontInstanceOptions, FontKey, FontVariation, ImageData, ImageKey, NativeFontHandle,
     PipelineId as WebRenderPipelineId, PropertyBinding, ReferenceFrameKind, RenderReasons,
@@ -911,73 +911,6 @@ impl Painter {
         webview_renderer
             .ensure_pipeline_details(pipeline_id)
             .display_list_epoch = Some(Epoch(epoch.0));
-    }
-
-    #[servo_tracing::instrument(skip_all)]
-    pub(crate) fn handle_new_display_list(
-        &mut self,
-        webview_id: WebViewId,
-        display_list_descriptor: BuiltDisplayListDescriptor,
-        display_list_info_receiver: GenericReceiver<PaintDisplayListInfo>,
-        display_list_data_receiver: GenericReceiver<SerializableDisplayListPayload>,
-    ) {
-        let Ok(display_list_info) = display_list_info_receiver.recv() else {
-            return log::error!("Could not receive display list info");
-        };
-        let Ok(display_list_data) = display_list_data_receiver.recv() else {
-            return log::error!("Could not receive display list data");
-        };
-
-        let items_data = display_list_data.items_data;
-        let cache_data = display_list_data.cache_data;
-        let spatial_tree = display_list_data.spatial_tree;
-
-        let built_display_list = BuiltDisplayList::from_data(
-            DisplayListPayload {
-                items_data,
-                cache_data,
-                spatial_tree,
-            },
-            display_list_descriptor,
-        );
-        let _span = profile_traits::trace_span!("PaintMessage::SendDisplayList",).entered();
-        let Some(webview_renderer) = self.webview_renderers.get_mut(&webview_id) else {
-            return warn!("Could not find WebView for incoming display list");
-        };
-
-        let old_scale = webview_renderer.device_pixels_per_page_pixel();
-        let pipeline_id = display_list_info.pipeline_id;
-        let details = webview_renderer.ensure_pipeline_details(pipeline_id.into());
-
-        details.install_new_scroll_tree(display_list_info.scroll_tree);
-        details.viewport_scale = Some(display_list_info.viewport_details.hidpi_scale_factor);
-
-        let epoch = display_list_info.epoch.into();
-        let first_reflow = display_list_info.first_reflow;
-        if details.first_paint_metric.get() == PaintMetricState::Waiting {
-            details
-                .first_paint_metric
-                .set(PaintMetricState::Seen(epoch, first_reflow));
-        }
-
-        if details.first_contentful_paint_metric.get() == PaintMetricState::Waiting &&
-            display_list_info.is_contentful
-        {
-            details
-                .first_contentful_paint_metric
-                .set(PaintMetricState::Seen(epoch, first_reflow));
-        }
-
-        let mut transaction = Transaction::new();
-        let is_root_pipeline = Some(pipeline_id.into()) == webview_renderer.root_pipeline_id;
-        if is_root_pipeline && old_scale != webview_renderer.device_pixels_per_page_pixel() {
-            self.send_root_pipeline_display_list_in_transaction(&mut transaction);
-        }
-
-        transaction.set_display_list(epoch, (pipeline_id, built_display_list));
-
-        self.update_transaction_with_all_scroll_offsets(&mut transaction);
-        self.send_transaction(transaction);
     }
 
     pub(crate) fn generate_frame_for_script(&mut self) {

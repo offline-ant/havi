@@ -13,7 +13,7 @@ use layout_api::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, LayoutElementType, LayoutNodeType,
     OffsetParentResponse, PhysicalSides, ScrollContainerQueryFlags, ScrollContainerResponse,
 };
-use paint_api::display_list::ScrollTree;
+use paint_api::scroll_tree::ScrollTree;
 use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use servo_arc::Arc as ServoArc;
 use servo_geometry::{FastLayoutTransform, au_rect_to_f32_rect, f32_rect_to_au_rect};

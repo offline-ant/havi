@@ -17,7 +17,7 @@ use embedder_traits::{
 use euclid::{Scale, Vector2D};
 use log::{debug, warn};
 use malloc_size_of::MallocSizeOf;
-use paint_api::display_list::ScrollType;
+use paint_api::scroll_tree::ScrollType;
 use paint_api::viewport_description::{
     DEFAULT_PAGE_ZOOM, MAX_PAGE_ZOOM, MIN_PAGE_ZOOM, ViewportDescription,
 };

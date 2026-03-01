@@ -31,7 +31,7 @@ use log::{debug, error, warn};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
 use net_traits::image_cache::ImageCache;
 use paint_api::CrossProcessPaintApi;
-use paint_api::display_list::ScrollType;
+use paint_api::scroll_tree::ScrollType;
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{Report, ReportKind};
 use profile_traits::time::{
@@ -755,11 +755,6 @@ impl Layout for LayoutThread {
 
 impl LayoutThread {
     fn new(config: LayoutConfig) -> LayoutThread {
-        // Let webrender know about this pipeline by sending an empty display list.
-        config
-            .paint_api
-            .send_initial_transaction(config.webview_id, config.id.into());
-
         let mut font = Font::initial_values();
         let default_font_size = pref!(fonts_default_size);
         font.font_size = FontSize {
@@ -1363,7 +1358,7 @@ impl LayoutThread {
             },
         };
 
-        let built_display_list = DisplayListBuilder::build(
+        let _built_display_list = DisplayListBuilder::build(
             stacking_context_tree,
             fragment_tree,
             image_resolver.clone(),
@@ -1374,11 +1369,7 @@ impl LayoutThread {
             reflow_request.selection.clone(),
             reflow_statistics,
         );
-        self.paint_api.send_display_list(
-            self.webview_id,
-            &stacking_context_tree.paint_info,
-            built_display_list,
-        );
+        // TODO(Step 3): Display list transport removed; fragment tree will be passed directly.
 
         if paint_timing_handler.did_lcp_candidate_update() {
             if let Some(lcp_candidate) = paint_timing_handler.largest_contentful_paint_candidate() {

@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::PainterId;
-use paint_api::{PaintMessage, PaintProxy};
+use paint_api::PaintProxy;
 use webrender_api::{DocumentId, FramePublishId, FrameReadyParams};
 
 #[derive(Clone)]
@@ -33,14 +33,10 @@ impl webrender_api::RenderNotifier for RenderNotifier {
 
     fn new_frame_ready(
         &self,
-        document_id: DocumentId,
+        _document_id: DocumentId,
         _: FramePublishId,
-        frame_ready_params: &FrameReadyParams,
+        _frame_ready_params: &FrameReadyParams,
     ) {
-        self.paint_proxy.send(PaintMessage::NewWebRenderFrameReady(
-            self.painter_id,
-            document_id,
-            frame_ready_params.render,
-        ));
+        // TODO(Step 4): WebRender frame notifications removed; Makepad redraws directly.
     }
 }
