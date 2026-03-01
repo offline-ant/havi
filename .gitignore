@@ -82,3 +82,4 @@ justfile
 /resources/icon-raster-runtime/havi.log
 env.ios
 .cargo/
+.mozjs-cache/

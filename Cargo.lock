@@ -782,7 +782,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "regex",
@@ -2602,7 +2602,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3247,7 +3247,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps 7.0.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3857,6 +3857,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "havi-fonts"
+version = "0.1.0"
+dependencies = [
+ "havi-platform-fonts",
+ "rustybuzz 0.20.1",
+ "ttf-parser 0.24.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "havi-platform-fonts"
+version = "0.1.0"
+dependencies = [
+ "dwrote",
+ "libc",
+ "objc2-core-foundation",
+ "objc2-core-text",
+ "unicode-properties 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode-script 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xml-rs",
+ "yeslogic-fontconfig-sys",
+]
+
+[[package]]
 name = "havi-protocols"
 version = "0.1.0"
 dependencies = [
@@ -3882,6 +3905,7 @@ version = "0.1.0"
 dependencies = [
  "app_units",
  "euclid",
+ "havi-fonts",
  "havi-types",
  "makepad-widgets",
  "servo_arc",
@@ -3896,6 +3920,7 @@ dependencies = [
  "app_units",
  "bitflags 2.11.0",
  "euclid",
+ "havi-fonts",
  "servo_arc",
  "stylo",
  "stylo_traits",
@@ -5014,7 +5039,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6116,7 +6141,7 @@ dependencies = [
 [[package]]
 name = "mozjs"
 version = "0.15.2"
-source = "git+https://github.com/offline-ant/mozjs?branch=main#688bac8c3bbfdfd3308344841b8e70e82934aba6"
+source = "git+https://github.com/offline-ant/mozjs?branch=main#55b3cfd41d94af405e2d0597ecc51bc68cd03bdd"
 dependencies = [
  "bindgen",
  "cc",
@@ -6130,7 +6155,7 @@ dependencies = [
 [[package]]
 name = "mozjs_sys"
 version = "0.140.7-0"
-source = "git+https://github.com/offline-ant/mozjs?branch=main#688bac8c3bbfdfd3308344841b8e70e82934aba6"
+source = "git+https://github.com/offline-ant/mozjs?branch=main#55b3cfd41d94af405e2d0597ecc51bc68cd03bdd"
 dependencies = [
  "bindgen",
  "cc",
@@ -7839,7 +7864,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn",
@@ -8451,7 +8476,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9975,7 +10000,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -10493,6 +10518,12 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "ttf-parser"
 version = "0.24.1"
+
+[[package]]
+name = "ttf-parser"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5be21190ff5d38e8b4a2d3b6a3ae57f612cc39c96e83cedeaf7abc338a8bac4a"
 
 [[package]]
 name = "ttf-parser"
@@ -11591,7 +11622,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
