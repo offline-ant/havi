@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use makepad_widgets::*;
+
+use havi_render::{DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor};
 
 // ---------------------------------------------------------------------------
 // Widget registration
@@ -6,13 +10,35 @@ use makepad_widgets::*;
 
 script_mod! {
     use mod.prelude.widgets.*
+    use mod.havi_render.DrawRoundedColor
+    use mod.havi_render.DrawBoxShadow
+    use mod.havi_render.DrawGradient
+    use mod.havi_render.DrawFilterImage
 
     mod.widgets.ServoWebViewBase = #(ServoWebView::register_widget(vm))
     mod.widgets.ServoWebView = set_type_default() do mod.widgets.ServoWebViewBase{
         width: Fill
         height: Fill
+        draw_text.text_style: theme.font_regular
+        draw_text_bold.text_style: theme.font_bold
+        draw_text_mono.text_style: theme.font_code
     }
 }
+
+#[derive(Default)]
+struct ImageTextures(havi_render::TextureCache);
+
+#[derive(Default)]
+struct ElementScrollState(havi_render::ScrollState);
+
+#[derive(Default)]
+struct TransformDrawLists(havi_render::TransformState);
+
+#[derive(Default)]
+struct OpacityPasses(havi_render::OpacityState);
+
+#[derive(Default)]
+struct FilterPasses(havi_render::FilterState);
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -89,6 +115,40 @@ pub struct ServoWebView {
     /// frame has been composited.
     #[rust]
     texture: Option<Texture>,
+
+    // --- Fragment-based rendering ---
+    #[live]
+    draw_content_bg: DrawColor,
+    #[live]
+    draw_text: DrawText,
+    #[live]
+    draw_text_bold: DrawText,
+    #[live]
+    draw_text_mono: DrawText,
+    #[live]
+    draw_rounded_bg: DrawRoundedColor,
+    #[live]
+    draw_box_shadow: DrawBoxShadow,
+    #[live]
+    draw_gradient: DrawGradient,
+    #[live]
+    draw_filter_image: DrawFilterImage,
+    #[live]
+    draw_image: DrawImage,
+    #[rust]
+    texture_cache: ImageTextures,
+    #[rust]
+    element_scroll: ElementScrollState,
+    #[rust]
+    transform_state: TransformDrawLists,
+    #[rust]
+    opacity_passes: OpacityPasses,
+    #[rust]
+    filter_passes: FilterPasses,
+    /// Shared fragment tree from layout. When set, draw_walk renders fragments
+    /// directly instead of using the GL texture.
+    #[rust]
+    shared_fragments: Option<layout_api::SharedFragmentTree>,
 
     // --- Scroll indicator overlay ---
     #[live]
@@ -200,6 +260,49 @@ impl Widget for ServoWebView {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
+        // Try fragment-based rendering first.
+        let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
+            self.shared_fragments.as_ref().and_then(|sf| sf.get());
+
+        if let Some(ref frags) = fragments {
+            // Fragment-based direct Makepad rendering.
+            self.draw_content_bg.begin(cx, walk, Layout::default());
+            let rect = cx.turtle().rect();
+            let origin = dvec2(rect.pos.x, rect.pos.y - self.scroll_y);
+            let viewport_top = self.scroll_y as f32;
+            let viewport_bottom = (self.scroll_y + rect.size.y) as f32;
+
+            havi_render::render_fragments_clipped(
+                cx,
+                frags,
+                origin,
+                viewport_top,
+                viewport_bottom,
+                &mut self.draw_content_bg,
+                &mut self.draw_text,
+                &mut self.draw_text_bold,
+                &mut self.draw_text_mono,
+                &mut self.draw_image,
+                &mut self.texture_cache.0,
+                &self.element_scroll.0,
+                &mut self.draw_rounded_bg,
+                &mut self.draw_box_shadow,
+                &mut self.draw_gradient,
+                None, // selection
+                &mut self.transform_state.0,
+                &mut self.opacity_passes.0,
+                &mut self.filter_passes.0,
+                &mut self.draw_filter_image,
+            );
+
+            self.draw_content_bg.end(cx);
+            let rect = self.draw_content_bg.area().rect(cx);
+
+            self.draw_scroll_overlay(cx, &rect);
+            return DrawStep::done();
+        }
+
+        // Fallback: GL texture rendering.
         if let Some(ref texture) = self.texture {
             self.draw_bg.draw_vars.set_texture(0, texture);
 
@@ -214,7 +317,18 @@ impl Widget for ServoWebView {
 
         let rect = self.draw_bg.draw_walk(cx, walk);
 
-        // Draw scroll indicator overlay
+        self.draw_scroll_overlay(cx, &rect);
+
+        DrawStep::done()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inner helpers
+// ---------------------------------------------------------------------------
+
+impl ServoWebView {
+    fn draw_scroll_overlay(&mut self, cx: &mut Cx2d, rect: &Rect) {
         if self.scroll_fade > 0.0 && self.content_height > self.viewport_height {
             let thumb_width = 4.0;
             let margin_right = 2.0;
@@ -243,16 +357,7 @@ impl Widget for ServoWebView {
             };
             self.draw_scroll_thumb.draw_abs(cx, thumb_rect);
         }
-
-        DrawStep::done()
     }
-}
-
-// ---------------------------------------------------------------------------
-// Inner helpers
-// ---------------------------------------------------------------------------
-
-impl ServoWebView {
     /// Return the draw area so callers can query geometry (e.g. `area().rect(cx)`).
     pub fn area(&self) -> Area {
         self.draw_bg.area()
@@ -272,6 +377,13 @@ impl ServoWebViewRef {
             if cx.in_draw_event() {
                 inner.redraw(cx);
             }
+        }
+    }
+
+    /// Set the shared fragment tree for direct Makepad rendering.
+    pub fn set_shared_fragments(&self, shared: layout_api::SharedFragmentTree) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.shared_fragments = Some(shared);
         }
     }
 

@@ -3931,6 +3931,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "havi-render"
+version = "0.1.0"
+dependencies = [
+ "app_units",
+ "euclid",
+ "havi-types",
+ "makepad-widgets",
+ "servo_arc",
+ "stylo",
+ "stylo_traits",
+]
+
+[[package]]
+name = "havi-types"
+version = "0.1.0"
+dependencies = [
+ "app_units",
+ "bitflags 2.11.0",
+ "euclid",
+ "servo_arc",
+ "stylo",
+ "stylo_traits",
+]
+
+[[package]]
 name = "havishell"
 version = "0.1.0"
 dependencies = [
@@ -3942,8 +3967,11 @@ dependencies = [
  "euclid",
  "gleam",
  "havi-protocols",
+ "havi-render",
+ "havi-types",
  "hppr-client",
  "keyboard-types",
+ "layout_api",
  "libservo",
  "log",
  "makepad-widgets",
@@ -5277,6 +5305,7 @@ dependencies = [
  "euclid",
  "fonts",
  "fonts_traits",
+ "havi-types",
  "html5ever",
  "icu_locid",
  "icu_segmenter",
@@ -5287,7 +5316,6 @@ dependencies = [
  "malloc_size_of_derive",
  "net_traits",
  "num-traits",
- "paint_api",
  "parking_lot",
  "pixels",
  "profile_traits",
@@ -5330,6 +5358,7 @@ dependencies = [
  "euclid",
  "fonts",
  "fonts_traits",
+ "havi-types",
  "html5ever",
  "libc",
  "malloc_size_of_derive",
@@ -7279,38 +7308,29 @@ name = "paint"
 version = "0.0.1"
 dependencies = [
  "base",
- "bitflags 2.11.0",
  "canvas_traits",
  "constellation_traits",
  "crossbeam-channel",
  "dpi",
  "embedder_traits",
  "euclid",
- "gleam",
  "image",
  "ipc-channel",
  "log",
- "media",
  "paint_api",
  "profile_traits",
- "rayon",
  "rustc-hash 2.1.1",
  "servo-tracing",
- "servo_allocator",
  "servo_config",
  "servo_geometry",
- "servo_malloc_size_of",
- "smallvec 1.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "stylo_traits",
  "timers",
  "tracing",
  "webgl",
  "webgpu",
- "webrender",
  "webrender_api",
  "webxr",
  "webxr-api",
- "wr_malloc_size_of",
 ]
 
 [[package]]

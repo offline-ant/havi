@@ -75,6 +75,26 @@ impl SharedFragmentTree {
     }
 }
 
+/// Global registry of shared fragment trees, keyed by WebViewId.
+/// Layout writes fragments here; the embedding reads them for rendering.
+static FRAGMENT_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
+/// Get or create a SharedFragmentTree for a given WebViewId.
+pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
+    FRAGMENT_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
+/// Remove a SharedFragmentTree when a WebView is destroyed.
+pub fn remove_shared_fragment_tree(id: WebViewId) {
+    FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
+}
+
 pub trait GenericLayoutDataTrait: Any + MallocSizeOfTrait {
     fn as_any(&self) -> &dyn Any;
 }

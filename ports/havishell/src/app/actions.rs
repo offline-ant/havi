@@ -60,6 +60,10 @@ impl App {
         if self.tabs.is_empty() {
             if let Some(webview) = self.create_webview(&self.start_url) {
                 let webview_id = webview.id();
+                let shared = layout_api::shared_fragment_tree_for(webview_id);
+                self.ui
+                    .servo_web_view(cx, ids!(web_view))
+                    .set_shared_fragments(shared);
                 self.tabs.push(TabInfo {
                     webview_id,
                     webview,
@@ -462,6 +466,10 @@ impl AppMain for App {
             for url in ipc_urls {
                 if let Some(webview) = self.create_webview(&url) {
                     let webview_id = webview.id();
+                    let shared = layout_api::shared_fragment_tree_for(webview_id);
+                    self.ui
+                        .servo_web_view(cx, ids!(web_view))
+                        .set_shared_fragments(shared);
                     self.tabs.push(TabInfo {
                         webview_id,
                         webview,

@@ -5,6 +5,7 @@ use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 
 use super::{App, HaviWebViewDelegate, watch_button_text};
+use crate::servo_web_view::ServoWebViewWidgetRefExt;
 
 const TAB_MIN_WIDTH: f64 = 120.0;
 const TAB_MAX_WIDTH: f64 = 220.0;
@@ -260,6 +261,10 @@ impl App {
             return;
         };
         let webview_id = webview.id();
+        let shared = layout_api::shared_fragment_tree_for(webview_id);
+        self.ui
+            .servo_web_view(cx, ids!(web_view))
+            .set_shared_fragments(shared);
         self.tabs.push(TabInfo {
             webview_id,
             webview,
@@ -308,6 +313,10 @@ impl App {
         }
         self.active_tab_idx = idx;
         self.activate_tab_webview(idx);
+        let shared = layout_api::shared_fragment_tree_for(self.tabs[idx].webview_id);
+        self.ui
+            .servo_web_view(cx, ids!(web_view))
+            .set_shared_fragments(shared);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.ui

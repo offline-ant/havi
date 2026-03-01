@@ -3410,7 +3410,7 @@ impl ScriptThread {
             user_stylesheets,
             theme: incomplete.theme,
             accessibility_active: self.accessibility_active.get(),
-            shared_fragments: Default::default(),
+            shared_fragments: layout_api::shared_fragment_tree_for(incomplete.webview_id),
         };
 
         // Create the window and document objects.

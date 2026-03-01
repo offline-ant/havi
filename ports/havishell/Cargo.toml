@@ -42,6 +42,7 @@ hppr-client = { workspace = true }
 gleam = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
+layout_api = { path = "../../components/shared/layout" }
 pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"
 anyhow = "1"
