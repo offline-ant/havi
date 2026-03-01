@@ -3243,9 +3243,23 @@ impl Window {
         &self,
         input_event: &ConstellationInputEvent,
     ) -> Option<HitTestResult> {
-        self.hit_test_from_point_in_viewport(
-            input_event.hit_test_result.as_ref()?.point_in_viewport,
-        )
+        // When a compositor hit test result is available, use its CSS point.
+        if let Some(hit_test) = &input_event.hit_test_result {
+            return self.hit_test_from_point_in_viewport(hit_test.point_in_viewport);
+        }
+
+        // Without a compositor (direct Makepad rendering), convert the device
+        // point from the input event to CSS pixels and do DOM hit testing.
+        let device_point = input_event
+            .event
+            .event
+            .point()?
+            .as_device_point(self.device_pixel_ratio());
+        let css_point = Point2D::new(
+            device_point.x / self.device_pixel_ratio().get(),
+            device_point.y / self.device_pixel_ratio().get(),
+        );
+        self.hit_test_from_point_in_viewport(css_point)
     }
 
     #[expect(unsafe_code)]

@@ -503,21 +503,13 @@ impl WebView {
         let event: InputEventAndId = event.into();
         let event_id = event.id;
 
-        // Events with a `point` first go to `Paint` for hit testing.
-        if event.event.point().is_some() {
-            self.inner()
-                .servo
-                .paint()
-                .notify_input_event(self.id(), event);
-        } else {
-            self.inner().servo.constellation_proxy().send(
-                EmbedderToConstellationMessage::ForwardInputEvent(
-                    self.id(),
-                    event,
-                    None, /* hit_test */
-                ),
-            );
-        }
+        self.inner().servo.constellation_proxy().send(
+            EmbedderToConstellationMessage::ForwardInputEvent(
+                self.id(),
+                event,
+                None, /* hit_test — script thread does DOM hit testing */
+            ),
+        );
 
         event_id
     }
