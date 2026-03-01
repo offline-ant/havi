@@ -107,6 +107,8 @@ pub struct ServoWebView {
     // --- Fragment-based rendering ---
     #[redraw]
     #[live]
+    draw_bg: DrawColor,
+    #[live]
     draw_content_bg: DrawColor,
     #[live]
     draw_text: DrawText,
@@ -157,11 +159,11 @@ impl Widget for ServoWebView {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, _scope: &mut Scope) {
         let uid = self.widget_uid();
 
-        match event.hits(cx, self.draw_content_bg.area()) {
+        match event.hits(cx, self.draw_bg.area()) {
             // ----- Finger / touch -----
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
-                cx.set_key_focus(self.draw_content_bg.area());
+                cx.set_key_focus(self.draw_bg.area());
                 let is_right_click = fd.device.mouse_button().map_or(false, |b| b.is_secondary());
                 cx.widget_action(
                     uid,
@@ -252,7 +254,7 @@ impl Widget for ServoWebView {
         let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
             self.shared_fragments.as_ref().and_then(|sf| sf.get());
 
-        self.draw_content_bg.begin(cx, walk, Layout::default());
+        self.draw_bg.begin(cx, walk, Layout::default());
 
         if let Some(ref frags) = fragments {
             let rect = cx.turtle().rect();
@@ -284,8 +286,8 @@ impl Widget for ServoWebView {
             );
         }
 
-        self.draw_content_bg.end(cx);
-        let rect = self.draw_content_bg.area().rect(cx);
+        self.draw_bg.end(cx);
+        let rect = self.draw_bg.area().rect(cx);
         self.draw_scroll_overlay(cx, &rect);
 
         DrawStep::done()
@@ -329,7 +331,7 @@ impl ServoWebView {
     }
     /// Return the draw area so callers can query geometry (e.g. `area().rect(cx)`).
     pub fn area(&self) -> Area {
-        self.draw_content_bg.area()
+        self.draw_bg.area()
     }
 }
 
