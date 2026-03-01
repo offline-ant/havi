@@ -1,0 +1,10 @@
+[package]
+name = "havi-fonts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+havi-platform-fonts = { path = "../platform-fonts" }
+rustybuzz = "0.20"
+ttf-parser = "0.24"

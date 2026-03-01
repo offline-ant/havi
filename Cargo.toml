@@ -100,8 +100,8 @@ gstreamer-sys = "0.25"
 gstreamer-video = "0.25"
 gstreamer-webrtc = { version = "0.25", features = ["v1_18"] }
 harfbuzz-sys = "0.6.1"
-havi-render = { path = "../havi-new/crates/render" }
-havi-types = { path = "../havi-new/crates/types" }
+havi-render = { path = "crates/render" }
+havi-types = { path = "crates/types" }
 headers = "0.4"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"] }
 hkdf = "0.12"

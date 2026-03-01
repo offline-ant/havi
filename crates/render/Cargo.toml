@@ -1,0 +1,17 @@
+[package]
+name = "havi-render"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+havi-types = { path = "../types" }
+havi-fonts = { path = "../fonts" }
+
+makepad-widgets = { path = "../../../makepad/widgets" }
+
+stylo = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", features = ["servo"] }
+servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
+app_units = "0.7"
+euclid = "0.22"
+style_traits = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", package = "stylo_traits" }
