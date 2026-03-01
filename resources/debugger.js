@@ -5,6 +5,8 @@ if ("dbg" in this) {
 const dbg = new Debugger;
 const debuggeesToPipelineIds = new Map;
 const debuggeesToWorkerIds = new Map;
+const pipelineIdsToDebuggees = new Map;  // "namespaceId:index" -> Debugger.Object
+const workerIdsToDebuggees = new Map;    // workerId string -> Debugger.Object
 const sourceIdsToScripts = new Map;
 const frameActorsToFrames = new Map;
 
@@ -35,12 +37,10 @@ function walkScriptTree(script, callback) {
     }
 }
 
-// Find a key by a value in a map
-function findKeyByValue(map, search) {
-    for (const [key, value] of map) {
-        if (value === search) return key;
-    }
-    return undefined;
+// String key for pipeline ID lookups. Each event creates a new PipelineId DOM
+// object so identity comparison (===) fails; use structural key instead.
+function pipelineIdKey(pipelineId) {
+    return `${pipelineId.namespaceId}:${pipelineId.index}`;
 }
 
 dbg.uncaughtExceptionHook = function(error) {
@@ -66,8 +66,10 @@ addEventListener("addDebuggee", event => {
     const {global, pipelineId, workerId} = event;
     const debuggerObject = dbg.addDebuggee(global);
     debuggeesToPipelineIds.set(debuggerObject, pipelineId);
+    pipelineIdsToDebuggees.set(pipelineIdKey(pipelineId), debuggerObject);
     if (workerId !== undefined) {
         debuggeesToWorkerIds.set(debuggerObject, workerId);
+        workerIdsToDebuggees.set(workerId, debuggerObject);
     }
 });
 
@@ -102,8 +104,8 @@ function createValueResult(value) {
 addEventListener("eval", event => {
     const {code, pipelineId, workerId} = event;
     const object = workerId !== undefined ?
-        findKeyByValue(debuggeesToWorkerIds, workerId) :
-        findKeyByValue(debuggeesToPipelineIds, pipelineId);
+        workerIdsToDebuggees.get(workerId) :
+        pipelineIdsToDebuggees.get(pipelineIdKey(pipelineId));
 
     // Completion values: <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#completion-values>
     const completionValue = object.executeInGlobal(code);

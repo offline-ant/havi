@@ -1558,4 +1558,201 @@ where
     Some(computed_values.clone_font())
 }
 
+/// Walk the fragment tree and return all elements whose border box contains the given point.
+/// Results are ordered deepest-first (front to back).
+pub fn query_elements_from_point(
+    fragment_tree: &FragmentTree,
+    point: webrender_api::units::LayoutPoint,
+    _flags: layout_api::ElementsFromPointFlags,
+) -> Vec<layout_api::ElementsFromPointResult> {
+    use embedder_traits::Cursor;
+    use style::computed_values::pointer_events::T as PointerEvents;
+
+    let mut results = Vec::new();
+    let initial_cb = fragment_tree.initial_containing_block;
+    let point: Point2D<f32, CSSPixel> = Point2D::new(point.x, point.y);
+    for fragment in &fragment_tree.root_fragments {
+        hit_test_fragment(fragment, &initial_cb, point, &mut results);
+    }
+    return results;
+
+    fn cursor_from_style(style: &crate::fragment_tree::BaseFragmentStyleRef) -> Cursor {
+        use style::values::specified::ui::CursorKind;
+        match style.get_inherited_ui().cursor.keyword {
+            CursorKind::Auto | CursorKind::Default => Cursor::Default,
+            CursorKind::None => Cursor::None,
+            CursorKind::Pointer => Cursor::Pointer,
+            CursorKind::ContextMenu => Cursor::ContextMenu,
+            CursorKind::Help => Cursor::Help,
+            CursorKind::Progress => Cursor::Progress,
+            CursorKind::Wait => Cursor::Wait,
+            CursorKind::Cell => Cursor::Cell,
+            CursorKind::Crosshair => Cursor::Crosshair,
+            CursorKind::Text => Cursor::Text,
+            CursorKind::VerticalText => Cursor::VerticalText,
+            CursorKind::Alias => Cursor::Alias,
+            CursorKind::Copy => Cursor::Copy,
+            CursorKind::Move => Cursor::Move,
+            CursorKind::NoDrop => Cursor::NoDrop,
+            CursorKind::NotAllowed => Cursor::NotAllowed,
+            CursorKind::Grab => Cursor::Grab,
+            CursorKind::Grabbing => Cursor::Grabbing,
+            CursorKind::EResize => Cursor::EResize,
+            CursorKind::NResize => Cursor::NResize,
+            CursorKind::NeResize => Cursor::NeResize,
+            CursorKind::NwResize => Cursor::NwResize,
+            CursorKind::SResize => Cursor::SResize,
+            CursorKind::SeResize => Cursor::SeResize,
+            CursorKind::SwResize => Cursor::SwResize,
+            CursorKind::WResize => Cursor::WResize,
+            CursorKind::EwResize => Cursor::EwResize,
+            CursorKind::NsResize => Cursor::NsResize,
+            CursorKind::NeswResize => Cursor::NeswResize,
+            CursorKind::NwseResize => Cursor::NwseResize,
+            CursorKind::ColResize => Cursor::ColResize,
+            CursorKind::RowResize => Cursor::RowResize,
+            CursorKind::AllScroll => Cursor::AllScroll,
+            CursorKind::ZoomIn => Cursor::ZoomIn,
+            CursorKind::ZoomOut => Cursor::ZoomOut,
+        }
+    }
+
+    fn hit_test_fragment(
+        fragment: &Fragment,
+        containing_block: &crate::geom::PhysicalRect<Au>,
+        point: Point2D<f32, CSSPixel>,
+        results: &mut Vec<layout_api::ElementsFromPointResult>,
+    ) {
+        match fragment {
+            Fragment::Box(box_frag_cell) | Fragment::Float(box_frag_cell) => {
+                let box_frag = box_frag_cell.borrow();
+                let style = box_frag.base.style();
+
+                // Skip pointer-events: none.
+                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+                    return;
+                }
+
+                // Skip invisible fragments.
+                if style.get_inherited_box().visibility != Visibility::Visible {
+                    return;
+                }
+
+                let border_rect = box_frag.cumulative_border_box_rect();
+                let br_x = border_rect.origin.x.to_f32_px();
+                let br_y = border_rect.origin.y.to_f32_px();
+                let br_w = border_rect.size.width.to_f32_px();
+                let br_h = border_rect.size.height.to_f32_px();
+
+                if point.x < br_x || point.x > br_x + br_w ||
+                   point.y < br_y || point.y > br_y + br_h {
+                    return;
+                }
+
+                // Recurse into children first (deepest match comes first).
+                let content_rect = box_frag.cumulative_content_box_rect();
+                for child in &box_frag.children {
+                    hit_test_fragment(child, &content_rect, point, results);
+                }
+
+                // Add this fragment if it has a tag (not anonymous).
+                if let Some(tag) = box_frag.base.tag {
+                    let cursor = cursor_from_style(&style);
+                    results.push(layout_api::ElementsFromPointResult {
+                        node: tag.node,
+                        point_in_target: Point2D::new(point.x - br_x, point.y - br_y),
+                        cursor,
+                    });
+                }
+            },
+            Fragment::Positioning(pos_frag_cell) => {
+                let pos_frag = pos_frag_cell.borrow();
+                let abs_rect = pos_frag.offset_by_containing_block(&pos_frag.base.rect);
+                for child in &pos_frag.children {
+                    hit_test_fragment(child, &abs_rect, point, results);
+                }
+            },
+            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
+                if let Some(ref fragment) = hoisted.borrow().fragment {
+                    hit_test_fragment(fragment, containing_block, point, results);
+                }
+            },
+            Fragment::Text(text_frag_cell) => {
+                let text_frag = text_frag_cell.borrow();
+                let style = text_frag.base.style();
+
+                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+                    return;
+                }
+                if style.get_inherited_box().visibility != Visibility::Visible {
+                    return;
+                }
+
+                let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + text_frag.base.rect.origin.x.to_f32_px();
+                let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + text_frag.base.rect.origin.y.to_f32_px();
+                let w = text_frag.base.rect.size.width.to_f32_px();
+                let h = text_frag.base.rect.size.height.to_f32_px();
+
+                if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
+                   point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
+                    if let Some(tag) = text_frag.base.tag {
+                        let cursor = cursor_from_style(&style);
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
+                            cursor,
+                        });
+                    }
+                }
+            },
+            Fragment::Image(img_frag_cell) => {
+                let img_frag = img_frag_cell.borrow();
+                let style = img_frag.base.style();
+
+                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+                    return;
+                }
+                if style.get_inherited_box().visibility != Visibility::Visible {
+                    return;
+                }
+
+                let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + img_frag.base.rect.origin.x.to_f32_px();
+                let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + img_frag.base.rect.origin.y.to_f32_px();
+                let w = img_frag.base.rect.size.width.to_f32_px();
+                let h = img_frag.base.rect.size.height.to_f32_px();
+
+                if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
+                   point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
+                    if let Some(tag) = img_frag.base.tag {
+                        let cursor = cursor_from_style(&style);
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
+                            cursor,
+                        });
+                    }
+                }
+            },
+            Fragment::IFrame(iframe_frag_cell) => {
+                let iframe_frag = iframe_frag_cell.borrow();
+                if let Some(tag) = iframe_frag.base.tag {
+                    let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + iframe_frag.base.rect.origin.x.to_f32_px();
+                    let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + iframe_frag.base.rect.origin.y.to_f32_px();
+                    let w = iframe_frag.base.rect.size.width.to_f32_px();
+                    let h = iframe_frag.base.rect.size.height.to_f32_px();
+
+                    if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
+                       point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
+                            cursor: Cursor::Default,
+                        });
+                    }
+                }
+            },
+        }
+    }
+}
+
 

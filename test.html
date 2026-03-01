@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HAVI Test Cases</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; color: #222; }
+    h2 { border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    #click-log { background: #f5f5f5; padding: 8px; min-height: 40px; margin: 8px 0; font-family: monospace; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<h1>HAVI Rendering Test Cases</h1>
+<p id="status">JS: active</p>
+
+<!-- Test 1: Click detection -->
+<h2>1. Click Detection</h2>
+<button id="btn-click" onclick="document.getElementById('click-log').textContent = 'CLICK OK ' + new Date().toISOString()">Click Me</button>
+<div id="click-log">waiting for click...</div>
+
+<!-- Test 2: Dark background table (black box bug) -->
+<h2>2. Dark Background Table</h2>
+<p>Table below should show green text on dark background:</p>
+<table style="background:#111;color:#0f0;font:12px monospace;border-collapse:collapse">
+  <tr><td style="border:1px solid #333;padding:4px">cell-A1</td><td style="border:1px solid #333;padding:4px">cell-A2</td></tr>
+  <tr><td style="border:1px solid #333;padding:4px">cell-B1</td><td style="border:1px solid #333;padding:4px">cell-B2</td></tr>
+</table>
+
+<!-- Test 3: Inline table (display:inline-table) -->
+<h2>3. Inline Table</h2>
+<p>Text before <table style="display:inline-table;background:#111;color:#0f0;font:11px monospace;border-collapse:collapse"><tr><td style="border:1px solid #333;padding:2px 6px">inline</td><td style="border:1px solid #333;padding:2px 6px">table</td></tr></table> text after.</p>
+
+<!-- Test 4: H1 with adjacent elements (strikethrough artifact) -->
+<h2>4. H1 Rendering</h2>
+<h1 style="border-bottom:2px solid #333;padding-bottom:8px">Test Heading H1</h1>
+
+<!-- Test 5: H1 with inline-table sibling -->
+<h2>5. H1 + Inline Table Sibling</h2>
+<div>
+  <h1 style="border-bottom:2px solid #333;padding-bottom:8px">Heading With Table</h1>
+  <table style="display:inline-table;background:#111;color:#0f0;font:11px monospace"><tr><td style="padding:2px 6px">data</td></tr></table>
+</div>
+
+<!-- Test 6: Mouse events -->
+<h2>6. Mouse Events</h2>
+<div id="mouse-area" style="background:#eee;padding:20px;text-align:center;cursor:pointer">
+  Hover and click here
+</div>
+<div id="mouse-log" style="font-family:monospace;font-size:12px;margin-top:4px">mouse: waiting</div>
+<script>
+  var ma = document.getElementById('mouse-area');
+  var ml = document.getElementById('mouse-log');
+  ma.addEventListener('mousemove', function(e) { ml.textContent = 'move:(' + e.clientX + ',' + e.clientY + ')'; });
+  ma.addEventListener('mousedown', function(e) { ml.textContent = 'DOWN:(' + e.clientX + ',' + e.clientY + ') btn:' + e.button; });
+  ma.addEventListener('mouseup', function(e) { ml.textContent = 'UP:(' + e.clientX + ',' + e.clientY + ')'; });
+  ma.addEventListener('click', function(e) { ml.textContent = 'CLICK:(' + e.clientX + ',' + e.clientY + ')'; });
+</script>
+
+<!-- Test 7: Link navigation -->
+<h2>7. Link Navigation</h2>
+<a href="index.html" id="nav-link">Navigate to index.html</a>
+
+<!-- Test 8: Simple colored boxes (baseline rendering) -->
+<h2>8. Colored Boxes</h2>
+<div style="display:flex;gap:8px">
+  <div style="width:80px;height:80px;background:red"></div>
+  <div style="width:80px;height:80px;background:green"></div>
+  <div style="width:80px;height:80px;background:blue"></div>
+</div>
+
+</body>
+</html>

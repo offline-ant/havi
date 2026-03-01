@@ -91,7 +91,7 @@ use crate::query::{
     process_box_areas_request, process_client_rect_request, process_current_css_zoom_query,
     process_node_scroll_area_request, process_offset_parent_query, process_padding_request,
     process_resolved_font_style_query, process_resolved_style_request,
-    process_scroll_container_query,
+    process_scroll_container_query, query_elements_from_point,
 };
 use crate::traversal::{RecalcStyle, compute_damage_and_rebuild_box_tree};
 use crate::{BoxTree, FragmentTree};
@@ -486,11 +486,14 @@ impl Layout for LayoutThread {
     #[servo_tracing::instrument(skip_all)]
     fn query_elements_from_point(
         &self,
-        _point: webrender_api::units::LayoutPoint,
-        _flags: layout_api::ElementsFromPointFlags,
+        point: webrender_api::units::LayoutPoint,
+        flags: layout_api::ElementsFromPointFlags,
     ) -> Vec<layout_api::ElementsFromPointResult> {
-        // TODO(havi-render): Wire hit testing through havi-render.
-        Vec::new()
+        let fragment_tree = self.fragment_tree.borrow();
+        let Some(fragment_tree) = fragment_tree.as_ref() else {
+            return Vec::new();
+        };
+        query_elements_from_point(fragment_tree, point, flags)
     }
 
     fn exit_now(&mut self) {}
