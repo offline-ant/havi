@@ -1,0 +1,389 @@
+//! Walk a stacking context tree and emit Makepad draw calls.
+//!
+//! Replaces the old `render_fragment()` recursive walk with a stacking-context-ordered
+//! traversal that follows CSS 2.1 Appendix E paint ordering.
+
+use havi_types::{Fragment, ImageFragment};
+use makepad_widgets::*;
+use makepad_widgets::makepad_draw::{ImageBuffer, Texture};
+use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
+
+use crate::{
+    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor,
+    FilterPass, FilterState, OpacityPass, OpacityState,
+    ScrollState, SelectionHighlight, TextureCache, TransformState,
+};
+use crate::background::draw_element_box;
+use crate::stacking_context::{
+    PaintItem, StackingContext, StackingContextContent, StackingContextSection,
+};
+use crate::text::draw_text_run;
+use crate::transform::{compute_css_transform_2d, compute_css_transform_3d, is_3d_matrix};
+use crate::{resolve_css_filters, CssFilters, compute_sticky_offset};
+
+/// All the Makepad draw state needed for rendering.
+pub(crate) struct MakepadDrawState<'a> {
+    pub draw_bg: &'a mut DrawColor,
+    pub draw_text: &'a mut DrawText,
+    pub draw_text_bold: &'a mut DrawText,
+    pub draw_text_mono: &'a mut DrawText,
+    pub draw_image: &'a mut DrawImage,
+    pub texture_cache: &'a mut TextureCache,
+    #[allow(dead_code)]
+    pub scroll_state: &'a ScrollState,
+    pub draw_rounded_bg: &'a mut DrawRoundedColor,
+    pub draw_box_shadow: &'a mut DrawBoxShadow,
+    pub draw_gradient: &'a mut DrawGradient,
+    pub selection: Option<&'a SelectionHighlight>,
+    pub transform_state: &'a mut TransformState,
+    pub opacity_state: &'a mut OpacityState,
+    pub filter_state: &'a mut FilterState,
+    pub draw_filter_image: &'a mut DrawFilterImage,
+}
+
+/// Walk a stacking context tree and paint all fragments.
+pub(crate) fn paint_stacking_context(
+    cx: &mut Cx2d,
+    sc: &StackingContext<'_>,
+    origin: DVec2,
+    clip: Option<(f32, f32)>,
+    parent_opacity: f32,
+    state: &mut MakepadDrawState<'_>,
+) {
+    // Determine if this stacking context needs opacity isolation or filter pass.
+    let (element_opacity, css_filters) = match sc.initializing_fragment {
+        Some(bf) => (bf.base.style.get_effects().opacity, resolve_css_filters(&bf.base.style)),
+        None => (1.0, CssFilters::identity()),
+    };
+    let needs_filter = !css_filters.is_identity();
+    let needs_opacity = element_opacity < 1.0 && !needs_filter;
+    let inner_opacity = if needs_opacity || needs_filter { 1.0 } else { parent_opacity * element_opacity };
+
+    let node_id = sc.initializing_fragment.and_then(|bf| bf.base.tag.map(|t| t.node.0));
+
+    // Filter pass: render to texture, composite with filter shader.
+    if needs_filter {
+        if let Some(node_id) = node_id {
+            let bf = sc.initializing_fragment.unwrap();
+            let (bx, by, bw, bh) = sc_border_box(bf, origin);
+            let pw = bw.max(1.0);
+            let ph = bh.max(1.0);
+
+            let fp = state.filter_state.entry(node_id).or_insert_with(|| {
+                let pass = DrawPass::new(cx.cx);
+                let texture = Texture::new_with_format(cx.cx, TextureFormat::RenderBGRAu8 {
+                    size: TextureSize::Auto, initial: true,
+                });
+                pass.set_color_texture(cx.cx, &texture, DrawPassClearColor::ClearWith(
+                    Vec4f { x: 0.0, y: 0.0, z: 0.0, w: 0.0 },
+                ));
+                FilterPass { pass, texture, draw_list: DrawList2d::new(cx.cx) }
+            });
+            fp.pass.set_size(cx.cx, dvec2(pw, ph));
+            cx.make_child_pass(&fp.pass);
+            cx.begin_pass(&fp.pass, None);
+            cx.set_pass_shift_scale(&fp.pass, dvec2(bx, by), dvec2(1.0, 1.0));
+            fp.draw_list.begin_always(cx);
+
+            paint_sc_contents(cx, sc, origin, clip, 1.0, state);
+
+            let fp = state.filter_state.get_mut(&node_id).unwrap();
+            fp.draw_list.end(cx);
+            cx.end_pass(&fp.pass);
+
+            let combined = parent_opacity * element_opacity * css_filters.filter_opacity;
+            state.draw_filter_image.draw_vars.set_texture(0, &fp.texture);
+            state.draw_filter_image.opacity = combined;
+            state.draw_filter_image.blur_radius = css_filters.blur_radius;
+            state.draw_filter_image.brightness = css_filters.brightness;
+            state.draw_filter_image.contrast = css_filters.contrast;
+            state.draw_filter_image.grayscale = css_filters.grayscale;
+            state.draw_filter_image.hue_rotate = css_filters.hue_rotate_deg;
+            state.draw_filter_image.invert = css_filters.invert;
+            state.draw_filter_image.saturate = css_filters.saturate;
+            state.draw_filter_image.sepia = css_filters.sepia;
+            state.draw_filter_image.tex_size = Vec2f { x: pw as f32, y: ph as f32 };
+            state.draw_filter_image.draw_abs(cx, Rect {
+                pos: dvec2(bx, by), size: dvec2(pw, ph),
+            });
+            return;
+        }
+    }
+
+    // Opacity isolation: render to texture, composite with opacity.
+    if needs_opacity {
+        if let Some(node_id) = node_id {
+            let bf = sc.initializing_fragment.unwrap();
+            let (bx, by, bw, bh) = sc_border_box(bf, origin);
+            let pw = bw.max(1.0);
+            let ph = bh.max(1.0);
+
+            let op = state.opacity_state.entry(node_id).or_insert_with(|| {
+                let pass = DrawPass::new(cx.cx);
+                let texture = Texture::new_with_format(cx.cx, TextureFormat::RenderBGRAu8 {
+                    size: TextureSize::Auto, initial: true,
+                });
+                pass.set_color_texture(cx.cx, &texture, DrawPassClearColor::ClearWith(
+                    Vec4f { x: 0.0, y: 0.0, z: 0.0, w: 0.0 },
+                ));
+                OpacityPass { pass, texture, draw_list: DrawList2d::new(cx.cx) }
+            });
+            op.pass.set_size(cx.cx, dvec2(pw, ph));
+            cx.make_child_pass(&op.pass);
+            cx.begin_pass(&op.pass, None);
+            cx.set_pass_shift_scale(&op.pass, dvec2(bx, by), dvec2(1.0, 1.0));
+            op.draw_list.begin_always(cx);
+
+            paint_sc_contents(cx, sc, origin, clip, 1.0, state);
+
+            let op = state.opacity_state.get_mut(&node_id).unwrap();
+            op.draw_list.end(cx);
+            cx.end_pass(&op.pass);
+
+            let combined = parent_opacity * element_opacity;
+            state.draw_image.draw_vars.set_texture(0, &op.texture);
+            state.draw_image.opacity = combined;
+            state.draw_image.draw_abs(cx, Rect {
+                pos: dvec2(bx, by), size: dvec2(pw, ph),
+            });
+            return;
+        }
+    }
+
+    paint_sc_contents(cx, sc, origin, clip, inner_opacity, state);
+}
+
+/// Paint the contents of a stacking context in CSS paint order.
+fn paint_sc_contents(
+    cx: &mut Cx2d,
+    sc: &StackingContext<'_>,
+    origin: DVec2,
+    clip: Option<(f32, f32)>,
+    opacity: f32,
+    state: &mut MakepadDrawState<'_>,
+) {
+    sc.paint_in_order(&mut |item| {
+        match item {
+            PaintItem::Content(content) => {
+                paint_content(cx, content, origin, clip, opacity, state);
+            }
+            PaintItem::ChildStackingContext(child) => {
+                paint_stacking_context(cx, child, origin, clip, opacity, state);
+            }
+            PaintItem::Outline(content) => {
+                // TODO: outline drawing. Currently outlines are drawn as part of
+                // draw_element_box — we would need to split that. For now, skip.
+                let _ = content;
+            }
+        }
+    });
+}
+
+/// Paint a single content item.
+fn paint_content(
+    cx: &mut Cx2d,
+    content: &StackingContextContent<'_>,
+    origin: DVec2,
+    clip: Option<(f32, f32)>,
+    opacity: f32,
+    state: &mut MakepadDrawState<'_>,
+) {
+    let (section, fragment, cb_origin) = match content {
+        StackingContextContent::Fragment {
+            section,
+            fragment,
+            containing_block_origin,
+        } => (*section, *fragment, *containing_block_origin),
+        StackingContextContent::AtomicInlineStackingContainer { .. } => {
+            // Handled by paint_in_order emitting ChildStackingContext.
+            return;
+        }
+    };
+
+    let draw_origin = dvec2(origin.x + cb_origin.0, origin.y + cb_origin.1);
+
+    match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            // Transform.
+            let (tx, ty, view_mat) = {
+                let br = bf.border_rect();
+                let bw = br.size.width.to_f32_px();
+                let bh = br.size.height.to_f32_px();
+                let t2d = compute_css_transform_2d(&bf.base.style, bw, bh);
+                let t3d = compute_css_transform_3d(&bf.base.style, bw, bh);
+                if t3d.as_ref().map_or(false, is_3d_matrix) {
+                    let mat = t3d.unwrap();
+                    (mat[12], mat[13], Some(mat))
+                } else {
+                    match t2d {
+                        Some(t) if !t.is_translate_only() => (t.tx, t.ty, Some(t.to_mat4f())),
+                        Some(t) => (t.tx, t.ty, None),
+                        None => (0.0, 0.0, None),
+                    }
+                }
+            };
+
+            let has_transform = view_mat.is_some();
+            let node_id = bf.base.tag.map(|t| t.node.0);
+
+            if has_transform {
+                if let Some(nid) = node_id {
+                    let dl = state.transform_state.entry(nid)
+                        .or_insert_with(|| DrawList2d::new(cx.cx));
+                    dl.begin_always(cx);
+                }
+            }
+
+            // Sticky offset.
+            let (sticky_dx, sticky_dy) = compute_sticky_offset(fragment, draw_origin, clip);
+
+            match section {
+                StackingContextSection::OwnBackgroundsAndBorders
+                | StackingContextSection::DescendantBackgroundsAndBorders => {
+                    // Draw backgrounds and borders.
+                    let border_rect = bf.border_rect();
+                    let bx = draw_origin.x + border_rect.origin.x.to_f32_px() as f64 + tx as f64 + sticky_dx;
+                    let by = draw_origin.y + border_rect.origin.y.to_f32_px() as f64 + ty as f64 + sticky_dy;
+                    let bw = border_rect.size.width.to_f32_px();
+                    let bh = border_rect.size.height.to_f32_px();
+                    draw_element_box(
+                        cx, &bf.base.style, bx, by, bw, bh,
+                        state.draw_bg, state.draw_rounded_bg,
+                        state.draw_box_shadow, state.draw_gradient, opacity,
+                    );
+
+                    // Handle overflow clipping for children if this is the
+                    // OwnBackgroundsAndBorders section of a stacking context.
+                    // Children will be painted as separate content items, so
+                    // clipping is handled at that level.
+                }
+                StackingContextSection::Foreground => {
+                    // Box fragments in foreground section: draw backgrounds/borders
+                    // (for inline boxes that appear in foreground).
+                    let border_rect = bf.border_rect();
+                    let bx = draw_origin.x + border_rect.origin.x.to_f32_px() as f64 + tx as f64 + sticky_dx;
+                    let by = draw_origin.y + border_rect.origin.y.to_f32_px() as f64 + ty as f64 + sticky_dy;
+                    let bw = border_rect.size.width.to_f32_px();
+                    let bh = border_rect.size.height.to_f32_px();
+                    draw_element_box(
+                        cx, &bf.base.style, bx, by, bw, bh,
+                        state.draw_bg, state.draw_rounded_bg,
+                        state.draw_box_shadow, state.draw_gradient, opacity,
+                    );
+                }
+                StackingContextSection::Outline => {
+                    // TODO: draw outline only.
+                }
+            }
+
+            // Close transform.
+            if has_transform {
+                if let Some(nid) = node_id {
+                    if let Some(dl) = state.transform_state.get_mut(&nid) {
+                        dl.end(cx);
+                        let mat = Mat4f { v: view_mat.unwrap() };
+                        dl.set_view_transform(cx.cx, &mat);
+                    }
+                }
+            }
+        }
+
+        Fragment::Text(text_fragment) => {
+            if section != StackingContextSection::Foreground {
+                return;
+            }
+            let rect = text_fragment.base.rect;
+            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
+            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
+            let w = rect.size.width.to_f32_px();
+            let h = rect.size.height.to_f32_px();
+
+            if let Some(sel) = state.selection {
+                let text_rect = Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) };
+                for sel_rect in &sel.rects {
+                    if rects_overlap(&text_rect, sel_rect) {
+                        state.draw_bg.color = sel.color;
+                        state.draw_bg.draw_abs(cx, text_rect);
+                        break;
+                    }
+                }
+            }
+            draw_text_run(
+                cx, text_fragment, x, y, w, h, opacity,
+                state.draw_bg, state.draw_text, state.draw_text_bold, state.draw_text_mono,
+            );
+        }
+
+        Fragment::Image(img) => {
+            if section != StackingContextSection::Foreground {
+                return;
+            }
+            let rect = img.base.rect;
+            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
+            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
+            let w = rect.size.width.to_f32_px();
+            let h = rect.size.height.to_f32_px();
+            draw_image_fragment(cx, img, x, y, w, h, state.draw_image, state.texture_cache, opacity);
+        }
+
+        Fragment::IFrame(iframe) => {
+            if section != StackingContextSection::Foreground {
+                return;
+            }
+            let rect = iframe.base.rect;
+            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
+            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
+            let w = rect.size.width.to_f32_px();
+            let h = rect.size.height.to_f32_px();
+            let iframe_rect = Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) };
+            cx.push_clip_rect(iframe_rect);
+            // IFrame children get their own stacking context tree build.
+            // For now, recurse using the simple build.
+            let child_sc = crate::stacking_context::build_stacking_context_tree(&iframe.child_fragments);
+            paint_stacking_context(cx, &child_sc, dvec2(x, y), clip, opacity, state);
+            cx.pop_clip_rect();
+        }
+
+        Fragment::Positioning(_) => {
+            // Positioning fragments are handled during tree building.
+        }
+    }
+}
+
+fn sc_border_box(bf: &havi_types::fragment_tree::BoxFragment, origin: DVec2) -> (f64, f64, f64, f64) {
+    let br = bf.border_rect();
+    (
+        origin.x + br.origin.x.to_f32_px() as f64,
+        origin.y + br.origin.y.to_f32_px() as f64,
+        br.size.width.to_f32_px() as f64,
+        br.size.height.to_f32_px() as f64,
+    )
+}
+
+fn draw_image_fragment(
+    cx: &mut Cx2d, img: &ImageFragment,
+    x: f64, y: f64, w: f32, h: f32,
+    draw_image: &mut DrawImage, texture_cache: &mut TextureCache, opacity: f32,
+) {
+    let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
+    let texture = texture_cache.entry(node_id).or_insert_with(|| {
+        let data: Vec<u32> = img.pixels.chunks_exact(4).map(|px| {
+            (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
+        }).collect();
+        let image_buffer = ImageBuffer {
+            width: img.image_width as usize,
+            height: img.image_height as usize,
+            data,
+            animation: None,
+        };
+        image_buffer.into_new_texture(cx.cx)
+    });
+    draw_image.draw_vars.set_texture(0, texture);
+    draw_image.opacity = opacity;
+    draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
+}
+
+fn rects_overlap(a: &Rect, b: &Rect) -> bool {
+    a.pos.x < b.pos.x + b.size.x && a.pos.x + a.size.x > b.pos.x
+        && a.pos.y < b.pos.y + b.size.y && a.pos.y + a.size.y > b.pos.y
+}

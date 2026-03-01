@@ -5,8 +5,10 @@
 
 mod background;
 mod hit_test;
+mod makepad_builder;
 mod paint_order;
 pub mod shaders;
+pub(crate) mod stacking_context;
 mod text;
 mod transform;
 
@@ -46,6 +48,7 @@ use style::values::generics::position::GenericPositionOrAuto;
 pub use shaders::{DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawFilterImage};
 pub use hit_test::{hit_test, find_scroll_container};
 pub use paint_order::paint_order;
+
 
 use background::draw_element_box;
 use text::draw_text_run;
@@ -93,20 +96,20 @@ pub struct FilterPass {
 pub type FilterState = HashMap<usize, FilterPass>;
 
 /// CSS filter parameters resolved from computed values.
-struct CssFilters {
-    blur_radius: f32,
-    brightness: f32,
-    contrast: f32,
-    grayscale: f32,
-    hue_rotate_deg: f32,
-    invert: f32,
-    saturate: f32,
-    sepia: f32,
-    filter_opacity: f32,
+pub(crate) struct CssFilters {
+    pub(crate) blur_radius: f32,
+    pub(crate) brightness: f32,
+    pub(crate) contrast: f32,
+    pub(crate) grayscale: f32,
+    pub(crate) hue_rotate_deg: f32,
+    pub(crate) invert: f32,
+    pub(crate) saturate: f32,
+    pub(crate) sepia: f32,
+    pub(crate) filter_opacity: f32,
 }
 
 impl CssFilters {
-    fn identity() -> Self {
+    pub(crate) fn identity() -> Self {
         Self {
             blur_radius: 0.0, brightness: 1.0, contrast: 1.0,
             grayscale: 0.0, hue_rotate_deg: 0.0, invert: 0.0,
@@ -114,7 +117,7 @@ impl CssFilters {
         }
     }
 
-    fn is_identity(&self) -> bool {
+    pub(crate) fn is_identity(&self) -> bool {
         self.blur_radius < 0.001
             && (self.brightness - 1.0).abs() < 0.001
             && (self.contrast - 1.0).abs() < 0.001
@@ -128,7 +131,7 @@ impl CssFilters {
 }
 
 /// Extract CSS filter parameters from computed values.
-fn resolve_css_filters(computed: &style::properties::ComputedValues) -> CssFilters {
+pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) -> CssFilters {
     use style::values::computed::Filter;
     let effects = computed.get_effects();
     let mut f = CssFilters::identity();
@@ -217,6 +220,72 @@ pub fn render_fragments_clipped(
             transform_state, opacity_state, filter_state, draw_filter_image,
         );
     }
+}
+
+/// Render fragments using the stacking context tree for correct CSS paint ordering.
+pub fn render_fragments_stacked(
+    cx: &mut Cx2d,
+    fragments: &[Fragment],
+    origin: DVec2,
+    draw_bg: &mut DrawColor,
+    draw_text: &mut DrawText,
+    draw_text_bold: &mut DrawText,
+    draw_text_mono: &mut DrawText,
+    draw_image: &mut DrawImage,
+    texture_cache: &mut TextureCache,
+    scroll_state: &ScrollState,
+    draw_rounded_bg: &mut DrawRoundedColor,
+    draw_box_shadow: &mut DrawBoxShadow,
+    draw_gradient: &mut DrawGradient,
+    selection: Option<&SelectionHighlight>,
+    transform_state: &mut TransformState,
+    opacity_state: &mut OpacityState,
+    filter_state: &mut FilterState,
+    draw_filter_image: &mut DrawFilterImage,
+) {
+    let sc = stacking_context::build_stacking_context_tree(fragments);
+    let mut state = makepad_builder::MakepadDrawState {
+        draw_bg, draw_text, draw_text_bold, draw_text_mono,
+        draw_image, texture_cache, scroll_state, draw_rounded_bg,
+        draw_box_shadow, draw_gradient, selection, transform_state,
+        opacity_state, filter_state, draw_filter_image,
+    };
+    makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
+}
+
+/// Render fragments with viewport clipping using the stacking context tree.
+pub fn render_fragments_stacked_clipped(
+    cx: &mut Cx2d,
+    fragments: &[Fragment],
+    origin: DVec2,
+    viewport_top: f32,
+    viewport_bottom: f32,
+    draw_bg: &mut DrawColor,
+    draw_text: &mut DrawText,
+    draw_text_bold: &mut DrawText,
+    draw_text_mono: &mut DrawText,
+    draw_image: &mut DrawImage,
+    texture_cache: &mut TextureCache,
+    scroll_state: &ScrollState,
+    draw_rounded_bg: &mut DrawRoundedColor,
+    draw_box_shadow: &mut DrawBoxShadow,
+    draw_gradient: &mut DrawGradient,
+    selection: Option<&SelectionHighlight>,
+    transform_state: &mut TransformState,
+    opacity_state: &mut OpacityState,
+    filter_state: &mut FilterState,
+    draw_filter_image: &mut DrawFilterImage,
+) {
+    let sc = stacking_context::build_stacking_context_tree(fragments);
+    let mut state = makepad_builder::MakepadDrawState {
+        draw_bg, draw_text, draw_text_bold, draw_text_mono,
+        draw_image, texture_cache, scroll_state, draw_rounded_bg,
+        draw_box_shadow, draw_gradient, selection, transform_state,
+        opacity_state, filter_state, draw_filter_image,
+    };
+    makepad_builder::paint_stacking_context(
+        cx, &sc, origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,
+    );
 }
 
 fn render_fragment(
@@ -482,7 +551,7 @@ fn render_fragment(
 }
 
 /// Compute the element's border box in screen space.
-fn element_border_box(
+pub(crate) fn element_border_box(
     fragment: &Fragment, parent_draw_origin: DVec2,
     tx: f32, ty: f32, sticky_dx: f64, sticky_dy: f64,
     x: f64, y: f64, w: f32, h: f32,
@@ -737,7 +806,7 @@ fn compute_shape_radius_f32(
 ///
 /// Returns (dx, dy) offset to apply to the element's rendered position.
 /// For non-sticky elements, returns (0, 0).
-fn compute_sticky_offset(
+pub(crate) fn compute_sticky_offset(
     fragment: &Fragment,
     parent_draw_origin: DVec2,
     clip: Option<(f32, f32)>,
