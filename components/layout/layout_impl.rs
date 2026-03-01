@@ -729,11 +729,6 @@ impl LayoutThread {
         }
     }
 
-    /// Get the latest converted fragments for rendering.
-    pub fn rendered_fragments(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
-        self.rendered_fragments.borrow().clone()
-    }
-
     fn build_shared_style_context<'a>(
         &'a self,
         guards: StylesheetGuards<'a>,

@@ -5,10 +5,9 @@ const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
 
 /// Build platform display info for WebGL from the GL render bridge.
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
-fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::egl::EglDisplayInfo {
-    // Recover the raw eglGetProcAddress function pointer from the bridge.
-    // SAFETY: bridge.get_proc_address wraps eglGetProcAddress. Looking up
-    // "eglGetProcAddress" returns a pointer to the function itself.
+fn build_display_info(
+    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
+) -> servo::gl_device::egl::EglDisplayInfo {
     let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void = unsafe {
         std::mem::transmute(bridge.get_proc_address("eglGetProcAddress"))
     };
@@ -21,7 +20,9 @@ fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::egl::EglDisp
 }
 
 #[cfg(target_os = "macos")]
-fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::cgl::CglDisplayInfo {
+fn build_display_info(
+    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
+) -> servo::gl_device::cgl::CglDisplayInfo {
     servo::gl_device::cgl::CglDisplayInfo {
         pixel_format: bridge.cgl_pixel_format(),
         share_context: bridge.cgl_context(),
@@ -29,27 +30,24 @@ fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::cgl::CglDisp
 }
 
 #[cfg(target_os = "ios")]
-fn build_display_info(bridge: &GlRenderBridge) -> servo::gl_device::eagl::EaglDisplayInfo {
+fn build_display_info(
+    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
+) -> servo::gl_device::eagl::EaglDisplayInfo {
     servo::gl_device::eagl::EaglDisplayInfo {
         share_context: bridge.eagl_context(),
         opengles_framework: bridge.opengles_framework(),
     }
 }
 
-/// Create the GL render bridge, shared texture, and rendering context.
-/// Unified path for all platforms via makepad's GlRenderBridge.
+/// Create a rendering context for Servo's internal pipeline.
+/// With direct Makepad rendering, we don't use the GL output, but Servo
+/// still requires a RenderingContext for pipeline creation.
 fn create_rendering_context(
     cx: &mut Cx,
     size: dpi::PhysicalSize<u32>,
-) -> Result<
-    (Texture, GlRenderBridge, Rc<servo::MakepadRenderingContext>),
-    servo::rendering_context::Error,
-> {
+) -> Result<Rc<servo::MakepadRenderingContext>, servo::rendering_context::Error> {
     let bridge = cx.create_gl_render_bridge();
     bridge.make_current();
-
-    let (texture, gl_texture_id) =
-        cx.create_gl_render_bridge_texture(&bridge, size.width as usize, size.height as usize);
 
     let display_info = Some(build_display_info(&bridge));
 
@@ -59,11 +57,9 @@ fn create_rendering_context(
     };
     let texture_target = match bridge.gl_api() {
         GlApi::GL => GL_TEXTURE_RECTANGLE,
-        GlApi::GLES => gleam::gl::TEXTURE_2D,
+        GlApi::GLES => 0x0DE1, // GL_TEXTURE_2D
     };
 
-    // SAFETY: The bridge's GL context is current (ensured above). GL function
-    // pointers loaded via get_proc_address are valid for this context.
     let rc = unsafe {
         servo::MakepadRenderingContext::new_from_loader(
             size,
@@ -73,10 +69,9 @@ fn create_rendering_context(
             display_info,
         )
     }?;
-    rc.set_external_texture(gl_texture_id, size);
     cx.restore_gl_context();
 
-    Ok((texture, bridge, Rc::new(rc)))
+    Ok(Rc::new(rc))
 }
 
 impl App {
@@ -115,7 +110,7 @@ impl App {
         // Create rendering context + texture via the unified GL render bridge.
         let size = dpi::PhysicalSize::new(width, height);
         log!("[havishell] init_servo: creating rendering context {}x{}", width, height);
-        let (texture, bridge, rendering_context) = match create_rendering_context(cx, size) {
+        let rendering_context = match create_rendering_context(cx, size) {
             Ok(result) => {
                 log!("[havishell] init_servo: rendering context created successfully");
                 result
@@ -125,7 +120,6 @@ impl App {
                 return;
             },
         };
-        self.bridge = Some(bridge);
 
         #[cfg(target_os = "android")]
         {
@@ -362,14 +356,6 @@ impl App {
         self.rendering_context = Some(rendering_context);
         log!("[havishell] servo created, pylon_mode={:?}", pylon_mode);
 
-        // Step 4: Assign texture to the ServoWebView widget
-        self.texture = Some(texture);
-        if let Some(texture) = &self.texture {
-            self.ui
-                .servo_web_view(cx, ids!(web_view))
-                .set_texture(cx, Some(texture.clone()));
-        }
-
         // Step 5: Create first WebView or show splash screen.
         if pylon_mode == PylonMode::None {
             // No pylon boot — create webview immediately, hide splash.
@@ -529,39 +515,12 @@ impl App {
 
         let phys_size = dpi::PhysicalSize::new(new_width, new_height);
 
-        // IMPORTANT: Notify the webview BEFORE updating the rendering context's
-        // external texture. webview.resize() → resize_rendering_context() checks
-        // if rendering_context.size() == new_size to decide whether to update
-        // WebRender's document view. If we call set_external_texture first, it
-        // updates the stored size, making the check see matching sizes and skip
-        // set_document_view — so WebRender never learns the new viewport.
         // Resize all webviews so they're ready when switched to.
         for tab in &self.tabs {
             tab.webview.resize(phys_size);
         }
 
-        // Create new texture via the bridge and rebind the rendering context.
-        if let Some(bridge) = &self.bridge {
-            let (texture, gl_texture_id) = cx.create_gl_render_bridge_texture(
-                bridge,
-                new_width as usize,
-                new_height as usize,
-            );
-            if let Some(rc) = &self.rendering_context {
-                rc.set_external_texture(gl_texture_id, phys_size);
-                cx.restore_gl_context();
-            }
-            self.texture = Some(texture);
-        }
-
-        // Assign new texture to ServoWebView widget
-        if let Some(texture) = &self.texture {
-            self.ui
-                .servo_web_view(cx, ids!(web_view))
-                .set_texture(cx, Some(texture.clone()));
-        }
-
-        // Force a repaint at the new size
+        // Signal that we need to redraw at the new size.
         self.needs_paint = true;
     }
 
@@ -609,27 +568,12 @@ impl App {
         // Check for widget resize
         self.check_resize(cx);
 
-        // Only do the expensive paint + readback cycle when Servo has new content
-        if !self.needs_paint {
+        // Reset idle counter when new content is available.
+        if self.needs_paint {
+            self.needs_paint = false;
+            self.idle_frames = 0;
+        } else {
             self.idle_frames = self.idle_frames.saturating_add(1);
-            return;
-        }
-        self.needs_paint = false;
-        self.idle_frames = 0;
-
-        let active_webview = self.tabs.get(self.active_tab_idx).map(|t| &t.webview);
-        if let (Some(webview), Some(rc)) = (active_webview, &self.rendering_context) {
-            log!("[havishell] paint: rendering webview content");
-            // Tell WebRender to render the current state.
-            // This renders to the shared GL context's FBO texture.
-            webview.paint();
-
-            // Flush Servo's GL command queue so the texture contents are visible
-            // when Makepad's GL context samples it.
-            rc.present();
-
-            // Restore Makepad's own GL context as current.
-            cx.restore_gl_context();
         }
     }
 

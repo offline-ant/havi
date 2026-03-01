@@ -107,16 +107,9 @@ pub struct ServoWebView {
     source: ScriptObjectRef,
     #[walk]
     walk: Walk,
-    #[redraw]
-    #[live]
-    draw_bg: DrawImage,
-
-    /// The texture produced by Servo's compositor. `None` until the first
-    /// frame has been composited.
-    #[rust]
-    texture: Option<Texture>,
 
     // --- Fragment-based rendering ---
+    #[redraw]
     #[live]
     draw_content_bg: DrawColor,
     #[live]
@@ -168,11 +161,11 @@ impl Widget for ServoWebView {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, _scope: &mut Scope) {
         let uid = self.widget_uid();
 
-        match event.hits(cx, self.draw_bg.area()) {
+        match event.hits(cx, self.draw_content_bg.area()) {
             // ----- Finger / touch -----
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
-                cx.set_key_focus(self.draw_bg.area());
+                cx.set_key_focus(self.draw_content_bg.area());
                 let is_right_click = fd.device.mouse_button().map_or(false, |b| b.is_secondary());
                 cx.widget_action(
                     uid,
@@ -260,13 +253,12 @@ impl Widget for ServoWebView {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
-        // Try fragment-based rendering first.
         let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
             self.shared_fragments.as_ref().and_then(|sf| sf.get());
 
+        self.draw_content_bg.begin(cx, walk, Layout::default());
+
         if let Some(ref frags) = fragments {
-            // Fragment-based direct Makepad rendering.
-            self.draw_content_bg.begin(cx, walk, Layout::default());
             let rect = cx.turtle().rect();
             let origin = dvec2(rect.pos.x, rect.pos.y - self.scroll_y);
             let viewport_top = self.scroll_y as f32;
@@ -294,29 +286,10 @@ impl Widget for ServoWebView {
                 &mut self.filter_passes.0,
                 &mut self.draw_filter_image,
             );
-
-            self.draw_content_bg.end(cx);
-            let rect = self.draw_content_bg.area().rect(cx);
-
-            self.draw_scroll_overlay(cx, &rect);
-            return DrawStep::done();
         }
 
-        // Fallback: GL texture rendering.
-        if let Some(ref texture) = self.texture {
-            self.draw_bg.draw_vars.set_texture(0, texture);
-
-            // Servo's GL render-target uses bottom-left origin (Y-up).
-            // Flip Y so the content is right-side-up in Makepad's Y-down
-            // coordinate system.
-            self.draw_bg.image_scale = vec2(1.0, -1.0);
-            self.draw_bg.image_pan = vec2(0.0, 1.0);
-        } else {
-            self.draw_bg.draw_vars.empty_texture(0);
-        }
-
-        let rect = self.draw_bg.draw_walk(cx, walk);
-
+        self.draw_content_bg.end(cx);
+        let rect = self.draw_content_bg.area().rect(cx);
         self.draw_scroll_overlay(cx, &rect);
 
         DrawStep::done()
@@ -360,7 +333,7 @@ impl ServoWebView {
     }
     /// Return the draw area so callers can query geometry (e.g. `area().rect(cx)`).
     pub fn area(&self) -> Area {
-        self.draw_bg.area()
+        self.draw_content_bg.area()
     }
 }
 
@@ -369,17 +342,6 @@ impl ServoWebView {
 // ---------------------------------------------------------------------------
 
 impl ServoWebViewRef {
-    /// Assign (or clear) the texture that this view draws.  Triggers a
-    /// redraw when called outside of the draw pass.
-    pub fn set_texture(&self, cx: &mut Cx, texture: Option<Texture>) {
-        if let Some(mut inner) = self.borrow_mut() {
-            inner.texture = texture;
-            if cx.in_draw_event() {
-                inner.redraw(cx);
-            }
-        }
-    }
-
     /// Set the shared fragment tree for direct Makepad rendering.
     pub fn set_shared_fragments(&self, shared: layout_api::SharedFragmentTree) {
         if let Some(mut inner) = self.borrow_mut() {

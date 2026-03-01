@@ -209,44 +209,4 @@ impl FragmentTree {
             .find_map(|child| child.find(&info, 0, &mut process_func))
     }
 
-    /// Find the `<body>` element's [`Fragment`], if it exists in this [`FragmentTree`].
-    pub(crate) fn body_fragment(&self) -> Option<ArcRefCell<BoxFragment>> {
-        fn find_body(children: &[Fragment]) -> Option<ArcRefCell<BoxFragment>> {
-            children.iter().find_map(|fragment| {
-                match fragment {
-                    Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => {
-                        let borrowed_box_fragment = box_fragment.borrow();
-                        if borrowed_box_fragment.is_body_element_of_html_element_root() {
-                            return Some(box_fragment.clone());
-                        }
-
-                        // The fragment for the `<body>` element is typically a child of the root (though,
-                        // not if it's absolutely positioned), so we need to recurse into the children of
-                        // the root to find it.
-                        //
-                        // Additionally, recurse into any anonymous fragments, as the `<body>` fragment may
-                        // have created anonymous parents (for instance by creating an inline formatting context).
-                        if borrowed_box_fragment.is_root_element() ||
-                            borrowed_box_fragment.base.is_anonymous()
-                        {
-                            find_body(&borrowed_box_fragment.children)
-                        } else {
-                            None
-                        }
-                    },
-                    Fragment::Positioning(positioning_context)
-                        if positioning_context.borrow().base.is_anonymous() =>
-                    {
-                        // If the `<body>` element is a `display: inline` then it might be nested inside of a
-                        // `PositioningFragment` for the purposes of putting it on the first line of the implied
-                        // inline formatting context.
-                        find_body(&positioning_context.borrow().children)
-                    },
-                    _ => None,
-                }
-            })
-        }
-
-        find_body(&self.root_fragments)
-    }
 }

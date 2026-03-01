@@ -1,12 +1,12 @@
 use crossbeam_channel::Sender;
 use euclid::Scale;
 use havi_protocols::credentials::global_credential_store;
-use makepad_widgets::makepad_platform::gl_render_bridge::{GlApi, GlRenderBridge};
+use makepad_widgets::makepad_platform::gl_render_bridge::GlApi;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::*;
 use servo::protocol_handler::ProtocolRegistry;
-use servo::{DeviceIndependentPixel, DevicePixel, RenderingContext, WebViewId};
+use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -654,10 +654,6 @@ pub struct App {
     servo: Option<servo::Servo>,
     #[rust]
     rendering_context: Option<Rc<servo::MakepadRenderingContext>>,
-    #[rust]
-    bridge: Option<GlRenderBridge>,
-    #[rust]
-    texture: Option<Texture>,
     #[rust]
     next_frame: NextFrame,
     #[rust]

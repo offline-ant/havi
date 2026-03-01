@@ -8,21 +8,20 @@ use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
 use style::color::AbsoluteColor;
 use style::computed_values::direction::T as Direction;
-use style::computed_values::isolation::T as ComputedIsolation;
-use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
+
 use style::computed_values::position::T as ComputedPosition;
 use style::computed_values::transform_style::T as ComputedTransformStyle;
 use style::computed_values::unicode_bidi::T as UnicodeBidi;
 use style::logical_geometry::{Direction as AxisDirection, PhysicalSide, WritingMode};
 use style::properties::ComputedValues;
-use style::properties::longhands::backface_visibility::computed_value::T as BackfaceVisiblity;
+
 use style::properties::longhands::box_sizing::computed_value::T as BoxSizing;
 use style::properties::longhands::column_span::computed_value::T as ColumnSpan;
 use style::properties::style_structs::Border;
 use style::servo::selector_parser::PseudoElement;
 use style::values::CSSFloat;
 use style::values::computed::basic_shape::ClipPath;
-use style::values::computed::image::Image as ComputedImageLayer;
+
 use style::values::computed::{
     BorderSideWidth, BorderStyle, Color, Inset, ItemPlacement, LengthPercentage, Margin,
     SelfAlignment,
@@ -330,11 +329,8 @@ pub(crate) trait ComputedValuesExt {
     fn is_transformable(&self, fragment_flags: FragmentFlags) -> bool;
     fn has_transform_or_perspective_style(&self) -> bool;
     fn has_effective_transform_or_perspective(&self, fragment_flags: FragmentFlags) -> bool;
-    fn z_index_applies(&self, fragment_flags: FragmentFlags) -> bool;
-    fn effective_z_index(&self, fragment_flags: FragmentFlags) -> i32;
     fn effective_overflow(&self, fragment_flags: FragmentFlags) -> AxesOverflow;
     fn establishes_block_formatting_context(&self, fragment_flags: FragmentFlags) -> bool;
-    fn establishes_stacking_context(&self, fragment_flags: FragmentFlags) -> bool;
     fn establishes_scroll_container(&self, fragment_flags: FragmentFlags) -> bool;
     fn establishes_containing_block_for_absolute_descendants(
         &self,
@@ -349,8 +345,6 @@ pub(crate) trait ComputedValuesExt {
         natural_aspect_ratio: Option<CSSFloat>,
         padding_border_sums: &LogicalVec2<Au>,
     ) -> Option<AspectRatio>;
-    fn background_is_transparent(&self) -> bool;
-    fn get_webrender_primitive_flags(&self) -> wr::PrimitiveFlags;
     fn bidi_control_chars(&self) -> (&'static str, &'static str);
     fn resolve_align_self(
         &self,
@@ -559,38 +553,6 @@ impl ComputedValuesExt for ComputedValues {
         self.is_transformable(fragment_flags) && self.has_transform_or_perspective_style()
     }
 
-    /// Whether the `z-index` property applies to this fragment.
-    fn z_index_applies(&self, fragment_flags: FragmentFlags) -> bool {
-        // As per CSS 2 § 9.9.1, `z-index` applies to positioned elements.
-        // <http://www.w3.org/TR/CSS2/visuren.html#z-index>
-        if self.get_box().position != ComputedPosition::Static {
-            return true;
-        }
-        // More modern specs also apply it to flex and grid items.
-        // - From <https://www.w3.org/TR/css-flexbox-1/#painting>:
-        //   > Flex items paint exactly the same as inline blocks [CSS2], except that order-modified
-        //   > document order is used in place of raw document order, and z-index values other than auto
-        //   > create a stacking context even if position is static (behaving exactly as if position
-        //   > were relative).
-        // - From <https://drafts.csswg.org/css-flexbox/#painting>:
-        //   > The painting order of grid items is exactly the same as inline blocks [CSS2], except that
-        //   > order-modified document order is used in place of raw document order, and z-index values
-        //   > other than auto create a stacking context even if position is static (behaving exactly
-        //   > as if position were relative).
-        fragment_flags.contains(FragmentFlags::IS_FLEX_OR_GRID_ITEM)
-    }
-
-    /// Get the effective z-index of this fragment. Z-indices only apply to positioned elements
-    /// per CSS 2 9.9.1 (<http://www.w3.org/TR/CSS2/visuren.html#z-index>), so this value may differ
-    /// from the value specified in the style.
-    fn effective_z_index(&self, fragment_flags: FragmentFlags) -> i32 {
-        if self.z_index_applies(fragment_flags) {
-            self.get_position().z_index.integer_or(0)
-        } else {
-            0
-        }
-    }
-
     /// Get the effective overflow of this box. The property only applies to block containers,
     /// flex containers, and grid containers. And some box types only accept a few values.
     /// <https://www.w3.org/TR/css-overflow-3/#overflow-control>
@@ -688,105 +650,6 @@ impl ComputedValuesExt for ComputedValues {
         // Checking one axis suffices, because the computed value ensures that
         // either both axes are scrollable, or none is scrollable.
         self.effective_overflow(fragment_flags).x.is_scrollable()
-    }
-
-    /// Returns true if this fragment establishes a new stacking context and false otherwise.
-    fn establishes_stacking_context(&self, fragment_flags: FragmentFlags) -> bool {
-        // From <https://www.w3.org/TR/css-will-change/#valdef-will-change-custom-ident>:
-        // > If any non-initial value of a property would create a stacking context on the element,
-        // > specifying that property in will-change must create a stacking context on the element.
-        let will_change_bits = self.clone_will_change().bits;
-        if will_change_bits
-            .intersects(WillChangeBits::STACKING_CONTEXT_UNCONDITIONAL | WillChangeBits::OPACITY)
-        {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/CSS2/visuren.html#z-index>, values different than `auto`
-        // make the box establish a stacking context.
-        if self.z_index_applies(fragment_flags) &&
-            (!self.get_position().z_index.is_auto() ||
-                will_change_bits.intersects(WillChangeBits::Z_INDEX))
-        {
-            return true;
-        }
-
-        // Fixed position and sticky position always create stacking contexts.
-        // Note `will-change: position` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
-        if matches!(
-            self.get_box().position,
-            ComputedPosition::Fixed | ComputedPosition::Sticky
-        ) {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/css-transforms-1/#transform-rendering>
-        // > For elements whose layout is governed by the CSS box model, any value other than
-        // > `none` for the `transform` property results in the creation of a stacking context.
-        //
-        // From <https://www.w3.org/TR/css-transforms-2/#individual-transforms>
-        // > all other values […] create a stacking context and containing block for all
-        // > descendants, per usual for transforms.
-        //
-        // From <https://www.w3.org/TR/css-transforms-2/#perspective-property>
-        // > any value other than none establishes a stacking context.
-        //
-        // From <https://www.w3.org/TR/css-transforms-2/#transform-style-property>
-        // > A computed value of `preserve-3d` for `transform-style` on a transformable element
-        // > establishes both a stacking context and a containing block for all descendants.
-        if self.is_transformable(fragment_flags) &&
-            (self.has_transform_or_perspective_style() ||
-                self.get_box().transform_style == ComputedTransformStyle::Preserve3d ||
-                will_change_bits
-                    .intersects(WillChangeBits::TRANSFORM | WillChangeBits::PERSPECTIVE))
-        {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/css-color-3/#transparency>
-        // > implementations must create a new stacking context for any element with opacity less than 1.
-        // Note `will-change: opacity` is handled above by `WillChangeBits::OPACITY`.
-        let effects = self.get_effects();
-        if effects.opacity != 1.0 {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/filter-effects-1/#FilterProperty>
-        // > A computed value of other than `none` results in the creation of a stacking context
-        // Note `will-change: filter` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
-        if !effects.filter.0.is_empty() {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/compositing-1/#mix-blend-mode>
-        // > Applying a blendmode other than `normal` to the element must establish a new stacking context
-        // Note `will-change: mix-blend-mode` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
-        if effects.mix_blend_mode != ComputedMixBlendMode::Normal {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/css-masking-1/#the-clip-path>
-        // > A computed value of other than `none` results in the creation of a stacking context.
-        // Note `will-change: clip-path` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
-        if self.get_svg().clip_path != ClipPath::None {
-            return true;
-        }
-
-        // From <https://www.w3.org/TR/compositing-1/#isolation>
-        // > For CSS, setting `isolation` to `isolate` will turn the element into a stacking context.
-        // Note `will-change: isolation` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
-        if self.get_box().isolation == ComputedIsolation::Isolate {
-            return true;
-        }
-
-        // From https://www.w3.org/TR/CSS22/visuren.html#z-index:
-        // > The root element forms the root stacking context.
-        if fragment_flags.contains(FragmentFlags::IS_ROOT_ELEMENT) {
-            return true;
-        }
-
-        // TODO: We need to handle CSS Contain here.
-        false
     }
 
     /// Returns true if this style establishes a containing block for absolute
@@ -936,27 +799,6 @@ impl ComputedValuesExt for ComputedValues {
                     box_sizing_adjustment,
                 })
             },
-        }
-    }
-
-    /// Whether or not this style specifies a non-transparent background.
-    fn background_is_transparent(&self) -> bool {
-        let background = self.get_background();
-        let color = self.resolve_color(&background.background_color);
-        color.alpha == 0.0 &&
-            background
-                .background_image
-                .0
-                .iter()
-                .all(|layer| matches!(layer, ComputedImageLayer::None))
-    }
-
-    /// Generate appropriate WebRender `PrimitiveFlags` that should be used
-    /// for display items generated by the `Fragment` which owns this style.
-    fn get_webrender_primitive_flags(&self) -> wr::PrimitiveFlags {
-        match self.get_box().backface_visibility {
-            BackfaceVisiblity::Visible => wr::PrimitiveFlags::default(),
-            BackfaceVisiblity::Hidden => wr::PrimitiveFlags::empty(),
         }
     }
 

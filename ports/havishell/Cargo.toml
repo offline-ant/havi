@@ -39,7 +39,6 @@ dpi = "0.1"
 euclid = "0.22"
 havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
-gleam = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
 layout_api = { path = "../../components/shared/layout" }
