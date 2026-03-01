@@ -81,3 +81,4 @@ justfile
 /repo/
 /resources/icon-raster-runtime/havi.log
 env.ios
+.cargo/
