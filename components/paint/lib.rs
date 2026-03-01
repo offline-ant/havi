@@ -23,15 +23,11 @@ mod tracing;
 
 mod largest_contentful_paint_calculator;
 mod paint;
-mod painter;
 mod pinch_zoom;
-mod pipeline_details;
 mod refresh_driver;
-mod render_notifier;
 mod screenshot;
 mod touch;
 mod webrender_external_images;
-mod webview_renderer;
 
 /// Data used to initialize the `Paint` subsystem.
 pub struct InitialPaintState {

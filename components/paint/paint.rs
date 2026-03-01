@@ -2,16 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::env;
-use std::fs::create_dir_all;
 use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use base::generic_channel::{self, GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use bitflags::bitflags;
 use canvas_traits::webgl::{WebGLContextId, WebGLThreads};
 use constellation_traits::EmbedderToConstellationMessage;
 use crossbeam_channel::Sender;
@@ -22,7 +19,7 @@ use embedder_traits::{
 };
 use euclid::{Scale, Size2D};
 use image::RgbaImage;
-use ipc_channel::ipc::{self};
+use ipc_channel::ipc;
 use log::{debug, warn};
 use paint_api::rendering_context::RenderingContext;
 use paint_api::{
@@ -30,7 +27,7 @@ use paint_api::{
     WebRenderExternalImageIdManager, WebViewTrait,
 };
 use profile_traits::mem::{
-    ProcessReports, ProfilerRegistration, Report, ReportKind, perform_memory_report,
+    ProcessReports, ProfilerRegistration, Report, ReportKind,
 };
 use profile_traits::path;
 use profile_traits::time::{self as profile_time};
@@ -42,13 +39,11 @@ use webgl::WebGLComm;
 use webgl::webgl_thread::WebGLContextBusyMap;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;
-use webrender::{CaptureBits, MemoryReport};
 use webrender_api::units::{DevicePixel, DevicePoint};
 use webrender_api::{FontInstanceKey, FontKey, ImageKey};
 
 use crate::InitialPaintState;
-use crate::painter::Painter;
-use crate::webview_renderer::UnknownWebView;
+use crate::screenshot::ScreenshotTaker;
 
 /// An option to control what kind of WebRender debugging is enabled while Servo is running.
 #[derive(Copy, Clone)]
@@ -58,42 +53,34 @@ pub enum WebRenderDebugOption {
     RenderTargetDebug,
 }
 
-/// [`Paint`] is Servo's rendering subsystem. It has a few responsibilities:
+/// Error type for unknown webview operations.
+#[derive(Debug)]
+pub struct UnknownWebView;
+
+/// Counter for generating unique resource keys.
+static NEXT_KEY_INDEX: AtomicU32 = AtomicU32::new(1);
+
+fn next_key_index() -> u32 {
+    NEXT_KEY_INDEX.fetch_add(1, Ordering::Relaxed)
+}
+
+/// [`Paint`] is Servo's rendering subsystem.
 ///
-/// 1. Maintain a WebRender instance for each [`RenderingContext`] that Servo knows about.
-///    [`RenderingContext`]s are per-`WebView`, but more than one `WebView` can use the same
-///    [`RenderingContext`]. This allows multiple `WebView`s to share the same WebRender
-///    instance which is more efficient. This is useful for tabbed web browsers.
-/// 2. Receive display lists from the layout of all of the currently active `Pipeline`s
-///    (frames). These display lists are sent to WebRender, and new frames are generated.
-///    Once the frame is ready the [`Painter`] for the WebRender instance will ask libservo
-///    to inform the embedder that a new frame is ready so that it can trigger a paint.
-/// 3. Drive animation and animation callback updates. Animation updates should ideally be
-///    coordinated with the system vsync signal, so the `RefreshDriver` is exposed in the
-///    API to allow the embedder to do this. The [`Painter`] then asks its `WebView`s to
-///    update their rendering, which triggers layouts.
-/// 4. Eagerly handle scrolling and touch events. In order to avoid latency when handling
-///    these kind of actions, each [`Painter`] will eagerly process touch events and
-///    perform panning and zooming operations on their WebRender contents -- informing the
-///    WebView contents asynchronously.
-///
-/// `Paint` and all of its contained structs should **never** block on the Constellation,
-/// because sometimes the Constellation blocks on us.
+/// WebRender has been removed. Rendering is now handled by havi-render via Makepad.
+/// This struct retains the message routing, resource key generation, WebGL/WebXR
+/// infrastructure, and public API surface.
 pub struct Paint {
-    /// All of the [`Painters`] for this [`Paint`]. Each [`Painter`] handles painting to
-    /// a single [`RenderingContext`].
-    painters: Vec<Rc<RefCell<Painter>>>,
+    /// Rendering contexts registered per painter.
+    rendering_contexts: HashMap<PainterId, Rc<dyn RenderingContext>>,
 
     /// A [`PaintProxy`] which can be used to allow other parts of Servo to communicate
     /// with this [`Paint`].
     pub(crate) paint_proxy: PaintProxy,
 
-    /// An [`EventLoopWaker`] used to wake up the main embedder event loop when the renderer needs
-    /// to run.
+    /// An [`EventLoopWaker`] used to wake up the main embedder event loop.
     pub(crate) event_loop_waker: Box<dyn EventLoopWaker>,
 
-    /// Tracks whether we are in the process of shutting down, or have shut down and
-    /// should shut down `Paint`. This is shared with the `Servo` instance.
+    /// Tracks whether we are in the process of shutting down.
     shutdown_state: Rc<Cell<ShutdownState>>,
 
     /// The port on which we receive messages.
@@ -105,54 +92,41 @@ pub struct Paint {
     /// The [`WebRenderExternalImageIdManager`] used to generate new `ExternalImageId`s.
     webrender_external_image_id_manager: WebRenderExternalImageIdManager,
 
-    /// A [`HashMap`] of [`PainterId`] to the GL display details that
-    /// are specific to a particular [`Painter`].
+    /// GL display details per painter (needed for WebGL).
     pub(crate) painter_gl_details_map: PainterGlDetailsMap,
 
-    /// A [`HashMap`] of `WebGLContextId` to a usage count. This count indicates when
-    /// WebRender is still rendering the context. This is used to ensure properly clean
-    /// up of all Surfman `Surface`s.
+    /// WebGL context busy map.
     pub(crate) busy_webgl_contexts_map: WebGLContextBusyMap,
 
     /// The [`WebGLThreads`] for this renderer.
     webgl_threads: WebGLThreads,
 
-    /// The shared [`SwapChains`] used by [`WebGLThreads`] for this renderer.
+    /// The shared [`SwapChains`] used by [`WebGLThreads`].
     pub(crate) swap_chains: SwapChains<WebGLContextId>,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
 
-    /// A handle to the memory profiler which will automatically unregister
-    /// when it's dropped.
+    /// Memory profiler registration handle.
     _mem_profiler_registration: ProfilerRegistration,
+
+    /// Screenshot taker.
+    screenshot_taker: ScreenshotTaker,
+
+    /// Page zoom per webview.
+    page_zooms: RefCell<HashMap<WebViewId, f32>>,
+
+    /// HiDPI scale factors per webview.
+    hidpi_scale_factors:
+        RefCell<HashMap<WebViewId, Scale<f32, DeviceIndependentPixel, DevicePixel>>>,
 
     /// Some XR devices want to run on the main thread.
     #[cfg(feature = "webxr")]
     webxr_main_thread: RefCell<webxr::MainThreadRegistry>,
 
-    /// An map of external images shared between all `WebGpuExternalImages`.
+    /// External image map for WebGPU.
     #[cfg(feature = "webgpu")]
     webgpu_image_map: std::cell::OnceCell<WebGpuExternalImageMap>,
-}
-
-/// Why we need to be repainted. This is used for debugging.
-#[derive(Clone, Copy, Default, PartialEq)]
-pub(crate) struct RepaintReason(u8);
-
-bitflags! {
-    impl RepaintReason: u8 {
-        /// We're performing the single repaint in headless mode.
-        const ReadyForScreenshot = 1 << 0;
-        /// We're performing a repaint to run an animation.
-        const ChangedAnimationState = 1 << 1;
-        /// A new WebRender frame has arrived.
-        const NewWebRenderFrame = 1 << 2;
-        /// The window has been resized and will need to be synchronously repainted.
-        const Resize = 1 << 3;
-        /// A fling has started and a repaint needs to happen to process the animation.
-        const StartedFlinging = 1 << 4;
-    }
 }
 
 impl Paint {
@@ -177,7 +151,6 @@ impl Paint {
             painter_gl_details_map.clone(),
         );
 
-        // Create the WebXR main thread
         #[cfg(feature = "webxr")]
         let webxr_main_thread = {
             use servo_config::pref;
@@ -194,7 +167,7 @@ impl Paint {
         };
 
         Rc::new(RefCell::new(Paint {
-            painters: Default::default(),
+            rendering_contexts: Default::default(),
             paint_proxy: state.paint_proxy,
             event_loop_waker: state.event_loop_waker,
             shutdown_state: state.shutdown_state,
@@ -207,6 +180,9 @@ impl Paint {
             _mem_profiler_registration: registration,
             painter_gl_details_map,
             busy_webgl_contexts_map: busy_webgl_context_map,
+            screenshot_taker: Default::default(),
+            page_zooms: Default::default(),
+            hidpi_scale_factors: Default::default(),
             #[cfg(feature = "webxr")]
             webxr_main_thread: RefCell::new(webxr_main_thread),
             #[cfg(feature = "webgpu")]
@@ -218,73 +194,43 @@ impl Paint {
         &mut self,
         rendering_context: Rc<dyn RenderingContext>,
     ) -> PainterId {
-        if let Some(painter_id) = self.painters.iter().find_map(|painter| {
-            let painter = painter.borrow();
-            if Rc::ptr_eq(&painter.rendering_context, &rendering_context) {
-                Some(painter.painter_id)
-            } else {
-                None
-            }
-        }) {
+        // Check if this rendering context is already registered.
+        if let Some(painter_id) = self
+            .rendering_contexts
+            .iter()
+            .find_map(|(id, rc)| Rc::ptr_eq(rc, &rendering_context).then_some(*id))
+        {
             return painter_id;
         }
 
-        let painter = Painter::new(rendering_context.clone(), self);
+        let painter_id = PainterId::next();
+
         if let Some(display_info) = rendering_context.gl_display_info() {
             let painter_gl_details = PainterGlDetails { display_info };
             self.painter_gl_details_map
-                .insert(painter.painter_id, painter_gl_details);
+                .insert(painter_id, painter_gl_details);
         } else {
             warn!(
                 "RenderingContext for painter {:?} does not provide gl_display_info; WebGL disabled",
-                painter.painter_id
+                painter_id
             );
         }
 
-        let painter_id = painter.painter_id;
-        self.painters.push(Rc::new(RefCell::new(painter)));
+        self.rendering_contexts
+            .insert(painter_id, rendering_context);
         painter_id
     }
 
-    fn remove_painter(&mut self, painter_id: PainterId) {
-        self.painters
-            .retain(|painter| painter.borrow().painter_id != painter_id);
-        self.painter_gl_details_map.remove(painter_id);
-    }
-
-    pub(crate) fn maybe_painter<'a>(&'a self, painter_id: PainterId) -> Option<Ref<'a, Painter>> {
-        self.painters
-            .iter()
-            .map(|painter| painter.borrow())
-            .find(|painter| painter.painter_id == painter_id)
-    }
-
-    pub(crate) fn painter<'a>(&'a self, painter_id: PainterId) -> Ref<'a, Painter> {
-        self.maybe_painter(painter_id)
-            .expect("painter_id not found")
-    }
-
-    pub(crate) fn maybe_painter_mut<'a>(
-        &'a self,
-        painter_id: PainterId,
-    ) -> Option<RefMut<'a, Painter>> {
-        self.painters
-            .iter()
-            .map(|painter| painter.borrow_mut())
-            .find(|painter| painter.painter_id == painter_id)
-    }
-
-    pub(crate) fn painter_mut<'a>(&'a self, painter_id: PainterId) -> RefMut<'a, Painter> {
-        self.maybe_painter_mut(painter_id)
-            .expect("painter_id not found")
-    }
-
     pub fn painter_id(&self) -> PainterId {
-        self.painters[0].borrow().painter_id
+        *self
+            .rendering_contexts
+            .keys()
+            .next()
+            .expect("No rendering contexts registered")
     }
 
     pub fn rendering_context_size(&self, painter_id: PainterId) -> Size2D<u32, DevicePixel> {
-        self.painter(painter_id).rendering_context.size2d()
+        self.rendering_contexts[&painter_id].size2d()
     }
 
     pub fn webgl_threads(&self) -> WebGLThreads {
@@ -317,15 +263,11 @@ impl Paint {
     }
 
     pub fn webviews_needing_repaint(&self) -> Vec<WebViewId> {
-        self.painters
-            .iter()
-            .flat_map(|painter| painter.borrow().webviews_needing_repaint())
-            .collect()
+        // TODO(havi-render): Repaint tracking via Makepad redraw signals.
+        Vec::new()
     }
 
     pub fn finish_shutting_down(&self) {
-        // Drain paint port, sometimes messages contain channels that are blocking
-        // another thread from finishing (i.e. SetFrameTree).
         while self.paint_receiver.try_recv().is_ok() {}
 
         let (webgl_exit_sender, webgl_exit_receiver) =
@@ -338,7 +280,6 @@ impl Paint {
             warn!("Could not exit WebGLThread.");
         }
 
-        // Tell the profiler, memory profiler, and scrolling timer to shut down.
         if let Ok((sender, receiver)) = ipc::channel() {
             self.time_profiler_chan
                 .send(profile_time::ProfilerMsg::Exit(sender));
@@ -355,79 +296,28 @@ impl Paint {
                 self.handle_browser_message_while_shutting_down(msg);
                 return;
             },
-            ShutdownState::FinishedShuttingDown => {
-                // Messages to Paint are ignored after shutdown is complete.
-                return;
-            },
+            ShutdownState::FinishedShuttingDown => return,
         }
 
         match msg {
             PaintMessage::CollectMemoryReport(sender) => {
                 self.collect_memory_report(sender);
             },
-            PaintMessage::ChangeRunningAnimationsState(
-                webview_id,
-                pipeline_id,
-                animation_state,
-            ) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.change_running_animations_state(
-                        webview_id,
-                        pipeline_id,
-                        animation_state,
-                    );
-                }
+            PaintMessage::ChangeRunningAnimationsState(..) => {
+                // TODO(havi-render): Forward animation state to Makepad.
             },
-            PaintMessage::SetFrameTreeForWebView(webview_id, frame_tree) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.set_frame_tree_for_webview(&frame_tree);
-                }
+            PaintMessage::SetFrameTreeForWebView(..) => {},
+            PaintMessage::SetThrottled(..) => {},
+            PaintMessage::PipelineExited(..) => {},
+            PaintMessage::ScrollNodeByDelta(..) => {
+                // TODO(havi-render): Scroll via havi-render.
             },
-            PaintMessage::SetThrottled(webview_id, pipeline_id, throttled) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.set_throttled(webview_id, pipeline_id, throttled);
-                }
+            PaintMessage::ScrollViewportByDelta(..) => {
+                // TODO(havi-render): Scroll via havi-render.
             },
-            PaintMessage::PipelineExited(webview_id, pipeline_id, pipeline_exit_source) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.notify_pipeline_exited(webview_id, pipeline_id, pipeline_exit_source);
-                }
-            },
-            PaintMessage::ScrollNodeByDelta(
-                webview_id,
-                pipeline_id,
-                offset,
-                external_scroll_id,
-            ) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.scroll_node_by_delta(
-                        webview_id,
-                        pipeline_id,
-                        offset,
-                        external_scroll_id,
-                    );
-                }
-            },
-            PaintMessage::ScrollViewportByDelta(webview_id, delta) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.scroll_viewport_by_delta(webview_id, delta);
-                }
-            },
-            PaintMessage::UpdateEpoch {
-                webview_id,
-                pipeline_id,
-                epoch,
-            } => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.update_epoch(webview_id, pipeline_id, epoch);
-                }
-            },
-            PaintMessage::GenerateFrame(painter_ids) => {
-                for painter_id in painter_ids {
-                    if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                        painter.generate_frame_for_script();
-                    }
-                }
+            PaintMessage::UpdateEpoch { .. } => {},
+            PaintMessage::GenerateFrame(..) => {
+                // TODO(havi-render): Trigger Makepad redraw.
             },
             PaintMessage::GenerateImageKey(webview_id, result_sender) => {
                 self.handle_generate_image_key(webview_id, result_sender);
@@ -435,55 +325,20 @@ impl Paint {
             PaintMessage::GenerateImageKeysForPipeline(webview_id, pipeline_id) => {
                 self.handle_generate_image_keys_for_pipeline(webview_id, pipeline_id);
             },
-            PaintMessage::UpdateImages(painter_id, updates) => {
-                if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                    painter.update_images(updates);
-                }
+            PaintMessage::UpdateImages(..) => {
+                // TODO(havi-render): Forward image updates to Makepad texture cache.
             },
-            PaintMessage::DelayNewFrameForCanvas(
-                webview_id,
-                pipeline_id,
-                canvas_epoch,
-                image_keys,
-            ) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.delay_new_frames_for_canvas(pipeline_id, canvas_epoch, image_keys);
-                }
+            PaintMessage::DelayNewFrameForCanvas(..) => {},
+            PaintMessage::AddFont(..) => {
+                // TODO(havi-render): Forward font data to Makepad font loader.
             },
-            PaintMessage::AddFont(painter_id, font_key, data, index) => {
-                debug_assert!(painter_id == font_key.into());
-
-                if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                    painter.add_font(font_key, data, index);
-                }
+            PaintMessage::AddSystemFont(..) => {
+                // TODO(havi-render): Forward system font to Makepad font loader.
             },
-            PaintMessage::AddSystemFont(painter_id, font_key, native_handle) => {
-                debug_assert!(painter_id == font_key.into());
-
-                if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                    painter.add_system_font(font_key, native_handle);
-                }
+            PaintMessage::AddFontInstance(..) => {
+                // TODO(havi-render): Forward font instance to Makepad.
             },
-            PaintMessage::AddFontInstance(
-                painter_id,
-                font_instance_key,
-                font_key,
-                size,
-                flags,
-                variations,
-            ) => {
-                debug_assert!(painter_id == font_key.into());
-                debug_assert!(painter_id == font_instance_key.into());
-
-                if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                    painter.add_font_instance(font_instance_key, font_key, size, flags, variations);
-                }
-            },
-            PaintMessage::RemoveFonts(painter_id, keys, instance_keys) => {
-                if let Some(mut painter) = self.maybe_painter_mut(painter_id) {
-                    painter.remove_fonts(keys, instance_keys);
-                }
-            },
+            PaintMessage::RemoveFonts(..) => {},
             PaintMessage::GenerateFontKeys(
                 number_of_font_keys,
                 number_of_font_instance_keys,
@@ -497,99 +352,33 @@ impl Paint {
                     painter_id,
                 );
             },
-            PaintMessage::Viewport(webview_id, viewport_description) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.set_viewport_description(webview_id, viewport_description);
-                }
+            PaintMessage::Viewport(..) => {},
+            PaintMessage::ScreenshotReadinessReponse(..) => {
+                // TODO(havi-render): Wire screenshot via Makepad.
             },
-            PaintMessage::ScreenshotReadinessReponse(webview_id, pipelines_and_epochs) => {
-                if let Some(painter) = self.maybe_painter(webview_id.into()) {
-                    painter.handle_screenshot_readiness_reply(webview_id, pipelines_and_epochs);
-                }
-            },
-            PaintMessage::SendLCPCandidate(lcp_candidate, webview_id, pipeline_id, epoch) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.append_lcp_candidate(lcp_candidate, webview_id, pipeline_id, epoch);
-                }
-            },
-            PaintMessage::EnableLCPCalculation(webview_id) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.enable_lcp_calculation(&webview_id);
-                }
-            },
+            PaintMessage::SendLCPCandidate(..) => {},
+            PaintMessage::EnableLCPCalculation(..) => {},
         }
     }
 
-    pub fn remove_webview(&mut self, webview_id: WebViewId) {
-        let painter_id = webview_id.into();
-
-        {
-            let mut painter = self.painter_mut(painter_id);
-            painter.remove_webview(webview_id);
-            if !painter.is_empty() {
-                return;
-            }
-        }
-
-        self.remove_painter(painter_id);
+    pub fn remove_webview(&mut self, _webview_id: WebViewId) {
+        // TODO(havi-render): Clean up webview state.
     }
 
     fn collect_memory_report(&self, sender: profile_traits::mem::ReportsChan) {
-        let mut memory_report = MemoryReport::default();
-        for painter in &self.painters {
-            memory_report += painter.borrow().report_memory();
-        }
-
-        let mut reports = vec![
+        let reports = vec![
             Report {
-                path: path!["webrender", "fonts"],
+                path: path!["paint", "placeholder"],
                 kind: ReportKind::ExplicitJemallocHeapSize,
-                size: memory_report.fonts,
-            },
-            Report {
-                path: path!["webrender", "images"],
-                kind: ReportKind::ExplicitJemallocHeapSize,
-                size: memory_report.images,
-            },
-            Report {
-                path: path!["webrender", "display-list"],
-                kind: ReportKind::ExplicitJemallocHeapSize,
-                size: memory_report.display_list,
+                size: 0,
             },
         ];
-
-        perform_memory_report(|ops| {
-            let scroll_trees_memory_usage = self
-                .painters
-                .iter()
-                .map(|painter| painter.borrow().scroll_trees_memory_usage(ops))
-                .sum();
-            reports.push(Report {
-                path: path!["paint", "scroll-tree"],
-                kind: ReportKind::ExplicitJemallocHeapSize,
-                size: scroll_trees_memory_usage,
-            });
-        });
-
         sender.send(ProcessReports::new(reports));
     }
 
-    /// Handle messages sent to `Paint` during the shutdown process. In general,
-    /// the things `Paint` can do in this state are limited. It's very important to
-    /// answer any synchronous messages though as other threads might be waiting on the
-    /// results to finish their own shut down process. We try to do as little as possible
-    /// during this time.
-    ///
-    /// When that involves generating WebRender ids, our approach here is to simply
-    /// generate them, but assume they will never be used, since once shutting down
-    /// `Paint` no longer does any WebRender frame generation.
     fn handle_browser_message_while_shutting_down(&self, msg: PaintMessage) {
         match msg {
-            PaintMessage::PipelineExited(webview_id, pipeline_id, pipeline_exit_source) => {
-                if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-                    painter.notify_pipeline_exited(webview_id, pipeline_id, pipeline_exit_source);
-                }
-            },
+            PaintMessage::PipelineExited(..) => {},
             PaintMessage::GenerateImageKey(webview_id, result_sender) => {
                 self.handle_generate_image_key(webview_id, result_sender);
             },
@@ -615,19 +404,20 @@ impl Paint {
         }
     }
 
-    pub fn add_webview(&self, webview: Box<dyn WebViewTrait>, viewport_details: ViewportDetails) {
-        self.painter_mut(webview.id().into())
-            .add_webview(webview, viewport_details);
+    pub fn add_webview(
+        &self,
+        _webview: Box<dyn WebViewTrait>,
+        _viewport_details: ViewportDetails,
+    ) {
+        // TODO(havi-render): Register webview with Makepad renderer.
     }
 
-    pub fn show_webview(&self, webview_id: WebViewId) -> Result<(), UnknownWebView> {
-        self.painter_mut(webview_id.into())
-            .set_webview_hidden(webview_id, false)
+    pub fn show_webview(&self, _webview_id: WebViewId) -> Result<(), UnknownWebView> {
+        Ok(())
     }
 
-    pub fn hide_webview(&self, webview_id: WebViewId) -> Result<(), UnknownWebView> {
-        self.painter_mut(webview_id.into())
-            .set_webview_hidden(webview_id, true)
+    pub fn hide_webview(&self, _webview_id: WebViewId) -> Result<(), UnknownWebView> {
+        Ok(())
     }
 
     pub fn set_hidpi_scale_factor(
@@ -638,35 +428,33 @@ impl Paint {
         if self.shutdown_state() != ShutdownState::NotShuttingDown {
             return;
         }
-        self.painter_mut(webview_id.into())
-            .set_hidpi_scale_factor(webview_id, new_scale_factor);
+        self.hidpi_scale_factors
+            .borrow_mut()
+            .insert(webview_id, new_scale_factor);
     }
 
-    pub fn resize_rendering_context(&self, webview_id: WebViewId, new_size: PhysicalSize<u32>) {
-        if self.shutdown_state() != ShutdownState::NotShuttingDown {
-            return;
-        }
-        self.painter_mut(webview_id.into())
-            .resize_rendering_context(new_size);
+    pub fn resize_rendering_context(
+        &self,
+        _webview_id: WebViewId,
+        _new_size: PhysicalSize<u32>,
+    ) {
+        // TODO(havi-render): Resize handled by Makepad.
     }
 
     pub fn set_page_zoom(&self, webview_id: WebViewId, new_zoom: f32) {
         if self.shutdown_state() != ShutdownState::NotShuttingDown {
             return;
         }
-        self.painter_mut(webview_id.into())
-            .set_page_zoom(webview_id, new_zoom);
+        let clamped = new_zoom.clamp(0.1, 10.0);
+        self.page_zooms.borrow_mut().insert(webview_id, clamped);
     }
 
     pub fn page_zoom(&self, webview_id: WebViewId) -> f32 {
-        self.painter(webview_id.into()).page_zoom(webview_id)
+        *self.page_zooms.borrow().get(&webview_id).unwrap_or(&1.0)
     }
 
-    /// Render the WebRender scene to the active `RenderingContext`.
-    pub fn render(&self, webview_id: WebViewId) {
-        self.painter_mut(webview_id.into())
-            .render(&self.time_profiler_chan);
-    }
+    /// Render. TODO(havi-render): This is now a no-op; Makepad draws directly.
+    pub fn render(&self, _webview_id: WebViewId) {}
 
     /// Get the message receiver for this [`Paint`].
     pub fn receiver(&self) -> &RoutedReceiver<PaintMessage> {
@@ -689,79 +477,50 @@ impl Paint {
             return false;
         }
 
-        // Run the WebXR main thread
         #[cfg(feature = "webxr")]
         self.webxr_main_thread.borrow_mut().run_one_frame();
-
-        for painter in &self.painters {
-            painter.borrow_mut().perform_updates();
-        }
 
         self.shutdown_state() != ShutdownState::FinishedShuttingDown
     }
 
-    pub fn toggle_webrender_debug(&self, option: WebRenderDebugOption) {
-        for painter in &self.painters {
-            painter.borrow_mut().toggle_webrender_debug(option);
-        }
+    pub fn toggle_webrender_debug(&self, _option: WebRenderDebugOption) {}
+
+    pub fn capture_webrender(&self, _webview_id: WebViewId) {}
+
+    pub fn notify_input_event(&self, _webview_id: WebViewId, _event: InputEventAndId) {
+        // TODO(havi-render): Forward input events.
     }
 
-    pub fn capture_webrender(&self, webview_id: WebViewId) {
-        let capture_id = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .to_string();
-        let available_path = [env::current_dir(), Ok(env::temp_dir())]
-            .iter()
-            .filter_map(|val| {
-                val.as_ref()
-                    .map(|dir| dir.join("webrender-captures").join(&capture_id))
-                    .ok()
-            })
-            .find(|val| create_dir_all(val).is_ok());
-
-        let Some(capture_path) = available_path else {
-            log::error!("Couldn't create a path for WebRender captures.");
-            return;
-        };
-
-        log::info!("Saving WebRender capture to {capture_path:?}");
-        self.painter(webview_id.into())
-            .webrender_api
-            .save_capture(capture_path.clone(), CaptureBits::all());
+    pub fn notify_scroll_event(
+        &self,
+        _webview_id: WebViewId,
+        _scroll: Scroll,
+        _point: WebViewPoint,
+    ) {
+        // TODO(havi-render): Forward scroll events.
     }
 
-    pub fn notify_input_event(&self, webview_id: WebViewId, event: InputEventAndId) {
-        if self.shutdown_state() != ShutdownState::NotShuttingDown {
-            return;
-        }
-        self.painter_mut(webview_id.into())
-            .notify_input_event(webview_id, event);
-    }
-
-    pub fn notify_scroll_event(&self, webview_id: WebViewId, scroll: Scroll, point: WebViewPoint) {
-        if self.shutdown_state() != ShutdownState::NotShuttingDown {
-            return;
-        }
-        self.painter_mut(webview_id.into())
-            .notify_scroll_event(webview_id, scroll, point);
-    }
-
-    pub fn pinch_zoom(&self, webview_id: WebViewId, pinch_zoom_delta: f32, center: DevicePoint) {
-        if self.shutdown_state() != ShutdownState::NotShuttingDown {
-            return;
-        }
-        self.painter_mut(webview_id.into())
-            .pinch_zoom(webview_id, pinch_zoom_delta, center);
+    pub fn pinch_zoom(
+        &self,
+        _webview_id: WebViewId,
+        _pinch_zoom_delta: f32,
+        _center: DevicePoint,
+    ) {
+        // TODO(havi-render): Forward pinch zoom.
     }
 
     pub fn device_pixels_per_page_pixel(
         &self,
         webview_id: WebViewId,
     ) -> Scale<f32, CSSPixel, DevicePixel> {
-        self.painter_mut(webview_id.into())
-            .device_pixels_per_page_pixel(webview_id)
+        let hidpi = self
+            .hidpi_scale_factors
+            .borrow()
+            .get(&webview_id)
+            .copied()
+            .unwrap_or_else(Scale::identity);
+        let page_zoom = self.page_zoom(webview_id);
+        Scale::new(hidpi.get() * page_zoom)
     }
 
     pub(crate) fn shutdown_state(&self) -> ShutdownState {
@@ -774,56 +533,40 @@ impl Paint {
         rect: Option<WebViewRect>,
         callback: Box<dyn FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static>,
     ) {
-        self.painter(webview_id.into())
-            .request_screenshot(webview_id, rect, callback);
+        let device_rect = rect.map(|r| {
+            r.as_device_rect(self.device_pixels_per_page_pixel(webview_id))
+        });
+        self.screenshot_taker
+            .request_screenshot(webview_id, device_rect, callback);
     }
 
     pub fn notify_input_event_handled(
         &self,
-        webview_id: WebViewId,
-        input_event_id: InputEventId,
-        result: InputEventResult,
+        _webview_id: WebViewId,
+        _input_event_id: InputEventId,
+        _result: InputEventResult,
     ) {
-        if let Some(mut painter) = self.maybe_painter_mut(webview_id.into()) {
-            painter.notify_input_event_handled(webview_id, input_event_id, result);
-        }
+        // TODO(havi-render): Forward input event results.
     }
 
-    /// Generate an image key from the appropriate [`Painter`] or, if it is unknown, generate
-    /// a dummy image key. The unknown case needs to be handled because requests for keys
-    /// could theoretically come after a [`Painter`] has been released. A dummy key is okay
-    /// in this case because we will never render again in that case.
     fn handle_generate_image_key(
         &self,
         webview_id: WebViewId,
         result_sender: GenericSender<ImageKey>,
     ) {
-        let painter_id = webview_id.into();
-        let image_key = self.maybe_painter(painter_id).map_or_else(
-            || ImageKey::new(painter_id.into(), 0),
-            |painter| painter.webrender_api.generate_image_key(),
-        );
+        let painter_id: PainterId = webview_id.into();
+        let image_key = ImageKey::new(painter_id.into(), next_key_index());
         let _ = result_sender.send(image_key);
     }
 
-    /// Generate image keys from the appropriate [`Painter`] or, if it is unknown, generate
-    /// dummy image keys. The unknown case needs to be handled because requests for keys
-    /// could theoretically come after a [`Painter`] has been released. A dummy key is okay
-    /// in this case because we will never render again in that case.
     fn handle_generate_image_keys_for_pipeline(
         &self,
         webview_id: WebViewId,
         pipeline_id: PipelineId,
     ) {
-        let painter_id = webview_id.into();
-        let painter = self.maybe_painter(painter_id);
+        let painter_id: PainterId = webview_id.into();
         let image_keys = (0..pref!(image_key_batch_size))
-            .map(|_| {
-                painter.as_ref().map_or_else(
-                    || ImageKey::new(painter_id.into(), 0),
-                    |painter| painter.webrender_api.generate_image_key(),
-                )
-            })
+            .map(|_| ImageKey::new(painter_id.into(), next_key_index()))
             .collect();
 
         let _ = self.embedder_to_constellation_sender.send(
@@ -831,10 +574,6 @@ impl Paint {
         );
     }
 
-    /// Generate font keys from the appropriate [`Painter`] or, if it is unknown, generate
-    /// dummy font keys. The unknown case needs to be handled because requests for keys
-    /// could theoretically come after a [`Painter`] has been released. A dummy key is okay
-    /// in this case because we will never render again in that case.
     fn handle_generate_font_keys(
         &self,
         number_of_font_keys: usize,
@@ -842,24 +581,12 @@ impl Paint {
         result_sender: GenericSender<(Vec<FontKey>, Vec<FontInstanceKey>)>,
         painter_id: PainterId,
     ) {
-        let painter = self.maybe_painter(painter_id);
         let font_keys = (0..number_of_font_keys)
-            .map(|_| {
-                painter.as_ref().map_or_else(
-                    || FontKey::new(painter_id.into(), 0),
-                    |painter| painter.webrender_api.generate_font_key(),
-                )
-            })
+            .map(|_| FontKey::new(painter_id.into(), next_key_index()))
             .collect();
         let font_instance_keys = (0..number_of_font_instance_keys)
-            .map(|_| {
-                painter.as_ref().map_or_else(
-                    || FontInstanceKey::new(painter_id.into(), 0),
-                    |painter| painter.webrender_api.generate_font_instance_key(),
-                )
-            })
+            .map(|_| FontInstanceKey::new(painter_id.into(), next_key_index()))
             .collect();
-
         let _ = result_sender.send((font_keys, font_instance_keys));
     }
 }

@@ -15,8 +15,7 @@ use embedder_traits::{EventLoopWaker, RefreshDriver};
 use log::warn;
 use timers::{BoxedTimerCallback, TimerEventRequest, TimerScheduler};
 
-use crate::painter::Painter;
-use crate::webview_renderer::WebViewRenderer;
+
 
 /// The [`BaseRefreshDriver`] is a "base class" for [`RefreshDriver`] trait
 /// implementations. It encapsulates shared behavior so that it does not have to be
@@ -61,11 +60,10 @@ impl BaseRefreshDriver {
         }
     }
 
-    pub(crate) fn notify_will_paint(&self, painter: &mut Painter) {
-        // Limit the borrow of `self.observers` to the minimum here.
+    pub(crate) fn notify_will_paint(&self) {
         let still_has_observers = {
             let mut observers = self.observers.borrow_mut();
-            observers.retain(|observer| observer.frame_started(painter));
+            observers.retain(|observer| observer.frame_started());
             !observers.is_empty()
         };
 
@@ -101,7 +99,7 @@ pub(crate) trait RefreshDriverObserver {
     /// Informs the observer that a new frame has started. The observer should return
     /// `true` to keep observing or `false` if wants to stop observing and should be
     /// removed by the [`BaseRefreshDriver`].
-    fn frame_started(&self, painter: &mut Painter) -> bool;
+    fn frame_started(&self) -> bool;
 }
 
 /// The [`AnimationRefreshDriverObserver`] is the default implementation of a
@@ -124,59 +122,17 @@ impl AnimationRefreshDriverObserver {
         }
     }
 
-    pub(crate) fn notify_animation_state_changed(
-        &self,
-        webview_renderer: &WebViewRenderer,
-    ) -> bool {
-        if !webview_renderer.animating() {
-            // If no other WebView is animating we will officially stop animating once the
-            // next frame has been painted.
-            return false;
-        }
-
-        if let Err(error) =
-            self.constellation_sender
-                .send(EmbedderToConstellationMessage::TickAnimation(vec![
-                    webview_renderer.id,
-                ]))
-        {
-            warn!("Sending tick to constellation failed ({error:?}).");
-        }
-
-        if self.animating.get() {
-            return false;
-        }
-
-        self.animating.set(true);
-        true
+    pub(crate) fn notify_animation_state_changed(&self) -> bool {
+        // TODO(havi-render): Animation state tracking moved to Makepad.
+        false
     }
 }
 
 impl RefreshDriverObserver for AnimationRefreshDriverObserver {
-    fn frame_started(&self, painter: &mut Painter) -> bool {
-        // If any WebViews are animating ask them to paint again for another animation tick.
-        let animating_webviews = painter.animating_webviews();
-
-        // If nothing is animating any longer, update our state and exit early without requesting
-        // any new frames.
-        if animating_webviews.is_empty() {
-            self.animating.set(false);
-            return false;
-        }
-
-        // Request new animation frames from all animating WebViews.
-        if let Err(error) =
-            self.constellation_sender
-                .send(EmbedderToConstellationMessage::TickAnimation(
-                    animating_webviews,
-                ))
-        {
-            warn!("Sending tick to constellation failed ({error:?}).");
-            return false;
-        }
-
-        self.animating.set(true);
-        true
+    fn frame_started(&self) -> bool {
+        // TODO(havi-render): Animation frame scheduling via Makepad.
+        self.animating.set(false);
+        false
     }
 }
 
