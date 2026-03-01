@@ -4,8 +4,57 @@ use havi_types::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 use style::values::computed::box_::Overflow;
 
-use crate::paint_order::paint_order;
+use style::values::specified::box_::PositionProperty;
+
 use crate::ScrollState;
+
+/// Return child indices in CSS 2.1 Appendix E.2 painting order (for hit testing).
+fn paint_order(children: &[Fragment]) -> Vec<usize> {
+    let mut negative_z: Vec<(i32, usize)> = Vec::new();
+    let mut block_bg: Vec<usize> = Vec::new();
+    let mut floats: Vec<usize> = Vec::new();
+    let mut inline_content: Vec<usize> = Vec::new();
+    let mut non_negative_z: Vec<(i32, usize)> = Vec::new();
+
+    for (i, child) in children.iter().enumerate() {
+        match child {
+            Fragment::Float(_) => floats.push(i),
+            Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => inline_content.push(i),
+            Fragment::Box(bf) => {
+                let pos = bf.base.style.get_box().position;
+                let is_positioned = matches!(
+                    pos,
+                    PositionProperty::Relative
+                        | PositionProperty::Absolute
+                        | PositionProperty::Fixed
+                        | PositionProperty::Sticky
+                );
+                if is_positioned {
+                    let z = bf.base.style.get_position().z_index.integer_or(0);
+                    if z < 0 {
+                        negative_z.push((z, i));
+                    } else {
+                        non_negative_z.push((z, i));
+                    }
+                } else {
+                    block_bg.push(i);
+                }
+            }
+            Fragment::Positioning(_) => inline_content.push(i),
+        }
+    }
+
+    negative_z.sort_by_key(|(z, i)| (*z, *i));
+    non_negative_z.sort_by_key(|(z, i)| (*z, *i));
+
+    let mut result = Vec::with_capacity(children.len());
+    for (_, i) in &negative_z { result.push(*i); }
+    result.extend_from_slice(&block_bg);
+    result.extend_from_slice(&floats);
+    result.extend_from_slice(&inline_content);
+    for (_, i) in &non_negative_z { result.push(*i); }
+    result
+}
 
 /// Hit test: find the topmost fragment at `point`. Walks in reverse paint
 /// order (front to back) and returns the first hit `OpaqueNode`.
