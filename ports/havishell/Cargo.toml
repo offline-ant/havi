@@ -40,6 +40,8 @@ euclid = "0.22"
 havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
 gleam = { workspace = true }
+havi-render = { workspace = true }
+havi-types = { workspace = true }
 pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"
 anyhow = "1"
