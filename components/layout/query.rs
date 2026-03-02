@@ -42,7 +42,10 @@ use style::values::specified::box_::DisplayInside;
 use style::values::specified::text::TextTransformCase;
 use style_traits::{CSSPixel, ParsingMode, ToCss};
 
+use rustc_hash::FxHashMap;
 use style::values::computed::CSSPixelLength;
+use webrender_api::ExternalScrollId;
+use webrender_api::units::LayoutVector2D;
 
 use crate::ArcRefCell;
 use crate::dom::NodeExt;
@@ -58,6 +61,61 @@ fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<CSSPixelLength, CSS
         Point2D::new(rect.origin.x.into(), rect.origin.y.into()),
         Size2D::new(rect.size.width.into(), rect.size.height.into()),
     )
+}
+
+/// Scroll offset state passed to geometry queries so they can account for
+/// ancestor scroll containers when converting between document and viewport
+/// coordinate spaces.
+pub(crate) struct ScrollOffsets<'a> {
+    pub offsets: &'a FxHashMap<ExternalScrollId, LayoutVector2D>,
+    pub pipeline_id: webrender_api::PipelineId,
+}
+
+impl ScrollOffsets<'_> {
+    /// Walk up from `node` through its DOM ancestors, accumulating scroll offsets
+    /// of all ancestor scroll containers. Returns the total offset that should be
+    /// subtracted from document-relative coordinates to get viewport-relative
+    /// coordinates.
+    fn cumulative_scroll_offset(&self, node: ServoLayoutNode<'_>) -> euclid::Vector2D<Au, CSSPixel> {
+        let mut offset = euclid::Vector2D::<Au, CSSPixel>::zero();
+
+        // Walk up through parent nodes looking for scroll containers.
+        let mut current = node.parent_node();
+        while let Some(ancestor) = current {
+            if let Some(element) = ancestor.as_element() {
+                let ts = ancestor.to_threadsafe();
+                if let Some(layout_data) = ts.inner_layout_data() {
+                    let layout_box = layout_data.self_box.borrow();
+                    if let Some(layout_box) = layout_box.as_ref() {
+                        if let Some((style, flags)) =
+                            layout_box.with_base(|base| (base.style.clone(), base.base_fragment_info.flags))
+                        {
+                            if style.establishes_scroll_container(flags) {
+                                let external_id = ExternalScrollId(
+                                    element.as_node().opaque().id() as u64,
+                                    self.pipeline_id,
+                                );
+                                if let Some(scroll_offset) = self.offsets.get(&external_id) {
+                                    offset.x += Au::from_f32_px(scroll_offset.x);
+                                    offset.y += Au::from_f32_px(scroll_offset.y);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            current = ancestor.parent_node();
+        }
+
+        // Also include the root scroll offset (ExternalScrollId(0, pipeline_id)).
+        let root_id = ExternalScrollId(0, self.pipeline_id);
+        if let Some(root_offset) = self.offsets.get(&root_id) {
+            offset.x += Au::from_f32_px(root_offset.x);
+            offset.y += Au::from_f32_px(root_offset.y);
+        }
+
+        offset
+    }
 }
 
 pub(crate) fn process_padding_request(
@@ -80,11 +138,13 @@ pub(crate) fn process_padding_request(
 }
 
 pub(crate) fn process_box_area_request(
-    node: ServoThreadSafeLayoutNode<'_>,
+    node: ServoLayoutNode<'_>,
     area: BoxAreaType,
     exclude_transform_and_inline: bool,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<Rect<Au, CSSPixel>> {
-    let fragments = node.fragments_for_pseudo(None);
+    let ts = node.to_threadsafe();
+    let fragments = ts.fragments_for_pseudo(None);
     let mut rects = fragments
         .iter()
         .filter(|fragment| {
@@ -99,20 +159,23 @@ pub(crate) fn process_box_area_request(
     rects.peek()?;
     let rect_union = rects.fold(Rect::zero(), |unioned_rect, rect| rect.union(&unioned_rect));
 
-    // TODO(havi-render): Apply cumulative scroll tree transform once wired.
-    Some(rect_union)
+    let scroll_offset = scroll_offsets.cumulative_scroll_offset(node);
+    Some(rect_union.translate(-scroll_offset))
 }
 
 pub(crate) fn process_box_areas_request(
-    node: ServoThreadSafeLayoutNode<'_>,
+    node: ServoLayoutNode<'_>,
     area: BoxAreaType,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> CSSPixelRectIterator {
+    let scroll_offset = scroll_offsets.cumulative_scroll_offset(node);
     let fragments = node
+        .to_threadsafe()
         .fragments_for_pseudo(None)
         .into_iter()
-        .filter_map(move |fragment| fragment.cumulative_box_area_rect(area));
+        .filter_map(move |fragment| fragment.cumulative_box_area_rect(area))
+        .map(move |rect| rect.translate(-scroll_offset));
 
-    // TODO(havi-render): Apply cumulative scroll tree transform once wired.
     Box::new(fragments)
 }
 
@@ -696,7 +759,8 @@ pub fn process_offset_parent_query(
     } else {
         parent_fragment.offset_by_containing_block(&parent_fragment.padding_rect())
     };
-    // TODO(havi-render): Apply cumulative sticky offsets once scroll tree is wired.
+    // TODO(havi-render): Apply cumulative sticky offsets. Requires the full scroll tree
+    // to compute sticky positioning based on ancestor scroll state.
 
     border_box = border_box.translate(-parent_offset_rect.origin.to_vector());
 
@@ -1253,8 +1317,10 @@ fn rendered_text_collection_steps(
 }
 
 pub fn find_character_offset_in_fragment_descendants(
+    layout_node: ServoLayoutNode<'_>,
     node: &ServoThreadSafeLayoutNode,
     point_in_viewport: Point2D<Au, CSSPixel>,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<usize> {
     type ClosestFragment = Option<(Au, Point2D<Au, CSSPixel>, ArcRefCell<TextFragment>)>;
     fn maybe_update_closest(
@@ -1297,10 +1363,12 @@ pub fn find_character_offset_in_fragment_descendants(
         }
     }
 
-    // TODO(havi-render): Apply spatial tree transform to convert viewport point to fragment-local.
+    // Convert viewport point to document-relative by adding cumulative scroll offsets.
+    let scroll_offset = scroll_offsets.cumulative_scroll_offset(layout_node);
+    let point_in_document = point_in_viewport + scroll_offset;
     let mut closest_relative_fragment = None;
     for fragment in &node.fragments_for_pseudo(None) {
-        let point_in_fragment = point_in_viewport
+        let point_in_fragment = point_in_document
             - fragment
                 .base()
                 .map(|base| base.rect.origin)
@@ -1318,8 +1386,10 @@ pub fn find_character_offset_in_fragment_descendants(
 /// of the text fragment and a character offset within the DOM text node (not just the fragment).
 /// Used for document text selection where we need to identify the DOM text node.
 pub fn find_text_node_and_offset_in_fragment_descendants(
+    layout_node: ServoLayoutNode<'_>,
     node: &ServoThreadSafeLayoutNode,
     point_in_viewport: Point2D<Au, CSSPixel>,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<(OpaqueNode, usize)> {
     // Collect all text fragments with their points, in document order.
     type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
@@ -1343,11 +1413,13 @@ pub fn find_text_node_and_offset_in_fragment_descendants(
         }
     }
 
-    // TODO(havi-render): Apply spatial tree transform to convert viewport point to fragment-local.
+    // Convert viewport point to document-relative by adding cumulative scroll offsets.
+    let scroll_offset = scroll_offsets.cumulative_scroll_offset(layout_node);
+    let point_in_document = point_in_viewport + scroll_offset;
     let mut all_frags: Vec<FragEntry> = Vec::new();
     let node_frags = node.fragments_for_pseudo(None);
     for fragment in &node_frags {
-        let point_in_fragment = point_in_viewport
+        let point_in_fragment = point_in_document
             - fragment
                 .base()
                 .map(|base| base.rect.origin)
@@ -1397,6 +1469,7 @@ pub fn find_text_node_and_offset_in_fragment_descendants(
 pub fn find_text_node_at_viewport_point(
     fragment_tree: &FragmentTree,
     point_in_viewport: Point2D<Au, CSSPixel>,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<(OpaqueNode, usize)> {
     type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
 
@@ -1419,14 +1492,21 @@ pub fn find_text_node_at_viewport_point(
         }
     }
 
-    // TODO(havi-render): Use hit testing to find fragments at viewport point.
+    // Convert viewport point to document-relative by adding root scroll offset.
+    let root_id = ExternalScrollId(0, scroll_offsets.pipeline_id);
+    let root_offset = scroll_offsets
+        .offsets
+        .get(&root_id)
+        .map(|v| euclid::Vector2D::<Au, CSSPixel>::new(Au::from_f32_px(v.x), Au::from_f32_px(v.y)))
+        .unwrap_or_default();
+    let point_in_document = point_in_viewport + root_offset;
     let mut all_frags: Vec<FragEntry> = Vec::new();
     for fragment in &fragment_tree.root_fragments {
         let offset = fragment
             .base()
             .map(|base| base.rect.origin)
             .unwrap_or_default();
-        collect_text_fragments(fragment, point_in_viewport - offset.to_vector(), &mut all_frags);
+        collect_text_fragments(fragment, point_in_document - offset.to_vector(), &mut all_frags);
     }
 
     // Find the closest fragment to the point.

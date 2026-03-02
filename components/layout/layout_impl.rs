@@ -85,6 +85,7 @@ use webrender_api::units::{DevicePixel, LayoutVector2D};
 
 use crate::context::{CachedImageOrError, ImageResolver, LayoutContext};
 use crate::query::{
+    ScrollOffsets,
     find_character_offset_in_fragment_descendants, find_text_node_and_offset_in_fragment_descendants,
     find_text_node_at_viewport_point,
     get_the_text_steps, process_box_area_request,
@@ -331,10 +332,13 @@ impl Layout for LayoutThread {
         }
 
         let node = unsafe { ServoLayoutNode::new(&node) };
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
         process_box_area_request(
-            node.to_threadsafe(),
+            node,
             area,
             exclude_transform_and_inline,
+            &so,
         )
     }
 
@@ -351,7 +355,9 @@ impl Layout for LayoutThread {
         }
 
         let node = unsafe { ServoLayoutNode::new(&node) };
-        process_box_areas_request(node.to_threadsafe(), area)
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        process_box_areas_request(node, area, &so)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -467,8 +473,11 @@ impl Layout for LayoutThread {
         node: TrustedNodeAddress,
         point_in_node: Point2D<Au, CSSPixel>,
     ) -> Option<usize> {
-        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
-        find_character_offset_in_fragment_descendants(&node, point_in_node)
+        let layout_node = unsafe { ServoLayoutNode::new(&node) };
+        let node = layout_node.to_threadsafe();
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        find_character_offset_in_fragment_descendants(layout_node, &node, point_in_node, &so)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -477,8 +486,11 @@ impl Layout for LayoutThread {
         node: TrustedNodeAddress,
         point: Point2D<Au, CSSPixel>,
     ) -> Option<(OpaqueNode, usize)> {
-        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
-        find_text_node_and_offset_in_fragment_descendants(&node, point)
+        let layout_node = unsafe { ServoLayoutNode::new(&node) };
+        let node = layout_node.to_threadsafe();
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        find_text_node_and_offset_in_fragment_descendants(layout_node, &node, point, &so)
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -488,7 +500,9 @@ impl Layout for LayoutThread {
     ) -> Option<(OpaqueNode, usize)> {
         let fragment_tree = self.fragment_tree.borrow();
         let fragment_tree = fragment_tree.as_ref()?;
-        find_text_node_at_viewport_point(fragment_tree, point)
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        find_text_node_at_viewport_point(fragment_tree, point, &so)
     }
 
     #[servo_tracing::instrument(skip_all)]
