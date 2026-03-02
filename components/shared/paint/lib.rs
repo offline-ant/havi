@@ -800,45 +800,41 @@ impl SharedImageStore {
     /// Insert or replace a full image.
     pub fn add_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
         let mut inner = self.0.write();
-        let gen = inner.next_generation;
+        let generation = inner.next_generation;
         inner.next_generation += 1;
         inner.images.insert(key, ImageStoreEntry {
             data: Arc::new(data),
             width,
             height,
             offset: 0,
-            generation: gen,
+            generation,
         });
     }
 
     /// Replace pixel data for an existing image.
     pub fn update_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
         let mut inner = self.0.write();
-        let gen = inner.next_generation;
+        let generation = inner.next_generation;
         inner.next_generation += 1;
-        inner.images.entry(key).and_modify(|e| {
-            e.data = Arc::new(data);
-            e.width = width;
-            e.height = height;
-            e.offset = 0;
-            e.generation = gen;
-        }).or_insert_with(|| ImageStoreEntry {
-            data: Arc::new(data),
-            width,
-            height,
-            offset: 0,
-            generation: gen,
+        let data = Arc::new(data);
+        let entry = inner.images.entry(key).or_insert_with(|| ImageStoreEntry {
+            data: data.clone(), width, height, offset: 0, generation,
         });
+        entry.data = data;
+        entry.width = width;
+        entry.height = height;
+        entry.offset = 0;
+        entry.generation = generation;
     }
 
     /// Update only the frame offset (for animation frame changes).
     pub fn update_frame_offset(&self, key: ImageKey, offset: usize) {
         let mut inner = self.0.write();
-        let gen = inner.next_generation;
+        let generation = inner.next_generation;
         inner.next_generation += 1;
         if let Some(entry) = inner.images.get_mut(&key) {
             entry.offset = offset;
-            entry.generation = gen;
+            entry.generation = generation;
         }
     }
 
