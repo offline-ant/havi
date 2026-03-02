@@ -4,7 +4,6 @@
 
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
-use std::iter;
 
 use app_units::Au;
 use dom_struct::dom_struct;
@@ -338,12 +337,32 @@ impl Range {
         let start = self.start_container();
         let end = self.end_container();
         let document = start.owner_doc();
-        let end_clone = end.clone();
-        start
-            .following_nodes(document.upcast::<Node>())
-            .take_while(move |node| node != &end)
-            .chain(iter::once(end_clone))
-            .flat_map(move |node| node.border_boxes())
+
+        // Collect nodes whose border boxes contribute to the range's client rects.
+        // `following_nodes` does NOT yield the start node itself, so we prepend it.
+        let mut nodes: Vec<DomRoot<Node>> = vec![start.clone()];
+        if *start != *end {
+            for node in start.following_nodes(document.upcast::<Node>()) {
+                let is_end = *node == *end;
+                nodes.push(node);
+                if is_end {
+                    break;
+                }
+            }
+        }
+        nodes
+            .into_iter()
+            .flat_map(|node| {
+                // Text nodes have no border boxes in layout; use the parent
+                // element's boxes instead (the text occupies the parent's
+                // content area).
+                if node.is::<crate::dom::text::Text>() {
+                    if let Some(parent) = node.GetParentNode() {
+                        return parent.border_boxes();
+                    }
+                }
+                node.border_boxes()
+            })
     }
 
     /// <https://dom.spec.whatwg.org/#concept-range-bp-set>
