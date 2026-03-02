@@ -25,7 +25,12 @@ thread_local! {
 }
 
 /// Ensure a font handle is registered with Makepad and return its FontId.
-fn ensure_font_registered(cx: &mut Cx2d, handle: &FontHandle) -> Option<FontId> {
+/// When `preloaded_data` is provided, uses it directly instead of reading from disk.
+fn ensure_font_registered(
+    cx: &mut Cx2d,
+    handle: &FontHandle,
+    preloaded_data: Option<&havi_fonts::FontData>,
+) -> Option<FontId> {
     let key = (handle.path.clone(), handle.index);
 
     let existing = REGISTERED_FONTS.with(|map| map.borrow().get(&key).copied());
@@ -33,9 +38,11 @@ fn ensure_font_registered(cx: &mut Cx2d, handle: &FontHandle) -> Option<FontId> 
         return Some(id);
     }
 
-    // Load font data
-    let data = std::fs::read(&handle.path).ok()?;
-    let font_data = Rc::new(data);
+    // Use pre-loaded data if available, otherwise fall back to disk read.
+    let font_data = match preloaded_data {
+        Some(data) => Rc::new((**data).clone()),
+        None => Rc::new(std::fs::read(&handle.path).ok()?),
+    };
 
     let font_id = NEXT_FONT_ID.with(|cell| {
         let id = *cell.borrow();
@@ -184,7 +191,7 @@ fn draw_text_at(
     } else if !tf.glyphs.is_empty() {
         // Use font_handle if available, otherwise fall back to DrawText's built-in font
         if let Some(ref handle) = tf.font_handle {
-            if let Some(font_id) = ensure_font_registered(cx, handle) {
+            if let Some(font_id) = ensure_font_registered(cx, handle, tf.font_data.as_ref()) {
                 let family_id = ensure_font_family(cx, font_id);
                 draw_positioned_glyphs_with_font(cx, draw_text, &tf.glyphs, font_size, x, y,
                     baseline_ascent_px, color, family_id);

@@ -105,6 +105,9 @@ pub struct TextFragment {
     pub glyphs: Vec<ShapedGlyph>,
     /// Font handle for rendering (None for Ahem or when using built-in fallback).
     pub font_handle: Option<havi_fonts::FontHandle>,
+    /// Pre-loaded font data bytes. When present, the render crate uses this
+    /// instead of reading from disk, avoiding I/O during draw.
+    pub font_data: Option<havi_fonts::FontData>,
     /// Distance from content-rect top to the baseline.
     pub baseline_ascent: Au,
     /// Distance from baseline to underline center (positive = below).

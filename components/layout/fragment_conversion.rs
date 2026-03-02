@@ -66,6 +66,7 @@ fn convert_fragment(fragment: &LayoutFragment) -> Option<havi_types::Fragment> {
                 strikeout_offset: f.font_metrics.strikeout_offset,
                 strikeout_size: f.font_metrics.strikeout_size,
                 font_handle: font_handle_from_font(&f.font),
+                font_data: font_data_from_font(&f.font),
             }))
         },
         LayoutFragment::Image(arc) => {
@@ -195,4 +196,12 @@ fn font_handle_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontHandle
         },
         FontIdentifier::Web(_) => None,
     }
+}
+
+/// Pre-load font data bytes during conversion so the render crate
+/// doesn't need to read from disk during draw.
+fn font_data_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontData> {
+    let data_and_index = font.font_data_and_index().ok()?;
+    let bytes: &[u8] = data_and_index.data.as_ref();
+    Some(Arc::new(bytes.to_vec()))
 }

@@ -4,6 +4,7 @@
 //! iteration in correct CSS paint order. Adapted from servo-mainline's
 //! `components/layout/display_list/stacking_context.rs`.
 
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
@@ -475,15 +476,40 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
 /// The tree references data inside the `Arc`. As long as the `Arc` is held, the
 /// references are valid. The tree is rebuilt only when the fragment `Arc` changes
 /// (detected by data pointer comparison).
+///
+/// # Safety
+///
+/// `tree` holds references into `_fragments`'s heap allocation. The `'static`
+/// lifetime is a transmuted lie. `ManuallyDrop` + an explicit `Drop` impl
+/// ensures `tree` is always dropped before `_fragments`, so no dangling
+/// references exist during destruction. The `Arc` guarantees the heap
+/// allocation doesn't move or deallocate while this struct is alive.
+///
+/// Alternatives considered:
+/// - **Indices instead of references**: Would require threading `&[Fragment]`
+///   through `paint_in_order`, `PaintItem`, and ~20 consumer sites in
+///   `makepad_builder.rs`. Significantly more complex API for the same result.
+/// - **`self_cell` crate**: Clean but adds a dependency for one use site.
+/// - **Rebuild every frame**: Correct but defeats the purpose of caching.
 pub struct CachedStackingContextTree {
+    /// The built stacking context tree. Dropped first via `ManuallyDrop` +
+    /// explicit `Drop` impl. Lifetime is tied to `_fragments`.
+    tree: ManuallyDrop<StackingContext<'static>>,
     /// Kept alive to guarantee that `tree` references remain valid.
+    /// Dropped after `tree`.
     _fragments: Arc<Vec<Fragment>>,
-    /// The built stacking context tree. Lifetime is tied to `_fragments` —
-    /// the `'static` is a transmuted lie, safe because we always drop `tree`
-    /// before `_fragments` (Rust drops fields in declaration order).
-    tree: StackingContext<'static>,
     /// Data pointer of the `Arc<Vec<Fragment>>` used to build this tree.
     frag_ptr: usize,
+}
+
+impl Drop for CachedStackingContextTree {
+    fn drop(&mut self) {
+        // SAFETY: Drop the tree first while `_fragments` is still alive.
+        // After this, `_fragments` drops normally via its own Drop.
+        unsafe {
+            ManuallyDrop::drop(&mut self.tree);
+        }
+    }
 }
 
 impl CachedStackingContextTree {
@@ -491,15 +517,14 @@ impl CachedStackingContextTree {
     pub fn new(fragments: Arc<Vec<Fragment>>) -> Self {
         let frag_ptr = Arc::as_ptr(&fragments) as usize;
         let tree = build_stacking_context_tree(&fragments);
-        // SAFETY: The `Arc` is stored in `_fragments` and dropped after `tree`.
-        // Rust drops struct fields in declaration order, so `tree` is dropped
-        // before `_fragments`. The fragment data is heap-allocated via Arc and
-        // won't move, so all borrows in the tree remain valid for the struct's
-        // lifetime.
+        // SAFETY: `_fragments` holds an Arc to the data `tree` borrows.
+        // The explicit `Drop` impl drops `tree` before `_fragments`.
+        // The Arc heap allocation is stable (won't move or deallocate)
+        // for the struct's entire lifetime.
         let tree: StackingContext<'static> = unsafe { std::mem::transmute(tree) };
         Self {
+            tree: ManuallyDrop::new(tree),
             _fragments: fragments,
-            tree,
             frag_ptr,
         }
     }
