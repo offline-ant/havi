@@ -59,9 +59,17 @@ impl App {
                             self.context_menu_pos = *abs;
                             handled_input = true;
                         } else {
-                            // Context menu dismiss is handled by PopupDismissed.
                             if self.pylon_menu_open {
                                 self.hide_pylon_menu(cx);
+                            }
+                            // Dismiss context menu on any non-right-click.
+                            // The compositor may also send PopupDismissed,
+                            // but that is unreliable (e.g. stale Wayland
+                            // serial prevents the popup grab).
+                            if self.context_popup_window.is_some() {
+                                self.hide_context_menu(cx);
+                                handled_input = true;
+                                continue;
                             }
                             self.finger_down_pos = Some(*abs);
                             self.is_touch_scrolling = false;

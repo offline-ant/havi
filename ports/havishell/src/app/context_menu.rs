@@ -24,8 +24,12 @@ pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
 impl App {
     /// Show the context menu at the right-click position as a popup window.
     pub(super) fn show_context_menu(&mut self, cx: &mut Cx) {
-        // Close any existing popup first.
-        self.close_context_popup(cx);
+        // Take old handles but keep them alive until after the new popup is
+        // allocated.  This prevents the pool allocator from reusing the freed
+        // slot and bumping its generation before the deferred CloseWindow op
+        // (which still references the old generation) is processed.
+        let _old_pass = self.context_popup_pass.take();
+        let mut old_window = self.context_popup_window.take();
 
         let url_text = self.ui.text_input(cx, ids!(url_input)).text();
         let has_editor = editor_url_for(&url_text).is_some();
@@ -53,8 +57,14 @@ impl App {
         self.context_popup_window = Some(window);
         self.context_popup_pass = Some(pass);
 
-        // Make the context_menu View visible so it draws during the popup pass.
-        self.ui.view(cx, ids!(context_menu)).set_visible(cx, true);
+        // Now safe to close the old popup — new one has a different pool slot.
+        if let Some(ref mut w) = old_window {
+            w.close(cx);
+        }
+        // Old handles drop here, freeing pool slots after close ops are queued.
+
+        // The context_menu View stays invisible in the main window tree.
+        // It is drawn only into the popup pass by draw_context_menu_popup().
         cx.redraw_all();
     }
 
@@ -73,25 +83,24 @@ impl App {
         self.context_popup_pass = None;
     }
 
-    /// Handle PopupDismissed event from the compositor.
+    /// Handle PopupDismissed event from the framework.
     ///
-    /// The compositor already destroyed the popup surface, so we must not
-    /// call `window.close()` again. Just drop the WindowHandle to free the
-    /// pool slot.
+    /// The framework sends this as a notification — the popup is still open.
+    /// We must explicitly close it.
     pub(super) fn handle_popup_dismissed(&mut self, cx: &mut Cx, event: &PopupDismissedEvent) {
         if let Some(ref window) = self.context_popup_window {
             if window.window_id() == event.window_id {
-                self.active_context_menu.take();
-                self.ui.view(cx, ids!(context_menu)).set_visible(cx, false);
-                // Drop the handle without calling close — compositor already did it.
-                self.context_popup_window = None;
-                self.context_popup_pass = None;
-                cx.redraw_all();
+                self.hide_context_menu(cx);
             }
         }
     }
 
     /// Draw context menu contents into the popup pass. Called during draw events.
+    ///
+    /// The context_menu View stays invisible in the main window tree to avoid
+    /// rendering it twice (once in the overlay, once in the popup). We
+    /// temporarily set it visible here so `draw_all` produces output, then
+    /// restore invisibility before the main window pass draws.
     pub(super) fn draw_context_menu_popup(&mut self, cx: &mut Cx2d) {
         let Some(ref pass) = self.context_popup_pass else {
             return;
@@ -106,7 +115,9 @@ impl App {
         cx.begin_root_turtle(size, Layout::flow_down());
 
         let menu = self.ui.view(cx, ids!(context_menu));
+        menu.set_visible(cx, true);
         menu.draw_all(cx, &mut Scope::empty());
+        menu.set_visible(cx, false);
 
         cx.end_pass_sized_turtle();
         draw_list.end(cx);
