@@ -105,7 +105,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         FastTransform::Transform { transform, inverse, is_2d }
     }
 
-    pub fn to_transform(&self) -> Cow<Transform3D<f32, Src, Dst>> {
+    pub fn to_transform(&self) -> Cow<'_, Transform3D<f32, Src, Dst>> {
         match *self {
             FastTransform::Offset(offset) => {
                 Cow::Owned(Transform3D::translation(offset.x, offset.y, 0.0))

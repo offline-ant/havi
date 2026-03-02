@@ -9,12 +9,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use base::generic_channel::{self, GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use canvas_traits::webgl::{WebGLContextId, WebGLThreads};
+use canvas_traits::webgl::WebGLThreads;
 use constellation_traits::{EmbedderToConstellationMessage, ScrollStateUpdate};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
 use embedder_traits::{
-    EventLoopWaker, InputEventAndId, InputEventId, InputEventResult, ScreenshotCaptureError,
+    InputEventAndId, InputEventId, InputEventResult, ScreenshotCaptureError,
     Scroll, ShutdownState, ViewportDetails, WebViewPoint, WebViewRect,
 };
 use euclid::{Scale, Size2D};
@@ -24,7 +24,7 @@ use log::{debug, warn};
 use smallvec::SmallVec;
 use paint_api::rendering_context::RenderingContext;
 use paint_api::{
-    PaintMessage, PaintProxy, PainterGlDetails, PainterGlDetailsMap,
+    PaintMessage, PainterGlDetails, PainterGlDetailsMap,
     WebRenderExternalImageIdManager, WebViewTrait,
 };
 use profile_traits::mem::{
@@ -35,9 +35,7 @@ use profile_traits::time::{self as profile_time};
 use servo_config::pref;
 use servo_geometry::DeviceIndependentPixel;
 use style_traits::CSSPixel;
-use paint_api::gl_device::swap_chain::SwapChains;
 use webgl::WebGLComm;
-use webgl::webgl_thread::WebGLContextBusyMap;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -76,13 +74,6 @@ pub struct Paint {
     /// Rendering contexts registered per painter.
     rendering_contexts: HashMap<PainterId, Rc<dyn RenderingContext>>,
 
-    /// A [`PaintProxy`] which can be used to allow other parts of Servo to communicate
-    /// with this [`Paint`].
-    pub(crate) paint_proxy: PaintProxy,
-
-    /// An [`EventLoopWaker`] used to wake up the main embedder event loop.
-    pub(crate) event_loop_waker: Box<dyn EventLoopWaker>,
-
     /// Tracks whether we are in the process of shutting down.
     shutdown_state: Rc<Cell<ShutdownState>>,
 
@@ -98,14 +89,8 @@ pub struct Paint {
     /// GL display details per painter (needed for WebGL).
     pub(crate) painter_gl_details_map: PainterGlDetailsMap,
 
-    /// WebGL context busy map.
-    pub(crate) busy_webgl_contexts_map: WebGLContextBusyMap,
-
     /// The [`WebGLThreads`] for this renderer.
     webgl_threads: WebGLThreads,
-
-    /// The shared [`SwapChains`] used by [`WebGLThreads`].
-    pub(crate) swap_chains: SwapChains<WebGLContextId>,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
@@ -166,10 +151,9 @@ impl Paint {
         let painter_gl_details_map = PainterGlDetailsMap::default();
         let WebGLComm {
             webgl_threads,
-            swap_chains,
-            busy_webgl_context_map,
             #[cfg(feature = "webxr")]
             webxr_layer_grand_manager,
+            ..
         } = WebGLComm::new(
             state.paint_proxy.cross_process_paint_api.clone(),
             webrender_external_image_id_manager.clone(),
@@ -193,18 +177,14 @@ impl Paint {
 
         Rc::new(RefCell::new(Paint {
             rendering_contexts: Default::default(),
-            paint_proxy: state.paint_proxy,
-            event_loop_waker: state.event_loop_waker,
             shutdown_state: state.shutdown_state,
             paint_receiver: state.receiver,
             embedder_to_constellation_sender: state.embedder_to_constellation_sender.clone(),
             webrender_external_image_id_manager,
             webgl_threads,
-            swap_chains,
             time_profiler_chan: state.time_profiler_chan,
             _mem_profiler_registration: registration,
             painter_gl_details_map,
-            busy_webgl_contexts_map: busy_webgl_context_map,
             screenshot_taker: Default::default(),
             page_zooms: Default::default(),
             hidpi_scale_factors: Default::default(),

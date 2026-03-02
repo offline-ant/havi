@@ -11,6 +11,8 @@ use embedder_traits::ScreenshotCaptureError;
 use image::RgbaImage;
 use webrender_api::units::DeviceRect;
 
+// TODO(havi-render): Wire screenshot fulfillment to Makepad rendering.
+#[allow(dead_code)]
 pub(crate) struct ScreenshotRequest {
     webview_id: WebViewId,
     rect: Option<DeviceRect>,

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use base::id::PainterId;
 use embedder_traits::UntrustedNodeAddress;
-use euclid::Size2D;
 use fonts::FontContext;
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use layout_api::{
@@ -23,8 +22,7 @@ use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;
-use style::values::computed::image::{Gradient, Image};
-use webrender_api::units::{DeviceIntSize, DeviceSize};
+use webrender_api::units::DeviceIntSize;
 
 pub(crate) type CachedImageOrError = Result<CachedImage, ResolveImageError>;
 
@@ -48,26 +46,11 @@ pub(crate) struct LayoutContext<'a> {
     pub painter_id: PainterId,
 }
 
-pub enum ResolvedImage<'a> {
-    Gradient(&'a Gradient),
-    // The size is tracked explicitly as image-set images can specify their
-    // natural resolution which affects the final size for raster images.
-    Image {
-        image: CachedImage,
-        size: DeviceSize,
-    },
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum ResolveImageError {
     LoadError,
     ImagePending,
     OnlyMetadata,
-    InvalidUrl,
-    MissingNode,
-    ImageMissingFromImageSet,
-    NotImplementedYet,
-    None,
 }
 
 pub(crate) enum LayoutImageCacheResult {
@@ -247,75 +230,4 @@ impl ImageResolver {
             .push(element.opaque().into())
     }
 
-    pub(crate) fn resolve_image<'a>(
-        &self,
-        node: Option<OpaqueNode>,
-        image: &'a Image,
-    ) -> Result<ResolvedImage<'a>, ResolveImageError> {
-        match image {
-            // TODO: Add support for PaintWorklet and CrossFade rendering.
-            Image::None => Result::Err(ResolveImageError::None),
-            Image::CrossFade(_) => Result::Err(ResolveImageError::NotImplementedYet),
-            Image::PaintWorklet(_) => Result::Err(ResolveImageError::NotImplementedYet),
-            Image::Gradient(gradient) => Ok(ResolvedImage::Gradient(gradient)),
-            Image::Url(image_url) => {
-                // FIXME: images won’t always have in intrinsic width or
-                // height when support for SVG is added, or a WebRender
-                // `ImageKey`, for that matter.
-                //
-                // FIXME: It feels like this should take into account the pseudo
-                // element and not just the node.
-                let image_url = image_url.url().ok_or(ResolveImageError::InvalidUrl)?;
-                let node = node.ok_or(ResolveImageError::MissingNode)?;
-                let image = self.get_cached_image_for_url(
-                    node,
-                    image_url.clone().into(),
-                    LayoutImageDestination::DisplayListBuilding,
-                )?;
-                let metadata = image.metadata();
-                let size = Size2D::new(metadata.width, metadata.height).to_f32();
-                Ok(ResolvedImage::Image { image, size })
-            },
-            Image::ImageSet(image_set) => {
-                image_set
-                    .items
-                    .get(image_set.selected_index)
-                    .ok_or(ResolveImageError::ImageMissingFromImageSet)
-                    .and_then(|image| {
-                        self.resolve_image(node, &image.image)
-                            .map(|info| match info {
-                                ResolvedImage::Image {
-                                    image: cached_image,
-                                    ..
-                                } => {
-                                    // From <https://drafts.csswg.org/css-images-4/#image-set-notation>:
-                                    // > A <resolution> (optional). This is used to help the UA decide
-                                    // > which <image-set-option> to choose. If the image reference is
-                                    // > for a raster image, it also specifies the image’s natural
-                                    // > resolution, overriding any other source of data that might
-                                    // > supply a natural resolution.
-                                    let image_metadata = cached_image.metadata();
-                                    let size = if cached_image.as_raster_image().is_some() {
-                                        let scale_factor = image.resolution.dppx();
-                                        Size2D::new(
-                                            image_metadata.width as f32 / scale_factor,
-                                            image_metadata.height as f32 / scale_factor,
-                                        )
-                                    } else {
-                                        Size2D::new(image_metadata.width, image_metadata.height)
-                                            .to_f32()
-                                    };
-
-                                    ResolvedImage::Image {
-                                        image: cached_image,
-                                        size,
-                                    }
-                                },
-                                _ => info,
-                            })
-                    })
-            },
-            Image::LightDark(..) => unreachable!("light-dark() should be disabled"),
-        }
-    }
 }

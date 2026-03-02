@@ -21,13 +21,9 @@ pub use crate::paint::{Paint, WebRenderDebugOption};
 #[macro_use]
 mod tracing;
 
-mod largest_contentful_paint_calculator;
 mod paint;
-mod pinch_zoom;
-mod refresh_driver;
 mod screenshot;
 mod touch;
-mod webrender_external_images;
 
 /// Data used to initialize the `Paint` subsystem.
 pub struct InitialPaintState {

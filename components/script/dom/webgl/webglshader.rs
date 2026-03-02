@@ -23,7 +23,6 @@ use crate::script_runtime::CanGc;
 pub(crate) enum ShaderCompilationStatus {
     NotCompiled,
     Succeeded,
-    Failed,
 }
 
 #[dom_struct(associated_memory)]

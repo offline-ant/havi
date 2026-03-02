@@ -11,7 +11,6 @@ use malloc_size_of_derive::MallocSizeOf;
 use servo_arc::Arc as ServoArc;
 use servo_geometry::{au_rect_to_f32_rect, f32_rect_to_au_rect};
 use style::Zero;
-use style::computed_values::border_collapse::T as BorderCollapse;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
 use style::logical_geometry::WritingMode;
@@ -358,12 +357,6 @@ impl BoxFragment {
         self.base.flags.intersects(FragmentFlags::IS_ROOT_ELEMENT)
     }
 
-    pub(crate) fn is_body_element_of_html_element_root(&self) -> bool {
-        self.base
-            .flags
-            .intersects(FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT)
-    }
-
     pub fn print(&self, tree: &mut PrintTree) {
         tree.new_level(format!(
             "Box\
@@ -557,12 +550,6 @@ impl BoxFragment {
         self.style().is_inline_box(self.base.flags)
     }
 
-    /// Whether this is an atomic inline-level box.
-    /// <https://drafts.csswg.org/css-display-3/#atomic-inline>
-    pub(crate) fn is_atomic_inline_level(&self) -> bool {
-        self.style().is_atomic_inline_level(self.base.flags)
-    }
-
     /// Whether this is a table wrapper box.
     /// <https://www.w3.org/TR/css-tables-3/#table-wrapper-box>
     pub(crate) fn is_table_wrapper(&self) -> bool {
@@ -570,21 +557,6 @@ impl BoxFragment {
             self.specific_layout_info(),
             Some(SpecificLayoutInfo::TableWrapper)
         )
-    }
-
-    pub(crate) fn has_collapsed_borders(&self) -> bool {
-        match self.specific_layout_info() {
-            Some(SpecificLayoutInfo::TableCellWithCollapsedBorders) => true,
-            Some(SpecificLayoutInfo::TableGridWithCollapsedBorders(_)) => true,
-            Some(SpecificLayoutInfo::TableWrapper) => {
-                self.style().get_inherited_table().border_collapse == BorderCollapse::Collapse
-            },
-            _ => false,
-        }
-    }
-
-    pub(crate) fn spatial_tree_node(&self) -> Option<ScrollTreeNodeId> {
-        *self.spatial_tree_node.borrow()
     }
 
     /// Calculate the 4x4 transform matrix for this fragment's CSS `transform` property,

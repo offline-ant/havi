@@ -172,7 +172,14 @@ impl Widget for ServoWebView {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, _scope: &mut Scope) {
         let uid = self.widget_uid();
 
-        match event.hits(cx, self.draw_bg.area()) {
+        let hit = event.hits(cx, self.draw_bg.area());
+        match &hit {
+            Hit::Nothing => {},
+            other => {
+                log!("[servo_web_view] hit: {:?}, area={:?}", std::mem::discriminant(other), self.draw_bg.area());
+            },
+        }
+        match hit {
             // ----- Finger / touch -----
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
@@ -277,6 +284,11 @@ impl Widget for ServoWebView {
         }
 
         self.draw_bg.begin(cx, walk, Layout::default());
+        // All fragment rendering uses draw_abs (absolute positioning), which
+        // doesn't expand the turtle. Mark the full rect as used so
+        // draw_bg.end() produces a properly sized area for hit testing.
+        let r = cx.turtle().rect();
+        cx.turtle_mut().set_used(r.size.x, r.size.y);
 
         if let Some(ref frags) = fragments {
             // Rebuild stacking context tree only when fragments change.
@@ -341,7 +353,9 @@ impl Widget for ServoWebView {
         }
 
         self.draw_bg.end(cx);
-        let rect = self.draw_bg.area().rect(cx);
+        let area = self.draw_bg.area();
+        let rect = area.rect(cx);
+        log!("[servo_web_view] draw_walk done: area={:?} rect={:?}", area, rect);
         self.draw_scroll_overlay(cx, &rect);
 
         DrawStep::done()
