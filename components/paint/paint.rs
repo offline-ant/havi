@@ -7,9 +7,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use base::generic_channel::{self, GenericSender, RoutedReceiver};
+use base::generic_channel::{GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use canvas_traits::webgl::WebGLThreads;
 use constellation_traits::{EmbedderToConstellationMessage, ScrollStateUpdate};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
@@ -35,7 +34,6 @@ use profile_traits::time::{self as profile_time};
 use servo_config::pref;
 use servo_geometry::DeviceIndependentPixel;
 use style_traits::CSSPixel;
-use webgl::WebGLComm;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -68,7 +66,7 @@ fn next_key_index() -> u32 {
 /// [`Paint`] is Servo's rendering subsystem.
 ///
 /// WebRender has been removed. Rendering is now handled by havi-render via Makepad.
-/// This struct retains the message routing, resource key generation, WebGL/WebXR
+/// This struct retains the message routing, resource key generation, WebGPU/WebXR
 /// infrastructure, and public API surface.
 pub struct Paint {
     /// Rendering contexts registered per painter.
@@ -86,11 +84,8 @@ pub struct Paint {
     /// The [`WebRenderExternalImageIdManager`] used to generate new `ExternalImageId`s.
     webrender_external_image_id_manager: WebRenderExternalImageIdManager,
 
-    /// GL display details per painter (needed for WebGL).
+    /// GL display details per painter (needed for WebGPU).
     pub(crate) painter_gl_details_map: PainterGlDetailsMap,
-
-    /// The [`WebGLThreads`] for this renderer.
-    webgl_threads: WebGLThreads,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
@@ -149,30 +144,11 @@ impl Paint {
 
         let webrender_external_image_id_manager = WebRenderExternalImageIdManager::default();
         let painter_gl_details_map = PainterGlDetailsMap::default();
-        let WebGLComm {
-            webgl_threads,
-            #[cfg(feature = "webxr")]
-            webxr_layer_grand_manager,
-            ..
-        } = WebGLComm::new(
-            state.paint_proxy.cross_process_paint_api.clone(),
-            webrender_external_image_id_manager.clone(),
-            painter_gl_details_map.clone(),
-        );
 
+        // TODO: WebXR init needs rework after WebGL removal
         #[cfg(feature = "webxr")]
         let webxr_main_thread = {
-            use servo_config::pref;
-
-            let mut webxr_main_thread = webxr::MainThreadRegistry::new(
-                state.event_loop_waker.clone(),
-                webxr_layer_grand_manager,
-            )
-            .expect("Failed to create WebXR device registry");
-            if pref!(dom_webxr_enabled) {
-                state.webxr_registry.register(&mut webxr_main_thread);
-            }
-            webxr_main_thread
+            todo!("WebXR init needs rework after WebGL removal — webxr_layer_grand_manager was provided by WebGLComm")
         };
 
         Rc::new(RefCell::new(Paint {
@@ -181,7 +157,6 @@ impl Paint {
             paint_receiver: state.receiver,
             embedder_to_constellation_sender: state.embedder_to_constellation_sender.clone(),
             webrender_external_image_id_manager,
-            webgl_threads,
             time_profiler_chan: state.time_profiler_chan,
             _mem_profiler_registration: registration,
             painter_gl_details_map,
@@ -226,7 +201,7 @@ impl Paint {
                 .insert(painter_id, painter_gl_details);
         } else {
             warn!(
-                "RenderingContext for painter {:?} does not provide gl_display_info; WebGL disabled",
+                "RenderingContext for painter {:?} does not provide gl_display_info; WebGPU disabled",
                 painter_id
             );
         }
@@ -246,10 +221,6 @@ impl Paint {
 
     pub fn rendering_context_size(&self, painter_id: PainterId) -> Size2D<u32, DevicePixel> {
         self.rendering_contexts[&painter_id].size2d()
-    }
-
-    pub fn webgl_threads(&self) -> WebGLThreads {
-        self.webgl_threads.clone()
     }
 
     pub fn webrender_external_image_id_manager(&self) -> WebRenderExternalImageIdManager {
@@ -284,16 +255,6 @@ impl Paint {
 
     pub fn finish_shutting_down(&self) {
         while self.paint_receiver.try_recv().is_ok() {}
-
-        let (webgl_exit_sender, webgl_exit_receiver) =
-            generic_channel::channel().expect("Failed to create IPC channel!");
-        if !self
-            .webgl_threads
-            .exit(webgl_exit_sender)
-            .is_ok_and(|_| webgl_exit_receiver.recv().is_ok())
-        {
-            warn!("Could not exit WebGLThread.");
-        }
 
         if let Ok((sender, receiver)) = ipc::channel() {
             self.time_profiler_chan

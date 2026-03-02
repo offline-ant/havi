@@ -53,11 +53,6 @@ tracing = [
     "script/tracing",
 ]
 vello = ["constellation/vello"]
-webgl_backtrace = [
-    "script/webgl_backtrace",
-    "webgl/webgl_backtrace",
-    "canvas_traits/webgl_backtrace",
-]
 webgpu = [
     "dep:webgpu",
     "script/webgpu",
@@ -69,7 +64,6 @@ webxr = [
     "dep:webxr",
     "dep:webxr-api",
     "paint/webxr",
-    "webgl/webxr",
     "script/webxr",
 ]
 
@@ -125,7 +119,6 @@ stylo_traits = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, optional = true }
 url = { workspace = true }
-webgl = { path = "../webgl", default-features = false }
 webgpu = { path = "../webgpu", optional = true }
 webrender_api = { workspace = true }
 webxr-api = { workspace = true, optional = true }

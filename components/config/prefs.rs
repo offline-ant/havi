@@ -188,9 +188,6 @@ pub struct Preferences {
     pub dom_urlpattern_enabled: bool,
     /// <https://html.spec.whatwg.org/multipage/#transient-activation-duration>
     pub dom_transient_activation_duration_ms: i64,
-    /// Enable WebGL2 APIs.
-    // feature: WebGL2 | #41394 | Web/API/WebGL2RenderingContext
-    pub dom_webgl2_enabled: bool,
     // feature: WebRTC | #41396 | Web/API/WebRTC_API
     pub dom_webrtc_enabled: bool,
     pub dom_media_capture_enabled: bool,
@@ -323,7 +320,7 @@ pub struct Preferences {
     pub session_history_max_length: i64,
     /// The background color of shell's viewport. This will be used by OpenGL's `glClearColor`.
     pub shell_background_color_rgba: [f64; 4],
-    pub webgl_testing_context_creation_error: bool,
+
     /// Number of workers per threadpool, if we fail to detect how much
     /// parallelism is available at runtime.
     pub threadpools_fallback_worker_num: i64,
@@ -415,7 +412,6 @@ impl Preferences {
             dom_testutils_enabled: false,
             dom_urlpattern_enabled: false,
             dom_transient_activation_duration_ms: 5000,
-            dom_webgl2_enabled: false,
             dom_webgpu_enabled: false,
             dom_webgpu_wgpu_backend: String::new(),
             dom_webrtc_enabled: false,
@@ -518,7 +514,7 @@ impl Preferences {
             threadpools_indexeddb_workers_max: 4,
             threadpools_webstorage_workers_max: 4,
             threadpools_webrender_workers_max: 4,
-            webgl_testing_context_creation_error: false,
+
             user_agent: String::new(),
             viewport_meta_enabled: false,
             log_filter: String::new(),

@@ -101,12 +101,6 @@ impl CanvasRenderingContext2D {
 }
 
 impl CanvasContext for CanvasRenderingContext2D {
-    type ID = CanvasId;
-
-    fn context_id(&self) -> Self::ID {
-        self.canvas_state.get_canvas_id()
-    }
-
     fn canvas(&self) -> Option<RootedHTMLCanvasElementOrOffscreenCanvas> {
         Some(RootedHTMLCanvasElementOrOffscreenCanvas::from(&self.canvas))
     }

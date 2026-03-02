@@ -38,7 +38,7 @@ use base::id::{
     BrowsingContextId, HistoryStateId, PipelineId, PipelineNamespace, ScriptEventLoopId,
     TEST_WEBVIEW_ID, WebViewId,
 };
-use canvas_traits::webgl::WebGLPipeline;
+
 use chrono::{DateTime, Local};
 use constellation_traits::{
     JsEvalResult, LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
@@ -322,10 +322,6 @@ pub struct ScriptThread {
     microtask_queue: Rc<MicrotaskQueue>,
 
     mutation_observers: Rc<ScriptMutationObservers>,
-
-    /// A handle to the WebGL thread
-    #[no_trace]
-    webgl_chan: Option<WebGLPipeline>,
 
     /// The WebXR device registry
     #[no_trace]
@@ -1025,7 +1021,6 @@ impl ScriptThread {
                     closed_pipelines: DomRefCell::new(FxHashSet::default()),
                     mutation_observers: Default::default(),
                     system_font_service: Arc::new(state.system_font_service.to_proxy()),
-                    webgl_chan: state.webgl_chan,
                     #[cfg(feature = "webxr")]
                     webxr_registry: state.webxr_registry,
                     worklet_thread_pool: Default::default(),
@@ -3443,7 +3438,6 @@ impl ScriptThread {
             // is another nested iframe in a frame).
             final_url.clone(),
             incomplete.navigation_start,
-            self.webgl_chan.as_ref().map(|chan| chan.channel()),
             #[cfg(feature = "webxr")]
             self.webxr_registry.clone(),
             self.paint_api.clone(),

@@ -24,7 +24,6 @@ profilemozjs = ['js/profilemozjs']
 refcell_backtrace = ["accountable-refcell"]
 testbinding = ["script_bindings/testbinding"]
 tracing = ["dep:tracing", "script_bindings/tracing"]
-webgl_backtrace = ["canvas_traits/webgl_backtrace"]
 webgpu = ["dep:webgpu_traits", "script_bindings/webgpu", "script_traits/webgpu"]
 webxr = ["gamepad", "webxr-api", "script_bindings/webxr"]
 

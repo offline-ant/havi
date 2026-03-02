@@ -1164,17 +1164,14 @@ dependencies = [
  "crossbeam-channel",
  "euclid",
  "fonts_traits",
- "glow",
  "kurbo 0.12.0",
  "malloc_size_of_derive",
  "pixels",
  "serde",
- "servo_config",
  "servo_malloc_size_of",
  "strum",
  "stylo",
  "webrender_api",
- "webxr-api",
 ]
 
 [[package]]
@@ -5499,7 +5496,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "webgl",
  "webgpu",
  "webrender_api",
  "webxr",
@@ -7298,7 +7294,6 @@ dependencies = [
  "stylo_traits",
  "timers",
  "tracing",
- "webgl",
  "webgpu",
  "webrender_api",
  "webxr",
@@ -11337,29 +11332,6 @@ dependencies = [
  "time",
  "uuid",
  "webdriver",
-]
-
-[[package]]
-name = "webgl"
-version = "0.0.1"
-dependencies = [
- "base",
- "bitflags 2.11.0",
- "byteorder 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "canvas_traits",
- "crossbeam-channel",
- "euclid",
- "glow",
- "half",
- "itertools 0.14.0",
- "log",
- "paint_api",
- "parking_lot",
- "pixels",
- "rustc-hash 2.1.1",
- "webrender_api",
- "webxr",
- "webxr-api",
 ]
 
 [[package]]

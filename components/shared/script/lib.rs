@@ -19,7 +19,6 @@ use base::id::{
 };
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::WebGLPipeline;
 use constellation_traits::{
     KeyboardScroll, LoadData, NavigationHistoryBehavior, ScriptToConstellationSender,
     ScrollStateUpdate, StructuredSerializedData, WindowSizeType,
@@ -379,8 +378,6 @@ pub struct InitialScriptState {
     pub devtools_server_sender: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
     /// The ID of the pipeline namespace for this script thread.
     pub pipeline_namespace_id: PipelineNamespaceId,
-    /// A channel to the WebGL thread used in this pipeline.
-    pub webgl_chan: Option<WebGLPipeline>,
     /// The XR device registry
     pub webxr_registry: Option<webxr_api::Registry>,
     /// Access to `Paint` across a process boundary.

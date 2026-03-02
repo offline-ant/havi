@@ -95,7 +95,7 @@ pub trait RenderingContext {
         None
     }
 
-    /// Return GL display info for creating `GlDevice` instances (for WebGL).
+    /// Return GL display info for creating `GlDevice` instances (for WebGPU).
     /// Returns `None` for rendering contexts that don't provide GL display info.
     fn gl_display_info(&self) -> Option<GlDisplayInfo> {
         None

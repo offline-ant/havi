@@ -163,7 +163,7 @@ impl XRSession {
         } else {
             None
         };
-        let render_state = XRRenderState::new(window, 0.1, 1000.0, ivfov, None, Vec::new(), can_gc);
+        let render_state = XRRenderState::new(window, 0.1, 1000.0, ivfov, Vec::new(), can_gc);
         let input_sources = XRInputSourceArray::new(window, can_gc);
         let ret = reflect_dom_object(
             Box::new(XRSession::new_inherited(
@@ -716,14 +716,13 @@ impl XRSessionMethods<crate::DomTypeHolder> for XRSession {
         // Step 6
         if let Some(ref layers) = init.layers {
             let layers = layers.as_deref().unwrap_or_default();
-            pending.set_base_layer(None);
             pending.set_layers(layers.iter().map(|x| &**x).collect());
             let layers = layers
                 .iter()
                 .filter_map(|layer| {
-                    let context_id = WebXRContextId::from(layer.context_id());
                     let layer_id = layer.layer_id()?;
-                    Some((context_id, layer_id))
+                    // TODO: context_id removed with WebGL; needs WebGPU equivalent
+                    Some((WebXRContextId(0), layer_id))
                 })
                 .collect();
             self.session.borrow_mut().set_layers(layers);
@@ -765,20 +764,6 @@ impl XRSessionMethods<crate::DomTypeHolder> for XRSession {
             }
             pending.set_inline_vertical_fov(fov);
         }
-        if let Some(ref layer) = init.baseLayer {
-            pending.set_base_layer(layer.as_deref());
-            pending.set_layers(Vec::new());
-            let layers = layer
-                .iter()
-                .filter_map(|layer| {
-                    let context_id = WebXRContextId::from(layer.context_id());
-                    let layer_id = layer.layer_id()?;
-                    Some((context_id, layer_id))
-                })
-                .collect();
-            self.session.borrow_mut().set_layers(layers);
-        }
-
         if init.depthFar.is_some() || init.depthNear.is_some() {
             self.session
                 .borrow_mut()

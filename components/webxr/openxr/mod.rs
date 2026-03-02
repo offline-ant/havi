@@ -365,7 +365,7 @@ struct OpenXrDevice {
 }
 
 /// Data that is shared between the openxr thread and the
-/// layer manager that runs in the webgl thread.
+/// layer manager that runs in the GL thread.
 struct SharedData {
     left: ViewInfo<LeftEye>,
     right: ViewInfo<RightEye>,
@@ -505,7 +505,6 @@ impl LayerManagerAPI<SurfmanGL> for OpenXrLayerManager {
         // TODO: Treat depth and stencil separately?
         // TODO: Use the openxr API for depth/stencil swap chains?
         let has_depth_stencil = match init {
-            LayerInit::WebGLLayer { stencil, depth, .. } => stencil | depth,
             LayerInit::ProjectionLayer { stencil, depth, .. } => stencil | depth,
         };
         let depth_stencil_texture = if has_depth_stencil {
@@ -1406,7 +1405,7 @@ impl DeviceAPI for OpenXrDevice {
     fn end_animation_frame(&mut self, layers: &[(ContextId, LayerId)]) {
         // We tell OpenXR to display the frame in the layer manager.
         // Due to threading issues we can't call D3D11 APIs on the openxr thread as the
-        // WebGL thread might be using the device simultaneously, so this method delegates
+        // GL thread might be using the device simultaneously, so this method delegates
         // everything to the layer manager.
         let _ = self.layer_manager.end_frame(layers);
     }

@@ -69,7 +69,6 @@ impl LayerManagerAPI<SurfmanGL> for SurfmanLayerManager {
         let size = texture_size.to_untyped();
         // TODO: Treat depth and stencil separately?
         let has_depth_stencil = match init {
-            LayerInit::WebGLLayer { stencil, depth, .. } => stencil | depth,
             LayerInit::ProjectionLayer { stencil, depth, .. } => stencil | depth,
         };
         let device = contexts.device(context_id).ok_or(Error::NoMatchingDevice)?;

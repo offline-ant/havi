@@ -55,7 +55,6 @@ tracing = ["dep:tracing", "dep:tracing-subscriber", "libservo/tracing"]
 tracing-hitrace = ["tracing", "dep:hitrace"]
 tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
 vello = ["libservo/vello"]
-webgl_backtrace = ["libservo/webgl_backtrace"]
 webgpu = ["libservo/webgpu"]
 webxr = ["libservo/webxr"]
 

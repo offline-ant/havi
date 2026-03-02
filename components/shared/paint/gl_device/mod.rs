@@ -4,9 +4,8 @@
 
 //! Cross-platform GL device abstraction replacing surfman.
 //!
-//! Provides context creation, FBO-based surface management, and swap chains
-//! for WebGL rendering. Platform-specific code is confined to the `egl` and
-//! `cgl` backend modules.
+//! Provides context creation and FBO-based surface management for GPU rendering.
+//! Platform-specific code is confined to the `egl` and `cgl` backend modules.
 
 #![allow(unsafe_code)]
 
@@ -24,12 +23,8 @@ pub mod cgl;
 pub mod eagl;
 
 pub mod surface;
-pub mod swap_chain;
 
 pub use surface::GlSurface;
-pub use swap_chain::{
-    GlSurfaceTexture, SwapChain, SwapChains, create_surface_texture, destroy_surface_texture,
-};
 
 /// GL API type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,7 +68,7 @@ pub type GlDisplayInfo = eagl::EaglDisplayInfo;
 /// Cross-platform GL device. Manages context creation and surface operations.
 ///
 /// All GL contexts created by a single `GlDevice` share a texture namespace,
-/// enabling cross-context texture sampling (e.g. WebGL → WebRender compositor).
+/// enabling cross-context texture sampling.
 pub struct GlDevice {
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
     backend: egl::EglBackend,
@@ -207,29 +202,6 @@ impl GlDevice {
             size: surface.size,
             framebuffer_object: Some(surface.framebuffer),
         }
-    }
-
-    /// Wrap a surface as a texture for compositing (trivial: surface is already texture-backed).
-    pub fn create_surface_texture(
-        &self,
-        _ctx: &mut GlContext,
-        surface: GlSurface,
-    ) -> Result<GlSurfaceTexture, (String, GlSurface)> {
-        Ok(swap_chain::create_surface_texture(surface))
-    }
-
-    /// Unwrap a surface texture back to a surface.
-    pub fn destroy_surface_texture(
-        &self,
-        _ctx: &mut GlContext,
-        tex: GlSurfaceTexture,
-    ) -> Result<GlSurface, (String, GlSurfaceTexture)> {
-        Ok(swap_chain::destroy_surface_texture(tex))
-    }
-
-    /// GL texture id from a surface texture.
-    pub fn surface_texture_object(&self, tex: &GlSurfaceTexture) -> u32 {
-        tex.texture_id()
     }
 
     /// GL texture target for surface textures. Always `GL_TEXTURE_2D`.

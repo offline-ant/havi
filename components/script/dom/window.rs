@@ -21,7 +21,7 @@ use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use base64::Engine;
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::WebGLChan;
+
 use constellation_traits::{
     LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
     ScriptToConstellationChan, ScriptToConstellationMessage, StructuredSerializedData,
@@ -185,7 +185,6 @@ use crate::dom::trustedtypepolicyfactory::TrustedTypePolicyFactory;
 use crate::dom::types::{ImageBitmap, MouseEvent, UIEvent};
 use crate::dom::useractivation::UserActivationTimestamp;
 use crate::dom::visualviewport::{VisualViewport, VisualViewportChanges};
-use crate::dom::webgl::webglrenderingcontext::WebGLCommandSender;
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::identityhub::IdentityHub;
 use crate::dom::windowproxy::{WindowProxy, WindowProxyHandler};
@@ -384,11 +383,6 @@ pub(crate) struct Window {
 
     #[cfg(feature = "bluetooth")]
     test_runner: MutNullableDom<TestRunner>,
-
-    /// A handle for communicating messages to the WebGL thread, if available.
-    #[ignore_malloc_size_of = "channels are hard"]
-    #[no_trace]
-    webgl_chan: Option<WebGLChan>,
 
     #[ignore_malloc_size_of = "defined in webxr"]
     #[no_trace]
@@ -694,12 +688,6 @@ impl Window {
 
     pub(crate) fn css_error_reporter(&self) -> &CSSErrorReporter {
         &self.error_reporter
-    }
-
-    pub(crate) fn webgl_chan(&self) -> Option<WebGLCommandSender> {
-        self.webgl_chan
-            .as_ref()
-            .map(|chan| WebGLCommandSender::new(chan.clone()))
     }
 
     #[cfg(feature = "webxr")]
@@ -3956,7 +3944,6 @@ impl Window {
         creation_url: BrowserUrl,
         top_level_creation_url: BrowserUrl,
         navigation_start: CrossProcessInstant,
-        webgl_chan: Option<WebGLChan>,
         #[cfg(feature = "webxr")] webxr_registry: Option<webxr_api::Registry>,
         paint_api: CrossProcessPaintApi,
         unminify_js: bool,
@@ -4030,7 +4017,6 @@ impl Window {
             media_query_lists: DOMTracker::new(),
             #[cfg(feature = "bluetooth")]
             test_runner: Default::default(),
-            webgl_chan,
             #[cfg(feature = "webxr")]
             webxr_registry,
             pending_image_callbacks: Default::default(),

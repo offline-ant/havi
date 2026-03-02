@@ -16,7 +16,7 @@ use crate::dom::node::{Node, NodeTraits};
 use crate::dom::types::GPUCanvasContext;
 use crate::dom::types::{
     CanvasRenderingContext2D, HTMLCanvasElement, ImageBitmapRenderingContext, OffscreenCanvas,
-    OffscreenCanvasRenderingContext2D, WebGL2RenderingContext, WebGLRenderingContext,
+    OffscreenCanvasRenderingContext2D,
 };
 
 /// Non rooted variant of [`crate::dom::bindings::codegen::UnionTypes::HTMLCanvasElementOrOffscreenCanvas`]
@@ -69,10 +69,6 @@ impl From<&HTMLCanvasElementOrOffscreenCanvas> for RootedHTMLCanvasElementOrOffs
 }
 
 pub(crate) trait CanvasContext {
-    type ID;
-
-    fn context_id(&self) -> Self::ID;
-
     fn canvas(&self) -> Option<RootedHTMLCanvasElementOrOffscreenCanvas>;
 
     fn resize(&self);
@@ -169,8 +165,6 @@ pub(crate) enum RenderingContext {
     Placeholder(Dom<OffscreenCanvas>),
     Context2d(Dom<CanvasRenderingContext2D>),
     BitmapRenderer(Dom<ImageBitmapRenderingContext>),
-    WebGL(Dom<WebGLRenderingContext>),
-    WebGL2(Dom<WebGL2RenderingContext>),
     #[cfg(feature = "webgpu")]
     WebGPU(Dom<GPUCanvasContext>),
 }
@@ -185,8 +179,6 @@ impl RenderingContext {
             RenderingContext::BitmapRenderer(_) => {
                 unreachable!("Should never set an `ImageKey` on a ImageBitmapRenderingContext")
             },
-            RenderingContext::WebGL(context) => context.set_image_key(image_key),
-            RenderingContext::WebGL2(context) => context.set_image_key(image_key),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.set_image_key(image_key),
         }
@@ -194,17 +186,11 @@ impl RenderingContext {
 }
 
 impl CanvasContext for RenderingContext {
-    type ID = ();
-
-    fn context_id(&self) -> Self::ID {}
-
     fn canvas(&self) -> Option<RootedHTMLCanvasElementOrOffscreenCanvas> {
         match self {
             RenderingContext::Placeholder(offscreen_canvas) => offscreen_canvas.context()?.canvas(),
             RenderingContext::Context2d(context) => context.canvas(),
             RenderingContext::BitmapRenderer(context) => context.canvas(),
-            RenderingContext::WebGL(context) => context.canvas(),
-            RenderingContext::WebGL2(context) => context.canvas(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.canvas(),
         }
@@ -219,8 +205,6 @@ impl CanvasContext for RenderingContext {
             },
             RenderingContext::Context2d(context) => context.resize(),
             RenderingContext::BitmapRenderer(context) => context.resize(),
-            RenderingContext::WebGL(context) => context.resize(),
-            RenderingContext::WebGL2(context) => context.resize(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.resize(),
         }
@@ -235,8 +219,6 @@ impl CanvasContext for RenderingContext {
             },
             RenderingContext::Context2d(context) => context.reset_bitmap(),
             RenderingContext::BitmapRenderer(context) => context.reset_bitmap(),
-            RenderingContext::WebGL(context) => context.reset_bitmap(),
-            RenderingContext::WebGL2(context) => context.reset_bitmap(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.reset_bitmap(),
         }
@@ -249,8 +231,6 @@ impl CanvasContext for RenderingContext {
             },
             RenderingContext::Context2d(context) => context.get_image_data(),
             RenderingContext::BitmapRenderer(context) => context.get_image_data(),
-            RenderingContext::WebGL(context) => context.get_image_data(),
-            RenderingContext::WebGL2(context) => context.get_image_data(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.get_image_data(),
         }
@@ -263,8 +243,6 @@ impl CanvasContext for RenderingContext {
                 .is_none_or(|context| context.origin_is_clean()),
             RenderingContext::Context2d(context) => context.origin_is_clean(),
             RenderingContext::BitmapRenderer(context) => context.origin_is_clean(),
-            RenderingContext::WebGL(context) => context.origin_is_clean(),
-            RenderingContext::WebGL2(context) => context.origin_is_clean(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.origin_is_clean(),
         }
@@ -278,8 +256,6 @@ impl CanvasContext for RenderingContext {
                 .unwrap_or_default(),
             RenderingContext::Context2d(context) => context.size(),
             RenderingContext::BitmapRenderer(context) => context.size(),
-            RenderingContext::WebGL(context) => context.size(),
-            RenderingContext::WebGL2(context) => context.size(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.size(),
         }
@@ -294,8 +270,6 @@ impl CanvasContext for RenderingContext {
             },
             RenderingContext::Context2d(context) => context.mark_as_dirty(),
             RenderingContext::BitmapRenderer(context) => context.mark_as_dirty(),
-            RenderingContext::WebGL(context) => context.mark_as_dirty(),
-            RenderingContext::WebGL2(context) => context.mark_as_dirty(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.mark_as_dirty(),
         }
@@ -308,8 +282,6 @@ impl CanvasContext for RenderingContext {
                 .is_some_and(|context| context.onscreen()),
             RenderingContext::Context2d(context) => context.onscreen(),
             RenderingContext::BitmapRenderer(context) => context.onscreen(),
-            RenderingContext::WebGL(context) => context.onscreen(),
-            RenderingContext::WebGL2(context) => context.onscreen(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.onscreen(),
         }
@@ -322,18 +294,10 @@ impl CanvasContext for RenderingContext {
 pub(crate) enum OffscreenRenderingContext {
     Context2d(Dom<OffscreenCanvasRenderingContext2D>),
     BitmapRenderer(Dom<ImageBitmapRenderingContext>),
-    // WebGL(Dom<WebGLRenderingContext>),
-    // WebGL2(Dom<WebGL2RenderingContext>),
-    // #[cfg(feature = "webgpu")]
-    // WebGPU(Dom<GPUCanvasContext>),
     Detached,
 }
 
 impl CanvasContext for OffscreenRenderingContext {
-    type ID = ();
-
-    fn context_id(&self) -> Self::ID {}
-
     fn canvas(&self) -> Option<RootedHTMLCanvasElementOrOffscreenCanvas> {
         match self {
             OffscreenRenderingContext::Context2d(context) => context.canvas(),

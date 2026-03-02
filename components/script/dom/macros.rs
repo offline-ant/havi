@@ -835,17 +835,4 @@ macro_rules! hppr_dispatch {
     };
 }
 
-macro_rules! handle_potential_webgl_error {
-    ($context:expr, $call:expr, $return_on_error:expr) => {
-        match $call {
-            Ok(ret) => ret,
-            Err(error) => {
-                $context.webgl_error(error);
-                $return_on_error
-            },
-        }
-    };
-    ($context:expr, $call:expr) => {
-        handle_potential_webgl_error!($context, $call, ())
-    };
-}
+

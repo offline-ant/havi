@@ -6,7 +6,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use base::Epoch;
-use canvas_traits::webgl::{GLContextAttributes, WebGLVersion};
 use constellation_traits::BlobImpl;
 #[cfg(feature = "webgpu")]
 use constellation_traits::ScriptToConstellationMessage;
@@ -15,7 +14,6 @@ use euclid::default::Size2D;
 use html5ever::{LocalName, Prefix, local_name, ns};
 #[cfg(feature = "webgpu")]
 use ipc_channel::ipc::{self as ipcchan};
-use js::error::throw_type_error;
 use js::rust::{HandleObject, HandleValue};
 use layout_api::HTMLCanvasData;
 use pixels::{EncodedImageType, Snapshot};
@@ -27,7 +25,6 @@ use style::attr::AttrValue;
 use webrender_api::ImageKey;
 
 use crate::canvas_context::{CanvasContext, RenderingContext};
-use crate::conversions::Convert;
 use crate::dom::attr::Attr;
 use crate::dom::bindings::callback::ExceptionHandling;
 use crate::dom::bindings::cell::{DomRefCell, Ref};
@@ -35,14 +32,12 @@ use crate::dom::bindings::codegen::Bindings::HTMLCanvasElementBinding::{
     BlobCallback, HTMLCanvasElementMethods, RenderingContext as RootedRenderingContext,
 };
 use crate::dom::bindings::codegen::Bindings::MediaStreamBinding::MediaStreamMethods;
-use crate::dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLContextAttributes;
 use crate::dom::bindings::codegen::UnionTypes::HTMLCanvasElementOrOffscreenCanvas as RootedHTMLCanvasElementOrOffscreenCanvas;
-use crate::dom::bindings::conversions::ConversionResult;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::num::Finite;
 use crate::dom::bindings::refcounted::Trusted;
-use crate::dom::bindings::reflector::{DomGlobal, DomObject};
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{Dom, DomRoot, LayoutDom};
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::blob::Blob;
@@ -59,8 +54,6 @@ use crate::dom::node::{Node, NodeDamage, NodeTraits};
 use crate::dom::offscreencanvas::OffscreenCanvas;
 use crate::dom::values::UNSIGNED_LONG_MAX;
 use crate::dom::virtualmethods::VirtualMethods;
-use crate::dom::webgl::webgl2renderingcontext::WebGL2RenderingContext;
-use crate::dom::webgl::webglrenderingcontext::WebGLRenderingContext;
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::gpucanvascontext::GPUCanvasContext;
 use crate::script_runtime::{CanGc, JSContext};
@@ -206,8 +199,6 @@ impl HTMLCanvasElement {
             RenderingContext::Placeholder(..) => None,
             RenderingContext::Context2d(..) => get_image_key(),
             RenderingContext::BitmapRenderer(_) => None,
-            RenderingContext::WebGL(..) => get_image_key(),
-            RenderingContext::WebGL2(..) => get_image_key(),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(..) => get_image_key(),
         };
@@ -260,61 +251,6 @@ impl HTMLCanvasElement {
         Some(context)
     }
 
-    fn get_or_init_webgl_context(
-        &self,
-        cx: JSContext,
-        options: HandleValue,
-        can_gc: CanGc,
-    ) -> Option<DomRoot<WebGLRenderingContext>> {
-        if let Some(ctx) = self.context() {
-            return match *ctx {
-                RenderingContext::WebGL(ref ctx) => Some(DomRoot::from_ref(ctx)),
-                _ => None,
-            };
-        }
-        let window = self.owner_window();
-        let canvas =
-            RootedHTMLCanvasElementOrOffscreenCanvas::HTMLCanvasElement(DomRoot::from_ref(self));
-        let size = self.get_size();
-        let attrs = Self::get_gl_attributes(cx, options, can_gc)?;
-        let context = WebGLRenderingContext::new(
-            &window,
-            &canvas,
-            WebGLVersion::WebGL1,
-            size,
-            attrs,
-            can_gc,
-        )?;
-        self.set_rendering_context(|| RenderingContext::WebGL(Dom::from_ref(&*context)));
-        Some(context)
-    }
-
-    fn get_or_init_webgl2_context(
-        &self,
-        cx: JSContext,
-        options: HandleValue,
-        can_gc: CanGc,
-    ) -> Option<DomRoot<WebGL2RenderingContext>> {
-        if !WebGL2RenderingContext::is_webgl2_enabled(cx, self.global().reflector().get_jsobject())
-        {
-            return None;
-        }
-        if let Some(ctx) = self.context() {
-            return match *ctx {
-                RenderingContext::WebGL2(ref ctx) => Some(DomRoot::from_ref(ctx)),
-                _ => None,
-            };
-        }
-        let window = self.owner_window();
-        let canvas =
-            RootedHTMLCanvasElementOrOffscreenCanvas::HTMLCanvasElement(DomRoot::from_ref(self));
-        let size = self.get_size();
-        let attrs = Self::get_gl_attributes(cx, options, can_gc)?;
-        let context = WebGL2RenderingContext::new(&window, &canvas, size, attrs, can_gc)?;
-        self.set_rendering_context(|| RenderingContext::WebGL2(Dom::from_ref(&*context)));
-        Some(context)
-    }
-
     #[cfg(not(feature = "webgpu"))]
     fn get_or_init_webgpu_context(&self) -> Option<DomRoot<GPUCanvasContext>> {
         None
@@ -341,36 +277,6 @@ impl HTMLCanvasElement {
                 self.set_rendering_context(|| RenderingContext::WebGPU(Dom::from_ref(&*context)));
                 context
             })
-    }
-
-    /// Gets the base WebGLRenderingContext for WebGL or WebGL 2, if exists.
-    pub(crate) fn get_base_webgl_context(&self) -> Option<DomRoot<WebGLRenderingContext>> {
-        match *self.context_mode.borrow() {
-            Some(RenderingContext::WebGL(ref context)) => Some(DomRoot::from_ref(context)),
-            Some(RenderingContext::WebGL2(ref context)) => Some(context.base_context()),
-            _ => None,
-        }
-    }
-
-    #[expect(unsafe_code)]
-    fn get_gl_attributes(
-        cx: JSContext,
-        options: HandleValue,
-        can_gc: CanGc,
-    ) -> Option<GLContextAttributes> {
-        unsafe {
-            match WebGLContextAttributes::new(cx, options, can_gc) {
-                Ok(ConversionResult::Success(attrs)) => Some(attrs.convert()),
-                Ok(ConversionResult::Failure(error)) => {
-                    throw_type_error(*cx, &error);
-                    None
-                },
-                _ => {
-                    debug!("Unexpected error on conversion of WebGLContextAttributes");
-                    None
-                },
-            }
-        }
     }
 
     pub(crate) fn is_valid(&self) -> bool {
@@ -412,8 +318,6 @@ impl HTMLCanvasElement {
             RenderingContext::Placeholder(..) => false,
             RenderingContext::Context2d(context) => context.update_rendering(epoch),
             RenderingContext::BitmapRenderer(..) => false,
-            RenderingContext::WebGL(context) => context.update_rendering(epoch),
-            RenderingContext::WebGL2(context) => context.base_context().update_rendering(epoch),
             #[cfg(feature = "webgpu")]
             RenderingContext::WebGPU(context) => context.update_rendering(epoch),
         }
@@ -469,9 +373,9 @@ impl HTMLCanvasElementMethods<crate::DomTypeHolder> for HTMLCanvasElement {
     /// <https://html.spec.whatwg.org/multipage/#dom-canvas-getcontext>
     fn GetContext(
         &self,
-        cx: JSContext,
+        _cx: JSContext,
         id: DOMString,
-        options: HandleValue,
+        _options: HandleValue,
         can_gc: CanGc,
     ) -> Fallible<Option<RootedRenderingContext>> {
         // Always throw an InvalidState exception when the canvas is in Placeholder mode (See table in the spec).
@@ -486,12 +390,6 @@ impl HTMLCanvasElementMethods<crate::DomTypeHolder> for HTMLCanvasElement {
             "bitmaprenderer" => self
                 .get_or_init_bitmaprenderer_context(can_gc)
                 .map(RootedRenderingContext::ImageBitmapRenderingContext),
-            "webgl" | "experimental-webgl" => self
-                .get_or_init_webgl_context(cx, options, can_gc)
-                .map(RootedRenderingContext::WebGLRenderingContext),
-            "webgl2" | "experimental-webgl2" => self
-                .get_or_init_webgl2_context(cx, options, can_gc)
-                .map(RootedRenderingContext::WebGL2RenderingContext),
             #[cfg(feature = "webgpu")]
             "webgpu" => self
                 .get_or_init_webgpu_context(can_gc)
@@ -712,15 +610,4 @@ impl VirtualMethods for HTMLCanvasElement {
     }
 }
 
-impl Convert<GLContextAttributes> for WebGLContextAttributes {
-    fn convert(self) -> GLContextAttributes {
-        GLContextAttributes {
-            alpha: self.alpha,
-            depth: self.depth,
-            stencil: self.stencil,
-            antialias: self.antialias,
-            premultiplied_alpha: self.premultipliedAlpha,
-            preserve_drawing_buffer: self.preserveDrawingBuffer,
-        }
-    }
-}
+

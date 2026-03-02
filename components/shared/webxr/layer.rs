@@ -209,15 +209,6 @@ impl Default for LayerId {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum LayerInit {
-    /// <https://www.w3.org/TR/webxr/#dictdef-xrwebgllayerinit>
-    WebGLLayer {
-        antialias: bool,
-        depth: bool,
-        stencil: bool,
-        alpha: bool,
-        ignore_depth_values: bool,
-        framebuffer_scale_factor: f32,
-    },
     /// <https://immersive-web.github.io/layers/#xrprojectionlayerinittype>
     ProjectionLayer {
         depth: bool,
@@ -231,10 +222,6 @@ pub enum LayerInit {
 impl LayerInit {
     pub fn texture_size(&self, viewports: &Viewports) -> Size2D<i32, Viewport> {
         match self {
-            LayerInit::WebGLLayer {
-                framebuffer_scale_factor: scale,
-                ..
-            } |
             LayerInit::ProjectionLayer {
                 scale_factor: scale,
                 ..

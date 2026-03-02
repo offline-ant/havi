@@ -813,7 +813,6 @@ impl CanvasState {
                         },
                     }
                 },
-                _ => return Err(Error::InvalidState(None)),
             }
         } else {
             self.send_canvas_2d_msg(Canvas2dMsg::DrawEmptyImage(

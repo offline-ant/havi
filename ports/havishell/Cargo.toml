@@ -26,7 +26,6 @@ media-gstreamer = ["libservo/media-gstreamer"]
 native-bluetooth = ["libservo/native-bluetooth"]
 profilemozjs = ["libservo/profilemozjs"]
 refcell_backtrace = ["libservo/refcell_backtrace"]
-webgl_backtrace = ["libservo/webgl_backtrace"]
 webgpu = ["libservo/webgpu"]
 
 [dependencies]

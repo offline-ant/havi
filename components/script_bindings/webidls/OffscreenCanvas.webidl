@@ -4,9 +4,7 @@
 
 // https://html.spec.whatwg.org/multipage/#the-offscreencanvas-interface
 typedef (OffscreenCanvasRenderingContext2D
-  or ImageBitmapRenderingContext
-  or WebGLRenderingContext
-  or WebGL2RenderingContext) OffscreenRenderingContext;
+  or ImageBitmapRenderingContext) OffscreenRenderingContext;
 
 dictionary ImageEncodeOptions {
   DOMString type = "image/png";

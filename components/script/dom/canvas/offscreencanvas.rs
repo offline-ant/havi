@@ -309,12 +309,6 @@ impl OffscreenCanvasMethods<crate::DomTypeHolder> for OffscreenCanvas {
         "bitmaprenderer" => Ok(self
             .get_or_init_bitmaprenderer_context(can_gc)
             .map(RootedOffscreenRenderingContext::ImageBitmapRenderingContext)),
-        /*"webgl" | "experimental-webgl" => self
-            .get_or_init_webgl_context(cx, options)
-            .map(OffscreenRenderingContext::WebGLRenderingContext),
-        "webgl2" | "experimental-webgl2" => self
-            .get_or_init_webgl2_context(cx, options)
-            .map(OffscreenRenderingContext::WebGL2RenderingContext),*/
             _ => Err(Error::Type(c"Unrecognized OffscreenCanvas context type".to_owned())),
         )
     }

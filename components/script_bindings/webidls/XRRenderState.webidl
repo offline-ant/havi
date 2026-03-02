@@ -10,7 +10,6 @@ dictionary XRRenderStateInit {
   double depthNear;
   double depthFar;
   double inlineVerticalFieldOfView;
-  XRWebGLLayer? baseLayer;
   sequence<XRLayer>? layers;
 };
 
@@ -18,7 +17,6 @@ dictionary XRRenderStateInit {
   readonly attribute double depthNear;
   readonly attribute double depthFar;
   readonly attribute double? inlineVerticalFieldOfView;
-  readonly attribute XRWebGLLayer? baseLayer;
 
   // https://immersive-web.github.io/layers/#xrrenderstatechanges
   // workaround until we have FrozenArray

@@ -40,6 +40,4 @@ pub(crate) mod xrtest;
 pub(crate) mod xrview;
 pub(crate) mod xrviewerpose;
 pub(crate) mod xrviewport;
-pub(crate) mod xrwebglbinding;
-pub(crate) mod xrwebgllayer;
-pub(crate) mod xrwebglsubimage;
+

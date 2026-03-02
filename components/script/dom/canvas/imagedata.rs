@@ -205,6 +205,7 @@ impl ImageData {
     }
 
     #[expect(unsafe_code)]
+    #[allow(dead_code)]
     pub(crate) fn to_shared_memory(&self) -> GenericSharedMemory {
         // This is safe because we copy the slice content
         GenericSharedMemory::from_bytes(unsafe { self.as_slice() })

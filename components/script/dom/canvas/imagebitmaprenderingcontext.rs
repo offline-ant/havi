@@ -91,10 +91,6 @@ impl ImageBitmapRenderingContext {
 }
 
 impl CanvasContext for ImageBitmapRenderingContext {
-    type ID = ();
-
-    fn context_id(&self) -> Self::ID {}
-
     fn canvas(&self) -> Option<RootedHTMLCanvasElementOrOffscreenCanvas> {
         Some(RootedHTMLCanvasElementOrOffscreenCanvas::from(&self.canvas))
     }

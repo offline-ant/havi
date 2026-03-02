@@ -265,12 +265,6 @@ impl GPUCanvasContext {
 }
 
 impl CanvasContext for GPUCanvasContext {
-    type ID = WebGPUContextId;
-
-    fn context_id(&self) -> WebGPUContextId {
-        self.droppable.context_id
-    }
-
     /// <https://gpuweb.github.io/gpuweb/#abstract-opdef-update-the-canvas-size>
     fn resize(&self) {
         // 1. Replace the drawing buffer of context.
