@@ -122,7 +122,7 @@ mod platform {
             }
         }
 
-        pub(crate) fn index(&self) -> u32 {
+        pub fn index(&self) -> u32 {
             0
         }
 
