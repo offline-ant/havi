@@ -45,8 +45,13 @@
   <table style="display:inline-table;background:#111;color:#0f0;font:11px monospace"><tr><td style="padding:2px 6px">data</td></tr></table>
 </div>
 
-<!-- Test 6: Mouse events -->
-<h2>6. Mouse Events</h2>
+<!-- Test 6: Mouse events / hover -->
+<h2>6. Mouse Events & Hover</h2>
+<style>
+  #hover-box { background: #ddd; padding: 15px; text-align: center; transition: none; }
+  #hover-box:hover { background: #4a4; color: white; }
+</style>
+<div id="hover-box">Hover me (should turn green)</div>
 <div id="mouse-area" style="background:#eee;padding:20px;text-align:center;cursor:pointer">
   Hover and click here
 </div>
@@ -63,6 +68,16 @@
 <!-- Test 7: Link navigation -->
 <h2>7. Link Navigation</h2>
 <a href="index.html" id="nav-link">Navigate to index.html</a>
+<div id="nav-log" style="font-family:monospace;font-size:12px;margin-top:4px">nav: waiting</div>
+<button id="nav-btn" onclick="document.getElementById('nav-link').click()">Programmatic .click()</button>
+<button id="nav-btn2" onclick="window.location.href='index.html'">window.location nav</button>
+<script>
+  var nl = document.getElementById('nav-log');
+  var link = document.getElementById('nav-link');
+  link.addEventListener('click', function(e) {
+    nl.textContent = 'click event fired, defaultPrevented=' + e.defaultPrevented + ' target=' + e.target.tagName + ' href=' + e.target.href;
+  });
+</script>
 
 <!-- Test 8: Simple colored boxes (baseline rendering) -->
 <h2>8. Colored Boxes</h2>

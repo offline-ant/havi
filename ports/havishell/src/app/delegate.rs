@@ -19,6 +19,11 @@ pub enum MakepadServoAction {
     NewFrameReady {
         webview_id: WebViewId,
     },
+    /// The cursor should change for a webview.
+    CursorChanged {
+        webview_id: WebViewId,
+        cursor: servo::Cursor,
+    },
     /// A webview was closed by page content (window.close()).
     WebViewClosed {
         webview_id: WebViewId,
@@ -75,6 +80,14 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         Cx::post_action(MakepadServoAction::NewFrameReady {
             webview_id: webview.id(),
         });
+    }
+
+    fn notify_cursor_changed(&self, webview: servo::WebView, cursor: servo::Cursor) {
+        Cx::post_action(MakepadServoAction::CursorChanged {
+            webview_id: webview.id(),
+            cursor,
+        });
+        SignalToUI::set_ui_signal();
     }
 
     fn notify_closed(&self, webview: servo::WebView) {
