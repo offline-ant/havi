@@ -5871,10 +5871,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "makepad-base64"
-version = "1.0.0"
-
-[[package]]
 name = "makepad-byteorder-lite"
 version = "0.1.0"
 
@@ -5899,8 +5895,8 @@ version = "2.0.0"
 dependencies = [
  "ab_glyph_rasterizer 0.1.8",
  "fxhash",
- "makepad-gltf",
  "makepad-live-id",
+ "makepad-math",
  "makepad-platform",
  "makepad-svg",
  "makepad-webp",
@@ -5921,24 +5917,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "makepad-fast-inflate"
-version = "0.1.0"
-
-[[package]]
 name = "makepad-futures"
 version = "1.0.0"
 
 [[package]]
 name = "makepad-futures-legacy"
 version = "1.0.0"
-
-[[package]]
-name = "makepad-gltf"
-version = "1.0.0"
-dependencies = [
- "makepad-base64",
- "makepad-micro-serde",
-]
 
 [[package]]
 name = "makepad-html"
@@ -6031,6 +6015,7 @@ dependencies = [
  "makepad-network",
  "makepad-objc-sys",
  "makepad-script",
+ "makepad-studio-protocol",
  "makepad-wasm-bridge",
  "makepad-zune-png",
  "naga 27.0.3",
@@ -6071,12 +6056,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "makepad-splat"
-version = "1.0.0"
+name = "makepad-studio-protocol"
+version = "0.1.0"
 dependencies = [
+ "bitflags 2.10.0",
+ "makepad-error-log",
+ "makepad-live-id",
  "makepad-micro-serde",
- "makepad-webp",
- "makepad-zip-file",
+ "makepad-script",
 ]
 
 [[package]]
@@ -6110,17 +6097,9 @@ dependencies = [
  "makepad-draw",
  "makepad-html",
  "makepad-latex-math",
- "makepad-splat",
  "pulldown-cmark 0.12.2",
  "ttf-parser 0.24.1",
  "unicode-segmentation 1.12.0",
-]
-
-[[package]]
-name = "makepad-zip-file"
-version = "1.0.0"
-dependencies = [
- "makepad-fast-inflate",
 ]
 
 [[package]]
