@@ -20,7 +20,7 @@ use style::properties::longhands::column_span::computed_value::T as ColumnSpan;
 use style::properties::style_structs::Border;
 use style::servo::selector_parser::PseudoElement;
 use style::values::CSSFloat;
-use style::values::computed::basic_shape::ClipPath;
+
 
 use style::values::computed::{
     BorderSideWidth, BorderStyle, Color, Inset, ItemPlacement, LengthPercentage, Margin,
@@ -32,7 +32,7 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 use style::values::specified::align::AlignFlags;
 use style::values::specified::{Overflow, WillChangeBits, box_ as stylo};
 use unicode_bidi::Level;
-use webrender_api as wr;
+
 use webrender_api::units::LayoutTransform;
 
 use crate::dom_traversal::Contents;

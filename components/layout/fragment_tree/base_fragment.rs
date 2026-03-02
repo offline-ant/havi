@@ -8,7 +8,6 @@ use app_units::Au;
 use atomic_refcell::AtomicRef;
 use bitflags::bitflags;
 use html5ever::local_name;
-use layout_api::combine_id_with_fragment_type;
 use layout_api::wrapper_traits::{
     PseudoElementChain, ThreadSafeLayoutElement, ThreadSafeLayoutNode,
 };
@@ -74,8 +73,6 @@ pub(crate) enum FragmentStatus {
     New,
     /// The style of the fragment has changed.
     StyleChanged,
-    /// The fragment hasn't changed.
-    Clean,
 }
 
 /// This data structure stores fields that are common to all non-base
@@ -118,10 +115,6 @@ impl BaseFragment {
             rect,
             status: Default::default(),
         }
-    }
-
-    pub(crate) fn is_anonymous(&self) -> bool {
-        self.tag.is_none()
     }
 
     pub(crate) fn repair_style(&mut self, style: &ServoArc<ComputedValues>) {
@@ -279,12 +272,6 @@ malloc_size_of_is_0!(FragmentFlags);
 pub(crate) struct Tag {
     pub(crate) node: OpaqueNode,
     pub(crate) pseudo_element_chain: PseudoElementChain,
-}
-
-impl Tag {
-    pub(crate) fn to_display_list_fragment_id(self) -> u64 {
-        combine_id_with_fragment_type(self.node.id(), self.pseudo_element_chain.primary.into())
-    }
 }
 
 impl From<ServoThreadSafeLayoutNode<'_>> for Tag {

@@ -13,8 +13,7 @@ use style::values::specified::Overflow;
 use style::animation::AnimationSetKey;
 use style::computed_values::position::T as Position;
 
-use super::{BoxFragment, ContainingBlockManager, Fragment};
-use crate::ArcRefCell;
+use super::{ContainingBlockManager, Fragment};
 use crate::context::LayoutContext;
 use crate::geom::PhysicalRect;
 
