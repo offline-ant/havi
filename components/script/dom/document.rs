@@ -3214,6 +3214,50 @@ impl Document {
         self.waiting_on_canvas_image_updates.get()
     }
 
+    /// Compute the current document-level selection rectangles and store them
+    /// in the shared selection state for the renderer to read.
+    pub(crate) fn update_shared_selection_rects(&self, can_gc: CanGc) {
+        use crate::dom::bindings::codegen::Bindings::DOMRectListBinding::DOMRectListMethods;
+        use crate::dom::bindings::codegen::Bindings::RangeBinding::RangeMethods;
+        use script_bindings::codegen::GenericBindings::DOMRectBinding::DOMRectMethods;
+        use script_bindings::codegen::GenericBindings::SelectionBinding::SelectionMethods;
+
+        let shared = layout_api::shared_document_selection_for(self.webview_id());
+
+        let Some(selection) = self.GetSelection(can_gc) else {
+            shared.set(Vec::new());
+            return;
+        };
+
+        if selection.IsCollapsed() {
+            shared.set(Vec::new());
+            return;
+        }
+
+        let Ok(range) = selection.GetRangeAt(0) else {
+            shared.set(Vec::new());
+            return;
+        };
+
+        let rect_list = range.GetClientRects(can_gc);
+        let mut rects = Vec::with_capacity(rect_list.Length() as usize);
+        for i in 0..rect_list.Length() {
+            if let Some(r) = rect_list.Item(i) {
+                let x = r.X() as f32;
+                let y = r.Y() as f32;
+                let w = r.Width() as f32;
+                let h = r.Height() as f32;
+                if w > 0.0 && h > 0.0 {
+                    rects.push(euclid::Rect::new(
+                        euclid::Point2D::new(x, y),
+                        euclid::Size2D::new(w, h),
+                    ));
+                }
+            }
+        }
+        shared.set(rects);
+    }
+
     /// From <https://drafts.csswg.org/css-font-loading/#fontfaceset-pending-on-the-environment>:
     ///
     /// > A FontFaceSet is pending on the environment if any of the following are true:

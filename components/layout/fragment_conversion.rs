@@ -279,3 +279,5 @@ fn font_data_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontData> {
     let bytes: &[u8] = data_and_index.data.as_ref();
     Some(Arc::new(bytes.to_vec()))
 }
+
+

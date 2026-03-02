@@ -1270,6 +1270,9 @@ impl ScriptThread {
                 painters_generating_frames.insert(document.webview_id().into());
             }
 
+            // Update shared selection rects for the renderer.
+            document.update_shared_selection_rects(CanGc::from_cx(cx));
+
             // TODO: Process top layer removals according to
             // https://drafts.csswg.org/css-position-4/#process-top-layer-removals.
         }

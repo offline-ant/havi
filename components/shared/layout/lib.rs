@@ -110,6 +110,22 @@ impl SharedScrollState {
     }
 }
 
+/// Document-level text selection rectangles in CSS pixels.
+/// Written by the script thread when the DOM Selection changes;
+/// read by the renderer to draw highlight overlays.
+#[derive(Clone, Default)]
+pub struct SharedDocumentSelection(Arc<RwLock<Vec<euclid::Rect<f32, euclid::UnknownUnit>>>>);
+
+impl SharedDocumentSelection {
+    pub fn set(&self, rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>) {
+        *self.0.write() = rects;
+    }
+
+    pub fn get(&self) -> Vec<euclid::Rect<f32, euclid::UnknownUnit>> {
+        self.0.read().clone()
+    }
+}
+
 /// Global registry of shared fragment trees, keyed by WebViewId.
 /// Layout writes fragments here; the embedding reads them for rendering.
 static FRAGMENT_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>> =
@@ -117,6 +133,10 @@ static FRAGMENT_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebView
 
 /// Global registry of shared scroll states, keyed by WebViewId.
 static SCROLL_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
+/// Global registry of document selection states, keyed by WebViewId.
+static SELECTION_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedDocumentSelection>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Get or create a SharedFragmentTree for a given WebViewId.
@@ -132,6 +152,16 @@ pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
 /// Get or create a SharedScrollState for a given WebViewId.
 pub fn shared_scroll_state_for(id: WebViewId) -> SharedScrollState {
     SCROLL_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
+/// Get or create a SharedDocumentSelection for a given WebViewId.
+pub fn shared_document_selection_for(id: WebViewId) -> SharedDocumentSelection {
+    SELECTION_REGISTRY
         .lock()
         .unwrap()
         .entry(id)

@@ -155,6 +155,10 @@ pub struct ServoWebView {
     #[rust]
     shared_scroll_state: Option<layout_api::SharedScrollState>,
 
+    /// Shared document selection rects from script thread.
+    #[rust]
+    shared_selection: Option<layout_api::SharedDocumentSelection>,
+
     /// Shared image store from Paint. Updated asynchronously with image data
     /// from the network layer (animated GIF frames, canvas updates, etc.).
     #[rust]
@@ -341,7 +345,16 @@ impl Widget for ServoWebView {
                 &mut self.draw_rounded_bg,
                 &mut self.draw_box_shadow,
                 &mut self.draw_gradient,
-                None, // selection
+                self.shared_selection.as_ref().map(|ss| {
+                    let rects = ss.get();
+                    havi_render::SelectionHighlight {
+                        color: makepad_widgets::makepad_draw::Vec4f { x: 0.26, y: 0.52, z: 0.96, w: 0.4 },
+                        rects: rects.iter().map(|r| makepad_widgets::Rect {
+                            pos: dvec2(rect.pos.x + r.origin.x as f64, rect.pos.y + r.origin.y as f64 - scroll_y),
+                            size: dvec2(r.size.width as f64, r.size.height as f64),
+                        }).collect(),
+                    }
+                }).as_ref(),
                 &mut self.transform_state.0,
                 &mut self.opacity_passes.0,
                 &mut self.filter_passes.0,
@@ -417,11 +430,13 @@ impl ServoWebViewRef {
         &self,
         shared: layout_api::SharedFragmentTree,
         scroll_state: layout_api::SharedScrollState,
+        selection: layout_api::SharedDocumentSelection,
         image_store: paint_api::SharedImageStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_fragments = Some(shared);
             inner.shared_scroll_state = Some(scroll_state);
+            inner.shared_selection = Some(selection);
             inner.image_store = Some(image_store);
             // Clear image textures since they are content-dependent.
             inner.texture_cache.0.clear();
