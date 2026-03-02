@@ -9,15 +9,14 @@ use crate::{FontStyle, GenericFamily, SystemFontFace};
 // ---------------------------------------------------------------------------
 
 mod xml_parser {
-    use xml::attribute::OwnedAttribute as Attribute;
     use xml::reader::XmlEvent;
 
-    pub(super) use Attribute as XmlAttribute;
+    pub(super) type XmlAttribute = xml::attribute::OwnedAttribute;
 
     pub(super) enum Node {
         Element {
             name: xml::name::OwnedName,
-            attributes: Vec<Attribute>,
+            attributes: Vec<XmlAttribute>,
             children: Vec<Node>,
         },
         Text(String),

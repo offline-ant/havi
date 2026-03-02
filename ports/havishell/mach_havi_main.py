@@ -237,7 +237,9 @@ def setup_android_env(target_triple: str) -> dict[str, str]:
     cm_sdk = _detect_cargo_makepad_sdk()
     cm_ndk = _detect_ndk_root(cm_sdk)
 
-    ndk_root = os.environ.get("ANDROID_NDK_ROOT", str(cm_ndk) if cm_ndk else "")
+    # Prefer cargo-makepad NDK to ensure CC/CXX versions match
+    # (cargo-makepad overrides CC_{triple} to its own NDK clang).
+    ndk_root = str(cm_ndk) if cm_ndk else os.environ.get("ANDROID_NDK_ROOT", "")
     sdk_root = os.environ.get("ANDROID_SDK_ROOT", str(cm_sdk) if cm_sdk else "")
 
     if not ndk_root:
@@ -601,27 +603,7 @@ def _ensure_cargo_makepad_ndk() -> None:
         if (expected / "toolchains").is_dir() or (expected / "source.properties").is_file():
             return
 
-    sys_sdk = _find_android_sdk()
-    if sys_sdk:
-        for ndk_dir in sorted((sys_sdk / "ndk").iterdir()) if (sys_sdk / "ndk").is_dir() else []:
-            props = ndk_dir / "source.properties"
-            if props.is_file():
-                version_line = props.read_text().strip().split("\n")
-                for line in version_line:
-                    if line.startswith("Pkg.Revision"):
-                        ver = line.split("=")[-1].strip().split(".")[0]
-                        if ver == "28" and (ndk_dir / "toolchains").is_dir():
-                            ndk_parent.mkdir(parents=True, exist_ok=True)
-                            if expected.is_symlink() or expected.exists():
-                                if expected.is_symlink():
-                                    expected.unlink()
-                                else:
-                                    shutil.rmtree(expected)
-                            expected.symlink_to(ndk_dir.resolve())
-                            print(f"[mach-havi] Symlinked system NDK r28: {ndk_dir} -> {expected}")
-                            return
-
-    print("[mach-havi] NDK r28 not found locally. Running cargo-makepad android install-toolchain...")
+    print("[mach-havi] NDK not found. Running cargo-makepad android install-toolchain...")
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["android", f"--sdk-path={cm_sdk}", "install-toolchain"])
     ret = subprocess.call(cmd, cwd=str(HAVI_ROOT))

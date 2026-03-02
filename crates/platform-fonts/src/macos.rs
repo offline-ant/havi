@@ -1,5 +1,4 @@
 use std::ffi::c_void;
-use std::path::PathBuf;
 use std::ptr;
 
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFSet, CFString, CFType, CFURL};
