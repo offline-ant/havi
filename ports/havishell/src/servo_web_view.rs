@@ -173,12 +173,6 @@ impl Widget for ServoWebView {
         let uid = self.widget_uid();
 
         let hit = event.hits(cx, self.draw_bg.area());
-        match &hit {
-            Hit::Nothing => {},
-            other => {
-                log!("[servo_web_view] hit: {:?}, area={:?}", std::mem::discriminant(other), self.draw_bg.area());
-            },
-        }
         match hit {
             // ----- Finger / touch -----
             Hit::FingerDown(fd) => {
@@ -283,12 +277,17 @@ impl Widget for ServoWebView {
             self.cached_sc_tree = None;
         }
 
+        // Peek at the walk rect BEFORE begin() so we know our expected
+        // dimensions even if the inner turtle hasn't resolved sizes yet.
+        let peek_rect = cx.peek_walk_turtle(walk);
+
         self.draw_bg.begin(cx, walk, Layout::default());
         // All fragment rendering uses draw_abs (absolute positioning), which
         // doesn't expand the turtle. Mark the full rect as used so
         // draw_bg.end() produces a properly sized area for hit testing.
-        let r = cx.turtle().rect();
-        cx.turtle_mut().set_used(r.size.x, r.size.y);
+        // Use the pre-computed peek_rect dimensions, since the inner turtle's
+        // rect() may return 0x0 when sizing is not yet resolved.
+        cx.turtle_mut().set_used(peek_rect.size.x, peek_rect.size.y);
 
         if let Some(ref frags) = fragments {
             // Rebuild stacking context tree only when fragments change.
@@ -353,9 +352,7 @@ impl Widget for ServoWebView {
         }
 
         self.draw_bg.end(cx);
-        let area = self.draw_bg.area();
-        let rect = area.rect(cx);
-        log!("[servo_web_view] draw_walk done: area={:?} rect={:?}", area, rect);
+        let rect = self.draw_bg.area().rect(cx);
         self.draw_scroll_overlay(cx, &rect);
 
         DrawStep::done()

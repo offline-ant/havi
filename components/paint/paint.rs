@@ -308,7 +308,15 @@ impl Paint {
             PaintMessage::UpdateImages(_painter_id, updates) => {
                 self.handle_image_updates(updates);
             },
-            PaintMessage::DelayNewFrameForCanvas(..) => {},
+            PaintMessage::DelayNewFrameForCanvas(_webview_id, pipeline_id, _epoch, _image_keys) => {
+                // HAVI's Makepad-based renderer doesn't do async canvas image uploads.
+                // Immediately acknowledge so the script thread isn't blocked.
+                let _ = self.embedder_to_constellation_sender.send(
+                    EmbedderToConstellationMessage::NoLongerWaitingOnAsynchronousImageUpdates(
+                        vec![pipeline_id],
+                    ),
+                );
+            },
             PaintMessage::AddFont(..) => {
                 // TODO(havi-render): Forward font data to Makepad font loader.
             },

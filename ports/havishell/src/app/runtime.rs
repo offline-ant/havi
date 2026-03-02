@@ -96,7 +96,7 @@ impl App {
 
         self.initialized = true;
         self.dpi_factor = dpi_factor;
-        log!("[havishell] init_servo: dpi={} size={}x{} platform={}", dpi_factor, inner.x, inner.y, std::env::consts::OS);
+        log!("[havishell] init_servo: dpi={} size={}x{}", dpi_factor, inner.x, inner.y);
 
         // Init resource reader
         servo::resources::set(Box::new(ResourceReader));
@@ -109,12 +109,8 @@ impl App {
 
         // Create rendering context + texture via the unified GL render bridge.
         let size = dpi::PhysicalSize::new(width, height);
-        log!("[havishell] init_servo: creating rendering context {}x{}", width, height);
         let rendering_context = match create_rendering_context(cx, size) {
-            Ok(result) => {
-                log!("[havishell] init_servo: rendering context created successfully");
-                result
-            },
+            Ok(result) => result,
             Err(e) => {
                 log!("[havishell] FAILED to create rendering context: {:?}", e);
                 return;
@@ -341,20 +337,17 @@ impl App {
             preferences.devtools_server_listen_address = "0".to_string();
         }
 
-        log!("[havishell] init_servo: building servo instance");
         let servo = servo::ServoBuilder::default()
             .event_loop_waker(Box::new(MakepadEventLoopWaker))
             .preferences(preferences)
             .protocol_registry(protocol_registry)
             .hppr_home_target(fallback_target.clone())
             .build();
-        log!("[havishell] init_servo: servo built, setting delegate");
         servo.set_delegate(Rc::new(HaviServoDelegate));
         servo.setup_logging();
 
         self.servo = Some(servo);
         self.rendering_context = Some(rendering_context);
-        log!("[havishell] servo created, pylon_mode={:?}", pylon_mode);
 
         // Step 5: Create first WebView or show splash screen.
         if pylon_mode == PylonMode::None {

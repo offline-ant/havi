@@ -87,7 +87,6 @@ impl App {
         if self.start_navigation_done {
             return;
         }
-        log!("[havishell] complete_startup_navigation: url={}", self.start_url);
         self.start_navigation_done = true;
 
         // Create the first webview if none exists yet (splash screen path).

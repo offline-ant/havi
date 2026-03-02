@@ -219,26 +219,18 @@ impl App {
 
     /// Create a new Servo WebView for a new tab.
     pub(super) fn create_webview(&self, url_str: &str) -> Option<servo::WebView> {
-        log!("[havishell] create_webview: url={}", url_str);
         let servo = self.servo.as_ref()?;
-        log!("[havishell] create_webview: have servo");
         let rc = self.rendering_context.as_ref()?;
-        log!("[havishell] create_webview: have rendering_context");
         let url = servo::BrowserUrl::parse(url_str).ok()?;
-        log!("[havishell] create_webview: parsed url ok");
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
-        log!("[havishell] create_webview: hidpi={}, content_size={}x{}", self.dpi_factor, self.content_size.0, self.content_size.1);
         let webview = servo::WebViewBuilder::new(servo, rc.clone())
             .url(url)
             .hidpi_scale_factor(hidpi)
             .delegate(Rc::new(HaviWebViewDelegate))
             .build();
-        log!("[havishell] create_webview: webview built");
-        // Set size to match current content size
         let (w, h) = self.content_size;
         webview.resize(dpi::PhysicalSize::new(w as u32, h as u32));
-        log!("[havishell] create_webview: resized to {}x{}", w, h);
         Some(webview)
     }
 
