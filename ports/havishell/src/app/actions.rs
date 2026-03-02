@@ -747,6 +747,20 @@ impl AppMain for App {
             }
         }
 
+        // Handle popup window dismissal (compositor/focus-loss/outside-click/Escape).
+        if let Event::PopupDismissed(ev) = event {
+            self.handle_popup_dismissed(cx, ev);
+        }
+
+        // Draw context menu popup contents during draw events.
+        if let Event::Draw(draw_event) = event {
+            if self.context_popup_pass.is_some() {
+                let mut cx_draw = CxDraw::new(cx, draw_event);
+                let cx2d = &mut Cx2d::new(&mut cx_draw);
+                self.draw_context_menu_popup(cx2d);
+            }
+        }
+
         // Let the widget tree handle events. The ServoWebView widget calls
         // event.hits() internally and emits ServoWebViewAction for all
         // interactions. Toolbar buttons and TextInput process their

@@ -242,13 +242,12 @@ script_mod! {
                             height: Fill
                         }
 
-                        // Context menu overlay (starts off-screen; show_context_menu positions it)
+                        // Context menu rendered in popup window (see context_menu.rs)
                         context_menu := View{
                             visible: false
-                            abs_pos: vec2(-1000.0, -1000.0)
-                            width: Fit height: Fit
+                            width: 168 height: Fit
                             flow: Down
-                            padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                            padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
                             spacing: 0
                             show_bg: true
                             draw_bg.color: #xffffff
@@ -702,6 +701,15 @@ pub struct App {
     active_context_menu: Option<servo::ContextMenu>,
     #[rust]
     context_menu_pos: DVec2,
+    /// Popup window handle for the context menu. None when menu is closed.
+    #[rust]
+    context_popup_window: Option<WindowHandle>,
+    /// Draw pass for the context menu popup window.
+    #[rust]
+    context_popup_pass: Option<DrawPass>,
+    /// Draw list for rendering context menu contents into the popup pass.
+    #[rust]
+    context_popup_draw_list: Option<DrawList2d>,
 
     /// Latest advertised public via from pylon listener events.
     #[rust]

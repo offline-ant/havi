@@ -59,10 +59,7 @@ impl App {
                             self.context_menu_pos = *abs;
                             handled_input = true;
                         } else {
-                            // Close context menu on left click
-                            if self.active_context_menu.is_some() {
-                                self.hide_context_menu(cx);
-                            }
+                            // Context menu dismiss is handled by PopupDismissed.
                             if self.pylon_menu_open {
                                 self.hide_pylon_menu(cx);
                             }
@@ -232,7 +229,7 @@ impl App {
 
                     // ----- Keyboard events -----
                     ServoWebViewAction::KeyDown { key_event } => {
-                        // Escape dismisses menus
+                        // Escape dismisses pylon menu
                         if self.pylon_menu_open {
                             if key_event.key_code
                                 == makepad_widgets::makepad_platform::KeyCode::Escape
@@ -241,15 +238,7 @@ impl App {
                                 handled_input = true;
                             }
                         }
-                        if self.active_context_menu.is_some() {
-                            if key_event.key_code
-                                == makepad_widgets::makepad_platform::KeyCode::Escape
-                            {
-                                self.hide_context_menu(cx);
-                                handled_input = true;
-                                continue;
-                            }
-                        }
+                        // Context menu Escape is handled by PopupDismissed event.
                         if let Some(event) = crate::input::translate_key_event(key_event, true) {
                             self.send_input_event(event);
                             handled_input = true;
