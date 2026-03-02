@@ -503,6 +503,13 @@ impl WebView {
         let event: InputEventAndId = event.into();
         let event_id = event.id;
 
+        // Notify paint so it can track pending wheel events for default
+        // scroll handling in notify_input_event_handled.
+        self.inner()
+            .servo
+            .paint()
+            .notify_input_event(self.id(), event.clone());
+
         self.inner().servo.constellation_proxy().send(
             EmbedderToConstellationMessage::ForwardInputEvent(
                 self.id(),

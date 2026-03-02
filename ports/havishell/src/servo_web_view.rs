@@ -144,16 +144,20 @@ pub struct ServoWebView {
     /// fragment tree is replaced (navigation) so GPU caches can be cleared.
     #[rust]
     last_fragment_ptr: usize,
+    /// Cached stacking context tree, rebuilt only when the fragment Arc changes.
+    /// The tree borrows from `cached_sc_fragments`; the Arc keeps data alive.
+    /// SAFETY: `cached_sc_tree` must be dropped/cleared before `cached_sc_fragments`.
+    #[rust]
+    cached_sc_tree: Option<havi_render::CachedStackingContextTree>,
+
+    /// Shared scroll state from layout. When set, scroll offset and content
+    /// height are read from here instead of local estimates.
+    #[rust]
+    shared_scroll_state: Option<layout_api::SharedScrollState>,
 
     // --- Scroll indicator overlay ---
     #[live]
     draw_scroll_thumb: DrawColor,
-    #[rust]
-    scroll_y: f64,
-    #[rust]
-    content_height: f64,
-    #[rust]
-    viewport_height: f64,
     /// Opacity for the scroll indicator (1.0 = visible, fades toward 0).
     #[rust]
     scroll_fade: f64,
@@ -263,19 +267,38 @@ impl Widget for ServoWebView {
         if frag_ptr != self.last_fragment_ptr {
             self.last_fragment_ptr = frag_ptr;
             self.texture_cache.0.clear();
+            // Invalidate cached stacking context tree — will be rebuilt below.
+            self.cached_sc_tree = None;
         }
 
         self.draw_bg.begin(cx, walk, Layout::default());
 
         if let Some(ref frags) = fragments {
+            // Rebuild stacking context tree only when fragments change.
+            let needs_rebuild = self
+                .cached_sc_tree
+                .as_ref()
+                .map_or(true, |c| !c.is_valid_for(frags));
+            if needs_rebuild {
+                self.cached_sc_tree =
+                    Some(havi_render::CachedStackingContextTree::new(frags.clone()));
+            }
+
             let rect = cx.turtle().rect();
-            let origin = dvec2(rect.pos.x, rect.pos.y - self.scroll_y);
-            let viewport_top = self.scroll_y as f32;
-            let viewport_bottom = (self.scroll_y + rect.size.y) as f32;
+            // Read scroll state from layout's shared state.
+            let scroll_state = self
+                .shared_scroll_state
+                .as_ref()
+                .map(|s| s.get())
+                .unwrap_or_default();
+            let scroll_y = scroll_state.scroll_y;
+            let origin = dvec2(rect.pos.x, rect.pos.y - scroll_y);
+            let viewport_top = scroll_y as f32;
+            let viewport_bottom = (scroll_y + rect.size.y) as f32;
 
             havi_render::render_fragments_clipped(
                 cx,
-                frags,
+                self.cached_sc_tree.as_ref().unwrap(),
                 origin,
                 viewport_top,
                 viewport_bottom,
@@ -311,15 +334,20 @@ impl Widget for ServoWebView {
 
 impl ServoWebView {
     fn draw_scroll_overlay(&mut self, cx: &mut Cx2d, rect: &Rect) {
-        if self.scroll_fade > 0.0 && self.content_height > self.viewport_height {
+        let scroll_state = self
+            .shared_scroll_state
+            .as_ref()
+            .map(|s| s.get())
+            .unwrap_or_default();
+        if self.scroll_fade > 0.0 && scroll_state.content_height > scroll_state.viewport_height {
             let thumb_width = 4.0;
             let margin_right = 2.0;
             let widget_h = rect.size.y;
-            let ratio = self.viewport_height / self.content_height;
+            let ratio = scroll_state.viewport_height / scroll_state.content_height;
             let thumb_h = (ratio * widget_h).max(20.0);
-            let scroll_range = self.content_height - self.viewport_height;
+            let scroll_range = scroll_state.content_height - scroll_state.viewport_height;
             let thumb_y = if scroll_range > 0.0 {
-                (self.scroll_y / scroll_range) * (widget_h - thumb_h)
+                (scroll_state.scroll_y / scroll_range) * (widget_h - thumb_h)
             } else {
                 0.0
             };
@@ -351,10 +379,15 @@ impl ServoWebView {
 // ---------------------------------------------------------------------------
 
 impl ServoWebViewRef {
-    /// Set the shared fragment tree for direct Makepad rendering.
-    pub fn set_shared_fragments(&self, shared: layout_api::SharedFragmentTree) {
+    /// Set the shared fragment tree and scroll state for direct Makepad rendering.
+    pub fn set_shared_fragments(
+        &self,
+        shared: layout_api::SharedFragmentTree,
+        scroll_state: layout_api::SharedScrollState,
+    ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_fragments = Some(shared);
+            inner.shared_scroll_state = Some(scroll_state);
             // Clear image textures since they are content-dependent.
             inner.texture_cache.0.clear();
             // NOTE: Do NOT clear opacity_passes, filter_passes, or
@@ -374,18 +407,9 @@ impl ServoWebViewRef {
         }
     }
 
-    /// Update scroll state from a JS query result and trigger redraw.
-    pub fn set_scroll_state(
-        &self,
-        cx: &mut Cx,
-        scroll_y: f64,
-        content_height: f64,
-        viewport_height: f64,
-    ) {
+    /// Show the scroll indicator and trigger a redraw.
+    pub fn show_scroll_indicator(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
-            inner.scroll_y = scroll_y;
-            inner.content_height = content_height;
-            inner.viewport_height = viewport_height;
             inner.scroll_fade = 1.0;
             inner.redraw(cx);
         }

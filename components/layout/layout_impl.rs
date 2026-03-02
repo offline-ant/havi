@@ -188,6 +188,14 @@ pub struct LayoutThread {
     /// to avoid having to constantly access the thread-safe global options.
     debug: DiagnosticsLogging,
 
+    /// Scroll offsets received from the renderer (paint layer), keyed by
+    /// `ExternalScrollId`. Used by `scroll_offset()` so that script-side
+    /// hit-testing accounts for the current scroll position.
+    scroll_offsets: FxHashMap<ExternalScrollId, LayoutVector2D>,
+
+    /// Shared scroll state for the embedding layer (Makepad).
+    shared_scroll_state: layout_api::SharedScrollState,
+
     /// Whether accessibility is active in this layout.
     /// (Note: this is a temporary field which will be replaced with an optional accessibility tree member.)
     accessibility_active: Cell<bool>,
@@ -570,14 +578,34 @@ impl Layout for LayoutThread {
 
     fn set_scroll_offsets_from_renderer(
         &mut self,
-        _scroll_states: &FxHashMap<ExternalScrollId, LayoutVector2D>,
+        scroll_states: &FxHashMap<ExternalScrollId, LayoutVector2D>,
     ) {
-        // TODO(havi-render): Scroll offsets managed by havi-render.
+        let root_scroll_id = self.id.root_scroll_id();
+        for (&id, &offset) in scroll_states {
+            // Clamp the scroll offset to valid bounds when we have fragment info.
+            let clamped = if id == root_scroll_id {
+                self.clamp_root_scroll_offset(offset)
+            } else {
+                offset
+            };
+            self.scroll_offsets.insert(id, clamped);
+        }
+
+        // Update shared scroll state for the embedding layer.
+        if let Some(&offset) = self.scroll_offsets.get(&root_scroll_id) {
+            let viewport_size = self.stylist.device().au_viewport_size();
+            let viewport_h = viewport_size.height.to_f64_px();
+            let content_h = self.content_height();
+            self.shared_scroll_state.set(layout_api::ScrollStateData {
+                scroll_y: offset.y as f64,
+                content_height: content_h,
+                viewport_height: viewport_h,
+            });
+        }
     }
 
-    fn scroll_offset(&self, _id: ExternalScrollId) -> Option<LayoutVector2D> {
-        // TODO(havi-render): Scroll offsets managed by havi-render.
-        None
+    fn scroll_offset(&self, id: ExternalScrollId) -> Option<LayoutVector2D> {
+        self.scroll_offsets.get(&id).copied()
     }
 
     fn needs_new_display_list(&self) -> bool {
@@ -685,6 +713,22 @@ impl Layout for LayoutThread {
 }
 
 impl LayoutThread {
+    fn content_height(&self) -> f64 {
+        self.fragment_tree
+            .borrow()
+            .as_ref()
+            .map(|ft| ft.scrollable_overflow().size.height.to_f64_px())
+            .unwrap_or(0.0)
+    }
+
+    fn clamp_root_scroll_offset(&self, offset: LayoutVector2D) -> LayoutVector2D {
+        let viewport_size = self.stylist.device().au_viewport_size();
+        let viewport_h = viewport_size.height.to_f32_px();
+        let content_h = self.content_height() as f32;
+        let max_y = (content_h - viewport_h).max(0.0);
+        LayoutVector2D::new(offset.x.max(0.0), offset.y.clamp(0.0, max_y))
+    }
+
     fn new(config: LayoutConfig) -> LayoutThread {
         let mut font = Font::initial_values();
         let default_font_size = pref!(fonts_default_size);
@@ -729,6 +773,8 @@ impl LayoutThread {
             debug: opts::get().debug.clone(),
             user_stylesheets: config.user_stylesheets,
             accessibility_active: Cell::new(config.accessibility_active),
+            scroll_offsets: Default::default(),
+            shared_scroll_state: layout_api::shared_scroll_state_for(config.webview_id),
         }
     }
 

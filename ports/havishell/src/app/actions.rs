@@ -1,5 +1,41 @@
 use super::*;
 
+fn servo_cursor_to_makepad(cursor: servo::Cursor) -> MouseCursor {
+    match cursor {
+        servo::Cursor::None => MouseCursor::Hidden,
+        servo::Cursor::Default => MouseCursor::Default,
+        servo::Cursor::Pointer => MouseCursor::Hand,
+        servo::Cursor::ContextMenu => MouseCursor::Default,
+        servo::Cursor::Help => MouseCursor::Help,
+        servo::Cursor::Progress => MouseCursor::Wait,
+        servo::Cursor::Wait => MouseCursor::Wait,
+        servo::Cursor::Cell => MouseCursor::Crosshair,
+        servo::Cursor::Crosshair => MouseCursor::Crosshair,
+        servo::Cursor::Text => MouseCursor::Text,
+        servo::Cursor::VerticalText => MouseCursor::Text,
+        servo::Cursor::Alias => MouseCursor::Default,
+        servo::Cursor::Copy => MouseCursor::Default,
+        servo::Cursor::Move => MouseCursor::Move,
+        servo::Cursor::NoDrop => MouseCursor::NotAllowed,
+        servo::Cursor::NotAllowed => MouseCursor::NotAllowed,
+        servo::Cursor::Grab => MouseCursor::Arrow,
+        servo::Cursor::Grabbing => MouseCursor::Arrow,
+        servo::Cursor::EResize => MouseCursor::EResize,
+        servo::Cursor::NResize => MouseCursor::NResize,
+        servo::Cursor::NeResize => MouseCursor::NeResize,
+        servo::Cursor::NwResize => MouseCursor::NwResize,
+        servo::Cursor::SResize => MouseCursor::SResize,
+        servo::Cursor::SeResize => MouseCursor::SeResize,
+        servo::Cursor::SwResize => MouseCursor::SwResize,
+        servo::Cursor::WResize => MouseCursor::WResize,
+        servo::Cursor::EwResize => MouseCursor::EwResize,
+        servo::Cursor::NsResize => MouseCursor::NsResize,
+        servo::Cursor::ColResize => MouseCursor::ColResize,
+        servo::Cursor::RowResize => MouseCursor::RowResize,
+        _ => MouseCursor::Default,
+    }
+}
+
 fn set_jsonqa_via(current_url: &str, via: &str) -> String {
     if !current_url.ends_with('}') {
         return havi_protocols::url::via_url(current_url, via);
@@ -53,17 +89,16 @@ impl App {
         }
         log!("[havishell] complete_startup_navigation: url={}", self.start_url);
         self.start_navigation_done = true;
-        self.scroll_y_estimate = 0.0;
-        self.content_height_estimate = 0.0;
 
         // Create the first webview if none exists yet (splash screen path).
         if self.tabs.is_empty() {
             if let Some(webview) = self.create_webview(&self.start_url) {
                 let webview_id = webview.id();
                 let shared = layout_api::shared_fragment_tree_for(webview_id);
+                let scroll = layout_api::shared_scroll_state_for(webview_id);
                 self.ui
                     .servo_web_view(cx, ids!(web_view))
-                    .set_shared_fragments(shared);
+                    .set_shared_fragments(shared, scroll);
                 self.tabs.push(TabInfo {
                     webview_id,
                     webview,
@@ -295,8 +330,6 @@ impl MatchEvent for App {
                 NavCommand::Forward => self.go_forward(),
                 NavCommand::Reload => self.reload(),
                 NavCommand::Navigate(url) => {
-                    self.scroll_y_estimate = 0.0;
-                    self.content_height_estimate = 0.0;
                     self.navigate(url);
                     // Update active tab URL
                     if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
@@ -348,6 +381,18 @@ impl MatchEvent for App {
                         self.idle_frames = 0;
                         self.next_frame = cx.new_next_frame();
                         cx.redraw_all();
+                    }
+                },
+                Some(MakepadServoAction::CursorChanged { webview_id, cursor }) => {
+                    let webview_id = *webview_id;
+                    let cursor = *cursor;
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map_or(false, |t| t.webview_id == webview_id)
+                    {
+                        let makepad_cursor = servo_cursor_to_makepad(cursor);
+                        cx.set_cursor(makepad_cursor);
                     }
                 },
                 Some(MakepadServoAction::WebViewClosed { webview_id }) => {
@@ -467,9 +512,10 @@ impl AppMain for App {
                 if let Some(webview) = self.create_webview(&url) {
                     let webview_id = webview.id();
                     let shared = layout_api::shared_fragment_tree_for(webview_id);
+                    let scroll = layout_api::shared_scroll_state_for(webview_id);
                     self.ui
                         .servo_web_view(cx, ids!(web_view))
-                        .set_shared_fragments(shared);
+                        .set_shared_fragments(shared, scroll);
                     self.tabs.push(TabInfo {
                         webview_id,
                         webview,

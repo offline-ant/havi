@@ -42,6 +42,7 @@ use style::computed_values::position::T as ComputedPosition;
 
 pub use shaders::{DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawFilterImage};
 pub use hit_test::{hit_test, find_scroll_container};
+pub use stacking_context::CachedStackingContextTree;
 
 /// Cache for image textures, keyed by OpaqueNode id.
 /// Call `clear()` when the fragment tree changes to avoid stale textures.
@@ -173,10 +174,10 @@ pub fn render_fragments(
     makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
 }
 
-/// Draw fragments with viewport clipping.
+/// Draw fragments with viewport clipping, using a pre-built stacking context tree.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
-    fragments: &[Fragment],
+    cached_tree: &CachedStackingContextTree,
     origin: DVec2,
     viewport_top: f32,
     viewport_bottom: f32,
@@ -196,7 +197,6 @@ pub fn render_fragments_clipped(
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
 ) {
-    let sc = stacking_context::build_stacking_context_tree(fragments);
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg, draw_text, draw_text_bold, draw_text_mono,
         draw_image, texture_cache, scroll_state, draw_rounded_bg,
@@ -204,7 +204,7 @@ pub fn render_fragments_clipped(
         opacity_state, filter_state, draw_filter_image,
     };
     makepad_builder::paint_stacking_context(
-        cx, &sc, origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,
+        cx, cached_tree.tree(), origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,
     );
 }
 

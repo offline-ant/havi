@@ -3267,13 +3267,20 @@ impl Window {
         &self,
         point_in_frame: Point2D<f32, CSSPixel>,
     ) -> Option<HitTestResult> {
+        // The fragment tree stores rects in document (initial containing block)
+        // coordinates. Convert the viewport point to document space by adding
+        // the root scroll offset so that hit-testing matches correctly after
+        // scrolling.
+        let scroll_offset = self.scroll_offset().cast_unit();
+        let point_in_document = point_in_frame + scroll_offset;
+
         let result = self
-            .elements_from_point_query(point_in_frame.cast_unit(), ElementsFromPointFlags::empty())
+            .elements_from_point_query(point_in_document.cast_unit(), ElementsFromPointFlags::empty())
             .into_iter()
             .nth(0)?;
 
         let point_relative_to_initial_containing_block =
-            point_in_frame + self.scroll_offset().cast_unit();
+            point_in_frame + scroll_offset;
 
         // SAFETY: This is safe because `Window::query_elements_from_point` has ensured that
         // layout has run and any OpaqueNodes that no longer refer to real nodes are gone.

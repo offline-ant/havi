@@ -179,6 +179,35 @@ fn paint_sc_contents(
     });
 }
 
+/// Check if a fragment's Y extent is entirely outside the viewport.
+fn is_culled(fragment: &Fragment, cb_origin: (f64, f64), clip: Option<(f32, f32)>) -> bool {
+    let Some((vp_top, vp_bottom)) = clip else {
+        return false;
+    };
+    let (frag_top, frag_bottom) = match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            let br = bf.border_rect();
+            let top = cb_origin.1 + br.origin.y.to_f32_px() as f64;
+            let bottom = top + br.size.height.to_f32_px() as f64;
+            (top, bottom)
+        }
+        Fragment::Text(tf) => {
+            let r = tf.base.rect;
+            let top = cb_origin.1 + r.origin.y.to_f32_px() as f64;
+            let bottom = top + r.size.height.to_f32_px() as f64;
+            (top, bottom)
+        }
+        Fragment::Image(img) => {
+            let r = img.base.rect;
+            let top = cb_origin.1 + r.origin.y.to_f32_px() as f64;
+            let bottom = top + r.size.height.to_f32_px() as f64;
+            (top, bottom)
+        }
+        _ => return false,
+    };
+    frag_bottom < vp_top as f64 || frag_top > vp_bottom as f64
+}
+
 /// Paint a single content item.
 fn paint_content(
     cx: &mut Cx2d,
@@ -199,6 +228,11 @@ fn paint_content(
             return;
         }
     };
+
+    // Viewport culling: skip fragments entirely outside the visible area.
+    if is_culled(fragment, cb_origin, clip) {
+        return;
+    }
 
     let draw_origin = dvec2(origin.x + cb_origin.0, origin.y + cb_origin.1);
 

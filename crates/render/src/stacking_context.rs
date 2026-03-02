@@ -4,6 +4,8 @@
 //! iteration in correct CSS paint order. Adapted from servo-mainline's
 //! `components/layout/display_list/stacking_context.rs`.
 
+use std::sync::Arc;
+
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_types::Fragment;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
@@ -462,4 +464,53 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
     }
 
     false
+}
+
+// ---------------------------------------------------------------------------
+// Cached stacking context tree
+// ---------------------------------------------------------------------------
+
+/// A stacking context tree cached alongside the `Arc<Vec<Fragment>>` it borrows from.
+///
+/// The tree references data inside the `Arc`. As long as the `Arc` is held, the
+/// references are valid. The tree is rebuilt only when the fragment `Arc` changes
+/// (detected by data pointer comparison).
+pub struct CachedStackingContextTree {
+    /// Kept alive to guarantee that `tree` references remain valid.
+    _fragments: Arc<Vec<Fragment>>,
+    /// The built stacking context tree. Lifetime is tied to `_fragments` —
+    /// the `'static` is a transmuted lie, safe because we always drop `tree`
+    /// before `_fragments` (Rust drops fields in declaration order).
+    tree: StackingContext<'static>,
+    /// Data pointer of the `Arc<Vec<Fragment>>` used to build this tree.
+    frag_ptr: usize,
+}
+
+impl CachedStackingContextTree {
+    /// Build a new cached tree from the given fragments.
+    pub fn new(fragments: Arc<Vec<Fragment>>) -> Self {
+        let frag_ptr = Arc::as_ptr(&fragments) as usize;
+        let tree = build_stacking_context_tree(&fragments);
+        // SAFETY: The `Arc` is stored in `_fragments` and dropped after `tree`.
+        // Rust drops struct fields in declaration order, so `tree` is dropped
+        // before `_fragments`. The fragment data is heap-allocated via Arc and
+        // won't move, so all borrows in the tree remain valid for the struct's
+        // lifetime.
+        let tree: StackingContext<'static> = unsafe { std::mem::transmute(tree) };
+        Self {
+            _fragments: fragments,
+            tree,
+            frag_ptr,
+        }
+    }
+
+    /// Check if this cache is still valid for the given fragment Arc.
+    pub fn is_valid_for(&self, fragments: &Arc<Vec<Fragment>>) -> bool {
+        Arc::as_ptr(fragments) as usize == self.frag_ptr
+    }
+
+    /// Get a reference to the cached tree.
+    pub(crate) fn tree(&self) -> &StackingContext<'_> {
+        &self.tree
+    }
 }

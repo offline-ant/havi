@@ -75,9 +75,40 @@ impl SharedFragmentTree {
     }
 }
 
+/// Thread-safe container for sharing scroll state between layout and the embedding.
+/// Layout writes scroll offsets here after `set_scroll_offsets_from_renderer`;
+/// the embedding reads them for rendering offset and scroll indicator.
+#[derive(Clone, Default)]
+pub struct SharedScrollState(Arc<RwLock<ScrollStateData>>);
+
+/// Scroll state data shared between layout and the embedding layer.
+#[derive(Clone, Default)]
+pub struct ScrollStateData {
+    /// Root viewport scroll offset in CSS pixels.
+    pub scroll_y: f64,
+    /// Total content height in CSS pixels (0 if unknown).
+    pub content_height: f64,
+    /// Viewport height in CSS pixels.
+    pub viewport_height: f64,
+}
+
+impl SharedScrollState {
+    pub fn set(&self, data: ScrollStateData) {
+        *self.0.write() = data;
+    }
+
+    pub fn get(&self) -> ScrollStateData {
+        self.0.read().clone()
+    }
+}
+
 /// Global registry of shared fragment trees, keyed by WebViewId.
 /// Layout writes fragments here; the embedding reads them for rendering.
 static FRAGMENT_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
+/// Global registry of shared scroll states, keyed by WebViewId.
+static SCROLL_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Get or create a SharedFragmentTree for a given WebViewId.
@@ -90,9 +121,24 @@ pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
         .clone()
 }
 
+/// Get or create a SharedScrollState for a given WebViewId.
+pub fn shared_scroll_state_for(id: WebViewId) -> SharedScrollState {
+    SCROLL_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
 /// Remove a SharedFragmentTree when a WebView is destroyed.
 pub fn remove_shared_fragment_tree(id: WebViewId) {
     FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
+}
+
+/// Remove a SharedScrollState when a WebView is destroyed.
+pub fn remove_shared_scroll_state(id: WebViewId) {
+    SCROLL_REGISTRY.lock().unwrap().remove(&id);
 }
 
 pub trait GenericLayoutDataTrait: Any + MallocSizeOfTrait {

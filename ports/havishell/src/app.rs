@@ -696,12 +696,6 @@ pub struct App {
     #[rust]
     is_right_click_gesture: bool,
 
-    // --- Tab state ---
-    #[rust]
-    scroll_y_estimate: f64,
-    #[rust]
-    content_height_estimate: f64,
-
     // --- Context menu state ---
     #[rust]
     context_menu_open: bool,

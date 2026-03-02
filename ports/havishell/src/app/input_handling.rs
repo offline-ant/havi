@@ -222,29 +222,11 @@ impl App {
                             delta,
                             pt.into(),
                         )));
-                        // Update local scroll estimate for the overlay indicator.
-                        // scroll.y is in logical pixels (negative = scroll down in Makepad).
-                        self.scroll_y_estimate = (self.scroll_y_estimate - scroll.y).max(0.0);
-                        // Use viewport size as rough content height estimate until we know better.
-                        let vp_h = self
-                            .ui
+                        // Show scroll indicator; actual scroll state comes from
+                        // layout via SharedScrollState.
+                        self.ui
                             .servo_web_view(cx, ids!(web_view))
-                            .area()
-                            .rect(cx)
-                            .size
-                            .y;
-                        if self.content_height_estimate < vp_h {
-                            self.content_height_estimate = vp_h * 3.0; // rough initial guess
-                        }
-                        // Clamp scroll to content bounds
-                        let max_scroll = (self.content_height_estimate - vp_h).max(0.0);
-                        self.scroll_y_estimate = self.scroll_y_estimate.min(max_scroll);
-                        self.ui.servo_web_view(cx, ids!(web_view)).set_scroll_state(
-                            cx,
-                            self.scroll_y_estimate,
-                            self.content_height_estimate,
-                            vp_h,
-                        );
+                            .show_scroll_indicator(cx);
                         handled_input = true;
                     },
 

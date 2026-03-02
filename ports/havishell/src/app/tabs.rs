@@ -262,9 +262,10 @@ impl App {
         };
         let webview_id = webview.id();
         let shared = layout_api::shared_fragment_tree_for(webview_id);
+        let scroll = layout_api::shared_scroll_state_for(webview_id);
         self.ui
             .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared);
+            .set_shared_fragments(shared, scroll);
         self.tabs.push(TabInfo {
             webview_id,
             webview,
@@ -313,10 +314,12 @@ impl App {
         }
         self.active_tab_idx = idx;
         self.activate_tab_webview(idx);
-        let shared = layout_api::shared_fragment_tree_for(self.tabs[idx].webview_id);
+        let wv_id = self.tabs[idx].webview_id;
+        let shared = layout_api::shared_fragment_tree_for(wv_id);
+        let scroll = layout_api::shared_scroll_state_for(wv_id);
         self.ui
             .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared);
+            .set_shared_fragments(shared, scroll);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.ui
