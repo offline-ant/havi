@@ -382,6 +382,12 @@ fn paint_content(
                         state.draw_bg, state.draw_rounded_bg,
                         state.draw_box_shadow, state.draw_gradient, opacity,
                     );
+                    if !bf.background_images.is_empty() {
+                        crate::background::draw_background_url_images(
+                            cx, &bf.background_images, bx, by, bw, bh,
+                            state.draw_image, state.texture_cache, opacity,
+                        );
+                    }
 
                     // Handle overflow clipping for children if this is the
                     // OwnBackgroundsAndBorders section of a stacking context.
@@ -401,6 +407,12 @@ fn paint_content(
                         state.draw_bg, state.draw_rounded_bg,
                         state.draw_box_shadow, state.draw_gradient, opacity,
                     );
+                    if !bf.background_images.is_empty() {
+                        crate::background::draw_background_url_images(
+                            cx, &bf.background_images, bx, by, bw, bh,
+                            state.draw_image, state.texture_cache, opacity,
+                        );
+                    }
                 }
                 StackingContextSection::Outline => {
                     // TODO: draw outline only.

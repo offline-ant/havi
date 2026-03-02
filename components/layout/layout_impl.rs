@@ -1173,7 +1173,7 @@ impl LayoutThread {
         *self.fragment_tree.borrow_mut() = Some(fragment_tree.clone());
 
         // Convert layout fragments to havi_types fragments for rendering.
-        let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments);
+        let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments, image_resolver);
         let converted = Arc::new(converted);
         *self.rendered_fragments.borrow_mut() = Some(converted.clone());
         self.shared_fragments.set(converted);

@@ -9,31 +9,38 @@ use std::sync::Arc;
 use app_units::Au;
 
 use fonts_traits::FontIdentifier;
+use crate::context::ImageResolver;
 use crate::fragment_tree::Fragment as LayoutFragment;
 
 /// Convert a slice of layout fragments to havi_types fragments for rendering.
-pub(crate) fn convert_fragments(fragments: &[LayoutFragment]) -> Vec<havi_types::Fragment> {
+pub(crate) fn convert_fragments(
+    fragments: &[LayoutFragment],
+    image_resolver: &Arc<ImageResolver>,
+) -> Vec<havi_types::Fragment> {
     fragments
         .iter()
-        .filter_map(convert_fragment)
+        .filter_map(|f| convert_fragment(f, image_resolver))
         .collect()
 }
 
-fn convert_fragment(fragment: &LayoutFragment) -> Option<havi_types::Fragment> {
+fn convert_fragment(
+    fragment: &LayoutFragment,
+    image_resolver: &Arc<ImageResolver>,
+) -> Option<havi_types::Fragment> {
     match fragment {
         LayoutFragment::Box(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Box(convert_box_fragment(&f)))
+            Some(havi_types::Fragment::Box(convert_box_fragment(&f, image_resolver)))
         },
         LayoutFragment::Float(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Float(convert_box_fragment(&f)))
+            Some(havi_types::Fragment::Float(convert_box_fragment(&f, image_resolver)))
         },
         LayoutFragment::Positioning(arc) => {
             let f = arc.borrow();
             Some(havi_types::Fragment::Positioning(havi_types::PositioningFragment {
                 base: convert_base_fragment(&f.base),
-                children: convert_fragments(&f.children),
+                children: convert_fragments(&f.children, image_resolver),
             }))
         },
         LayoutFragment::Text(arc) => {
@@ -71,11 +78,22 @@ fn convert_fragment(fragment: &LayoutFragment) -> Option<havi_types::Fragment> {
         },
         LayoutFragment::Image(arc) => {
             let f = arc.borrow();
+            let (image_width, image_height, pixels) = f
+                .raster_image
+                .as_ref()
+                .map(|img| {
+                    (
+                        img.metadata.width as u32,
+                        img.metadata.height as u32,
+                        img.bytes.as_ref().clone(),
+                    )
+                })
+                .unwrap_or_default();
             Some(havi_types::Fragment::Image(havi_types::ImageFragment {
                 base: convert_base_fragment(&f.base),
-                image_width: 0,
-                image_height: 0,
-                pixels: Vec::new(),
+                image_width,
+                image_height,
+                pixels,
             }))
         },
         LayoutFragment::IFrame(arc) => {
@@ -136,6 +154,7 @@ fn convert_base_fragment(
 
 fn convert_box_fragment(
     f: &crate::fragment_tree::BoxFragment,
+    image_resolver: &Arc<ImageResolver>,
 ) -> havi_types::BoxFragment {
     let block_level_info = f.block_level_layout_info.as_ref().map(|info| {
         Box::new(havi_types::BlockLevelLayoutInfo {
@@ -149,9 +168,13 @@ fn convert_box_fragment(
     let writing_mode = f.style().writing_mode;
     let baselines = f.baselines(writing_mode);
 
+    // Resolve CSS background-image: url() images.
+    let node = f.base.tag.map(|t| t.node);
+    let background_images = resolve_background_images(&f.base.style(), node, image_resolver);
+
     havi_types::BoxFragment {
         base: convert_base_fragment(&f.base),
-        children: convert_fragments(&f.children),
+        children: convert_fragments(&f.children, image_resolver),
         padding: f.padding,
         border: f.border,
         margin: f.margin,
@@ -160,7 +183,42 @@ fn convert_box_fragment(
             last: baselines.last,
         },
         block_level_info,
+        background_images,
     }
+}
+
+/// Resolve CSS background-image: url() values to pixel data.
+fn resolve_background_images(
+    style: &style::properties::ComputedValues,
+    node: Option<style::dom::OpaqueNode>,
+    image_resolver: &Arc<ImageResolver>,
+) -> Vec<havi_types::BackgroundImage> {
+    use style::values::computed::image::Image;
+
+    let bg = style.get_background();
+    let mut images = Vec::new();
+    for image in bg.background_image.0.iter() {
+        match image {
+            Image::Url(url_value) => {
+                let Some(url) = url_value.url() else { continue };
+                let Ok(cached) = image_resolver.get_cached_image_for_url(
+                    node.unwrap_or(style::dom::OpaqueNode(0)),
+                    url.clone().into(),
+                    layout_api::LayoutImageDestination::DisplayListBuilding,
+                ) else {
+                    continue;
+                };
+                let Some(raster) = cached.as_raster_image() else { continue };
+                images.push(havi_types::BackgroundImage {
+                    width: raster.metadata.width as u32,
+                    height: raster.metadata.height as u32,
+                    pixels: raster.bytes.as_ref().clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+    images
 }
 
 fn convert_collapsed_block_margins(

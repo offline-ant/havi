@@ -19,6 +19,14 @@ pub struct Baselines {
     pub last: Option<Au>,
 }
 
+/// Resolved pixel data for a CSS background-image: url().
+#[derive(Clone, Debug)]
+pub struct BackgroundImage {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
 /// A laid-out box with its content rect, padding, border, margin,
 /// optional baselines, and child fragments forming a tree.
 #[derive(Clone, Debug)]
@@ -31,6 +39,8 @@ pub struct BoxFragment {
     pub baselines: Baselines,
     /// Block-level layout info (clearance, collapsed margins).
     pub block_level_info: Option<Box<BlockLevelLayoutInfo>>,
+    /// Resolved CSS background-image: url() images, in CSS order (first = topmost).
+    pub background_images: Vec<BackgroundImage>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +67,7 @@ impl BoxFragment {
             margin,
             baselines: Baselines::default(),
             block_level_info: None,
+            background_images: Vec::new(),
         }
     }
 

@@ -496,30 +496,34 @@ impl ReplacedContents {
                 .image
                 .as_ref()
                 .and_then(|image| match image {
-                    Image::Raster(raster_image) => raster_image.id,
+                    Image::Raster(raster_image) => {
+                        Some((raster_image.id, Some(raster_image.clone())))
+                    },
                     Image::Vector(vector_image) => {
                         let scale = layout_context.style_context.device_pixel_ratio();
                         let width = object_fit_size.width.scale_by(scale.0).to_px();
                         let height = object_fit_size.height.scale_by(scale.0).to_px();
                         let size = Size2D::new(width, height);
                         let tag = self.base_fragment_info.tag?;
-                        layout_context
+                        let raster = layout_context
                             .image_resolver
                             .rasterize_vector_image(
                                 vector_image.id,
                                 size,
                                 tag.node,
                                 vector_image.svg_id.clone(),
-                            )
-                            .and_then(|i| i.id)
+                            );
+                        let key = raster.as_ref().and_then(|r| r.id);
+                        Some((key, raster.map(std::sync::Arc::new)))
                     },
                 })
-                .map(|image_key| {
+                .map(|(image_key, raster_image)| {
                     Fragment::Image(ArcRefCell::new(ImageFragment {
                         base,
                         clip,
-                        image_key: Some(image_key),
+                        image_key,
                         showing_broken_image_icon: image_info.showing_broken_image_icon,
+                        raster_image,
                     }))
                 })
                 .into_iter()
@@ -530,6 +534,7 @@ impl ReplacedContents {
                     clip,
                     image_key: video_info.image_key,
                     showing_broken_image_icon: false,
+                    raster_image: None,
                 }))]
             },
             ReplacedContentKind::IFrame(iframe) => {
@@ -568,6 +573,7 @@ impl ReplacedContents {
                     clip,
                     image_key: Some(image_key),
                     showing_broken_image_icon: false,
+                    raster_image: None,
                 }))]
             },
             ReplacedContentKind::SVGElement(vector_image) => {
@@ -605,13 +611,14 @@ impl ReplacedContents {
                         tag.node,
                         vector_image.svg_id.clone(),
                     )
-                    .and_then(|image| image.id)
-                    .map(|image_key| {
+                    .map(|raster| {
+                        let image_key = raster.id;
                         Fragment::Image(ArcRefCell::new(ImageFragment {
                             base,
                             clip,
-                            image_key: Some(image_key),
+                            image_key,
                             showing_broken_image_icon: false,
+                            raster_image: Some(std::sync::Arc::new(raster)),
                         }))
                     })
                     .into_iter()

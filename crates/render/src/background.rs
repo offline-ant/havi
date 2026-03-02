@@ -134,10 +134,53 @@ fn draw_background_images(
                 draw_css_gradient(cx, gradient, x, y, w, h, current_abs, draw_gradient, opacity);
             }
             Image::Url(_) => {
-                // Background URL images need an image resolver. Rendering path proven via <img>.
+                // URL images are resolved during fragment conversion and stored
+                // in BoxFragment::background_images. Drawn by draw_background_url_images().
             }
             _ => {}
         }
+    }
+}
+
+/// Draw resolved CSS background-image: url() images for a box fragment.
+/// Called from makepad_builder after draw_element_box.
+pub(crate) fn draw_background_url_images(
+    cx: &mut Cx2d,
+    background_images: &[havi_types::BackgroundImage],
+    x: f64, y: f64, w: f32, h: f32,
+    draw_image: &mut DrawImage,
+    texture_cache: &mut crate::TextureCache,
+    opacity: f32,
+) {
+    use makepad_widgets::makepad_draw::ImageBuffer;
+
+    for (i, img) in background_images.iter().enumerate() {
+        if img.width == 0 || img.height == 0 || img.pixels.is_empty() {
+            continue;
+        }
+        // Use a synthetic cache key based on position + index to avoid re-uploading.
+        let cache_key = (x.to_bits() as usize)
+            .wrapping_mul(31)
+            .wrapping_add(y.to_bits() as usize)
+            .wrapping_mul(31)
+            .wrapping_add(i);
+        let texture = texture_cache.entry(cache_key).or_insert_with(|| {
+            let data: Vec<u32> = img.pixels.chunks_exact(4).map(|px| {
+                (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
+            }).collect();
+            let image_buffer = ImageBuffer {
+                width: img.width as usize,
+                height: img.height as usize,
+                data,
+                animation: None,
+            };
+            image_buffer.into_new_texture(cx.cx)
+        });
+        draw_image.draw_vars.set_texture(0, texture);
+        draw_image.opacity = opacity;
+        // Default: cover the element's padding box (same as background-size: auto).
+        // TODO: Support background-size, background-position, background-repeat.
+        draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
     }
 }
 
