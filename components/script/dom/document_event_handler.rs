@@ -30,6 +30,8 @@ use rustc_hash::FxHashMap;
 use script_bindings::codegen::GenericBindings::DocumentBinding::DocumentMethods;
 use script_bindings::codegen::GenericBindings::SelectionBinding::SelectionMethods;
 use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
+use script_bindings::codegen::GenericBindings::HTMLLabelElementBinding::HTMLLabelElementMethods;
+use script_bindings::codegen::GenericBindings::NavigatorBinding::NavigatorMethods;
 use script_bindings::codegen::GenericBindings::NodeBinding::NodeMethods;
 use script_bindings::codegen::GenericBindings::TouchBinding::TouchMethods;
 use script_bindings::codegen::GenericBindings::WindowBinding::{ScrollBehavior, WindowMethods};
@@ -47,6 +49,7 @@ use webrender_api::ExternalScrollId;
 use webrender_api::units::LayoutVector2D;
 
 use crate::dom::bindings::cell::DomRefCell;
+use crate::dom::bindings::inheritance::{ElementTypeId, HTMLElementTypeId, NodeTypeId};
 use crate::dom::bindings::refcounted::Trusted;
 use crate::dom::bindings::root::MutNullableDom;
 use crate::dom::clipboardevent::ClipboardEventType;
@@ -62,7 +65,8 @@ use crate::dom::pointerevent::{PointerEvent, PointerId};
 use crate::dom::scrolling_box::ScrollingBoxAxis;
 use crate::dom::types::{
     ClipboardEvent, CompositionEvent, DataTransfer, Element, Event, EventTarget, GlobalScope,
-    HTMLAnchorElement, KeyboardEvent, MouseEvent, Touch, TouchEvent, TouchList, WheelEvent, Window,
+    HTMLAnchorElement, HTMLLabelElement, KeyboardEvent, MouseEvent, Touch, TouchEvent, TouchList,
+    WheelEvent, Window,
 };
 use crate::drag_data_store::{DragDataStore, Kind, Mode};
 use crate::realms::enter_realm;
@@ -333,7 +337,7 @@ impl DocumentEventHandler {
                 .filter_map(DomRoot::downcast::<Element>)
             {
                 element.set_hover_state(false);
-                element.set_active_state(false);
+                self.element_for_activation(element).set_active_state(false);
             }
 
             if let Some(hit_test_result) = self
@@ -485,7 +489,7 @@ impl DocumentEventHandler {
                         .filter_map(DomRoot::downcast::<Element>)
                     {
                         element.set_hover_state(false);
-                        element.set_active_state(false);
+                        self.element_for_activation(element).set_active_state(false);
                     }
                 }
 
@@ -628,6 +632,21 @@ impl DocumentEventHandler {
         self.set_cursor(Some(hit_test_result.cursor));
     }
 
+    fn element_for_activation(&self, element: DomRoot<Element>) -> DomRoot<Element> {
+        // If the element is a label, the activable element is the control element.
+        if element.upcast::<Node>().type_id() ==
+            NodeTypeId::Element(ElementTypeId::HTMLElement(
+                HTMLElementTypeId::HTMLLabelElement,
+            ))
+        {
+            let label = element.downcast::<HTMLLabelElement>().unwrap();
+            if let Some(control) = label.GetControl() {
+                return DomRoot::from_ref(control.upcast::<Element>());
+            }
+        }
+        element
+    }
+
     /// <https://w3c.github.io/uievents/#mouseevent-algorithms>
     /// Handles native mouse down, mouse up, mouse click.
     fn handle_native_mouse_button_event(
@@ -656,6 +675,18 @@ impl DocumentEventHandler {
 
         let node = element.upcast::<Node>();
         debug!("{:?} on {:?}", event.action, node.debug_str());
+
+        // <https://html.spec.whatwg.org/multipage/#selector-active>
+        // If the element is being actively pointed at the element is being activated.
+        // Disabled elements can also be activated.
+        if event.action == MouseButtonAction::Down {
+            self.element_for_activation(element.clone())
+                .set_active_state(true);
+        }
+        if event.action == MouseButtonAction::Up {
+            self.element_for_activation(element.clone())
+                .set_active_state(false);
+        }
 
         // https://w3c.github.io/uievents/#hit-test
         // Prevent mouse event if element is disabled.
@@ -692,7 +723,6 @@ impl DocumentEventHandler {
             can_gc,
         ));
 
-        let activatable = element.as_maybe_activatable();
         match event.action {
             MouseButtonAction::Down => {
                 self.last_mouse_button_down_point
@@ -701,10 +731,6 @@ impl DocumentEventHandler {
                 // Start document text selection on left mousedown.
                 if event.button == MouseButton::Left {
                     self.begin_document_selection(&hit_test_result, can_gc);
-                }
-
-                if let Some(a) = activatable {
-                    a.enter_formal_activation_state();
                 }
 
                 // Step 6. Dispatch pointerdown event.
@@ -762,10 +788,6 @@ impl DocumentEventHandler {
                 // End document text selection on left mouseup.
                 if event.button == MouseButton::Left {
                     self.selection_active.set(false);
-                }
-
-                if let Some(a) = activatable {
-                    a.exit_formal_activation_state();
                 }
 
                 // Step 6. Dispatch pointerup event.
@@ -958,7 +980,7 @@ impl DocumentEventHandler {
             return Default::default();
         };
 
-        let current_target = DomRoot::upcast::<EventTarget>(element);
+        let current_target = DomRoot::upcast::<EventTarget>(element.clone());
         let window = &*self.window;
 
         let client_x = Finite::wrap(hit_test_result.point_in_frame.x as f64);
@@ -1014,6 +1036,9 @@ impl DocumentEventHandler {
                 self.active_touch_points
                     .borrow_mut()
                     .push(Dom::from_ref(&*pointer_touch));
+                // <https://html.spec.whatwg.org/multipage/#selector-active>
+                // If the element is being actively pointed at the element is being activated.
+                self.element_for_activation(element).set_active_state(true);
                 (current_target, pointer_touch)
             },
             _ => {
@@ -1054,6 +1079,9 @@ impl DocumentEventHandler {
                     TouchEventType::Up | TouchEventType::Cancel => {
                         active_touch_points.swap_remove(index);
                         self.remove_pointer_id_for_touch(identifier);
+                        // <https://html.spec.whatwg.org/multipage/#selector-active>
+                        // If the element is being actively pointed at the element is being activated.
+                        self.element_for_activation(element).set_active_state(false);
                     },
                     TouchEventType::Down => unreachable!("Should have been handled above"),
                 }
