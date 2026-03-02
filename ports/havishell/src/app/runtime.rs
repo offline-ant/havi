@@ -337,6 +337,8 @@ impl App {
             preferences.devtools_server_listen_address = "0".to_string();
         }
 
+        self.clipboard_state = Some(ClipboardState::new());
+
         let servo = servo::ServoBuilder::default()
             .event_loop_waker(Box::new(MakepadEventLoopWaker))
             .preferences(preferences)

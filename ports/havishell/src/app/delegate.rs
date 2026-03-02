@@ -53,6 +53,11 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         context_menu: Arc<Mutex<Option<servo::ContextMenu>>>,
     },
+    /// Accessibility tree update from a webview.
+    AccessibilityUpdate {
+        webview_id: WebViewId,
+        update: Arc<Mutex<Option<servo::accesskit::TreeUpdate>>>,
+    },
 }
 
 impl std::fmt::Debug for MakepadServoAction {
@@ -89,6 +94,9 @@ impl std::fmt::Debug for MakepadServoAction {
             },
             Self::ContextMenuShow { webview_id, .. } => {
                 f.debug_struct("ContextMenuShow").field("webview_id", webview_id).finish()
+            },
+            Self::AccessibilityUpdate { webview_id, .. } => {
+                f.debug_struct("AccessibilityUpdate").field("webview_id", webview_id).finish()
             },
         }
     }
@@ -139,6 +147,18 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         Cx::post_action(MakepadServoAction::WebViewClosed {
             webview_id: webview.id(),
         });
+    }
+
+    fn notify_accessibility_tree_update(
+        &self,
+        webview: servo::WebView,
+        tree_update: servo::accesskit::TreeUpdate,
+    ) {
+        Cx::post_action(MakepadServoAction::AccessibilityUpdate {
+            webview_id: webview.id(),
+            update: Arc::new(Mutex::new(Some(tree_update))),
+        });
+        SignalToUI::set_ui_signal();
     }
 
     fn show_embedder_control(&self, webview: servo::WebView, embedder_control: EmbedderControl) {

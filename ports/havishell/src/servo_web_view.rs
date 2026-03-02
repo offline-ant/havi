@@ -82,6 +82,15 @@ pub enum ServoWebViewAction {
     },
     TextInput {
         input: String,
+        was_paste: bool,
+    },
+    LongPress {
+        abs: DVec2,
+    },
+    SelectionHandleDrag {
+        abs: DVec2,
+        handle: makepad_widgets::makepad_platform::SelectionHandleKind,
+        phase: makepad_widgets::makepad_platform::SelectionHandlePhase,
     },
 }
 
@@ -260,6 +269,57 @@ impl Widget for ServoWebView {
                     uid,
                     ServoWebViewAction::TextInput {
                         input: ti.input.clone(),
+                        was_paste: ti.was_paste,
+                    },
+                );
+            },
+
+            // ----- Clipboard actions (mobile copy/cut) -----
+            Hit::TextCopy(tc) => {
+                if let Some(ref sel) = self.shared_selection {
+                    let text = sel.get_text();
+                    if !text.is_empty() {
+                        *tc.response.borrow_mut() = Some(text);
+                    }
+                }
+            },
+            Hit::TextCut(tc) => {
+                if let Some(ref sel) = self.shared_selection {
+                    let text = sel.get_text();
+                    if !text.is_empty() {
+                        *tc.response.borrow_mut() = Some(text);
+                    }
+                }
+                // Emit a KeyDown(Delete) action so the app sends it to Servo.
+                cx.widget_action(
+                    uid,
+                    ServoWebViewAction::KeyDown {
+                        key_event: KeyEvent {
+                            key_code: makepad_widgets::makepad_platform::KeyCode::Delete,
+                            is_repeat: false,
+                            modifiers: Default::default(),
+                            time: 0.0,
+                        },
+                    },
+                );
+            },
+
+            // ----- Long press -----
+            Hit::FingerLongPress(lp) => {
+                cx.widget_action(
+                    uid,
+                    ServoWebViewAction::LongPress { abs: lp.abs },
+                );
+            },
+
+            // ----- Selection handle drag (mobile) -----
+            Hit::SelectionHandleDrag(e) => {
+                cx.widget_action(
+                    uid,
+                    ServoWebViewAction::SelectionHandleDrag {
+                        abs: e.abs,
+                        handle: e.handle,
+                        phase: e.phase,
                     },
                 );
             },

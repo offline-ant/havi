@@ -488,7 +488,32 @@ impl MatchEvent for App {
                     }
                     let _ = response_sender.send(new_mode);
                 },
+                Some(MakepadServoAction::AccessibilityUpdate {
+                    webview_id,
+                    update,
+                }) => {
+                    let webview_id = *webview_id;
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map_or(false, |t| t.webview_id == webview_id)
+                    {
+                        if let Some(tree_update) = update.lock().unwrap().take() {
+                            cx.update_accessibility_tree(Box::new(tree_update));
+                        }
+                    }
+                },
                 _ => {},
+            }
+        }
+
+        // Drain clipboard copy queue.
+        if let Some(ref state) = self.clipboard_state {
+            let actions_queued: Vec<_> = state.action_queue.borrow_mut().drain(..).collect();
+            for action in actions_queued {
+                match action {
+                    clipboard::ClipboardAction::Copy(text) => cx.copy_to_clipboard(&text),
+                }
             }
         }
 
@@ -674,6 +699,38 @@ impl AppMain for App {
             }
 
             self.update_servo_and_texture(cx);
+
+            // Update primary selection (Linux middle-click paste) when text changes.
+            #[cfg(target_os = "linux")]
+            if let Some(tab) = self.tabs.get(self.active_tab_idx) {
+                let selection = layout_api::shared_document_selection_for(tab.webview_id);
+                let text = selection.get_text();
+                if text != self.last_primary_selection {
+                    if !text.is_empty() {
+                        cx.set_primary_selection(&text);
+                    }
+                    self.last_primary_selection = text;
+                }
+            }
+
+            // Update selection handles on mobile.
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            if let Some(tab) = self.tabs.get(self.active_tab_idx) {
+                let rects = layout_api::shared_document_selection_for(tab.webview_id).get();
+                if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
+                    let start = dvec2(first.origin.x as f64, (first.origin.y + first.size.height) as f64);
+                    let end = dvec2((last.origin.x + last.size.width) as f64, (last.origin.y + last.size.height) as f64);
+                    if !self.selection_handles_visible {
+                        cx.show_selection_handles(start, end);
+                        self.selection_handles_visible = true;
+                    } else {
+                        cx.update_selection_handles(start, end);
+                    }
+                } else if self.selection_handles_visible {
+                    cx.hide_selection_handles();
+                    self.selection_handles_visible = false;
+                }
+            }
 
             // Tick scroll fade animation
             let scroll_fading = self

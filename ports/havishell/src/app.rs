@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 mod actions;
+mod clipboard;
 mod context_menu;
 mod delegate;
 mod input_handling;
@@ -20,6 +21,7 @@ mod pylon_menu;
 mod runtime;
 mod tabs;
 
+use clipboard::ClipboardState;
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
 use pylon_menu::PylonStatus;
@@ -651,6 +653,8 @@ pub struct App {
     ui: WidgetRef,
 
     #[rust]
+    clipboard_state: Option<Rc<ClipboardState>>,
+    #[rust]
     servo: Option<servo::Servo>,
     #[rust]
     rendering_context: Option<Rc<servo::MakepadRenderingContext>>,
@@ -755,6 +759,16 @@ pub struct App {
     /// TCP connection alive (preventing pylon idle shutdown).
     #[rust]
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
+
+    /// Last primary selection text sent to the platform, for change detection.
+    #[cfg(target_os = "linux")]
+    #[rust]
+    last_primary_selection: String,
+
+    /// Whether selection handles are currently shown (mobile).
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[rust]
+    selection_handles_visible: bool,
 
     /// Canonical startup URL selected once during init.
     #[rust]

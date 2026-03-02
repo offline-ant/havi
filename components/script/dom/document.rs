@@ -3226,16 +3226,19 @@ impl Document {
 
         let Some(selection) = self.GetSelection(can_gc) else {
             shared.set(Vec::new());
+            shared.set_text(String::new());
             return;
         };
 
         if selection.IsCollapsed() {
             shared.set(Vec::new());
+            shared.set_text(String::new());
             return;
         }
 
         let Ok(range) = selection.GetRangeAt(0) else {
             shared.set(Vec::new());
+            shared.set_text(String::new());
             return;
         };
 
@@ -3256,6 +3259,7 @@ impl Document {
             }
         }
         shared.set(rects);
+        shared.set_text(range.Stringifier().to_string());
     }
 
     /// From <https://drafts.csswg.org/css-font-loading/#fontfaceset-pending-on-the-environment>:

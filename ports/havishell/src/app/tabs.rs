@@ -229,6 +229,14 @@ impl App {
             .hidpi_scale_factor(hidpi)
             .delegate(Rc::new(HaviWebViewDelegate))
             .build();
+        // Route clipboard through Makepad instead of arboard.
+        if let Some(ref state) = self.clipboard_state {
+            webview.set_clipboard_delegate(Rc::new(
+                super::clipboard::MakepadClipboardDelegate {
+                    state: state.clone(),
+                },
+            ));
+        }
         let (w, h) = self.content_size;
         webview.resize(dpi::PhysicalSize::new(w as u32, h as u32));
         Some(webview)

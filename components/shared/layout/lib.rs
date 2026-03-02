@@ -114,15 +114,29 @@ impl SharedScrollState {
 /// Written by the script thread when the DOM Selection changes;
 /// read by the renderer to draw highlight overlays.
 #[derive(Clone, Default)]
-pub struct SharedDocumentSelection(Arc<RwLock<Vec<euclid::Rect<f32, euclid::UnknownUnit>>>>);
+pub struct DocumentSelectionState {
+    pub rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>,
+    pub text: String,
+}
+
+#[derive(Clone, Default)]
+pub struct SharedDocumentSelection(Arc<RwLock<DocumentSelectionState>>);
 
 impl SharedDocumentSelection {
     pub fn set(&self, rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>) {
-        *self.0.write() = rects;
+        self.0.write().rects = rects;
+    }
+
+    pub fn set_text(&self, text: String) {
+        self.0.write().text = text;
     }
 
     pub fn get(&self) -> Vec<euclid::Rect<f32, euclid::UnknownUnit>> {
-        self.0.read().clone()
+        self.0.read().rects.clone()
+    }
+
+    pub fn get_text(&self) -> String {
+        self.0.read().text.clone()
     }
 }
 

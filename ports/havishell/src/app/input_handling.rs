@@ -108,6 +108,8 @@ impl App {
                                 ));
                             } else {
                                 // TAP — send mouse click only (no touch events)
+                                #[cfg(any(target_os = "android", target_os = "ios"))]
+                                cx.hide_clipboard_actions();
                                 self.send_input_event(servo::InputEvent::MouseMove(
                                     servo::MouseMoveEvent::new(pt.into()),
                                 ));
@@ -246,22 +248,50 @@ impl App {
                                 handled_input = true;
                             }
                         }
-                        // Context menu Escape is handled by PopupDismissed event.
-                        if let Some(event) = crate::input::translate_key_event(key_event, true) {
+                        // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
+                        let is_paste = key_event.key_code == makepad_widgets::makepad_platform::KeyCode::KeyV
+                            && (key_event.modifiers.control || key_event.modifiers.logo);
+                        if is_paste {
+                            handled_input = true;
+                        } else if let Some(event) = crate::input::translate_key_event(key_event, true) {
                             self.send_input_event(event);
                             handled_input = true;
                         }
                     },
                     ServoWebViewAction::KeyUp { key_event } => {
-                        if let Some(event) = crate::input::translate_key_event(key_event, false) {
+                        // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
+                        let is_paste = key_event.key_code == makepad_widgets::makepad_platform::KeyCode::KeyV
+                            && (key_event.modifiers.control || key_event.modifiers.logo);
+                        if is_paste {
+                            handled_input = true;
+                        } else if let Some(event) = crate::input::translate_key_event(key_event, false) {
                             self.send_input_event(event);
                             handled_input = true;
                         }
                     },
 
                     // ----- IME / text input -----
-                    ServoWebViewAction::TextInput { input } => {
-                        if !input.is_empty() {
+                    ServoWebViewAction::TextInput { input, was_paste } => {
+                        if *was_paste {
+                            // Store paste text for the clipboard delegate, then
+                            // send Ctrl+V so Servo reads it via get_text().
+                            if let Some(ref state) = self.clipboard_state {
+                                *state.pending_paste.borrow_mut() = Some(input.clone());
+                            }
+                            let mut ke = KeyboardEvent::from_state_and_key(
+                                KeyState::Down,
+                                Key::Character("v".into()),
+                            );
+                            ke.event.modifiers.insert(servo::Modifiers::CONTROL);
+                            self.send_input_event(servo::InputEvent::Keyboard(ke));
+                            let mut ke = KeyboardEvent::from_state_and_key(
+                                KeyState::Up,
+                                Key::Character("v".into()),
+                            );
+                            ke.event.modifiers.insert(servo::Modifiers::CONTROL);
+                            self.send_input_event(servo::InputEvent::Keyboard(ke));
+                            handled_input = true;
+                        } else if !input.is_empty() {
                             self.send_input_event(servo::InputEvent::Keyboard(
                                 KeyboardEvent::from_state_and_key(
                                     KeyState::Down,
@@ -282,6 +312,88 @@ impl App {
                             ));
                             handled_input = true;
                         }
+                    },
+
+                    // ----- Long press (mobile: select word + show clipboard actions) -----
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    ServoWebViewAction::LongPress { abs } => {
+                        // Double-click to select word at press point.
+                        let pt = self.point_to_device(cx, *abs);
+                        self.send_input_event(servo::InputEvent::MouseMove(
+                            servo::MouseMoveEvent::new(pt.into()),
+                        ));
+                        for _ in 0..2 {
+                            self.send_input_event(servo::InputEvent::MouseButton(
+                                MouseButtonEvent::new(
+                                    MouseButtonAction::Down,
+                                    MouseButton::Left,
+                                    pt.into(),
+                                ),
+                            ));
+                            self.send_input_event(servo::InputEvent::MouseButton(
+                                MouseButtonEvent::new(
+                                    MouseButtonAction::Up,
+                                    MouseButton::Left,
+                                    pt.into(),
+                                ),
+                            ));
+                        }
+                        // Show clipboard actions at press position.
+                        let rect = makepad_widgets::Rect {
+                            pos: *abs,
+                            size: dvec2(1.0, 1.0),
+                        };
+                        cx.show_clipboard_actions(true, rect, 0.0);
+                        // Reset gesture state so the finger-up doesn't fire a tap.
+                        self.finger_down_pos = None;
+                        self.is_touch_scrolling = false;
+                        handled_input = true;
+                    },
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    ServoWebViewAction::LongPress { .. } => {},
+
+                    // ----- Selection handle drag (mobile) -----
+                    ServoWebViewAction::SelectionHandleDrag { abs, handle, phase } => {
+                        use makepad_widgets::makepad_platform::SelectionHandlePhase;
+                        let pt = self.point_to_device(cx, *abs);
+                        match phase {
+                            SelectionHandlePhase::Begin => {
+                                // Start extending selection from handle position.
+                                self.send_input_event(servo::InputEvent::MouseButton(
+                                    MouseButtonEvent::new(
+                                        MouseButtonAction::Down,
+                                        MouseButton::Left,
+                                        pt.into(),
+                                    ),
+                                ));
+                            }
+                            SelectionHandlePhase::Move => {
+                                self.send_input_event(servo::InputEvent::MouseMove(
+                                    servo::MouseMoveEvent::new(pt.into()),
+                                ));
+                            }
+                            SelectionHandlePhase::End => {
+                                self.send_input_event(servo::InputEvent::MouseButton(
+                                    MouseButtonEvent::new(
+                                        MouseButtonAction::Up,
+                                        MouseButton::Left,
+                                        pt.into(),
+                                    ),
+                                ));
+                                // Update handle positions from selection rects.
+                                #[cfg(any(target_os = "android", target_os = "ios"))]
+                                if let Some(tab) = self.tabs.get(self.active_tab_idx) {
+                                    let rects = layout_api::shared_document_selection_for(tab.webview_id).get();
+                                    if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
+                                        let start = dvec2(first.origin.x as f64, (first.origin.y + first.size.height) as f64);
+                                        let end = dvec2((last.origin.x + last.size.width) as f64, (last.origin.y + last.size.height) as f64);
+                                        cx.update_selection_handles(start, end);
+                                    }
+                                }
+                            }
+                        }
+                        let _ = handle;
+                        handled_input = true;
                     },
                 }
             }
