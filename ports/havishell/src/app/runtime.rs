@@ -365,9 +365,10 @@ impl App {
                 // Wire shared fragment tree for direct Makepad rendering.
                 let shared = layout_api::shared_fragment_tree_for(webview_id);
                 let scroll = layout_api::shared_scroll_state_for(webview_id);
+                let images = self.servo.as_ref().unwrap().image_store();
                 self.ui
                     .servo_web_view(cx, ids!(web_view))
-                    .set_shared_fragments(shared, scroll);
+                    .set_shared_fragments(shared, scroll, images);
                 self.tabs.push(TabInfo {
                     webview_id,
                     webview,

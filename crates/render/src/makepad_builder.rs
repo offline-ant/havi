@@ -40,6 +40,7 @@ pub(crate) struct MakepadDrawState<'a> {
     pub filter_state: &'a mut FilterState,
     pub draw_filter_image: &'a mut DrawFilterImage,
     pub scroll_draw_lists: &'a mut ScrollDrawListState,
+    pub image_overrides: &'a havi_types::ImageOverrides,
 }
 
 /// Walk a stacking context tree and paint all fragments.
@@ -511,7 +512,7 @@ fn paint_content(
             let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
             let w = rect.size.width.to_f32_px();
             let h = rect.size.height.to_f32_px();
-            draw_image_fragment(cx, img, x, y, w, h, state.draw_image, state.texture_cache, opacity);
+            draw_image_fragment(cx, img, x, y, w, h, state.draw_image, state.texture_cache, state.image_overrides, opacity);
         }
 
         Fragment::IFrame(iframe) => {
@@ -561,18 +562,32 @@ fn frame_identity_hash(image_data: &[u8], range: &std::ops::Range<usize>) -> u64
 fn draw_image_fragment(
     cx: &mut Cx2d, img: &ImageFragment,
     x: f64, y: f64, w: f32, h: f32,
-    draw_image: &mut DrawImage, texture_cache: &mut TextureCache, opacity: f32,
+    draw_image: &mut DrawImage, texture_cache: &mut TextureCache,
+    image_overrides: &havi_types::ImageOverrides, opacity: f32,
 ) {
     let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
-    if img.frame_byte_range.is_empty() || img.frame_width == 0 || img.frame_height == 0 {
+
+    // Check for Paint-layer overrides (canvas updates, late animation frames).
+    let (image_data, frame_start, frame_end, width, height) =
+        if let Some(ov) = img.image_key.and_then(|k| image_overrides.get(&k)) {
+            let frame_size = (ov.width as usize) * (ov.height as usize) * 4;
+            let start = ov.offset;
+            let end = (start + frame_size).min(ov.data.len());
+            (&*ov.data as &[u8], start, end, ov.width as usize, ov.height as usize)
+        } else {
+            (&*img.image_data as &[u8], img.frame_byte_range.start, img.frame_byte_range.end,
+             img.frame_width as usize, img.frame_height as usize)
+        };
+
+    if frame_start >= frame_end || width == 0 || height == 0 {
         return;
     }
-    let hash = frame_identity_hash(&img.image_data, &img.frame_byte_range);
-    let width = img.frame_width as usize;
-    let height = img.frame_height as usize;
+    let range = frame_start..frame_end;
+    let hash = frame_identity_hash(image_data, &range);
+    let frame_bytes = &image_data[range];
 
     let entry = texture_cache.entry(node_id).or_insert_with(|| {
-        let data = rgba_to_bgra_u32(&img.image_data[img.frame_byte_range.clone()]);
+        let data = rgba_to_bgra_u32(frame_bytes);
         crate::TextureCacheEntry {
             texture: ImageBuffer { width, height, data, animation: None }.into_new_texture(cx.cx),
             data_hash: hash,
@@ -582,7 +597,7 @@ fn draw_image_fragment(
     // Re-upload only when the frame changed (different byte range or different image data).
     if entry.data_hash != hash {
         entry.data_hash = hash;
-        let data = rgba_to_bgra_u32(&img.image_data[img.frame_byte_range.clone()]);
+        let data = rgba_to_bgra_u32(frame_bytes);
         entry.texture.set_data_u32(cx.cx, width, height, data);
     }
 

@@ -155,6 +155,11 @@ pub struct ServoWebView {
     #[rust]
     shared_scroll_state: Option<layout_api::SharedScrollState>,
 
+    /// Shared image store from Paint. Updated asynchronously with image data
+    /// from the network layer (animated GIF frames, canvas updates, etc.).
+    #[rust]
+    image_store: Option<paint_api::SharedImageStore>,
+
     // --- Scroll indicator overlay ---
     #[live]
     draw_scroll_thumb: DrawColor,
@@ -303,6 +308,12 @@ impl Widget for ServoWebView {
                 .map(|(&id, &(x, y))| (id, dvec2(x, y)))
                 .collect();
 
+            // Build image overrides from the Paint-layer image store.
+            let image_overrides = self.image_store
+                .as_ref()
+                .map(|s| s.image_overrides())
+                .unwrap_or_default();
+
             havi_render::render_fragments_clipped(
                 cx,
                 self.cached_sc_tree.as_ref().unwrap(),
@@ -325,6 +336,7 @@ impl Widget for ServoWebView {
                 &mut self.filter_passes.0,
                 &mut self.draw_filter_image,
                 &mut self.scroll_draw_lists.0,
+                &image_overrides,
             );
         }
 
@@ -388,15 +400,18 @@ impl ServoWebView {
 // ---------------------------------------------------------------------------
 
 impl ServoWebViewRef {
-    /// Set the shared fragment tree and scroll state for direct Makepad rendering.
+    /// Set the shared fragment tree, scroll state, and image store for direct
+    /// Makepad rendering.
     pub fn set_shared_fragments(
         &self,
         shared: layout_api::SharedFragmentTree,
         scroll_state: layout_api::SharedScrollState,
+        image_store: paint_api::SharedImageStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_fragments = Some(shared);
             inner.shared_scroll_state = Some(scroll_state);
+            inner.image_store = Some(image_store);
             // Clear image textures since they are content-dependent.
             inner.texture_cache.0.clear();
             // NOTE: Do NOT clear opacity_passes, filter_passes, or

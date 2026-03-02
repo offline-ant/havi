@@ -192,6 +192,7 @@ pub fn render_fragments(
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
     scroll_draw_lists: &mut ScrollDrawListState,
+    image_overrides: &havi_types::ImageOverrides,
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
     let mut state = makepad_builder::MakepadDrawState {
@@ -199,6 +200,7 @@ pub fn render_fragments(
         draw_image, texture_cache, scroll_state, draw_rounded_bg,
         draw_box_shadow, draw_gradient, selection, transform_state,
         opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
+        image_overrides,
     };
     makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
 }
@@ -226,12 +228,14 @@ pub fn render_fragments_clipped(
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
     scroll_draw_lists: &mut ScrollDrawListState,
+    image_overrides: &havi_types::ImageOverrides,
 ) {
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg, draw_text, draw_text_bold, draw_text_mono,
         draw_image, texture_cache, scroll_state, draw_rounded_bg,
         draw_box_shadow, draw_gradient, selection, transform_state,
         opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
+        image_overrides,
     };
     makepad_builder::paint_stacking_context(
         cx, cached_tree.tree(), origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,

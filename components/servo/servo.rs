@@ -975,6 +975,11 @@ impl Servo {
             ));
     }
 
+    /// Get a clone of the shared image store handle for the render layer.
+    pub fn image_store(&self) -> paint_api::SharedImageStore {
+        self.0.paint.borrow().image_store()
+    }
+
     pub(crate) fn paint<'a>(&'a self) -> Ref<'a, Paint> {
         self.0.paint.borrow()
     }

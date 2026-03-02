@@ -152,6 +152,25 @@ pub struct ImageFragment {
     pub frame_byte_range: Range<usize>,
 }
 
+/// An image data override from the Paint layer, used when the image store
+/// has newer data than the fragment tree (e.g. canvas updates, animation
+/// frames that arrived after the last layout).
+#[derive(Clone, Debug)]
+pub struct ImageOverride {
+    /// RGBA pixel data.
+    pub data: Arc<Vec<u8>>,
+    /// Byte offset of the active frame within `data`.
+    pub offset: usize,
+    /// Image width in pixels.
+    pub width: u32,
+    /// Image height in pixels.
+    pub height: u32,
+}
+
+/// Map of image key → override data. Passed to the render layer so it can
+/// pick up image updates that arrived after the last fragment tree build.
+pub type ImageOverrides = std::collections::HashMap<(u32, u32), ImageOverride>;
+
 /// A positioning fragment (anonymous or not) that contains children
 /// with coordinates relative to its own content rect.
 #[derive(Clone, Debug)]
