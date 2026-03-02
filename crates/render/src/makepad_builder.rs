@@ -216,9 +216,13 @@ pub(crate) fn paint_stacking_context(
             } else {
                 // Content unchanged — begin_maybe with will_redraw=false
                 // preserves existing draw items without re-emitting them.
-                let _ = sdl.draw_list.begin_maybe(cx, false);
-                let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
-                sdl.draw_list.end(cx);
+                // Only call end() when begin_maybe actually pushed to the
+                // draw_list_stack (Redrawing::yes), otherwise end() would
+                // pop the wrong entry and panic.
+                if sdl.draw_list.begin_maybe(cx, false).is_redrawing() {
+                    let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
+                    sdl.draw_list.end(cx);
+                }
             }
 
             // Apply scroll offset via view transform (translation matrix).
