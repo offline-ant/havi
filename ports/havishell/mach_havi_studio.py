@@ -112,6 +112,7 @@ def run_desktop_makepad_socket(
                 if isinstance(msg, dict) and "ReadyToStart" in msg:
                     got_ready.set()
                     ready.set()
+                # Debug: log Screenshot and WidgetTreeDump messages
             except json.JSONDecodeError:
                 # Not JSON — might be stderr leak or log line.  Print it.
                 print(line, file=sys.stderr)
@@ -121,11 +122,12 @@ def run_desktop_makepad_socket(
                 continue
 
             # Broadcast to all connected clients.
+            encoded = (line + "\n").encode("utf-8")
             with stdout_lock:
                 dead = []
                 for c in clients:
                     try:
-                        c.sendall((line + "\n").encode("utf-8"))
+                        c.sendall(encoded)
                     except (OSError, BrokenPipeError):
                         dead.append(c)
                 for c in dead:
@@ -198,6 +200,7 @@ def run_desktop_makepad_socket(
             for s in readable:
                 if s is server:
                     conn, _ = server.accept()
+                    conn.setblocking(True)
                     with stdout_lock:
                         clients.append(conn)
                         client_bufs[id(conn)] = ""
