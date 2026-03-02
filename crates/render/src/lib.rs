@@ -7,6 +7,7 @@ mod background;
 mod hit_test;
 mod makepad_builder;
 pub mod shaders;
+pub mod video_texture_map;
 pub(crate) mod stacking_context;
 mod text;
 mod transform;

@@ -62,7 +62,7 @@ use layout_api::{
     ScrollContainerResponse, TrustedNodeAddress, combine_id_with_fragment_type,
 };
 use malloc_size_of::MallocSizeOf;
-use media::WindowGLContext;
+
 use net_traits::image_cache::{
     ImageCache, ImageCacheResponseCallback, ImageCacheResponseMessage, ImageLoadListener,
     ImageResponse, PendingImageId, PendingImageResponse, RasterizationCompleteResponse,
@@ -443,10 +443,6 @@ pub(crate) struct Window {
     user_scripts: Rc<Vec<UserScript>>,
 
     /// Window's GL context from application
-    #[ignore_malloc_size_of = "defined in script_thread"]
-    #[no_trace]
-    player_context: WindowGLContext,
-
     throttled: Cell<bool>,
 
     /// A shared marker for the validity of any cached layout values. A value of true
@@ -801,9 +797,6 @@ impl Window {
         &self.user_scripts
     }
 
-    pub(crate) fn get_player_context(&self) -> WindowGLContext {
-        self.player_context.clone()
-    }
 
     // see note at https://dom.spec.whatwg.org/#concept-event-dispatch step 2
     pub(crate) fn dispatch_event_with_target_override(&self, event: &Event, can_gc: CanGc) {
@@ -3950,7 +3943,6 @@ impl Window {
         unminify_css: bool,
         local_script_source: Option<String>,
         user_scripts: Rc<Vec<UserScript>>,
-        player_context: WindowGLContext,
         #[cfg(feature = "webgpu")] gpu_id_hub: Arc<IdentityHub>,
         inherited_secure_context: Option<bool>,
         theme: Theme,
@@ -4031,7 +4023,6 @@ impl Window {
             has_sent_idle_message: Cell::new(false),
             unminify_css,
             user_scripts,
-            player_context,
             throttled: Cell::new(false),
             layout_marker: DomRefCell::new(Rc::new(Cell::new(true))),
             current_event: DomRefCell::new(None),

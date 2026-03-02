@@ -49,7 +49,7 @@ use ipc_channel::ipc::{self, IpcSender};
 use layout::LayoutFactoryImpl;
 use layout_api::ScriptThreadFactory;
 use log::{Log, Metadata, Record, debug, warn};
-use media::{GlApi, NativeDisplay, WindowGLContext};
+use servo_media::player::context::{GlApi, GlContext, NativeDisplay};
 use net::embedder::NetToEmbedderMsg;
 use net::image_cache::ImageCacheFactoryImpl;
 use net::protocols::ProtocolRegistry;
@@ -70,7 +70,6 @@ use servo_geometry::{
     DeviceIndependentIntRect, convert_rect_to_css_pixel, convert_size_to_css_pixel,
 };
 use servo_media::ServoMedia;
-use servo_media::player::context::GlContext;
 use storage::new_storage_threads;
 use storage_traits::StorageThreads;
 use style::global_style_data::StyleThreadPool;
@@ -91,47 +90,6 @@ use crate::webview_delegate::{
     WebResourceLoad,
 };
 
-#[cfg(feature = "media-gstreamer")]
-mod media_platform {
-    #[cfg(any(windows, target_os = "macos"))]
-    mod gstreamer_plugins {
-        include!(concat!(env!("OUT_DIR"), "/gstreamer_plugins.rs"));
-    }
-
-    use servo_media_gstreamer::GStreamerBackend;
-
-    use super::ServoMedia;
-
-    #[cfg(any(windows, target_os = "macos"))]
-    pub fn init() {
-        ServoMedia::init_with_backend(|| {
-            let mut plugin_dir = std::env::current_exe().unwrap();
-            plugin_dir.pop();
-
-            if cfg!(target_os = "macos") {
-                plugin_dir.push("lib");
-            }
-
-            match GStreamerBackend::init_with_plugins(
-                plugin_dir,
-                gstreamer_plugins::GSTREAMER_PLUGINS,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    log::error!("Error initializing GStreamer: {:?}", e);
-                    std::process::exit(1);
-                },
-            }
-        });
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
-    pub fn init() {
-        ServoMedia::init::<GStreamerBackend>();
-    }
-}
-
-#[cfg(not(feature = "media-gstreamer"))]
 mod media_platform {
     use super::ServoMedia;
     pub fn init() {
@@ -911,11 +869,9 @@ impl Servo {
         *self.0.delegate.borrow_mut() = delegate;
     }
 
-    /// **EXPERIMENTAL:** Intialize GL accelerated media playback. This currently only works on a limited number
-    /// of platforms. This should be run *before* calling [`Servo::new`] and creating the first [`WebView`].
-    pub fn initialize_gl_accelerated_media(display: NativeDisplay, api: GlApi, context: GlContext) {
-        WindowGLContext::initialize(display, api, context)
-    }
+    /// Formerly initialized GL accelerated media playback. Now a no-op; video uses Makepad
+    /// platform-native playback instead.
+    pub fn initialize_gl_accelerated_media(_display: NativeDisplay, _api: GlApi, _context: GlContext) {}
 
     /// Spin the Servo event loop, which:
     ///

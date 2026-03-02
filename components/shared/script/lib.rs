@@ -35,7 +35,6 @@ use euclid::{Scale, Size2D};
 use fonts_traits::SystemFontServiceProxySender;
 use keyboard_types::Modifiers;
 use malloc_size_of_derive::MallocSizeOf;
-use media::WindowGLContext;
 use net_traits::ResourceThreads;
 use paint_api::{CrossProcessPaintApi, PinchZoomInfos};
 use pixels::PixelFormat;
@@ -382,8 +381,6 @@ pub struct InitialScriptState {
     pub webxr_registry: Option<webxr_api::Registry>,
     /// Access to `Paint` across a process boundary.
     pub cross_process_paint_api: CrossProcessPaintApi,
-    /// Application window's GL Context for Media player
-    pub player_context: WindowGLContext,
     /// A list of URLs that can access privileged internal APIs.
     pub privileged_urls: Vec<BrowserUrl>,
     /// A copy of constellation's `UserContentManagerId` to `UserContents` map.

@@ -145,7 +145,7 @@ use ipc_channel::router::ROUTER;
 use keyboard_types::{Key, KeyState, Modifiers, NamedKey};
 use layout_api::{LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, info, trace, warn};
-use media::WindowGLContext;
+
 use net::image_cache::ImageCacheFactoryImpl;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{self, AsyncRuntime, ResourceThreads, exit_fetch_thread, start_fetch_thread};
@@ -2781,8 +2781,6 @@ where
             }
         }
 
-        debug!("Exiting GLPlayer thread.");
-        WindowGLContext::get().exit();
 
         // Wait for the canvas thread to exit before shutting down the font service, as
         // canvas might still be using the system font service before shutting down.

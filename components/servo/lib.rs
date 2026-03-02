@@ -37,7 +37,7 @@ pub use image::RgbaImage;
 pub use keyboard_types::{
     Code, CompositionEvent, CompositionState, Key, KeyState, Location, Modifiers, NamedKey,
 };
-pub use media::{
+pub use servo_media::player::context::{
     GlApi as MediaGlApi, GlContext as MediaGlContext, NativeDisplay as MediaNativeDisplay,
 };
 // This API should probably not be exposed in this way. Instead there should be a fully

@@ -18,9 +18,8 @@ use net_traits::request::{CredentialsMode, Destination, RequestBuilder, RequestI
 use net_traits::{
     CoreResourceThread, FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming,
 };
-use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::Snapshot;
 use script_bindings::script_runtime::temp_cx;
-use servo_media::player::video::VideoFrame;
 use servo_url::BrowserUrl;
 use style::attr::{AttrValue, LengthOrPercentageOrAuto};
 
@@ -57,10 +56,6 @@ pub(crate) struct HTMLVideoElement {
     /// Load event blocker. Will block the load event while the poster frame
     /// is being fetched.
     load_blocker: DomRefCell<Option<LoadBlocker>>,
-    /// A copy of the last frame
-    #[ignore_malloc_size_of = "VideoFrame"]
-    #[no_trace]
-    last_frame: DomRefCell<Option<VideoFrame>>,
 }
 
 impl HTMLVideoElement {
@@ -75,7 +70,6 @@ impl HTMLVideoElement {
             video_height: Cell::new(None),
             generation_id: Cell::new(0),
             load_blocker: Default::default(),
-            last_frame: Default::default(),
         }
     }
 
@@ -116,36 +110,10 @@ impl HTMLVideoElement {
         true
     }
 
-    /// Gets the copy of the video frame at the current playback position,
-    /// if that is available, or else (e.g. when the video is seeking or buffering)
-    /// its previous appearance, if any.
+    /// Gets the copy of the video frame at the current playback position.
+    /// Returns None — video pixel readback not yet implemented in the Makepad backend.
     pub(crate) fn get_current_frame_data(&self) -> Option<Snapshot> {
-        let frame = self.htmlmediaelement.get_current_frame();
-        if frame.is_some() {
-            *self.last_frame.borrow_mut() = frame;
-        }
-
-        match self.last_frame.borrow().as_ref() {
-            Some(frame) => {
-                let size = Size2D::new(frame.get_width() as u32, frame.get_height() as u32);
-                if !frame.is_gl_texture() {
-                    let alpha_mode = SnapshotAlphaMode::Transparent {
-                        premultiplied: false,
-                    };
-
-                    Some(Snapshot::from_vec(
-                        size.cast(),
-                        SnapshotPixelFormat::BGRA,
-                        alpha_mode,
-                        frame.get_data().to_vec(),
-                    ))
-                } else {
-                    // XXX(victor): here we only have the GL texture ID.
-                    Some(Snapshot::cleared(size.cast()))
-                }
-            },
-            None => None,
-        }
+        None
     }
 
     /// <https://html.spec.whatwg.org/multipage/#poster-frame>

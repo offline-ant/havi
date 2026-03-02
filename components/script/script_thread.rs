@@ -71,7 +71,7 @@ use url::Position;
 use js::rust::ParentRuntime;
 use js::rust::wrappers2::{JS_AddInterruptCallback, SetWindowProxyClass};
 use layout_api::{LayoutConfig, LayoutFactory, RestyleReason, ScriptThreadFactory};
-use media::WindowGLContext;
+
 use metrics::MAX_TASK_NS;
 use net_traits::image_cache::{ImageCache, ImageCacheFactory, ImageCacheResponseMessage};
 use net_traits::request::{Referrer, RequestId};
@@ -363,10 +363,6 @@ pub struct ScriptThread {
     #[no_trace]
     user_contents_for_manager_id:
         RefCell<FxHashMap<UserContentManagerId, ScriptThreadUserContents>>,
-
-    /// Application window's GL Context for Media player
-    #[no_trace]
-    player_context: WindowGLContext,
 
     /// A map from pipelines to all owned nodes ever created in this script thread
     #[no_trace]
@@ -1033,7 +1029,6 @@ impl ScriptThread {
                     local_script_source: opts.local_script_source.clone(),
                     unminify_css: opts.unminify_css,
                     user_contents_for_manager_id: RefCell::new(user_contents_for_manager_id),
-                    player_context: state.player_context,
                     pipeline_to_node_ids: Default::default(),
                     is_user_interacting: Rc::new(Cell::new(false)),
                     #[cfg(feature = "webgpu")]
@@ -3448,7 +3443,6 @@ impl ScriptThread {
             self.unminify_css,
             self.local_script_source.clone(),
             user_contents,
-            self.player_context.clone(),
             #[cfg(feature = "webgpu")]
             self.gpu_id_hub.clone(),
             incomplete.load_data.inherited_secure_context,

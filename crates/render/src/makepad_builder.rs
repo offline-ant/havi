@@ -571,6 +571,16 @@ fn draw_image_fragment(
 ) {
     let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
 
+    // Check for a live video texture registered via VideoTextureMap (zero-copy path).
+    if let Some(key) = img.image_key {
+        if let Some(video_tex) = crate::video_texture_map::get_video_texture(key) {
+            draw_image.draw_vars.set_texture(0, &video_tex);
+            draw_image.opacity = opacity;
+            draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
+            return;
+        }
+    }
+
     // Check for Paint-layer overrides (canvas updates, late animation frames).
     let (image_data, frame_start, frame_end, width, height) =
         if let Some(ov) = img.image_key.and_then(|k| image_overrides.get(&k)) {

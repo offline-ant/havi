@@ -18,7 +18,7 @@ use embedder_traits::ScriptToEmbedderChan;
 use ipc_channel::IpcError;
 use layout_api::ScriptThreadFactory;
 use log::error;
-use media::WindowGLContext;
+
 use script_traits::{InitialScriptState, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_config::opts::{self, Opts};
@@ -104,7 +104,6 @@ impl EventLoop {
             pipeline_namespace_id: constellation.next_pipeline_namespace_id(),
             cross_process_paint_api: constellation.paint_proxy.cross_process_paint_api.clone(),
             webxr_registry: constellation.webxr_registry.clone(),
-            player_context: WindowGLContext::get(),
             privileged_urls: constellation.privileged_urls.clone(),
             user_contents_for_manager_id: constellation.user_contents_for_manager_id.clone(),
             accessibility_active: constellation.accessibility_active,
