@@ -47,8 +47,17 @@ pub use hit_test::{hit_test, find_scroll_container};
 pub use stacking_context::CachedStackingContextTree;
 
 /// Cache for image textures, keyed by OpaqueNode id.
-/// Call `clear()` when the fragment tree changes to avoid stale textures.
-pub type TextureCache = HashMap<usize, Texture>;
+/// Each entry tracks the texture and the byte-range hash used to create it,
+/// so we can skip re-uploading unchanged frames.
+pub type TextureCache = HashMap<usize, TextureCacheEntry>;
+
+/// A cached texture with metadata for change detection.
+pub struct TextureCacheEntry {
+    pub texture: Texture,
+    /// Hash of the byte range used to create this texture.
+    /// Used to skip re-uploading unchanged pixel data.
+    data_hash: u64,
+}
 
 /// Pre-computed selection highlight rectangles in content-space.
 #[derive(Clone, Debug)]
@@ -86,6 +95,23 @@ pub struct FilterPass {
 
 /// Per-element filter passes, keyed by OpaqueNode id.
 pub type FilterState = HashMap<usize, FilterPass>;
+
+/// Cached DrawList2d per scroll container, keyed by OpaqueNode id.
+/// Scroll containers render their children into a DrawList2d once. On
+/// subsequent frames where only the scroll offset changed (not the content),
+/// the DrawList2d is reused with an updated view transform instead of
+/// re-emitting all draw calls.
+pub struct ScrollDrawList {
+    pub draw_list: DrawList2d,
+    /// Fragment Arc data pointer when this draw list was last built.
+    /// When it changes, the content must be re-rendered.
+    pub frag_ptr: usize,
+    /// Scroll offset applied to this draw list's view transform.
+    pub last_offset: DVec2,
+}
+
+/// Per-element scroll container draw lists, keyed by OpaqueNode id.
+pub type ScrollDrawListState = HashMap<usize, ScrollDrawList>;
 
 /// CSS filter parameters resolved from computed values.
 pub(crate) struct CssFilters {
@@ -165,13 +191,14 @@ pub fn render_fragments(
     opacity_state: &mut OpacityState,
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
+    scroll_draw_lists: &mut ScrollDrawListState,
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg, draw_text, draw_text_bold, draw_text_mono,
         draw_image, texture_cache, scroll_state, draw_rounded_bg,
         draw_box_shadow, draw_gradient, selection, transform_state,
-        opacity_state, filter_state, draw_filter_image,
+        opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
     };
     makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
 }
@@ -198,12 +225,13 @@ pub fn render_fragments_clipped(
     opacity_state: &mut OpacityState,
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
+    scroll_draw_lists: &mut ScrollDrawListState,
 ) {
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg, draw_text, draw_text_bold, draw_text_mono,
         draw_image, texture_cache, scroll_state, draw_rounded_bg,
         draw_box_shadow, draw_gradient, selection, transform_state,
-        opacity_state, filter_state, draw_filter_image,
+        opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
     };
     makepad_builder::paint_stacking_context(
         cx, cached_tree.tree(), origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,

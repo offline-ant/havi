@@ -78,22 +78,38 @@ fn convert_fragment(
         },
         LayoutFragment::Image(arc) => {
             let f = arc.borrow();
-            let (image_width, image_height, pixels) = f
+            let image_key = f.image_key.map(|k| (k.0.0, k.1));
+            let node = f.base.tag.map(|t| t.node);
+
+            let (frame_width, frame_height, image_data, frame_byte_range) = f
                 .raster_image
                 .as_ref()
                 .map(|img| {
-                    (
-                        img.metadata.width as u32,
-                        img.metadata.height as u32,
-                        img.bytes.as_ref().clone(),
-                    )
+                    // Look up the active animation frame for this node.
+                    let active_frame = node.and_then(|n| {
+                        image_resolver
+                            .animating_images
+                            .read()
+                            .node_to_state_map
+                            .get(&n)
+                            .map(|s| s.active_frame)
+                    });
+                    let frame_idx = active_frame.unwrap_or(0);
+                    let frame = img.frames.get(frame_idx).or_else(|| img.frames.first());
+                    let (w, h, range) = match frame {
+                        Some(frame) => (frame.width, frame.height, frame.byte_range.clone()),
+                        None => (img.metadata.width as u32, img.metadata.height as u32, 0..img.bytes.len()),
+                    };
+                    (w, h, img.bytes.clone(), range)
                 })
-                .unwrap_or_default();
+                .unwrap_or_else(|| (0, 0, Arc::new(Vec::new()), 0..0));
             Some(havi_types::Fragment::Image(havi_types::ImageFragment {
                 base: convert_base_fragment(&f.base),
-                image_width,
-                image_height,
-                pixels,
+                image_key,
+                frame_width,
+                frame_height,
+                image_data,
+                frame_byte_range,
             }))
         },
         LayoutFragment::IFrame(arc) => {

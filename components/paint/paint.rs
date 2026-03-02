@@ -21,6 +21,7 @@ use euclid::{Scale, Size2D};
 use image::RgbaImage;
 use ipc_channel::ipc;
 use log::{debug, warn};
+use smallvec::SmallVec;
 use paint_api::rendering_context::RenderingContext;
 use paint_api::{
     PaintMessage, PaintProxy, PainterGlDetails, PainterGlDetailsMap,
@@ -143,6 +144,9 @@ pub struct Paint {
 
     /// Touch gesture handler for touch-to-scroll conversion.
     pub(crate) touch_handler: RefCell<TouchHandler>,
+
+    /// Shared image store for forwarding image updates to the render layer.
+    pub(crate) image_store: paint_api::SharedImageStore,
 }
 
 /// Tracks pending wheel events by InputEventId. The default scroll action
@@ -212,7 +216,13 @@ impl Paint {
             root_scroll_offsets: Default::default(),
             webview_pipelines: Default::default(),
             touch_handler: RefCell::new(TouchHandler::new()),
+            image_store: paint_api::SharedImageStore::new(),
         }))
+    }
+
+    /// Get a clone of the shared image store handle for the render layer.
+    pub fn image_store(&self) -> paint_api::SharedImageStore {
+        self.image_store.clone()
     }
 
     pub fn register_rendering_context(
@@ -354,8 +364,8 @@ impl Paint {
             PaintMessage::GenerateImageKeysForPipeline(webview_id, pipeline_id) => {
                 self.handle_generate_image_keys_for_pipeline(webview_id, pipeline_id);
             },
-            PaintMessage::UpdateImages(..) => {
-                // TODO(havi-render): Forward image updates to Makepad texture cache.
+            PaintMessage::UpdateImages(_painter_id, updates) => {
+                self.handle_image_updates(updates);
             },
             PaintMessage::DelayNewFrameForCanvas(..) => {},
             PaintMessage::AddFont(..) => {
@@ -664,5 +674,38 @@ impl Paint {
             .map(|_| FontInstanceKey::new(painter_id.into(), next_key_index()))
             .collect();
         let _ = result_sender.send((font_keys, font_instance_keys));
+    }
+
+    fn handle_image_updates(&self, updates: SmallVec<[paint_api::ImageUpdate; 1]>) {
+        for update in updates {
+            match update {
+                paint_api::ImageUpdate::AddImage(key, desc, data, _is_animated) => {
+                    if let paint_api::SerializableImageData::Raw(mem) = data {
+                        self.image_store.add_image(
+                            key,
+                            desc.size.width as u32,
+                            desc.size.height as u32,
+                            mem.to_vec(),
+                        );
+                    }
+                },
+                paint_api::ImageUpdate::UpdateImage(key, desc, data, _epoch) => {
+                    if let paint_api::SerializableImageData::Raw(mem) = data {
+                        self.image_store.update_image(
+                            key,
+                            desc.size.width as u32,
+                            desc.size.height as u32,
+                            mem.to_vec(),
+                        );
+                    }
+                },
+                paint_api::ImageUpdate::UpdateImageForAnimation(key, desc) => {
+                    self.image_store.update_frame_offset(key, desc.offset as usize);
+                },
+                paint_api::ImageUpdate::DeleteImage(key) => {
+                    self.image_store.delete_image(key);
+                },
+            }
+        }
     }
 }

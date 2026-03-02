@@ -38,6 +38,7 @@ profile_traits = { workspace = true }
 rustc-hash = { workspace = true }
 servo-tracing = { workspace = true }
 servo_config = { path = "../config" }
+smallvec = { workspace = true }
 servo_geometry = { path = "../geometry" }
 stylo_traits = { workspace = true }
 timers = { path = "../timers" }

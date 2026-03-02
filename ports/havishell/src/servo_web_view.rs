@@ -33,6 +33,9 @@ struct OpacityPasses(havi_render::OpacityState);
 #[derive(Default)]
 struct FilterPasses(havi_render::FilterState);
 
+#[derive(Default)]
+struct ScrollDrawLists(havi_render::ScrollDrawListState);
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -131,6 +134,8 @@ pub struct ServoWebView {
     opacity_passes: OpacityPasses,
     #[rust]
     filter_passes: FilterPasses,
+    #[rust]
+    scroll_draw_lists: ScrollDrawLists,
     /// Shared fragment tree from layout. When set, draw_walk renders fragments
     /// directly instead of using the GL texture.
     #[rust]
@@ -319,6 +324,7 @@ impl Widget for ServoWebView {
                 &mut self.opacity_passes.0,
                 &mut self.filter_passes.0,
                 &mut self.draw_filter_image,
+                &mut self.scroll_draw_lists.0,
             );
         }
 

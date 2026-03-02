@@ -759,3 +759,102 @@ impl PinchZoomInfos {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Shared image store — bridges Paint-layer image updates to the render layer.
+// ---------------------------------------------------------------------------
+
+/// An entry in the shared image store.
+#[derive(Clone, Debug)]
+pub struct ImageStoreEntry {
+    /// RGBA pixel data (all animation frames).
+    pub data: Arc<Vec<u8>>,
+    /// Image format (from WebRender descriptor).
+    pub width: u32,
+    pub height: u32,
+    /// Byte offset of the active frame within `data`.
+    pub offset: usize,
+    /// Monotonic counter incremented on every update. The render layer uses
+    /// this to detect when a texture needs re-uploading.
+    pub generation: u64,
+}
+
+/// Thread-safe image store shared between the Paint thread and the
+/// Makepad render layer. Paint writes entries via `UpdateImages` messages;
+/// the widget reads them during `draw_walk` to create/update textures.
+#[derive(Clone, Default)]
+pub struct SharedImageStore(Arc<RwLock<SharedImageStoreInner>>);
+
+#[derive(Default)]
+struct SharedImageStoreInner {
+    images: HashMap<ImageKey, ImageStoreEntry>,
+    /// Monotonic generation counter.
+    next_generation: u64,
+}
+
+impl SharedImageStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert or replace a full image.
+    pub fn add_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
+        let mut inner = self.0.write();
+        let gen = inner.next_generation;
+        inner.next_generation += 1;
+        inner.images.insert(key, ImageStoreEntry {
+            data: Arc::new(data),
+            width,
+            height,
+            offset: 0,
+            generation: gen,
+        });
+    }
+
+    /// Replace pixel data for an existing image.
+    pub fn update_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
+        let mut inner = self.0.write();
+        let gen = inner.next_generation;
+        inner.next_generation += 1;
+        inner.images.entry(key).and_modify(|e| {
+            e.data = Arc::new(data);
+            e.width = width;
+            e.height = height;
+            e.offset = 0;
+            e.generation = gen;
+        }).or_insert_with(|| ImageStoreEntry {
+            data: Arc::new(data),
+            width,
+            height,
+            offset: 0,
+            generation: gen,
+        });
+    }
+
+    /// Update only the frame offset (for animation frame changes).
+    pub fn update_frame_offset(&self, key: ImageKey, offset: usize) {
+        let mut inner = self.0.write();
+        let gen = inner.next_generation;
+        inner.next_generation += 1;
+        if let Some(entry) = inner.images.get_mut(&key) {
+            entry.offset = offset;
+            entry.generation = gen;
+        }
+    }
+
+    /// Remove an image.
+    pub fn delete_image(&self, key: ImageKey) {
+        self.0.write().images.remove(&key);
+    }
+
+    /// Read an entry. Returns `None` if the key is not present.
+    pub fn get(&self, key: ImageKey) -> Option<ImageStoreEntry> {
+        self.0.read().images.get(&key).cloned()
+    }
+
+    /// Snapshot all current generations, keyed by `(namespace, index)`.
+    /// Used by the render layer to detect which textures are stale.
+    pub fn generations(&self) -> HashMap<(u32, u32), u64> {
+        self.0.read().images.iter().map(|(k, v)| ((k.0.0, k.1), v.generation)).collect()
+    }
+}

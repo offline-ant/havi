@@ -7293,6 +7293,7 @@ dependencies = [
  "servo-tracing",
  "servo_config",
  "servo_geometry",
+ "smallvec 1.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "stylo_traits",
  "timers",
  "tracing",

@@ -931,13 +931,46 @@ impl LayoutThread {
         self.maybe_print_reflow_event(&reflow_request);
 
         if self.can_skip_reflow_request_entirely(&reflow_request) {
+            // Layout is up-to-date but animated images may have new active frames.
+            // Re-run fragment conversion so the shared fragment tree reflects
+            // current animation state without a full layout rebuild.
+            let has_animations = !reflow_request.animating_images.read().is_empty();
+            if has_animations {
+                if let Some(ref tree) = *self.fragment_tree.borrow() {
+                    let image_resolver = Arc::new(ImageResolver {
+                        origin: reflow_request.origin.clone(),
+                        image_cache: self.image_cache.clone(),
+                        resolved_images_cache: self.resolved_images_cache.clone(),
+                        pending_images: Mutex::default(),
+                        pending_rasterization_images: Mutex::default(),
+                        pending_svg_elements_for_serialization: Mutex::default(),
+                        animating_images: reflow_request.animating_images.clone(),
+                        animation_timeline_value: reflow_request.animation_timeline_value,
+                    });
+                    let converted = crate::fragment_conversion::convert_fragments(
+                        &tree.root_fragments, &image_resolver,
+                    );
+                    let converted = Arc::new(converted);
+                    *self.rendered_fragments.borrow_mut() = Some(converted.clone());
+                    self.shared_fragments.set(converted);
+                }
+            }
+
             // We can skip layout, but we might need to update a scroll node.
-            return self
-                .handle_update_scroll_node_request(&reflow_request)
-                .then(|| ReflowResult {
-                    reflow_phases_run: ReflowPhasesRun::UpdatedScrollNodeOffset,
-                    ..Default::default()
-                });
+            let mut phases = ReflowPhasesRun::empty();
+            if has_animations {
+                phases.insert(ReflowPhasesRun::UpdatedImageData);
+            }
+            if self.handle_update_scroll_node_request(&reflow_request) {
+                phases.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
+            }
+            if phases.is_empty() {
+                return None;
+            }
+            return Some(ReflowResult {
+                reflow_phases_run: phases,
+                ..Default::default()
+            });
         }
 
         let document = unsafe { ServoLayoutNode::new(&reflow_request.document) };

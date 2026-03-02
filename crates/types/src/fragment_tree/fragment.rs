@@ -1,5 +1,6 @@
 // Fragment enum — the nodes of the fragment tree, adapted from Servo's fragment.rs.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use app_units::Au;
@@ -131,15 +132,24 @@ pub struct IFrameFragment {
 }
 
 /// An image fragment (replaced element).
+///
+/// Image data is stored as a shared byte buffer containing all animation frames.
+/// `frame_byte_range` selects the active frame within that buffer.
+/// For non-animated images, the range spans the entire buffer.
 #[derive(Clone, Debug)]
 pub struct ImageFragment {
     pub base: BaseFragment,
-    /// Image width in pixels.
-    pub image_width: u32,
-    /// Image height in pixels.
-    pub image_height: u32,
-    /// RGBA pixel data, `image_width * image_height * 4` bytes.
-    pub pixels: Vec<u8>,
+    /// Opaque image key `(namespace, index)` for matching Paint-layer updates.
+    /// `None` for broken/missing images.
+    pub image_key: Option<(u32, u32)>,
+    /// Width of the active frame in pixels.
+    pub frame_width: u32,
+    /// Height of the active frame in pixels.
+    pub frame_height: u32,
+    /// All image bytes (may contain multiple animation frames).
+    pub image_data: Arc<Vec<u8>>,
+    /// Byte range of the active frame within `image_data`.
+    pub frame_byte_range: Range<usize>,
 }
 
 /// A positioning fragment (anonymous or not) that contains children

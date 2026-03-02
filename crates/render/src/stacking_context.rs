@@ -117,6 +117,15 @@ impl<'a> StackingContext<'a> {
         }
     }
 
+    /// True when this stacking context contains no child stacking contexts.
+    /// Opacity isolation is unnecessary for leaf contexts because there are no
+    /// overlapping child layers that could double-blend.
+    pub fn is_leaf(&self) -> bool {
+        self.real_stacking_contexts_and_positioned_stacking_containers.is_empty()
+            && self.float_stacking_containers.is_empty()
+            && self.atomic_inline_stacking_containers.is_empty()
+    }
+
     pub fn z_index(&self) -> i32 {
         self.initializing_fragment
             .map(|f| effective_z_index(&f.base.style, f.base.flags))

@@ -164,7 +164,7 @@ pub(crate) fn draw_background_url_images(
             .wrapping_add(y.to_bits() as usize)
             .wrapping_mul(31)
             .wrapping_add(i);
-        let texture = texture_cache.entry(cache_key).or_insert_with(|| {
+        let entry = texture_cache.entry(cache_key).or_insert_with(|| {
             let data: Vec<u32> = img.pixels.chunks_exact(4).map(|px| {
                 (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
             }).collect();
@@ -174,9 +174,12 @@ pub(crate) fn draw_background_url_images(
                 data,
                 animation: None,
             };
-            image_buffer.into_new_texture(cx.cx)
+            crate::TextureCacheEntry {
+                texture: image_buffer.into_new_texture(cx.cx),
+                data_hash: 0,
+            }
         });
-        draw_image.draw_vars.set_texture(0, texture);
+        draw_image.draw_vars.set_texture(0, &entry.texture);
         draw_image.opacity = opacity;
         // Default: cover the element's padding box (same as background-size: auto).
         // TODO: Support background-size, background-position, background-repeat.

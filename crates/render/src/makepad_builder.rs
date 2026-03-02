@@ -6,12 +6,12 @@
 use havi_types::{Fragment, ImageFragment};
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::{ImageBuffer, Texture};
-use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
+use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
 
 use crate::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor,
     FilterPass, FilterState, OpacityPass, OpacityState,
-    ScrollState, SelectionHighlight, TextureCache, TransformState,
+    ScrollState, ScrollDrawListState, SelectionHighlight, TextureCache, TransformState,
 };
 use crate::background::draw_element_box;
 use crate::stacking_context::{
@@ -39,6 +39,7 @@ pub(crate) struct MakepadDrawState<'a> {
     pub opacity_state: &'a mut OpacityState,
     pub filter_state: &'a mut FilterState,
     pub draw_filter_image: &'a mut DrawFilterImage,
+    pub scroll_draw_lists: &'a mut ScrollDrawListState,
 }
 
 /// Walk a stacking context tree and paint all fragments.
@@ -56,7 +57,10 @@ pub(crate) fn paint_stacking_context(
         None => (1.0, CssFilters::identity()),
     };
     let needs_filter = !css_filters.is_identity();
-    let needs_opacity = element_opacity < 1.0 && !needs_filter;
+    // Optimization: skip opacity isolation for leaf stacking contexts (no child
+    // SCs). A leaf has no overlapping child layers, so alpha can be applied
+    // per-instance without double-blending artifacts.
+    let needs_opacity = element_opacity < 1.0 && !needs_filter && !sc.is_leaf();
     let inner_opacity = if needs_opacity || needs_filter { 1.0 } else { parent_opacity * element_opacity };
 
     let node_id = sc.initializing_fragment.and_then(|bf| bf.base.tag.map(|t| t.node.0));
@@ -150,7 +154,9 @@ pub(crate) fn paint_stacking_context(
         }
     }
 
-    // Scroll container handling: apply scroll offset and clip rect.
+    // Scroll container handling: render children into a cached DrawList2d and
+    // apply scroll offset via view transform instead of re-emitting all draw
+    // calls on every scroll event.
     let is_scroll = sc.initializing_fragment.map_or(false, is_scroll_container);
     if is_scroll {
         let bf = sc.initializing_fragment.unwrap();
@@ -166,11 +172,7 @@ pub(crate) fn paint_stacking_context(
         paint_sc_own_backgrounds(cx, sc, origin, clip, inner_opacity, state);
 
         // Compute clip rect (padding box in screen space) for children.
-        // The containing_block_origin in the SC's content items already includes
-        // the parent's offset, so we use the first content item's cb_origin
-        // to derive the screen-space padding rect.
         let padding_rect = bf.padding_rect();
-        // Find the cb_origin of the initializing fragment's own content item.
         let own_cb_origin = sc.contents.iter().find_map(|c| {
             if let StackingContextContent::Fragment { containing_block_origin, section, .. } = c {
                 if *section == StackingContextSection::OwnBackgroundsAndBorders {
@@ -186,11 +188,54 @@ pub(crate) fn paint_stacking_context(
         let ph = padding_rect.size.height.to_f32_px() as f64;
         let clip_rect = Rect { pos: dvec2(px, py), size: dvec2(pw, ph) };
 
-        // Adjust origin for children: shift by negative scroll offset.
-        let scrolled_origin = dvec2(origin.x - scroll_offset.x, origin.y - scroll_offset.y);
-
         cx.push_clip_rect(clip_rect);
-        paint_sc_children_only(cx, sc, scrolled_origin, clip, inner_opacity, state);
+
+        if let Some(nid) = node_id {
+            // Use cached DrawList2d for scroll container children.
+            // Content is only re-rendered when the fragment tree changes
+            // (detected by frag_ptr). Scroll-only changes reuse the existing
+            // draw list and update the view transform — O(1) instead of O(n).
+            let frag_ptr = sc.contents.as_ptr() as usize;
+            let sdl = state.scroll_draw_lists.entry(nid).or_insert_with(|| {
+                crate::ScrollDrawList {
+                    draw_list: DrawList2d::new(cx.cx),
+                    frag_ptr: 0,
+                    last_offset: dvec2(0.0, 0.0),
+                }
+            });
+
+            let content_changed = sdl.frag_ptr != frag_ptr;
+            if content_changed {
+                // Content changed — clear and re-render children.
+                sdl.frag_ptr = frag_ptr;
+                sdl.draw_list.begin_always(cx);
+                paint_sc_children_only(cx, sc, origin, clip, inner_opacity, state);
+                let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
+                sdl.draw_list.end(cx);
+            } else {
+                // Content unchanged — begin_maybe with will_redraw=false
+                // preserves existing draw items without re-emitting them.
+                let _ = sdl.draw_list.begin_maybe(cx, false);
+                let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
+                sdl.draw_list.end(cx);
+            }
+
+            // Apply scroll offset via view transform (translation matrix).
+            let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
+            sdl.last_offset = scroll_offset;
+            let mat = Mat4f { v: [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                -(scroll_offset.x as f32), -(scroll_offset.y as f32), 0.0, 1.0,
+            ] };
+            sdl.draw_list.set_view_transform(cx.cx, &mat);
+        } else {
+            // No node id — fall back to full repaint with offset.
+            let scrolled_origin = dvec2(origin.x - scroll_offset.x, origin.y - scroll_offset.y);
+            paint_sc_children_only(cx, sc, scrolled_origin, clip, inner_opacity, state);
+        }
+
         cx.pop_clip_rect();
     } else {
         paint_sc_contents(cx, sc, origin, clip, inner_opacity, state);
@@ -503,27 +548,54 @@ fn sc_border_box(bf: &havi_types::fragment_tree::BoxFragment, origin: DVec2) -> 
     )
 }
 
+/// Cheap hash of a byte range identity (pointer + offset + len) to detect frame changes
+/// without comparing pixel data.
+fn frame_identity_hash(image_data: &[u8], range: &std::ops::Range<usize>) -> u64 {
+    let ptr = image_data.as_ptr() as u64;
+    ptr.wrapping_mul(0x517cc1b727220a95)
+        .wrapping_add(range.start as u64)
+        .wrapping_mul(0x6c62272e07bb0142)
+        .wrapping_add(range.end as u64)
+}
+
 fn draw_image_fragment(
     cx: &mut Cx2d, img: &ImageFragment,
     x: f64, y: f64, w: f32, h: f32,
     draw_image: &mut DrawImage, texture_cache: &mut TextureCache, opacity: f32,
 ) {
     let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
-    let texture = texture_cache.entry(node_id).or_insert_with(|| {
-        let data: Vec<u32> = img.pixels.chunks_exact(4).map(|px| {
-            (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
-        }).collect();
-        let image_buffer = ImageBuffer {
-            width: img.image_width as usize,
-            height: img.image_height as usize,
-            data,
-            animation: None,
-        };
-        image_buffer.into_new_texture(cx.cx)
+    if img.frame_byte_range.is_empty() || img.frame_width == 0 || img.frame_height == 0 {
+        return;
+    }
+    let hash = frame_identity_hash(&img.image_data, &img.frame_byte_range);
+    let width = img.frame_width as usize;
+    let height = img.frame_height as usize;
+
+    let entry = texture_cache.entry(node_id).or_insert_with(|| {
+        let data = rgba_to_bgra_u32(&img.image_data[img.frame_byte_range.clone()]);
+        crate::TextureCacheEntry {
+            texture: ImageBuffer { width, height, data, animation: None }.into_new_texture(cx.cx),
+            data_hash: hash,
+        }
     });
-    draw_image.draw_vars.set_texture(0, texture);
+
+    // Re-upload only when the frame changed (different byte range or different image data).
+    if entry.data_hash != hash {
+        entry.data_hash = hash;
+        let data = rgba_to_bgra_u32(&img.image_data[img.frame_byte_range.clone()]);
+        entry.texture.set_data_u32(cx.cx, width, height, data);
+    }
+
+    draw_image.draw_vars.set_texture(0, &entry.texture);
     draw_image.opacity = opacity;
     draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
+}
+
+/// Convert RGBA byte slice to BGRA u32 vec for Makepad textures.
+fn rgba_to_bgra_u32(rgba: &[u8]) -> Vec<u32> {
+    rgba.chunks_exact(4).map(|px| {
+        (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
+    }).collect()
 }
 
 fn rects_overlap(a: &Rect, b: &Rect) -> bool {
