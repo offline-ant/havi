@@ -697,8 +697,9 @@ pub struct App {
     is_right_click_gesture: bool,
 
     // --- Context menu state ---
+    /// Active Servo context menu awaiting user selection. Presence means menu is open.
     #[rust]
-    context_menu_open: bool,
+    active_context_menu: Option<servo::ContextMenu>,
     #[rust]
     context_menu_pos: DVec2,
 

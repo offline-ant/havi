@@ -247,8 +247,7 @@ impl MatchEvent for App {
 
         // --- Context menu ---
         if self.ui.button(cx, ids!(context_copy_btn)).clicked(actions) {
-            self.hide_context_menu(cx);
-            self.send_copy_command();
+            self.select_context_menu_action(cx, servo::ContextMenuAction::Copy);
         }
         if self.ui.button(cx, ids!(context_edit_btn)).clicked(actions) {
             self.hide_context_menu(cx);
@@ -423,6 +422,22 @@ impl MatchEvent for App {
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
                         cx.hide_text_ime();
+                    }
+                },
+                Some(MakepadServoAction::ContextMenuShow {
+                    webview_id,
+                    context_menu,
+                }) => {
+                    let webview_id = *webview_id;
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map_or(false, |t| t.webview_id == webview_id)
+                    {
+                        if let Some(menu) = context_menu.lock().unwrap().take() {
+                            self.active_context_menu = Some(menu);
+                            self.show_context_menu(cx);
+                        }
                     }
                 },
                 Some(MakepadServoAction::WatchGetMode {

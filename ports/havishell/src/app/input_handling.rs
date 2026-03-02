@@ -57,12 +57,10 @@ impl App {
                             ));
                             self.is_right_click_gesture = true;
                             self.context_menu_pos = *abs;
-                            self.context_menu_open = true;
-                            self.show_context_menu(cx);
                             handled_input = true;
                         } else {
                             // Close context menu on left click
-                            if self.context_menu_open {
+                            if self.active_context_menu.is_some() {
                                 self.hide_context_menu(cx);
                             }
                             if self.pylon_menu_open {
@@ -243,7 +241,7 @@ impl App {
                                 handled_input = true;
                             }
                         }
-                        if self.context_menu_open {
+                        if self.active_context_menu.is_some() {
                             if key_event.key_code
                                 == makepad_widgets::makepad_platform::KeyCode::Escape
                             {

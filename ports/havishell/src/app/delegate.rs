@@ -1,7 +1,8 @@
 use super::*;
 use servo::EmbedderControl;
+use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum MakepadServoAction {
     None,
     Wake,
@@ -47,6 +48,50 @@ pub enum MakepadServoAction {
         mode: String,
         response_sender: Sender<String>,
     },
+    /// Servo requests showing a context menu for a webview.
+    ContextMenuShow {
+        webview_id: WebViewId,
+        context_menu: Arc<Mutex<Option<servo::ContextMenu>>>,
+    },
+}
+
+impl std::fmt::Debug for MakepadServoAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::Wake => write!(f, "Wake"),
+            Self::TitleChanged { webview_id, title } => {
+                f.debug_struct("TitleChanged").field("webview_id", webview_id).field("title", title).finish()
+            },
+            Self::UrlChanged { webview_id, url } => {
+                f.debug_struct("UrlChanged").field("webview_id", webview_id).field("url", url).finish()
+            },
+            Self::NewFrameReady { webview_id } => {
+                f.debug_struct("NewFrameReady").field("webview_id", webview_id).finish()
+            },
+            Self::CursorChanged { webview_id, cursor } => {
+                f.debug_struct("CursorChanged").field("webview_id", webview_id).field("cursor", cursor).finish()
+            },
+            Self::WebViewClosed { webview_id } => {
+                f.debug_struct("WebViewClosed").field("webview_id", webview_id).finish()
+            },
+            Self::ImeShow { webview_id } => {
+                f.debug_struct("ImeShow").field("webview_id", webview_id).finish()
+            },
+            Self::ImeHide { webview_id } => {
+                f.debug_struct("ImeHide").field("webview_id", webview_id).finish()
+            },
+            Self::WatchGetMode { webview_id, .. } => {
+                f.debug_struct("WatchGetMode").field("webview_id", webview_id).finish()
+            },
+            Self::WatchSetMode { webview_id, mode, .. } => {
+                f.debug_struct("WatchSetMode").field("webview_id", webview_id).field("mode", mode).finish()
+            },
+            Self::ContextMenuShow { webview_id, .. } => {
+                f.debug_struct("ContextMenuShow").field("webview_id", webview_id).finish()
+            },
+        }
+    }
 }
 
 impl Default for MakepadServoAction {
@@ -97,11 +142,21 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
     }
 
     fn show_embedder_control(&self, webview: servo::WebView, embedder_control: EmbedderControl) {
-        if matches!(embedder_control, EmbedderControl::InputMethod(_)) {
-            Cx::post_action(MakepadServoAction::ImeShow {
-                webview_id: webview.id(),
-            });
-            SignalToUI::set_ui_signal();
+        match embedder_control {
+            EmbedderControl::InputMethod(_) => {
+                Cx::post_action(MakepadServoAction::ImeShow {
+                    webview_id: webview.id(),
+                });
+                SignalToUI::set_ui_signal();
+            },
+            EmbedderControl::ContextMenu(context_menu) => {
+                Cx::post_action(MakepadServoAction::ContextMenuShow {
+                    webview_id: webview.id(),
+                    context_menu: Arc::new(Mutex::new(Some(context_menu))),
+                });
+                SignalToUI::set_ui_signal();
+            },
+            _ => {},
         }
     }
 
