@@ -74,11 +74,18 @@ impl App {
     }
 
     /// Handle PopupDismissed event from the compositor.
+    ///
+    /// The compositor already destroyed the popup surface, so we must not
+    /// call `window.close()` again. Just drop the WindowHandle to free the
+    /// pool slot.
     pub(super) fn handle_popup_dismissed(&mut self, cx: &mut Cx, event: &PopupDismissedEvent) {
         if let Some(ref window) = self.context_popup_window {
             if window.window_id() == event.window_id {
                 self.active_context_menu.take();
-                self.close_context_popup(cx);
+                self.ui.view(cx, ids!(context_menu)).set_visible(cx, false);
+                // Drop the handle without calling close — compositor already did it.
+                self.context_popup_window = None;
+                self.context_popup_pass = None;
                 cx.redraw_all();
             }
         }
