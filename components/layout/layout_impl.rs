@@ -191,7 +191,7 @@ pub struct LayoutThread {
     /// Scroll offsets received from the renderer (paint layer), keyed by
     /// `ExternalScrollId`. Used by `scroll_offset()` so that script-side
     /// hit-testing accounts for the current scroll position.
-    scroll_offsets: FxHashMap<ExternalScrollId, LayoutVector2D>,
+    scroll_offsets: RefCell<FxHashMap<ExternalScrollId, LayoutVector2D>>,
 
     /// Shared scroll state for the embedding layer (Makepad).
     shared_scroll_state: layout_api::SharedScrollState,
@@ -581,31 +581,36 @@ impl Layout for LayoutThread {
         scroll_states: &FxHashMap<ExternalScrollId, LayoutVector2D>,
     ) {
         let root_scroll_id = self.id.root_scroll_id();
-        for (&id, &offset) in scroll_states {
-            // Clamp the scroll offset to valid bounds when we have fragment info.
-            let clamped = if id == root_scroll_id {
-                self.clamp_root_scroll_offset(offset)
-            } else {
-                offset
-            };
-            self.scroll_offsets.insert(id, clamped);
+        {
+            let mut offsets = self.scroll_offsets.borrow_mut();
+            for (&id, &offset) in scroll_states {
+                let clamped = if id == root_scroll_id {
+                    self.clamp_root_scroll_offset(offset)
+                } else {
+                    offset
+                };
+                offsets.insert(id, clamped);
+            }
         }
 
         // Update shared scroll state for the embedding layer.
-        if let Some(&offset) = self.scroll_offsets.get(&root_scroll_id) {
+        let offsets = self.scroll_offsets.borrow();
+        if let Some(&offset) = offsets.get(&root_scroll_id) {
             let viewport_size = self.stylist.device().au_viewport_size();
             let viewport_h = viewport_size.height.to_f64_px();
             let content_h = self.content_height();
+            let element_offsets = self.build_element_offsets_from(&offsets, root_scroll_id);
             self.shared_scroll_state.set(layout_api::ScrollStateData {
                 scroll_y: offset.y as f64,
                 content_height: content_h,
                 viewport_height: viewport_h,
+                element_offsets,
             });
         }
     }
 
     fn scroll_offset(&self, id: ExternalScrollId) -> Option<LayoutVector2D> {
-        self.scroll_offsets.get(&id).copied()
+        self.scroll_offsets.borrow().get(&id).copied()
     }
 
     fn needs_new_display_list(&self) -> bool {
@@ -719,6 +724,25 @@ impl LayoutThread {
             .as_ref()
             .map(|ft| ft.scrollable_overflow().size.height.to_f64_px())
             .unwrap_or(0.0)
+    }
+
+    /// Build element_offsets map from all non-root scroll offsets.
+    fn build_element_offsets(&self) -> FxHashMap<usize, (f64, f64)> {
+        let offsets = self.scroll_offsets.borrow();
+        let root_scroll_id = self.id.root_scroll_id();
+        self.build_element_offsets_from(&offsets, root_scroll_id)
+    }
+
+    fn build_element_offsets_from(
+        &self,
+        offsets: &FxHashMap<ExternalScrollId, LayoutVector2D>,
+        root_scroll_id: ExternalScrollId,
+    ) -> FxHashMap<usize, (f64, f64)> {
+        offsets
+            .iter()
+            .filter(|(id, _)| **id != root_scroll_id)
+            .map(|(id, v)| (id.0 as usize, (v.x as f64, v.y as f64)))
+            .collect()
     }
 
     fn clamp_root_scroll_offset(&self, offset: LayoutVector2D) -> LayoutVector2D {
@@ -1198,11 +1222,47 @@ impl LayoutThread {
 
     fn set_scroll_offset_from_script(
         &self,
-        _external_scroll_id: ExternalScrollId,
-        _offset: LayoutVector2D,
+        external_scroll_id: ExternalScrollId,
+        offset: LayoutVector2D,
     ) -> bool {
-        // TODO(havi-render): Scroll offset management moved to havi-render.
-        false
+        let root_scroll_id = self.id.root_scroll_id();
+        let clamped = if external_scroll_id == root_scroll_id {
+            self.clamp_root_scroll_offset(offset)
+        } else {
+            // For non-root scroll containers, clamp to >= 0.
+            // Upper-bound clamping requires content size which we don't track
+            // per-element yet; the render crate's scroll_bounds handles display.
+            LayoutVector2D::new(offset.x.max(0.0), offset.y.max(0.0))
+        };
+
+        let old = self.scroll_offsets.borrow().get(&external_scroll_id).copied();
+        if old == Some(clamped) {
+            return false;
+        }
+
+        self.scroll_offsets.borrow_mut().insert(external_scroll_id, clamped);
+
+        // Publish to shared state for the render crate.
+        if external_scroll_id == root_scroll_id {
+            let viewport_size = self.stylist.device().au_viewport_size();
+            let viewport_h = viewport_size.height.to_f64_px();
+            let content_h = self.content_height();
+            // Rebuild full state including element offsets.
+            let element_offsets = self.build_element_offsets();
+            self.shared_scroll_state.set(layout_api::ScrollStateData {
+                scroll_y: clamped.y as f64,
+                content_height: content_h,
+                viewport_height: viewport_h,
+                element_offsets,
+            });
+        } else {
+            // Non-root: update just this element's offset.
+            // The ExternalScrollId inner value is the OpaqueNode id for FragmentBody.
+            let node_id = external_scroll_id.0 as usize;
+            self.shared_scroll_state.set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
+        }
+
+        true
     }
 
     /// Returns profiling information which is passed to the time profiler.

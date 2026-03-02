@@ -25,9 +25,6 @@ script_mod! {
 struct ImageTextures(havi_render::TextureCache);
 
 #[derive(Default)]
-struct ElementScrollState(havi_render::ScrollState);
-
-#[derive(Default)]
 struct TransformDrawLists(havi_render::TransformState);
 
 #[derive(Default)]
@@ -128,8 +125,6 @@ pub struct ServoWebView {
     draw_image: DrawImage,
     #[rust]
     texture_cache: ImageTextures,
-    #[rust]
-    element_scroll: ElementScrollState,
     #[rust]
     transform_state: TransformDrawLists,
     #[rust]
@@ -296,6 +291,13 @@ impl Widget for ServoWebView {
             let viewport_top = scroll_y as f32;
             let viewport_bottom = (scroll_y + rect.size.y) as f32;
 
+            // Build render-side scroll state from layout's per-element offsets.
+            let render_scroll: havi_render::ScrollState = scroll_state
+                .element_offsets
+                .iter()
+                .map(|(&id, &(x, y))| (id, dvec2(x, y)))
+                .collect();
+
             havi_render::render_fragments_clipped(
                 cx,
                 self.cached_sc_tree.as_ref().unwrap(),
@@ -308,7 +310,7 @@ impl Widget for ServoWebView {
                 &mut self.draw_text_mono,
                 &mut self.draw_image,
                 &mut self.texture_cache.0,
-                &self.element_scroll.0,
+                &render_scroll,
                 &mut self.draw_rounded_bg,
                 &mut self.draw_box_shadow,
                 &mut self.draw_gradient,
@@ -331,29 +333,6 @@ impl Widget for ServoWebView {
 // ---------------------------------------------------------------------------
 // Inner helpers
 // ---------------------------------------------------------------------------
-
-/// Walk fragments to find the box with the given node_id and compute its scroll bounds.
-fn find_box_fragment_bounds(fragments: &[havi_types::Fragment], node_id: usize) -> Option<(f64, f64)> {
-    for frag in fragments {
-        match frag {
-            havi_types::Fragment::Box(bf) | havi_types::Fragment::Float(bf) => {
-                if bf.base.tag.map(|t| t.node.0) == Some(node_id) {
-                    return Some(havi_render::scroll_bounds(bf));
-                }
-                if let Some(result) = find_box_fragment_bounds(&bf.children, node_id) {
-                    return Some(result);
-                }
-            }
-            havi_types::Fragment::Positioning(pf) => {
-                if let Some(result) = find_box_fragment_bounds(&pf.children, node_id) {
-                    return Some(result);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
 
 impl ServoWebView {
     fn draw_scroll_overlay(&mut self, cx: &mut Cx2d, rect: &Rect) {
@@ -396,12 +375,6 @@ impl ServoWebView {
         self.draw_bg.area()
     }
 
-    /// Read the current root scroll_y from shared scroll state.
-    pub fn root_scroll_y(&self) -> f64 {
-        self.shared_scroll_state.as_ref()
-            .map(|s| s.get().scroll_y)
-            .unwrap_or(0.0)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -435,46 +408,6 @@ impl ServoWebViewRef {
         } else {
             Area::Empty
         }
-    }
-
-    /// Find the deepest scroll container at the given point (in webview-local coordinates)
-    /// and apply a scroll delta to it. Returns true if a nested (non-root) container
-    /// consumed the scroll.
-    pub fn scroll_nested_container(&self, cx: &mut Cx, local_point: DVec2, delta: DVec2) -> bool {
-        let Some(mut inner) = self.borrow_mut() else { return false };
-        let fragments: Option<std::sync::Arc<Vec<havi_types::Fragment>>> =
-            inner.shared_fragments.as_ref().and_then(|sf| sf.get());
-        let Some(frags) = fragments else { return false };
-
-        // Hit-test for scroll container at the given point.
-        let container = havi_render::find_scroll_container(
-            &frags, dvec2(0.0, 0.0), local_point, &inner.element_scroll.0,
-        );
-        let Some(node) = container else { return false };
-
-        // Find the box fragment for this node to compute scroll bounds.
-        let bounds = find_box_fragment_bounds(&frags, node.0);
-        let Some((max_x, max_y)) = bounds else { return false };
-
-        // If max scroll is zero in both axes, this container can't scroll.
-        if max_x <= 0.0 && max_y <= 0.0 {
-            return false;
-        }
-
-        let entry = inner.element_scroll.0.entry(node.0).or_insert(DVec2 { x: 0.0, y: 0.0 });
-        let old = *entry;
-
-        // Apply delta (negate: positive wheel = scroll down = increase offset).
-        entry.x = (entry.x - delta.x).clamp(0.0, max_x);
-        entry.y = (entry.y - delta.y).clamp(0.0, max_y);
-
-        // If the offset didn't change, the container can't scroll further — bubble up.
-        if (entry.x - old.x).abs() < 0.001 && (entry.y - old.y).abs() < 0.001 {
-            return false;
-        }
-
-        inner.redraw(cx);
-        true
     }
 
     /// Show the scroll indicator and trigger a redraw.

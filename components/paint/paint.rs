@@ -39,7 +39,7 @@ use webgl::WebGLComm;
 use webgl::webgl_thread::WebGLContextBusyMap;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use webrender_api::units::{DevicePixel, DevicePoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, FontInstanceKey, FontKey, ImageKey};
 
@@ -131,7 +131,7 @@ pub struct Paint {
 
     /// Pending wheel events awaiting `InputEventHandled` response from script.
     /// Keyed by `InputEventId` so we can match the response to the original event.
-    pending_wheel_events: RefCell<FxHashMap<InputEventId, PendingWheelEvent>>,
+    pending_wheel_events: RefCell<PendingWheelEvents>,
 
     /// Root scroll offset per webview. Updated when wheel events are processed
     /// and sent to layout via `SetScrollStates`.
@@ -141,11 +141,10 @@ pub struct Paint {
     webview_pipelines: RefCell<HashMap<WebViewId, PipelineId>>,
 }
 
-/// A wheel event stored while waiting for the script thread to report whether
-/// `preventDefault()` was called.
-struct PendingWheelEvent {
-    delta: embedder_traits::WheelDelta,
-}
+/// Tracks pending wheel events by InputEventId. The default scroll action
+/// is handled by the script thread; this set is only used to recognize
+/// wheel events in `notify_input_event_handled`.
+type PendingWheelEvents = FxHashSet<InputEventId>;
 
 impl Paint {
     pub fn new(state: InitialPaintState) -> Rc<RefCell<Self>> {
@@ -513,13 +512,8 @@ impl Paint {
     pub fn capture_webrender(&self, _webview_id: WebViewId) {}
 
     pub fn notify_input_event(&self, _webview_id: WebViewId, event: InputEventAndId) {
-        if let embedder_traits::InputEvent::Wheel(ref wheel_event) = event.event {
-            self.pending_wheel_events.borrow_mut().insert(
-                event.id,
-                PendingWheelEvent {
-                    delta: wheel_event.delta,
-                },
-            );
+        if let embedder_traits::InputEvent::Wheel(_) = event.event {
+            self.pending_wheel_events.borrow_mut().insert(event.id);
         }
     }
 
@@ -584,44 +578,15 @@ impl Paint {
 
     pub fn notify_input_event_handled(
         &self,
-        webview_id: WebViewId,
+        _webview_id: WebViewId,
         input_event_id: InputEventId,
-        result: InputEventResult,
+        _result: InputEventResult,
     ) {
-        let Some(wheel_event) = self.pending_wheel_events.borrow_mut().remove(&input_event_id)
-        else {
-            return;
-        };
-
-        // If script called preventDefault(), don't perform default scroll.
-        if result.contains(InputEventResult::DefaultPrevented) {
-            return;
-        }
-
-        // Default scroll action: apply the inverse of the wheel delta as a
-        // scroll offset change. Positive wheel delta reveals content above (scroll up),
-        // so we negate to get the offset change.
-        use embedder_traits::WheelMode;
-        let line_height = 16.0; // CSS px
-        let page_height = 800.0; // CSS px fallback
-        let (dx, dy) = match wheel_event.delta.mode {
-            WheelMode::DeltaPixel => {
-                let dpp = self.device_pixels_per_page_pixel(webview_id);
-                (
-                    -wheel_event.delta.x as f32 / dpp.get(),
-                    -wheel_event.delta.y as f32 / dpp.get(),
-                )
-            },
-            WheelMode::DeltaLine => (
-                -wheel_event.delta.x as f32 * line_height,
-                -wheel_event.delta.y as f32 * line_height,
-            ),
-            WheelMode::DeltaPage => (
-                -wheel_event.delta.x as f32 * page_height,
-                -wheel_event.delta.y as f32 * page_height,
-            ),
-        };
-        self.apply_scroll_delta(webview_id, LayoutVector2D::new(dx, dy));
+        // Remove pending wheel event if any. The default scroll action for
+        // wheel events is now handled inline by the script thread (see
+        // do_wheel_scroll in document_event_handler.rs), so paint only needs
+        // to clean up the pending entry.
+        self.pending_wheel_events.borrow_mut().remove(&input_event_id);
     }
 
     /// Apply a scroll delta to the root scroll node of the given webview and

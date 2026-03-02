@@ -90,6 +90,9 @@ pub struct ScrollStateData {
     pub content_height: f64,
     /// Viewport height in CSS pixels.
     pub viewport_height: f64,
+    /// Per-element scroll offsets, keyed by OpaqueNode id.
+    /// Layout writes these; the render crate reads them.
+    pub element_offsets: FxHashMap<usize, (f64, f64)>,
 }
 
 impl SharedScrollState {
@@ -99,6 +102,11 @@ impl SharedScrollState {
 
     pub fn get(&self) -> ScrollStateData {
         self.0.read().clone()
+    }
+
+    /// Update a single element's scroll offset without replacing the entire state.
+    pub fn set_element_offset(&self, node_id: usize, x: f64, y: f64) {
+        self.0.write().element_offsets.insert(node_id, (x, y));
     }
 }
 
