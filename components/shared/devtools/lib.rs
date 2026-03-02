@@ -352,7 +352,7 @@ pub enum DevtoolScriptControlMsg {
     SetBreakpoint(u32, u32, u32),
     ClearBreakpoint(u32, u32, u32),
     Interrupt,
-    Resume,
+    Resume(Option<String>, Option<String>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, MallocSizeOf)]
