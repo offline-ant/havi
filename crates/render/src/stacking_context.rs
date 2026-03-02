@@ -10,6 +10,7 @@ use std::sync::Arc;
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_types::Fragment;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
+use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::ClipPath;
@@ -461,6 +462,15 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
 
     // Root element.
     if flags.intersects(FragmentFlags::IS_ROOT_ELEMENT) {
+        return true;
+    }
+
+    // Overflow containers (scroll/auto/hidden) need their own stacking context
+    // so that scroll offsets and clip rects can be applied during rendering.
+    let overflow = style.get_box();
+    if !matches!(overflow.overflow_x, ComputedOverflow::Visible)
+        || !matches!(overflow.overflow_y, ComputedOverflow::Visible)
+    {
         return true;
     }
 

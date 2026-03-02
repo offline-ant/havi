@@ -34,10 +34,12 @@ pub(crate) mod color {
 use std::collections::HashMap;
 
 use havi_types::Fragment;
+use havi_types::fragment_tree::BoxFragment;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::Texture;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
 use app_units::Au;
+use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
 
 pub use shaders::{DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawFilterImage};
@@ -258,4 +260,53 @@ pub(crate) fn compute_sticky_offset(
     }
 
     (0.0, dy)
+}
+
+/// Check if a box fragment establishes a scroll container (overflow != visible).
+pub fn is_scroll_container(bf: &BoxFragment) -> bool {
+    let ov = bf.base.style.get_box();
+    !matches!(ov.overflow_x, ComputedOverflow::Visible)
+        || !matches!(ov.overflow_y, ComputedOverflow::Visible)
+}
+
+/// Compute the scrollable content bounds for a box fragment.
+///
+/// Returns (max_scroll_x, max_scroll_y) — the maximum scroll offsets.
+/// The scroll port is the padding box (per CSS spec). The scrollable extent
+/// is the maximum of children's border-rect extents (in content-rect coords).
+/// Max scroll = content_extent - content_rect_size (since children are in
+/// content-rect coordinates, the visible area in that coordinate system is
+/// the content rect size).
+pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
+    let content_w = bf.content_rect().size.width.to_f32_px() as f64;
+    let content_h = bf.content_rect().size.height.to_f32_px() as f64;
+
+    // Compute content bounds as the union of all children's border rects
+    // (children are positioned in content-rect coordinates).
+    let mut max_x: f64 = 0.0;
+    let mut max_y: f64 = 0.0;
+    for child in &bf.children {
+        let (right, bottom) = match child {
+            Fragment::Box(cbf) | Fragment::Float(cbf) => {
+                let br = cbf.border_rect();
+                (
+                    br.origin.x.to_f32_px() as f64 + br.size.width.to_f32_px() as f64,
+                    br.origin.y.to_f32_px() as f64 + br.size.height.to_f32_px() as f64,
+                )
+            }
+            _ => {
+                let cr = child.content_rect();
+                (
+                    cr.origin.x.to_f32_px() as f64 + cr.size.width.to_f32_px() as f64,
+                    cr.origin.y.to_f32_px() as f64 + cr.size.height.to_f32_px() as f64,
+                )
+            }
+        };
+        max_x = max_x.max(right);
+        max_y = max_y.max(bottom);
+    }
+
+    let scroll_max_x = (max_x - content_w).max(0.0);
+    let scroll_max_y = (max_y - content_h).max(0.0);
+    (scroll_max_x, scroll_max_y)
 }

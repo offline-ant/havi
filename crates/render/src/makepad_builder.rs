@@ -19,7 +19,7 @@ use crate::stacking_context::{
 };
 use crate::text::draw_text_run;
 use crate::transform::{compute_css_transform_2d, compute_css_transform_3d, is_3d_matrix};
-use crate::{resolve_css_filters, CssFilters, compute_sticky_offset};
+use crate::{resolve_css_filters, CssFilters, compute_sticky_offset, is_scroll_container};
 
 /// All the Makepad draw state needed for rendering.
 pub(crate) struct MakepadDrawState<'a> {
@@ -150,7 +150,51 @@ pub(crate) fn paint_stacking_context(
         }
     }
 
-    paint_sc_contents(cx, sc, origin, clip, inner_opacity, state);
+    // Scroll container handling: apply scroll offset and clip rect.
+    let is_scroll = sc.initializing_fragment.map_or(false, is_scroll_container);
+    if is_scroll {
+        let bf = sc.initializing_fragment.unwrap();
+        let node_id = bf.base.tag.map(|t| t.node.0);
+
+        // Look up scroll offset for this container.
+        let scroll_offset = node_id
+            .and_then(|nid| state.scroll_state.get(&nid))
+            .copied()
+            .unwrap_or(DVec2 { x: 0.0, y: 0.0 });
+
+        // Paint own backgrounds/borders at original origin (unscrolled, unclipped).
+        paint_sc_own_backgrounds(cx, sc, origin, clip, inner_opacity, state);
+
+        // Compute clip rect (padding box in screen space) for children.
+        // The containing_block_origin in the SC's content items already includes
+        // the parent's offset, so we use the first content item's cb_origin
+        // to derive the screen-space padding rect.
+        let padding_rect = bf.padding_rect();
+        // Find the cb_origin of the initializing fragment's own content item.
+        let own_cb_origin = sc.contents.iter().find_map(|c| {
+            if let StackingContextContent::Fragment { containing_block_origin, section, .. } = c {
+                if *section == StackingContextSection::OwnBackgroundsAndBorders {
+                    return Some(*containing_block_origin);
+                }
+            }
+            None
+        }).unwrap_or((0.0, 0.0));
+
+        let px = origin.x + own_cb_origin.0 + padding_rect.origin.x.to_f32_px() as f64;
+        let py = origin.y + own_cb_origin.1 + padding_rect.origin.y.to_f32_px() as f64;
+        let pw = padding_rect.size.width.to_f32_px() as f64;
+        let ph = padding_rect.size.height.to_f32_px() as f64;
+        let clip_rect = Rect { pos: dvec2(px, py), size: dvec2(pw, ph) };
+
+        // Adjust origin for children: shift by negative scroll offset.
+        let scrolled_origin = dvec2(origin.x - scroll_offset.x, origin.y - scroll_offset.y);
+
+        cx.push_clip_rect(clip_rect);
+        paint_sc_children_only(cx, sc, scrolled_origin, clip, inner_opacity, state);
+        cx.pop_clip_rect();
+    } else {
+        paint_sc_contents(cx, sc, origin, clip, inner_opacity, state);
+    }
 }
 
 /// Paint the contents of a stacking context in CSS paint order.
@@ -173,6 +217,59 @@ fn paint_sc_contents(
             PaintItem::Outline(content) => {
                 // TODO: outline drawing. Currently outlines are drawn as part of
                 // draw_element_box — we would need to split that. For now, skip.
+                let _ = content;
+            }
+        }
+    });
+}
+
+/// Paint only OwnBackgroundsAndBorders for a stacking context (used for scroll containers).
+fn paint_sc_own_backgrounds(
+    cx: &mut Cx2d,
+    sc: &StackingContext<'_>,
+    origin: DVec2,
+    clip: Option<(f32, f32)>,
+    opacity: f32,
+    state: &mut MakepadDrawState<'_>,
+) {
+    sc.paint_in_order(&mut |item| {
+        match item {
+            PaintItem::Content(content) => {
+                if let StackingContextContent::Fragment { section, .. } = content {
+                    if *section == StackingContextSection::OwnBackgroundsAndBorders {
+                        paint_content(cx, content, origin, clip, opacity, state);
+                    }
+                }
+            }
+            _ => {}
+        }
+    });
+}
+
+/// Paint everything except OwnBackgroundsAndBorders for a stacking context.
+fn paint_sc_children_only(
+    cx: &mut Cx2d,
+    sc: &StackingContext<'_>,
+    origin: DVec2,
+    clip: Option<(f32, f32)>,
+    opacity: f32,
+    state: &mut MakepadDrawState<'_>,
+) {
+    sc.paint_in_order(&mut |item| {
+        match item {
+            PaintItem::Content(content) => {
+                if let StackingContextContent::Fragment { section, .. } = content {
+                    if *section != StackingContextSection::OwnBackgroundsAndBorders {
+                        paint_content(cx, content, origin, clip, opacity, state);
+                    }
+                } else {
+                    paint_content(cx, content, origin, clip, opacity, state);
+                }
+            }
+            PaintItem::ChildStackingContext(child) => {
+                paint_stacking_context(cx, child, origin, clip, opacity, state);
+            }
+            PaintItem::Outline(content) => {
                 let _ = content;
             }
         }

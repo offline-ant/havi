@@ -211,19 +211,36 @@ impl App {
 
                     // ----- Scroll / wheel events -----
                     ServoWebViewAction::Scroll { abs, scroll } => {
-                        let pt = self.point_to_device(cx, *abs);
-                        let delta = servo::WheelDelta {
-                            x: scroll.x * self.dpi_factor,
-                            y: scroll.y * self.dpi_factor,
-                            z: 0.0,
-                            mode: servo::WheelMode::DeltaPixel,
-                        };
-                        self.send_input_event(servo::InputEvent::Wheel(servo::WheelEvent::new(
-                            delta,
-                            pt.into(),
-                        )));
-                        // Show scroll indicator; actual scroll state comes from
-                        // layout via SharedScrollState.
+                        // Try nested scroll containers first.
+                        let web_view_ref = self.ui.servo_web_view(cx, ids!(web_view));
+                        let rect = web_view_ref.area().rect(cx);
+                        let local_point = dvec2(abs.x - rect.pos.x, abs.y - rect.pos.y);
+
+                        // Read scroll_y from shared state to adjust local_point for root scroll.
+                        let scroll_y = web_view_ref.borrow().map_or(0.0, |inner| {
+                            inner.root_scroll_y()
+                        });
+                        let doc_point = dvec2(local_point.x, local_point.y + scroll_y);
+
+                        let nested_consumed = web_view_ref.scroll_nested_container(
+                            cx, doc_point, *scroll,
+                        );
+
+                        if !nested_consumed {
+                            // No nested container consumed it — send to Servo for root scroll.
+                            let pt = self.point_to_device(cx, *abs);
+                            let delta = servo::WheelDelta {
+                                x: scroll.x * self.dpi_factor,
+                                y: scroll.y * self.dpi_factor,
+                                z: 0.0,
+                                mode: servo::WheelMode::DeltaPixel,
+                            };
+                            self.send_input_event(servo::InputEvent::Wheel(servo::WheelEvent::new(
+                                delta,
+                                pt.into(),
+                            )));
+                        }
+                        // Show scroll indicator.
                         self.ui
                             .servo_web_view(cx, ids!(web_view))
                             .show_scroll_indicator(cx);
