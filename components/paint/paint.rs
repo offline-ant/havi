@@ -45,6 +45,7 @@ use webrender_api::{ExternalScrollId, FontInstanceKey, FontKey, ImageKey};
 
 use crate::InitialPaintState;
 use crate::screenshot::ScreenshotTaker;
+use crate::touch::TouchHandler;
 
 /// An option to control what kind of WebRender debugging is enabled while Servo is running.
 #[derive(Copy, Clone)]
@@ -139,6 +140,9 @@ pub struct Paint {
 
     /// Mapping of webview to its root pipeline, updated via `SetFrameTreeForWebView`.
     webview_pipelines: RefCell<HashMap<WebViewId, PipelineId>>,
+
+    /// Touch gesture handler for touch-to-scroll conversion.
+    pub(crate) touch_handler: RefCell<TouchHandler>,
 }
 
 /// Tracks pending wheel events by InputEventId. The default scroll action
@@ -207,6 +211,7 @@ impl Paint {
             pending_wheel_events: Default::default(),
             root_scroll_offsets: Default::default(),
             webview_pipelines: Default::default(),
+            touch_handler: RefCell::new(TouchHandler::new()),
         }))
     }
 
