@@ -1,7 +1,8 @@
 use makepad_widgets::*;
 use servo::{
-    CompositionEvent, CompositionState, ImeEvent, Key, KeyState, KeyboardEvent, MouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent, NamedKey, TouchEventType, TouchId,
+    CompositionEvent, CompositionState, EditingActionEvent, ImeEvent, Key, KeyState, KeyboardEvent,
+    MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent, NamedKey,
+    TouchEventType, TouchId,
 };
 
 use super::{App, TAP_DISTANCE_THRESHOLD};
@@ -75,6 +76,10 @@ impl App {
                             self.is_touch_scrolling = false;
                             self.is_mouse_gesture = *is_mouse;
                             self.is_mouse_dragging = false;
+                            #[cfg(any(target_os = "android", target_os = "ios"))]
+                            {
+                                self.pending_clipboard_menu = None;
+                            }
                             // Don't send any event yet — wait to see if it's a tap or drag/scroll.
                             handled_input = true;
                         }
@@ -109,7 +114,10 @@ impl App {
                             } else {
                                 // TAP — send mouse click only (no touch events)
                                 #[cfg(any(target_os = "android", target_os = "ios"))]
-                                cx.hide_clipboard_actions();
+                                {
+                                    self.pending_clipboard_menu = None;
+                                    cx.hide_clipboard_actions();
+                                }
                                 self.send_input_event(servo::InputEvent::MouseMove(
                                     servo::MouseMoveEvent::new(pt.into()),
                                 ));
@@ -248,11 +256,16 @@ impl App {
                                 handled_input = true;
                             }
                         }
-                        // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
-                        let is_paste = key_event.key_code
-                            == makepad_widgets::makepad_platform::KeyCode::KeyV
-                            && (key_event.modifiers.control || key_event.modifiers.logo);
-                        if is_paste {
+                        // Suppress primary-modifier clipboard shortcuts.
+                        let is_primary_shortcut =
+                            key_event.modifiers.control || key_event.modifiers.logo;
+                        let is_clipboard_shortcut = matches!(
+                            key_event.key_code,
+                            makepad_widgets::makepad_platform::KeyCode::KeyC
+                                | makepad_widgets::makepad_platform::KeyCode::KeyX
+                                | makepad_widgets::makepad_platform::KeyCode::KeyV
+                        ) && is_primary_shortcut;
+                        if is_clipboard_shortcut {
                             handled_input = true;
                         } else if let Some(event) =
                             crate::input::translate_key_event(key_event, true)
@@ -262,11 +275,16 @@ impl App {
                         }
                     },
                     ServoWebViewAction::KeyUp { key_event } => {
-                        // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
-                        let is_paste = key_event.key_code
-                            == makepad_widgets::makepad_platform::KeyCode::KeyV
-                            && (key_event.modifiers.control || key_event.modifiers.logo);
-                        if is_paste {
+                        // Suppress primary-modifier clipboard shortcuts.
+                        let is_primary_shortcut =
+                            key_event.modifiers.control || key_event.modifiers.logo;
+                        let is_clipboard_shortcut = matches!(
+                            key_event.key_code,
+                            makepad_widgets::makepad_platform::KeyCode::KeyC
+                                | makepad_widgets::makepad_platform::KeyCode::KeyX
+                                | makepad_widgets::makepad_platform::KeyCode::KeyV
+                        ) && is_primary_shortcut;
+                        if is_clipboard_shortcut {
                             handled_input = true;
                         } else if let Some(event) =
                             crate::input::translate_key_event(key_event, false)
@@ -280,22 +298,13 @@ impl App {
                     ServoWebViewAction::TextInput { input, was_paste } => {
                         if *was_paste {
                             // Store paste text for the clipboard delegate, then
-                            // send Ctrl+V so Servo reads it via get_text().
+                            // trigger Servo's paste editing action.
                             if let Some(ref state) = self.clipboard_state {
                                 *state.pending_paste.borrow_mut() = Some(input.clone());
                             }
-                            let mut ke = KeyboardEvent::from_state_and_key(
-                                KeyState::Down,
-                                Key::Character("v".into()),
-                            );
-                            ke.event.modifiers.insert(servo::Modifiers::CONTROL);
-                            self.send_input_event(servo::InputEvent::Keyboard(ke));
-                            let mut ke = KeyboardEvent::from_state_and_key(
-                                KeyState::Up,
-                                Key::Character("v".into()),
-                            );
-                            ke.event.modifiers.insert(servo::Modifiers::CONTROL);
-                            self.send_input_event(servo::InputEvent::Keyboard(ke));
+                            self.send_input_event(servo::InputEvent::EditingAction(
+                                EditingActionEvent::Paste,
+                            ));
                             handled_input = true;
                         } else if !input.is_empty() {
                             self.send_input_event(servo::InputEvent::Keyboard(
@@ -320,7 +329,21 @@ impl App {
                         }
                     },
 
-                    // ----- Long press (mobile: select word + show clipboard actions) -----
+                    // ----- Clipboard actions -----
+                    ServoWebViewAction::ClipboardCopyRequested => {
+                        self.send_input_event(servo::InputEvent::EditingAction(
+                            EditingActionEvent::Copy,
+                        ));
+                        handled_input = true;
+                    },
+                    ServoWebViewAction::ClipboardCutRequested => {
+                        self.send_input_event(servo::InputEvent::EditingAction(
+                            EditingActionEvent::Cut,
+                        ));
+                        handled_input = true;
+                    },
+
+                    // ----- Long press (mobile: select word + deferred clipboard actions) -----
                     #[cfg(any(target_os = "android", target_os = "ios"))]
                     ServoWebViewAction::LongPress { abs } => {
                         // Double-click to select word at press point.
@@ -344,12 +367,22 @@ impl App {
                                 ),
                             ));
                         }
-                        // Show clipboard actions at press position.
-                        let rect = makepad_widgets::Rect {
-                            pos: *abs,
-                            size: dvec2(1.0, 1.0),
-                        };
-                        cx.show_clipboard_actions(true, rect, 0.0);
+                        // Defer showing clipboard actions until selection snapshot
+                        // has been updated for this press.
+                        let baseline_revision = self
+                            .tabs
+                            .get(self.active_tab_idx)
+                            .map(|tab| {
+                                layout_api::shared_document_selection_for(tab.webview_id)
+                                    .snapshot()
+                                    .revision
+                            })
+                            .unwrap_or(0);
+                        self.pending_clipboard_menu = Some(super::PendingClipboardMenu {
+                            anchor_abs: *abs,
+                            baseline_revision,
+                        });
+                        cx.hide_clipboard_actions();
                         // Reset gesture state so the finger-up doesn't fire a tap.
                         self.finger_down_pos = None;
                         self.is_touch_scrolling = false;
@@ -389,10 +422,11 @@ impl App {
                                 // Update handle positions from selection rects.
                                 #[cfg(any(target_os = "android", target_os = "ios"))]
                                 if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                                    let rects =
+                                    let snapshot =
                                         layout_api::shared_document_selection_for(tab.webview_id)
-                                            .get();
-                                    if let (Some(first), Some(last)) = (rects.first(), rects.last())
+                                            .snapshot();
+                                    if let (Some(first), Some(last)) =
+                                        (snapshot.rects.first(), snapshot.rects.last())
                                     {
                                         let start = dvec2(
                                             first.origin.x as f64,

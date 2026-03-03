@@ -60,7 +60,7 @@ use script_traits::{DocumentActivity, ProgressiveWebMetricType};
 use servo_arc::Arc;
 use servo_config::pref;
 use servo_media::{ClientContextId, ServoMedia};
-use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
+use servo_url::{BrowserUrl, ImmutableOrigin, MutableOrigin};
 use style::attr::AttrValue;
 use style::context::QuirksMode;
 use style::invalidation::element::restyle_hints::RestyleHint;
@@ -155,7 +155,6 @@ use crate::dom::html::htmlformelement::{FormControl, FormControlElementHelpers, 
 use crate::dom::html::htmlheadelement::HTMLHeadElement;
 use crate::dom::html::htmlhtmlelement::HTMLHtmlElement;
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
-use crate::frame_kind::FrameKind;
 use crate::dom::html::htmlimageelement::HTMLImageElement;
 use crate::dom::html::htmlscriptelement::{HTMLScriptElement, ScriptResult};
 use crate::dom::html::htmltitleelement::HTMLTitleElement;
@@ -189,13 +188,14 @@ use crate::dom::trustedhtml::TrustedHTML;
 use crate::dom::types::{HTMLCanvasElement, HTMLDialogElement, VisibilityStateEntry};
 use crate::dom::uievent::UIEvent;
 use crate::dom::virtualmethods::vtable_for;
-use crate::dom::websocket::WebSocket;
 use crate::dom::watchsocket::WatchSocket;
+use crate::dom::websocket::WebSocket;
 use crate::dom::window::Window;
 use crate::dom::windowproxy::WindowProxy;
 use crate::dom::xpathevaluator::XPathEvaluator;
 use crate::dom::xpathexpression::XPathExpression;
 use crate::fetch::{DeferredFetchRecordInvokeState, FetchCanceller};
+use crate::frame_kind::FrameKind;
 use crate::iframe_collection::IFrameCollection;
 use crate::image_animation::ImageAnimationManager;
 use crate::messaging::{CommonScriptMsg, MainThreadScriptMsg};
@@ -2173,9 +2173,7 @@ impl Document {
         // to fire an event named hashchange at document's relevant global object, using HashChangeEvent,
         // with the oldURL attribute initialized to the serialization of oldURL
         // and the newURL attribute initialized to the serialization of entry's URL.
-        if old_url.url_from_before_fragment() !=
-            new_url.url_from_before_fragment()
-        {
+        if old_url.url_from_before_fragment() != new_url.url_from_before_fragment() {
             let window = Trusted::new(self.owner_window().deref());
             let old_url = old_url.to_string();
             let new_url = new_url.to_string();
@@ -3121,9 +3119,9 @@ impl Document {
         if !self.is_fully_active() {
             return false;
         }
-        if !self.window().layout_blocked() &&
-            (!self.restyle_reason().is_empty() ||
-                self.window().layout().needs_new_display_list())
+        if !self.window().layout_blocked()
+            && (!self.restyle_reason().is_empty()
+                || self.window().layout().needs_new_display_list())
         {
             return true;
         }
@@ -3225,20 +3223,17 @@ impl Document {
         let shared = layout_api::shared_document_selection_for(self.webview_id());
 
         let Some(selection) = self.GetSelection(can_gc) else {
-            shared.set(Vec::new());
-            shared.set_text(String::new());
+            shared.set_snapshot(Vec::new(), String::new());
             return;
         };
 
         if selection.IsCollapsed() {
-            shared.set(Vec::new());
-            shared.set_text(String::new());
+            shared.set_snapshot(Vec::new(), String::new());
             return;
         }
 
         let Ok(range) = selection.GetRangeAt(0) else {
-            shared.set(Vec::new());
-            shared.set_text(String::new());
+            shared.set_snapshot(Vec::new(), String::new());
             return;
         };
 
@@ -3258,8 +3253,7 @@ impl Document {
                 }
             }
         }
-        shared.set(rects);
-        shared.set_text(range.Stringifier().to_string());
+        shared.set_snapshot(rects, range.Stringifier().to_string());
     }
 
     /// From <https://drafts.csswg.org/css-font-loading/#fontfaceset-pending-on-the-environment>:
@@ -3544,8 +3538,8 @@ impl Document {
     ) {
         let metrics = self.interactive_time.borrow();
         match metric_type {
-            ProgressiveWebMetricType::FirstPaint |
-            ProgressiveWebMetricType::FirstContentfulPaint => {
+            ProgressiveWebMetricType::FirstPaint
+            | ProgressiveWebMetricType::FirstContentfulPaint => {
                 let binding = PerformancePaintTiming::new(
                     self.window.as_global_scope(),
                     metric_type,
@@ -3641,8 +3635,8 @@ impl Document {
             _ => {
                 // Step 9.1: If document's unload counter is greater than 0 or
                 // document's ignore-destructive-writes counter is greater than 0, then return.
-                if self.is_prompting_or_unloading() ||
-                    self.ignore_destructive_writes_counter.get() > 0
+                if self.is_prompting_or_unloading()
+                    || self.ignore_destructive_writes_counter.get() > 0
                 {
                     return Ok(());
                 }
@@ -3699,9 +3693,6 @@ impl Document {
         *self.hppr_signer.borrow_mut() = Some(signer);
     }
 
-
-
-
     pub(crate) fn hppr_packet(&self) -> Option<DomRoot<HpprPacket>> {
         self.hppr_packet.get()
     }
@@ -3712,7 +3703,11 @@ impl Document {
 
     /// Acquire a shared WatchSocket for the given watch prefix.
     /// Creates a new WatchSocket if none exists for this prefix.
-    pub(crate) fn acquire_watch(&self, prefix: &str, can_gc: CanGc) -> Option<DomRoot<WatchSocket>> {
+    pub(crate) fn acquire_watch(
+        &self,
+        prefix: &str,
+        can_gc: CanGc,
+    ) -> Option<DomRoot<WatchSocket>> {
         let mut pool = self.watch_pool.borrow_mut();
         if let Some((ws, count)) = pool.get_mut(prefix) {
             *count += 1;
@@ -4083,8 +4078,8 @@ impl Document {
     pub(crate) fn insecure_requests_policy(&self) -> InsecureRequestsPolicy {
         if let Some(csp_list) = self.get_csp_list().as_ref() {
             for policy in &csp_list.0 {
-                if policy.contains_a_directive_whose_name_is("upgrade-insecure-requests") &&
-                    policy.disposition == PolicyDisposition::Enforce
+                if policy.contains_a_directive_whose_name_is("upgrade-insecure-requests")
+                    && policy.disposition == PolicyDisposition::Enforce
                 {
                     return InsecureRequestsPolicy::Upgrade;
                 }
@@ -5124,8 +5119,8 @@ impl Document {
     }
 
     pub(crate) fn has_trustworthy_ancestor_or_current_origin(&self) -> bool {
-        self.has_trustworthy_ancestor_origin.get() ||
-            self.origin().immutable().is_potentially_trustworthy()
+        self.has_trustworthy_ancestor_origin.get()
+            || self.origin().immutable().is_potentially_trustworthy()
     }
 
     pub(crate) fn highlight_dom_node(&self, node: Option<&Node>) {
@@ -5969,8 +5964,8 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
 
         let node = new_body.upcast::<Node>();
         match node.type_id() {
-            NodeTypeId::Element(ElementTypeId::HTMLElement(HTMLElementTypeId::HTMLBodyElement)) |
-            NodeTypeId::Element(ElementTypeId::HTMLElement(
+            NodeTypeId::Element(ElementTypeId::HTMLElement(HTMLElementTypeId::HTMLBodyElement))
+            | NodeTypeId::Element(ElementTypeId::HTMLElement(
                 HTMLElementTypeId::HTMLFrameSetElement,
             )) => {},
             _ => return Err(Error::HierarchyRequest(None)),
@@ -6043,8 +6038,8 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
                 &self.window,
                 self.upcast(),
                 |element, _| {
-                    (element.is::<HTMLAnchorElement>() || element.is::<HTMLAreaElement>()) &&
-                        element.has_attribute(&local_name!("href"))
+                    (element.is::<HTMLAnchorElement>() || element.is::<HTMLAreaElement>())
+                        && element.has_attribute(&local_name!("href"))
                 },
                 can_gc,
             )
@@ -6292,8 +6287,8 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
                         elem.get_name().as_ref() == Some(&self.name)
                     },
                     HTMLElementTypeId::HTMLImageElement => elem.get_name().is_some_and(|name| {
-                        name == *self.name ||
-                            !name.is_empty() && elem.get_id().as_ref() == Some(&self.name)
+                        name == *self.name
+                            || !name.is_empty() && elem.get_id().as_ref() == Some(&self.name)
                     }),
                     // TODO handle <embed> and <object>; these depend on whether the element is
                     // “exposed”, a concept that doesn’t fully make sense until embed/object
@@ -6968,9 +6963,9 @@ fn is_named_element_with_name_attribute(elem: &Element) -> bool {
         _ => return false,
     };
     match type_ {
-        HTMLElementTypeId::HTMLFormElement |
-        HTMLElementTypeId::HTMLIFrameElement |
-        HTMLElementTypeId::HTMLImageElement => true,
+        HTMLElementTypeId::HTMLFormElement
+        | HTMLElementTypeId::HTMLIFrameElement
+        | HTMLElementTypeId::HTMLImageElement => true,
         // TODO handle <embed> and <object>; these depend on whether the element is
         // “exposed”, a concept that doesn’t fully make sense until embed/object
         // behaviour is actually implemented
@@ -7024,7 +7019,11 @@ pub(crate) struct SameOriginDescendantNavigablesIterator {
 
 impl SameOriginDescendantNavigablesIterator {
     pub(crate) fn new(document: DomRoot<Document>) -> Self {
-        let frames: Vec<FrameKind> = document.iframes().iter().map(|f| f.element.clone()).collect();
+        let frames: Vec<FrameKind> = document
+            .iframes()
+            .iter()
+            .map(|f| f.element.clone())
+            .collect();
         Self {
             stack: vec![frames.into_iter()],
         }
@@ -7050,8 +7049,11 @@ impl Iterator for SameOriginDescendantNavigablesIterator {
             };
 
             if let Some(document) = ScriptThread::find_document(pipeline_id) {
-                let child_frames: Vec<FrameKind> =
-                    document.iframes().iter().map(|f| f.element.clone()).collect();
+                let child_frames: Vec<FrameKind> = document
+                    .iframes()
+                    .iter()
+                    .map(|f| f.element.clone())
+                    .collect();
                 self.stack.push(child_frames.into_iter());
                 return Some(document);
             } else {

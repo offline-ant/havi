@@ -42,7 +42,7 @@ use rustc_hash::FxHashMap;
 use script_traits::{InitialScriptState, Painter, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
-use servo_url::{ImmutableOrigin, BrowserUrl};
+use servo_url::{BrowserUrl, ImmutableOrigin};
 use style::Atom;
 use style::animation::DocumentAnimationSet;
 use style::attr::{AttrValue, parse_integer, parse_unsigned_integer};
@@ -110,48 +110,56 @@ impl SharedScrollState {
     }
 }
 
-/// Document-level text selection rectangles in CSS pixels.
-/// Written by the script thread when the DOM Selection changes;
-/// read by the renderer to draw highlight overlays.
+/// Immutable selection snapshot shared with the embedding layer.
 #[derive(Clone, Default)]
-pub struct DocumentSelectionState {
+pub struct DocumentSelectionSnapshot {
     pub rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>,
     pub text: String,
+    pub revision: u64,
+}
+
+/// Document-level text selection snapshot.
+/// Written by the script thread; read by the embedder renderer and UI.
+#[derive(Clone, Default)]
+pub struct DocumentSelectionState {
+    snapshot: DocumentSelectionSnapshot,
 }
 
 #[derive(Clone, Default)]
 pub struct SharedDocumentSelection(Arc<RwLock<DocumentSelectionState>>);
 
 impl SharedDocumentSelection {
-    pub fn set(&self, rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>) {
-        self.0.write().rects = rects;
+    /// Atomically update rects + text. Increments revision only when content changes.
+    pub fn set_snapshot(&self, rects: Vec<euclid::Rect<f32, euclid::UnknownUnit>>, text: String) {
+        let mut guard = self.0.write();
+        let changed = guard.snapshot.rects != rects || guard.snapshot.text != text;
+        guard.snapshot.rects = rects;
+        guard.snapshot.text = text;
+        if changed {
+            guard.snapshot.revision = guard.snapshot.revision.wrapping_add(1);
+        }
     }
 
-    pub fn set_text(&self, text: String) {
-        self.0.write().text = text;
-    }
-
-    pub fn get(&self) -> Vec<euclid::Rect<f32, euclid::UnknownUnit>> {
-        self.0.read().rects.clone()
-    }
-
-    pub fn get_text(&self) -> String {
-        self.0.read().text.clone()
+    pub fn snapshot(&self) -> DocumentSelectionSnapshot {
+        self.0.read().snapshot.clone()
     }
 }
 
 /// Global registry of shared fragment trees, keyed by WebViewId.
 /// Layout writes fragments here; the embedding reads them for rendering.
-static FRAGMENT_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+static FRAGMENT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Global registry of shared scroll states, keyed by WebViewId.
-static SCROLL_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+static SCROLL_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Global registry of document selection states, keyed by WebViewId.
-static SELECTION_REGISTRY: std::sync::LazyLock<std::sync::Mutex<FxHashMap<WebViewId, SharedDocumentSelection>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+static SELECTION_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<WebViewId, SharedDocumentSelection>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Get or create a SharedFragmentTree for a given WebViewId.
 pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
@@ -870,8 +878,8 @@ const SPECIAL_SCROLL_ROOT_ID_MASK: u64 = 0xffff;
 /// Returns a new scroll root ID for a scroll root.
 fn next_special_id() -> u64 {
     // We shift this left by 2 to make room for the fragment type ID.
-    ((NEXT_SPECIAL_SCROLL_ROOT_ID.fetch_add(1, Ordering::SeqCst) + 1) << 2) &
-        SPECIAL_SCROLL_ROOT_ID_MASK
+    ((NEXT_SPECIAL_SCROLL_ROOT_ID.fetch_add(1, Ordering::SeqCst) + 1) << 2)
+        & SPECIAL_SCROLL_ROOT_ID_MASK
 }
 
 pub fn combine_id_with_fragment_type(id: usize, fragment_type: FragmentType) -> u64 {
@@ -934,8 +942,8 @@ impl ImageAnimationState {
         }
         let image = &self.image;
         let time_interval_since_last_update = now - self.frame_start_time;
-        let mut remain_time_interval = time_interval_since_last_update -
-            image
+        let mut remain_time_interval = time_interval_since_last_update
+            - image
                 .frames
                 .get(self.active_frame)
                 .unwrap()

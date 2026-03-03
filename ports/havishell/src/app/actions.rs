@@ -110,6 +110,13 @@ impl App {
                 });
                 self.active_tab_idx = 0;
                 self.activate_tab_webview(0);
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                {
+                    self.pending_clipboard_menu = None;
+                    self.selection_handles_visible = false;
+                    cx.hide_clipboard_actions();
+                    cx.hide_selection_handles();
+                }
             }
         } else {
             self.navigate(&self.start_url);
@@ -609,6 +616,13 @@ impl AppMain for App {
                     });
                     self.active_tab_idx = self.tabs.len() - 1;
                     self.activate_tab_webview(self.active_tab_idx);
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    {
+                        self.pending_clipboard_menu = None;
+                        self.selection_handles_visible = false;
+                        cx.hide_clipboard_actions();
+                        cx.hide_selection_handles();
+                    }
                     self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
                     self.needs_paint = true;
                     self.sync_tab_bar(cx);
@@ -756,21 +770,21 @@ impl AppMain for App {
             // Update primary selection (Linux middle-click paste) when text changes.
             #[cfg(target_os = "linux")]
             if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                let selection = layout_api::shared_document_selection_for(tab.webview_id);
-                let text = selection.get_text();
-                if text != self.last_primary_selection {
-                    if !text.is_empty() {
-                        cx.set_primary_selection(&text);
+                let snapshot = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+                if snapshot.text != self.last_primary_selection {
+                    if !snapshot.text.is_empty() {
+                        cx.set_primary_selection(&snapshot.text);
                     }
-                    self.last_primary_selection = text;
+                    self.last_primary_selection = snapshot.text;
                 }
             }
 
-            // Update selection handles on mobile.
+            // Update selection handles and deferred clipboard menu on mobile.
             #[cfg(any(target_os = "android", target_os = "ios"))]
             if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                let rects = layout_api::shared_document_selection_for(tab.webview_id).get();
-                if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
+                let snapshot = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+
+                if let (Some(first), Some(last)) = (snapshot.rects.first(), snapshot.rects.last()) {
                     let start = dvec2(
                         first.origin.x as f64,
                         (first.origin.y + first.size.height) as f64,
@@ -788,6 +802,31 @@ impl AppMain for App {
                 } else if self.selection_handles_visible {
                     cx.hide_selection_handles();
                     self.selection_handles_visible = false;
+                }
+
+                if let Some(pending) = self.pending_clipboard_menu {
+                    let web_rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+                    let local = dvec2(
+                        pending.anchor_abs.x - web_rect.pos.x,
+                        pending.anchor_abs.y - web_rect.pos.y,
+                    );
+                    let contains_anchor = snapshot.rects.iter().any(|r| {
+                        let x0 = r.origin.x as f64;
+                        let y0 = r.origin.y as f64;
+                        let x1 = x0 + r.size.width as f64;
+                        let y1 = y0 + r.size.height as f64;
+                        local.x >= x0 && local.x <= x1 && local.y >= y0 && local.y <= y1
+                    });
+                    let ready = !snapshot.rects.is_empty()
+                        && (snapshot.revision != pending.baseline_revision || contains_anchor);
+                    if ready {
+                        let rect = makepad_widgets::Rect {
+                            pos: pending.anchor_abs,
+                            size: dvec2(1.0, 1.0),
+                        };
+                        cx.show_clipboard_actions(true, rect, 0.0);
+                        self.pending_clipboard_menu = None;
+                    }
                 }
             }
 

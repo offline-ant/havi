@@ -84,6 +84,8 @@ pub enum ServoWebViewAction {
         input: String,
         was_paste: bool,
     },
+    ClipboardCopyRequested,
+    ClipboardCutRequested,
     LongPress {
         abs: DVec2,
     },
@@ -274,42 +276,17 @@ impl Widget for ServoWebView {
                 );
             },
 
-            // ----- Clipboard actions (mobile copy/cut) -----
-            Hit::TextCopy(tc) => {
-                if let Some(ref sel) = self.shared_selection {
-                    let text = sel.get_text();
-                    if !text.is_empty() {
-                        *tc.response.borrow_mut() = Some(text);
-                    }
-                }
+            // ----- Clipboard actions -----
+            Hit::TextCopy(_) => {
+                cx.widget_action(uid, ServoWebViewAction::ClipboardCopyRequested);
             },
-            Hit::TextCut(tc) => {
-                if let Some(ref sel) = self.shared_selection {
-                    let text = sel.get_text();
-                    if !text.is_empty() {
-                        *tc.response.borrow_mut() = Some(text);
-                    }
-                }
-                // Emit a KeyDown(Delete) action so the app sends it to Servo.
-                cx.widget_action(
-                    uid,
-                    ServoWebViewAction::KeyDown {
-                        key_event: KeyEvent {
-                            key_code: makepad_widgets::makepad_platform::KeyCode::Delete,
-                            is_repeat: false,
-                            modifiers: Default::default(),
-                            time: 0.0,
-                        },
-                    },
-                );
+            Hit::TextCut(_) => {
+                cx.widget_action(uid, ServoWebViewAction::ClipboardCutRequested);
             },
 
             // ----- Long press -----
             Hit::FingerLongPress(lp) => {
-                cx.widget_action(
-                    uid,
-                    ServoWebViewAction::LongPress { abs: lp.abs },
-                );
+                cx.widget_action(uid, ServoWebViewAction::LongPress { abs: lp.abs });
             },
 
             // ----- Selection handle drag (mobile) -----
@@ -384,7 +361,8 @@ impl Widget for ServoWebView {
                 .collect();
 
             // Build image overrides from the Paint-layer image store.
-            let image_overrides = self.image_store
+            let image_overrides = self
+                .image_store
                 .as_ref()
                 .map(|s| s.image_overrides())
                 .unwrap_or_default();
@@ -405,16 +383,31 @@ impl Widget for ServoWebView {
                 &mut self.draw_rounded_bg,
                 &mut self.draw_box_shadow,
                 &mut self.draw_gradient,
-                self.shared_selection.as_ref().map(|ss| {
-                    let rects = ss.get();
-                    havi_render::SelectionHighlight {
-                        color: makepad_widgets::makepad_draw::Vec4f { x: 0.26, y: 0.52, z: 0.96, w: 0.4 },
-                        rects: rects.iter().map(|r| makepad_widgets::Rect {
-                            pos: dvec2(rect.pos.x + r.origin.x as f64, rect.pos.y + r.origin.y as f64 - scroll_y),
-                            size: dvec2(r.size.width as f64, r.size.height as f64),
-                        }).collect(),
-                    }
-                }).as_ref(),
+                self.shared_selection
+                    .as_ref()
+                    .map(|ss| {
+                        let snapshot = ss.snapshot();
+                        havi_render::SelectionHighlight {
+                            color: makepad_widgets::makepad_draw::Vec4f {
+                                x: 0.26,
+                                y: 0.52,
+                                z: 0.96,
+                                w: 0.4,
+                            },
+                            rects: snapshot
+                                .rects
+                                .iter()
+                                .map(|r| makepad_widgets::Rect {
+                                    pos: dvec2(
+                                        rect.pos.x + r.origin.x as f64,
+                                        rect.pos.y + r.origin.y as f64,
+                                    ),
+                                    size: dvec2(r.size.width as f64, r.size.height as f64),
+                                })
+                                .collect(),
+                        }
+                    })
+                    .as_ref(),
                 &mut self.transform_state.0,
                 &mut self.opacity_passes.0,
                 &mut self.filter_passes.0,
@@ -476,7 +469,6 @@ impl ServoWebView {
     pub fn area(&self) -> Area {
         self.draw_bg.area()
     }
-
 }
 
 // ---------------------------------------------------------------------------

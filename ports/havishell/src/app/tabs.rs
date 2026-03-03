@@ -282,6 +282,13 @@ impl App {
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            self.pending_clipboard_menu = None;
+            self.selection_handles_visible = false;
+            cx.hide_clipboard_actions();
+            cx.hide_selection_handles();
+        }
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, HOME_URL);
@@ -307,6 +314,13 @@ impl App {
         }
         // Activate the now-current tab
         self.activate_tab_webview(self.active_tab_idx);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            self.pending_clipboard_menu = None;
+            self.selection_handles_visible = false;
+            cx.hide_clipboard_actions();
+            cx.hide_selection_handles();
+        }
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.needs_paint = true;
@@ -320,6 +334,13 @@ impl App {
         }
         self.active_tab_idx = idx;
         self.activate_tab_webview(idx);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            self.pending_clipboard_menu = None;
+            self.selection_handles_visible = false;
+            cx.hide_clipboard_actions();
+            cx.hide_selection_handles();
+        }
         let wv_id = self.tabs[idx].webview_id;
         let shared = layout_api::shared_fragment_tree_for(wv_id);
         let scroll = layout_api::shared_scroll_state_for(wv_id);

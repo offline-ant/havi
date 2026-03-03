@@ -832,6 +832,13 @@ fn makepad_video_source(source: ThreadMediaSource) -> PlatformVideoSource {
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PendingClipboardMenu {
+    anchor_abs: DVec2,
+    baseline_revision: u64,
+}
+
 #[derive(Script, ScriptHook)]
 pub struct App {
     #[live]
@@ -966,6 +973,11 @@ pub struct App {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     #[rust]
     selection_handles_visible: bool,
+
+    /// Pending clipboard-action menu request waiting for fresh selection snapshot.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[rust]
+    pending_clipboard_menu: Option<PendingClipboardMenu>,
 
     /// Canonical startup URL selected once during init.
     #[rust]
