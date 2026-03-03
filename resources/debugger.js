@@ -43,6 +43,15 @@ function pipelineIdKey(pipelineId) {
     return `${pipelineId.namespaceId}:${pipelineId.index}`;
 }
 
+function findKeyByValue(map, value) {
+    for (const [key, currentValue] of map.entries()) {
+        if (currentValue === value) {
+            return key;
+        }
+    }
+    return undefined;
+}
+
 dbg.uncaughtExceptionHook = function(error) {
     console.error(`[debugger] Uncaught exception at ${error.fileName}:${error.lineNumber}:${error.columnNumber}: ${error.name}: ${error.message}`);
 };
@@ -102,38 +111,48 @@ function createValueResult(value) {
 // Evaluate some javascript code in the global context of the debuggee
 // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.Object.html#executeinglobal-code-options>
 addEventListener("eval", event => {
-    const {code, pipelineId, workerId} = event;
-    const object = workerId !== undefined ?
-        workerIdsToDebuggees.get(workerId) :
-        pipelineIdsToDebuggees.get(pipelineIdKey(pipelineId));
+    const {code, pipelineId, workerId, frameActorId} = event;
+
+    let completionValue;
+    if (frameActorId) {
+        const frame = frameActorsToFrames.get(frameActorId);
+        // <https://searchfox.org/firefox-main/source/js/src/doc/Debugger/Debugger.Frame.md#223>
+        if (frame?.onStack) {
+            completionValue = frame.eval(code);
+        } else {
+            completionValue = { throw: "Frame not available" };
+        }
+    } else {
+        const object = workerId !== undefined ?
+            workerIdsToDebuggees.get(workerId) :
+            pipelineIdsToDebuggees.get(pipelineIdKey(pipelineId));
+        completionValue = object.executeInGlobal(code);
+    }
 
     // Completion values: <https://firefox-source-docs.mozilla.org/js/Debugger/Conventions.html#completion-values>
-    const completionValue = object.executeInGlobal(code);
     let resultValue;
-
     if (completionValue === null) {
-        resultValue = { completionType: "terminated", valueType: "undefined" };
+        resultValue = { completionType: "terminated", valueType: "undefined", hasException: false };
     } else if ("throw" in completionValue) {
-        // Adopt the value to ensure proper Debugger ownership
         // <https://firefox-source-docs.mozilla.org/js/Debugger/Debugger.html#adoptdebuggeevalue-value>
         // <https://searchfox.org/firefox-main/source/devtools/server/actors/webconsole/eval-with-debugger.js#312>
         // we probably don't need adoptDebuggeeValue, as we only have one debugger instance for now
         // let value = dbg.adoptDebuggeeValue(completionValue.throw);
-        resultValue = { completionType: "throw", ...createValueResult(completionValue.throw) };
+        resultValue = { completionType: "throw", ...createValueResult(completionValue.throw), hasException: true };
     } else if ("return" in completionValue) {
-        let value = completionValue.return;
+        const value = completionValue.return;
         // Unwrap settled Promises using Debugger.Object introspection.
         // Pending Promises still return as {class: "Promise"} objects.
         if (typeof value === "object" && value !== null && value.isPromise) {
             if (value.promiseState === "fulfilled") {
-                resultValue = { completionType: "return", ...createValueResult(value.promiseValue) };
+                resultValue = { completionType: "return", ...createValueResult(value.promiseValue), hasException: false };
             } else if (value.promiseState === "rejected") {
-                resultValue = { completionType: "throw", ...createValueResult(value.promiseReason) };
+                resultValue = { completionType: "throw", ...createValueResult(value.promiseReason), hasException: true };
             } else {
-                resultValue = { completionType: "return", ...createValueResult(value) };
+                resultValue = { completionType: "return", ...createValueResult(value), hasException: false };
             }
         } else {
-            resultValue = { completionType: "return", ...createValueResult(value) };
+            resultValue = { completionType: "return", ...createValueResult(value), hasException: false };
         }
     }
 
