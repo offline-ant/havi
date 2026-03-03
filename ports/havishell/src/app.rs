@@ -658,6 +658,7 @@ impl App {
 
         let (tx, rx) = media_controller::create_video_op_channel();
         media_controller::set_video_op_sender(tx);
+        media_controller::set_can_play_type_fn(makepad_widgets::makepad_platform::can_play_type);
         self.video_op_rx = Some(rx);
         log!("[video] media bridge initialized");
     }

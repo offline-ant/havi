@@ -159,15 +159,26 @@ pub fn deregister_event_sender(video_id: u64) {
 
 /// Returns the canPlayType string for the given MIME type.
 /// `""` = cannot play, `"maybe"` = might play, `"probably"` = can play.
+///
+/// Delegates to the Makepad platform backend via the stored callback so the
+/// answer reflects what the current platform can actually decode.
 pub fn can_play_type(mime: &str) -> &'static str {
-    let base = mime.split(';').next().unwrap_or("").trim();
-    match base {
-        "video/mp4" | "video/webm" | "video/ogg" | "video/mpeg" | "video/quicktime"
-        | "audio/mp4" | "audio/webm" | "audio/ogg" | "audio/mpeg" | "audio/mp3" | "audio/wav"
-        | "audio/wave" | "audio/flac" | "audio/opus" | "audio/aac" => "maybe",
-        _ if base.starts_with("video/") || base.starts_with("audio/") => "maybe",
-        _ => "",
+    if let Some(f) = CAN_PLAY_TYPE_FN.lock().unwrap().as_ref() {
+        f(mime)
+    } else {
+        // Fallback before platform callback is registered: conservative default.
+        ""
     }
+}
+
+/// Platform callback type for canPlayType queries.
+type CanPlayTypeFn = Box<dyn Fn(&str) -> &'static str + Send>;
+
+static CAN_PLAY_TYPE_FN: Mutex<Option<CanPlayTypeFn>> = Mutex::new(None);
+
+/// Register the platform's canPlayType implementation. Called once at startup.
+pub fn set_can_play_type_fn(f: impl Fn(&str) -> &'static str + Send + 'static) {
+    *CAN_PLAY_TYPE_FN.lock().unwrap() = Some(Box::new(f));
 }
 
 /// Send a MediaEvent to the controller registered for video_id.
