@@ -65,39 +65,56 @@ impl std::fmt::Debug for MakepadServoAction {
         match self {
             Self::None => write!(f, "None"),
             Self::Wake => write!(f, "Wake"),
-            Self::TitleChanged { webview_id, title } => {
-                f.debug_struct("TitleChanged").field("webview_id", webview_id).field("title", title).finish()
-            },
-            Self::UrlChanged { webview_id, url } => {
-                f.debug_struct("UrlChanged").field("webview_id", webview_id).field("url", url).finish()
-            },
-            Self::NewFrameReady { webview_id } => {
-                f.debug_struct("NewFrameReady").field("webview_id", webview_id).finish()
-            },
-            Self::CursorChanged { webview_id, cursor } => {
-                f.debug_struct("CursorChanged").field("webview_id", webview_id).field("cursor", cursor).finish()
-            },
-            Self::WebViewClosed { webview_id } => {
-                f.debug_struct("WebViewClosed").field("webview_id", webview_id).finish()
-            },
-            Self::ImeShow { webview_id } => {
-                f.debug_struct("ImeShow").field("webview_id", webview_id).finish()
-            },
-            Self::ImeHide { webview_id } => {
-                f.debug_struct("ImeHide").field("webview_id", webview_id).finish()
-            },
-            Self::WatchGetMode { webview_id, .. } => {
-                f.debug_struct("WatchGetMode").field("webview_id", webview_id).finish()
-            },
-            Self::WatchSetMode { webview_id, mode, .. } => {
-                f.debug_struct("WatchSetMode").field("webview_id", webview_id).field("mode", mode).finish()
-            },
-            Self::ContextMenuShow { webview_id, .. } => {
-                f.debug_struct("ContextMenuShow").field("webview_id", webview_id).finish()
-            },
-            Self::AccessibilityUpdate { webview_id, .. } => {
-                f.debug_struct("AccessibilityUpdate").field("webview_id", webview_id).finish()
-            },
+            Self::TitleChanged { webview_id, title } => f
+                .debug_struct("TitleChanged")
+                .field("webview_id", webview_id)
+                .field("title", title)
+                .finish(),
+            Self::UrlChanged { webview_id, url } => f
+                .debug_struct("UrlChanged")
+                .field("webview_id", webview_id)
+                .field("url", url)
+                .finish(),
+            Self::NewFrameReady { webview_id } => f
+                .debug_struct("NewFrameReady")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::CursorChanged { webview_id, cursor } => f
+                .debug_struct("CursorChanged")
+                .field("webview_id", webview_id)
+                .field("cursor", cursor)
+                .finish(),
+            Self::WebViewClosed { webview_id } => f
+                .debug_struct("WebViewClosed")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::ImeShow { webview_id } => f
+                .debug_struct("ImeShow")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::ImeHide { webview_id } => f
+                .debug_struct("ImeHide")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::WatchGetMode { webview_id, .. } => f
+                .debug_struct("WatchGetMode")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::WatchSetMode {
+                webview_id, mode, ..
+            } => f
+                .debug_struct("WatchSetMode")
+                .field("webview_id", webview_id)
+                .field("mode", mode)
+                .finish(),
+            Self::ContextMenuShow { webview_id, .. } => f
+                .debug_struct("ContextMenuShow")
+                .field("webview_id", webview_id)
+                .finish(),
+            Self::AccessibilityUpdate { webview_id, .. } => f
+                .debug_struct("AccessibilityUpdate")
+                .field("webview_id", webview_id)
+                .finish(),
         }
     }
 }

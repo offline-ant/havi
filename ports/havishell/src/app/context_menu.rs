@@ -1,5 +1,5 @@
-use makepad_widgets::*;
 use makepad_widgets::makepad_platform::event::PopupDismissedEvent;
+use makepad_widgets::*;
 
 use super::App;
 
@@ -106,7 +106,9 @@ impl App {
             return;
         };
 
-        let draw_list = self.context_popup_draw_list.get_or_insert_with(|| DrawList2d::new(cx));
+        let draw_list = self
+            .context_popup_draw_list
+            .get_or_insert_with(|| DrawList2d::new(cx));
 
         cx.begin_pass(pass, None);
         draw_list.begin_always(cx);
@@ -125,7 +127,11 @@ impl App {
     }
 
     /// Select a context menu action and close the menu.
-    pub(super) fn select_context_menu_action(&mut self, cx: &mut Cx, action: servo::ContextMenuAction) {
+    pub(super) fn select_context_menu_action(
+        &mut self,
+        cx: &mut Cx,
+        action: servo::ContextMenuAction,
+    ) {
         if let Some(menu) = self.active_context_menu.take() {
             menu.select(action);
         }

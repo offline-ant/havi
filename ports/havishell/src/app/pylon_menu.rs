@@ -101,7 +101,13 @@ impl PylonStatus {
     }
 
     /// Update a single service state from a pylon event.
-    pub fn apply_event(&mut self, service: &str, new_state: &str, pid: Option<u32>, port: Option<u16>) {
+    pub fn apply_event(
+        &mut self,
+        service: &str,
+        new_state: &str,
+        pid: Option<u32>,
+        port: Option<u16>,
+    ) {
         if let Some(svc) = self.services.iter_mut().find(|s| s.name == service) {
             svc.state = new_state.to_string();
             svc.pid = pid;
@@ -196,12 +202,16 @@ impl App {
             .set_text(cx, &svc_text);
 
         // Determine which action buttons to show.
-        let hpprd_running = self.pylon_status.services.iter().any(|s| {
-            s.name == "hpprd" && (s.state == "running" || s.state == "external")
-        });
-        let nfs_running = self.pylon_status.services.iter().any(|s| {
-            s.name == "hppr-nfs" && s.state == "running"
-        });
+        let hpprd_running = self
+            .pylon_status
+            .services
+            .iter()
+            .any(|s| s.name == "hpprd" && (s.state == "running" || s.state == "external"));
+        let nfs_running = self
+            .pylon_status
+            .services
+            .iter()
+            .any(|s| s.name == "hppr-nfs" && s.state == "running");
         let has_mount = !self.pylon_status.mounts.is_empty();
         let is_local = self.pylon_status.mode == "local";
 

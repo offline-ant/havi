@@ -234,7 +234,9 @@ impl MatchEvent for App {
             cx.push_unique_platform_op(CxOsOp::MinimizeWindow(CxWindowPool::id_zero()));
         }
         if self.ui.button(cx, ids!(win_max)).clicked(actions) {
-            let is_fs = cx.windows[CxWindowPool::id_zero()].window_geom.is_fullscreen;
+            let is_fs = cx.windows[CxWindowPool::id_zero()]
+                .window_geom
+                .is_fullscreen;
             if is_fs {
                 cx.push_unique_platform_op(CxOsOp::RestoreWindow(CxWindowPool::id_zero()));
             } else {
@@ -258,7 +260,12 @@ impl MatchEvent for App {
         }
 
         // --- Pylon dot click ---
-        if self.ui.view(cx, ids!(pylon_dot)).finger_down(actions).is_some() {
+        if self
+            .ui
+            .view(cx, ids!(pylon_dot))
+            .finger_down(actions)
+            .is_some()
+        {
             if self.pylon_menu_open {
                 self.hide_pylon_menu(cx);
             } else {
@@ -269,19 +276,35 @@ impl MatchEvent for App {
         }
 
         // --- Pylon menu buttons ---
-        if self.ui.button(cx, ids!(pylon_hpprd_start_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_hpprd_start_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "start", Some("hpprd"), None);
         }
-        if self.ui.button(cx, ids!(pylon_hpprd_stop_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_hpprd_stop_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "stop", Some("hpprd"), None);
         }
-        if self.ui.button(cx, ids!(pylon_nfs_start_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_nfs_start_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "start", Some("hppr-nfs"), None);
         }
-        if self.ui.button(cx, ids!(pylon_nfs_stop_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_nfs_stop_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "stop", Some("hppr-nfs"), None);
         }
@@ -293,11 +316,19 @@ impl MatchEvent for App {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "unmount", None, None);
         }
-        if self.ui.button(cx, ids!(pylon_services_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_services_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             nav_action = Some(NavCommand::Navigate("havi:///services".into()));
         }
-        if self.ui.button(cx, ids!(pylon_shutdown_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(pylon_shutdown_btn))
+            .clicked(actions)
+        {
             self.hide_pylon_menu(cx);
             self.pylon_command(cx, "shutdown", None, None);
             self.pylon_status.health = pylon_menu::PylonHealth::Red;
@@ -306,10 +337,18 @@ impl MatchEvent for App {
         }
 
         // --- Tab bar events ---
-        if self.ui.button(cx, ids!(tab_scroll_left_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(tab_scroll_left_btn))
+            .clicked(actions)
+        {
             self.scroll_tabs(cx, -1.0);
         }
-        if self.ui.button(cx, ids!(tab_scroll_right_btn)).clicked(actions) {
+        if self
+            .ui
+            .button(cx, ids!(tab_scroll_right_btn))
+            .clicked(actions)
+        {
             self.scroll_tabs(cx, 1.0);
         }
         if self.ui.button(cx, ids!(new_tab_btn)).clicked(actions) {
@@ -488,10 +527,7 @@ impl MatchEvent for App {
                     }
                     let _ = response_sender.send(new_mode);
                 },
-                Some(MakepadServoAction::AccessibilityUpdate {
-                    webview_id,
-                    update,
-                }) => {
+                Some(MakepadServoAction::AccessibilityUpdate { webview_id, update }) => {
                     let webview_id = *webview_id;
                     if self
                         .tabs
@@ -537,6 +573,10 @@ impl AppMain for App {
         // Lazy init servo on first event
         self.init_servo(cx);
 
+        // Drain media-thread operations and forward platform video events.
+        self.drain_video_ops(cx);
+        self.handle_video_event(cx, event);
+
         // Handle IPC commands (single-instance tab open requests)
         {
             let mut ipc_urls = Vec::new();
@@ -545,7 +585,7 @@ impl AppMain for App {
                     match cmd {
                         havi_protocols::instance::IpcCommand::Open { url } => {
                             ipc_urls.push(url);
-                        }
+                        },
                     }
                 }
             }
@@ -585,38 +625,50 @@ impl AppMain for App {
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     // pylon-init thread dropped sender without sending a result
                     // (panic, abort, or logic error).
-                    eprintln!("[havi] pylon-init thread exited without sending a result (likely panicked)");
+                    eprintln!(
+                        "[havi] pylon-init thread exited without sending a result (likely panicked)"
+                    );
                     Some(PylonInitResult::Failed {
                         reason: "pylon: off (init thread crashed)".to_string(),
                     })
-                }
+                },
                 Err(std::sync::mpsc::TryRecvError::Empty) => None,
             };
             if let Some(result) = poll_result {
                 self.pylon_init_rx = None;
                 match result {
-                    PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events } => {
+                    PylonInitResult::Ready {
+                        hpprd_port,
+                        pylon_port,
+                        pylon_events,
+                    } => {
                         self.startup_state = StartupState::Ready;
-                        log!("[havishell] pylon ready: pylon_port={} hpprd_port={}", pylon_port, hpprd_port);
+                        log!(
+                            "[havishell] pylon ready: pylon_port={} hpprd_port={}",
+                            pylon_port,
+                            hpprd_port
+                        );
                         self.watch_fallback_endpoint = format!("127.0.0.1:{}", hpprd_port);
                         if let Some(pool) = &mut self.watch_pool {
                             pool.set_endpoint(self.watch_fallback_endpoint.clone());
                         }
                         self.pylon_events = Some(pylon_events);
                         // Create command client for interactive pylon commands.
-                        if let Ok(cmd_client) = havi_protocols::pylon::PylonClient::connect(pylon_port) {
+                        if let Ok(cmd_client) =
+                            havi_protocols::pylon::PylonClient::connect(pylon_port)
+                        {
                             self.pylon_command_client = Some(cmd_client);
                         }
                         self.refresh_pylon_status(cx);
                         self.complete_startup_navigation(cx);
-                    }
+                    },
                     PylonInitResult::Failed { reason } => {
                         self.startup_state = StartupState::Failed;
                         log!("[havishell] pylon failed: {}", reason);
                         self.pylon_status.health = pylon_menu::PylonHealth::Red;
                         self.update_pylon_dot(cx);
                         self.complete_startup_navigation(cx);
-                    }
+                    },
                 }
                 self.needs_paint = true;
                 self.idle_frames = 0;
@@ -650,14 +702,15 @@ impl AppMain for App {
                     while let Ok(ev) = rx.try_recv() {
                         match (ev.event.as_str(), ev.service.as_deref()) {
                             ("service_started", Some(svc)) => {
-                                self.pylon_status.apply_event(svc, "running", ev.pid, ev.port);
+                                self.pylon_status
+                                    .apply_event(svc, "running", ev.pid, ev.port);
                                 status_changed = true;
-                            }
+                            },
                             ("service_stopped", Some(svc)) => {
                                 self.pylon_status.apply_event(svc, "stopped", None, None);
                                 status_changed = true;
-                            }
-                            _ => {}
+                            },
+                            _ => {},
                         }
 
                         if ev.event == "listener" && ev.service.as_deref() == Some("hpprd") {
@@ -691,11 +744,11 @@ impl AppMain for App {
                 havi_protocols::watch::WatchAction::Reload => {
                     self.reload();
                     self.needs_paint = true;
-                }
+                },
                 havi_protocols::watch::WatchAction::ChangeDetected => {
                     cx.redraw_all();
-                }
-                havi_protocols::watch::WatchAction::None => {}
+                },
+                havi_protocols::watch::WatchAction::None => {},
             }
 
             self.update_servo_and_texture(cx);
@@ -718,8 +771,14 @@ impl AppMain for App {
             if let Some(tab) = self.tabs.get(self.active_tab_idx) {
                 let rects = layout_api::shared_document_selection_for(tab.webview_id).get();
                 if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
-                    let start = dvec2(first.origin.x as f64, (first.origin.y + first.size.height) as f64);
-                    let end = dvec2((last.origin.x + last.size.width) as f64, (last.origin.y + last.size.height) as f64);
+                    let start = dvec2(
+                        first.origin.x as f64,
+                        (first.origin.y + first.size.height) as f64,
+                    );
+                    let end = dvec2(
+                        (last.origin.x + last.size.width) as f64,
+                        (last.origin.y + last.size.height) as f64,
+                    );
                     if !self.selection_handles_visible {
                         cx.show_selection_handles(start, end);
                         self.selection_handles_visible = true;

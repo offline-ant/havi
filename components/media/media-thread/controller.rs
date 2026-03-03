@@ -10,8 +10,10 @@
 //! per-controller crossbeam channels bridged to the script task source.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
+
+use log::{info, warn};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
@@ -65,9 +67,18 @@ pub enum VideoOp {
     Resume(u64),
     Mute(u64),
     Unmute(u64),
-    Seek { video_id: u64, position_ms: u64 },
-    SetVolume { video_id: u64, volume: f64 },
-    SetPlaybackRate { video_id: u64, rate: f64 },
+    Seek {
+        video_id: u64,
+        position_ms: u64,
+    },
+    SetVolume {
+        video_id: u64,
+        volume: f64,
+    },
+    SetPlaybackRate {
+        video_id: u64,
+        rate: f64,
+    },
     Cleanup(u64),
 }
 
@@ -105,6 +116,9 @@ pub enum MediaEvent {
 /// Sender half of the VideoOp channel. Set by havishell at startup.
 static VIDEO_OP_SENDER: Mutex<Option<Sender<VideoOp>>> = Mutex::new(None);
 
+/// Emit the missing-bridge warning only once.
+static VIDEO_OP_SENDER_WARNED: AtomicBool = AtomicBool::new(false);
+
 /// Set the global VideoOp sender. Called once by havishell during init.
 pub fn set_video_op_sender(sender: Sender<VideoOp>) {
     *VIDEO_OP_SENDER.lock().unwrap() = Some(sender);
@@ -119,6 +133,8 @@ pub fn create_video_op_channel() -> (Sender<VideoOp>, Receiver<VideoOp>) {
 fn send_op(op: VideoOp) {
     if let Some(sender) = VIDEO_OP_SENDER.lock().unwrap().as_ref() {
         let _ = sender.send(op);
+    } else if !VIDEO_OP_SENDER_WARNED.swap(true, Ordering::Relaxed) {
+        warn!("media: video op dropped because havishell media bridge is not initialized");
     }
 }
 
@@ -146,9 +162,9 @@ pub fn deregister_event_sender(video_id: u64) {
 pub fn can_play_type(mime: &str) -> &'static str {
     let base = mime.split(';').next().unwrap_or("").trim();
     match base {
-        "video/mp4" | "video/webm" | "video/ogg" | "video/mpeg" | "video/quicktime" |
-        "audio/mp4" | "audio/webm" | "audio/ogg" | "audio/mpeg" | "audio/mp3" |
-        "audio/wav" | "audio/wave" | "audio/flac" | "audio/opus" | "audio/aac" => "maybe",
+        "video/mp4" | "video/webm" | "video/ogg" | "video/mpeg" | "video/quicktime"
+        | "audio/mp4" | "audio/webm" | "audio/ogg" | "audio/mpeg" | "audio/mp3" | "audio/wav"
+        | "audio/wave" | "audio/flac" | "audio/opus" | "audio/aac" => "maybe",
         _ if base.starts_with("video/") || base.starts_with("audio/") => "maybe",
         _ => "",
     }
@@ -198,6 +214,10 @@ impl MediaController {
         should_loop: bool,
     ) -> Self {
         let video_id = next_video_id();
+        info!(
+            "media: queue PrepareVideo id={} image_key={:?} autoplay={} loop={}",
+            video_id, image_key, autoplay, should_loop
+        );
         send_op(VideoOp::PrepareVideo {
             video_id,
             source,
@@ -227,6 +247,10 @@ impl MediaController {
     /// Create an audio-only controller and send PrepareAudio to the platform.
     pub fn new_audio(source: MediaSource, autoplay: bool, should_loop: bool) -> Self {
         let video_id = next_video_id();
+        info!(
+            "media: queue PrepareAudio id={} autoplay={} loop={}",
+            video_id, autoplay, should_loop
+        );
         send_op(VideoOp::PrepareAudio {
             video_id,
             source,
@@ -276,15 +300,24 @@ impl MediaController {
     }
 
     pub fn seek(&self, position_ms: u64) {
-        send_op(VideoOp::Seek { video_id: self.video_id, position_ms });
+        send_op(VideoOp::Seek {
+            video_id: self.video_id,
+            position_ms,
+        });
     }
 
     pub fn set_volume(&self, volume: f64) {
-        send_op(VideoOp::SetVolume { video_id: self.video_id, volume });
+        send_op(VideoOp::SetVolume {
+            video_id: self.video_id,
+            volume,
+        });
     }
 
     pub fn set_playback_rate(&self, rate: f64) {
-        send_op(VideoOp::SetPlaybackRate { video_id: self.video_id, rate });
+        send_op(VideoOp::SetPlaybackRate {
+            video_id: self.video_id,
+            rate,
+        });
     }
 
     pub fn cleanup(&self) {
@@ -297,8 +330,12 @@ impl MediaController {
     pub fn apply_event(&mut self, event: &MediaEvent) {
         match event {
             MediaEvent::Prepared {
-                width, height, duration_ms, is_seekable,
-                video_tracks, audio_tracks,
+                width,
+                height,
+                duration_ms,
+                is_seekable,
+                video_tracks,
+                audio_tracks,
             } => {
                 self.prepared = true;
                 self.width = *width;
@@ -307,21 +344,21 @@ impl MediaController {
                 self.is_seekable = *is_seekable;
                 self.video_tracks = video_tracks.clone();
                 self.audio_tracks = audio_tracks.clone();
-            }
+            },
             MediaEvent::PositionChanged(pos) => {
                 self.position_ms = *pos;
-            }
+            },
             MediaEvent::PlaybackCompleted => {
                 self.completed = true;
                 self.paused = true;
-            }
-            MediaEvent::Error(_) => {}
+            },
+            MediaEvent::Error(_) => {},
             MediaEvent::SeekableRanges(ranges) => {
                 self.seekable_ranges = ranges.clone();
-            }
+            },
             MediaEvent::BufferedRanges(ranges) => {
                 self.buffered_ranges = ranges.clone();
-            }
+            },
         }
     }
 }

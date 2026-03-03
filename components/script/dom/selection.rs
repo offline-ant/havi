@@ -83,9 +83,11 @@ impl Selection {
             range.disassociate_selection(self);
             self.range.set(None);
             self.queue_selectionchange_task();
-            self.document
-                .upcast::<Node>()
-                .dirty(NodeDamage::Other);
+            // Dirty the document element to trigger reflow with updated
+            // selection data. Node::dirty() is a no-op on Document nodes.
+            if let Some(el) = self.document.upcast::<Node>().child_elements().next() {
+                el.upcast::<Node>().dirty(NodeDamage::Other);
+            }
         }
     }
 

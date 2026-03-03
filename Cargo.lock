@@ -3638,6 +3638,7 @@ dependencies = [
  "libservo",
  "log",
  "makepad-widgets",
+ "media",
  "paint_api",
  "pylon",
  "serde_json",
@@ -5770,6 +5771,7 @@ name = "media"
 version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
+ "log",
 ]
 
 [[package]]

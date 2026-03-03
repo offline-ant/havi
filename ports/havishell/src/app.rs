@@ -1,12 +1,18 @@
 use crossbeam_channel::Sender;
 use euclid::Scale;
 use havi_protocols::credentials::global_credential_store;
+use makepad_widgets::event::VideoSource as PlatformVideoSource;
 use makepad_widgets::makepad_platform::gl_render_bridge::GlApi;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::*;
+use media::controller::{
+    self as media_controller, MediaEvent as ThreadMediaEvent, MediaSource as ThreadMediaSource,
+    VideoOp,
+};
 use servo::protocol_handler::ProtocolRegistry;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -26,7 +32,6 @@ use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, Ma
 use navigation::NavCommand;
 use pylon_menu::PylonStatus;
 use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
-
 
 #[allow(unused_imports)] // ServoWebView is used inside the script_mod! macro
 use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidgetRefExt};
@@ -645,6 +650,186 @@ impl App {
         crate::servo_web_view::script_mod(vm);
         App::from_script_mod(vm, self::script_mod)
     }
+
+    pub(super) fn init_media_bridge(&mut self) {
+        if self.video_op_rx.is_some() {
+            return;
+        }
+
+        let (tx, rx) = media_controller::create_video_op_channel();
+        media_controller::set_video_op_sender(tx);
+        self.video_op_rx = Some(rx);
+        log!("[video] media bridge initialized");
+    }
+
+    pub(super) fn drain_video_ops(&mut self, cx: &mut Cx) {
+        let Some(rx) = self.video_op_rx.as_ref().cloned() else {
+            return;
+        };
+
+        while let Ok(op) = rx.try_recv() {
+            match op {
+                VideoOp::PrepareVideo {
+                    video_id,
+                    source,
+                    image_key,
+                    autoplay,
+                    should_loop,
+                } => {
+                    let texture = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                    havi_render::video_texture_map::register_video_texture(
+                        image_key,
+                        texture.clone(),
+                    );
+                    self.video_image_keys.insert(video_id, image_key);
+                    self.video_logged_first_frame.remove(&video_id);
+
+                    log!(
+                        "[video] prepare id={} key={:?} autoplay={} loop={}",
+                        video_id,
+                        image_key,
+                        autoplay,
+                        should_loop
+                    );
+
+                    cx.prepare_video_playback(
+                        LiveId(video_id),
+                        makepad_video_source(source),
+                        0,
+                        texture.texture_id(),
+                        autoplay,
+                        should_loop,
+                    );
+                },
+                VideoOp::PrepareAudio {
+                    video_id,
+                    source,
+                    autoplay,
+                    should_loop,
+                } => {
+                    log!(
+                        "[video] prepare-audio id={} autoplay={} loop={}",
+                        video_id,
+                        autoplay,
+                        should_loop
+                    );
+                    cx.prepare_audio_playback(
+                        LiveId(video_id),
+                        makepad_video_source(source),
+                        autoplay,
+                        should_loop,
+                    );
+                },
+                VideoOp::Play(video_id) => cx.begin_video_playback(LiveId(video_id)),
+                VideoOp::Pause(video_id) => cx.pause_video_playback(LiveId(video_id)),
+                VideoOp::Resume(video_id) => cx.resume_video_playback(LiveId(video_id)),
+                VideoOp::Mute(video_id) => cx.mute_video_playback(LiveId(video_id)),
+                VideoOp::Unmute(video_id) => cx.unmute_video_playback(LiveId(video_id)),
+                VideoOp::Seek {
+                    video_id,
+                    position_ms,
+                } => cx.seek_video_playback(LiveId(video_id), position_ms),
+                VideoOp::SetVolume { video_id, volume } => {
+                    cx.set_video_volume(LiveId(video_id), volume)
+                },
+                VideoOp::SetPlaybackRate { video_id, rate } => {
+                    cx.set_video_playback_rate(LiveId(video_id), rate)
+                },
+                VideoOp::Cleanup(video_id) => {
+                    if let Some(image_key) = self.video_image_keys.remove(&video_id) {
+                        havi_render::video_texture_map::deregister_video_texture(image_key);
+                    }
+                    self.video_logged_first_frame.remove(&video_id);
+                    cx.cleanup_video_playback_resources(LiveId(video_id));
+                },
+            }
+        }
+    }
+
+    pub(super) fn handle_video_event(&mut self, cx: &mut Cx, event: &Event) {
+        match event {
+            Event::VideoPlaybackPrepared(ev) => {
+                log!(
+                    "[video] prepared id={} {}x{} duration={}ms",
+                    ev.video_id.0,
+                    ev.video_width,
+                    ev.video_height,
+                    ev.duration
+                );
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::Prepared {
+                        width: ev.video_width,
+                        height: ev.video_height,
+                        duration_ms: ev.duration,
+                        is_seekable: ev.is_seekable,
+                        video_tracks: ev.video_tracks.clone(),
+                        audio_tracks: ev.audio_tracks.clone(),
+                    },
+                );
+            },
+            Event::VideoTextureUpdated(ev) => {
+                if self.video_logged_first_frame.insert(ev.video_id.0) {
+                    log!(
+                        "[video] first-frame id={} pos={}ms",
+                        ev.video_id.0,
+                        ev.current_position_ms
+                    );
+                }
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::PositionChanged(ev.current_position_ms),
+                );
+
+                self.needs_paint = true;
+                self.idle_frames = 0;
+                self.next_frame = cx.new_next_frame();
+                cx.redraw_all();
+            },
+            Event::VideoPlaybackCompleted(ev) => {
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::PlaybackCompleted,
+                );
+            },
+            Event::VideoDecodingError(ev) => {
+                log!("[video] error id={} {}", ev.video_id.0, ev.error);
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::Error(ev.error.clone()),
+                );
+            },
+            Event::VideoSeekableRanges(ev) => {
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::SeekableRanges(ev.ranges.clone()),
+                );
+            },
+            Event::VideoBufferedRanges(ev) => {
+                media_controller::dispatch_media_event(
+                    ev.video_id.0,
+                    ThreadMediaEvent::BufferedRanges(ev.ranges.clone()),
+                );
+            },
+            Event::VideoPlaybackResourcesReleased(ev) => {
+                if let Some(image_key) = self.video_image_keys.remove(&ev.video_id.0) {
+                    havi_render::video_texture_map::deregister_video_texture(image_key);
+                }
+                self.video_logged_first_frame.remove(&ev.video_id.0);
+            },
+            _ => {},
+        }
+    }
+}
+
+fn makepad_video_source(source: ThreadMediaSource) -> PlatformVideoSource {
+    match source {
+        ThreadMediaSource::InMemory(data) => {
+            PlatformVideoSource::InMemory(Rc::new(data.as_ref().clone()))
+        },
+        ThreadMediaSource::Network(url) => PlatformVideoSource::Network(url),
+        ThreadMediaSource::Filesystem(path) => PlatformVideoSource::Filesystem(path),
+    }
 }
 
 #[derive(Script, ScriptHook)]
@@ -760,6 +945,18 @@ pub struct App {
     #[rust]
     pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
 
+    /// Receiver for media-thread VideoOp commands (script thread -> makepad main thread).
+    #[rust]
+    video_op_rx: Option<crossbeam_channel::Receiver<VideoOp>>,
+
+    /// Mapping from media video_id to image key for video texture registration.
+    #[rust]
+    video_image_keys: HashMap<u64, (u32, u32)>,
+
+    /// Tracks whether a first frame has been observed for each video_id.
+    #[rust]
+    video_logged_first_frame: HashSet<u64>,
+
     /// Last primary selection text sent to the platform, for change detection.
     #[cfg(target_os = "linux")]
     #[rust]
@@ -813,4 +1010,3 @@ const MAX_IDLE_FRAMES: u32 = 10;
 /// If the finger moves more than this distance from the initial touch point,
 /// the gesture is treated as a scroll; otherwise it's a tap (click).
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
-

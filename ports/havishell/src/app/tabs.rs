@@ -1,6 +1,6 @@
 use euclid::Scale;
-use makepad_widgets::*;
 use makepad_widgets::turtle::RowAlign;
+use makepad_widgets::*;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 
@@ -60,9 +60,7 @@ impl App {
                     tb.children
                         .iter()
                         .find(|(id, _)| *id == live_id!(tab_template))
-                        .and_then(|(_, w)| {
-                            w.borrow_mut::<View>().map(|v| v.source.clone())
-                        })
+                        .and_then(|(_, w)| w.borrow_mut::<View>().map(|v| v.source.clone()))
                 })
             };
             if let Some(src) = source {
@@ -135,9 +133,7 @@ impl App {
                 WidgetRef::script_from_value(vm, template_val)
             });
 
-            widget
-                .widget(cx, ids!(tab_label))
-                .set_text(cx, &title);
+            widget.widget(cx, ids!(tab_label)).set_text(cx, &title);
 
             let bg: [f32; 4] = if is_active {
                 [1.0, 1.0, 1.0, 1.0] // white (active)
@@ -151,9 +147,19 @@ impl App {
 
             // Label text color.
             let text_color = if is_active {
-                Vec4f { x: 0.067, y: 0.067, z: 0.067, w: 1.0 } // #111
+                Vec4f {
+                    x: 0.067,
+                    y: 0.067,
+                    z: 0.067,
+                    w: 1.0,
+                } // #111
             } else {
-                Vec4f { x: 0.33, y: 0.33, z: 0.33, w: 1.0 } // #555
+                Vec4f {
+                    x: 0.33,
+                    y: 0.33,
+                    z: 0.33,
+                    w: 1.0,
+                } // #555
             };
             if let Some(mut label) = widget.widget(cx, ids!(tab_label)).borrow_mut::<Label>() {
                 label.draw_text.color = text_color;
@@ -231,11 +237,9 @@ impl App {
             .build();
         // Route clipboard through Makepad instead of arboard.
         if let Some(ref state) = self.clipboard_state {
-            webview.set_clipboard_delegate(Rc::new(
-                super::clipboard::MakepadClipboardDelegate {
-                    state: state.clone(),
-                },
-            ));
+            webview.set_clipboard_delegate(Rc::new(super::clipboard::MakepadClipboardDelegate {
+                state: state.clone(),
+            }));
         }
         let (w, h) = self.content_size;
         webview.resize(dpi::PhysicalSize::new(w as u32, h as u32));

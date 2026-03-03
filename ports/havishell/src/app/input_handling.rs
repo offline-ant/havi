@@ -249,22 +249,28 @@ impl App {
                             }
                         }
                         // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
-                        let is_paste = key_event.key_code == makepad_widgets::makepad_platform::KeyCode::KeyV
+                        let is_paste = key_event.key_code
+                            == makepad_widgets::makepad_platform::KeyCode::KeyV
                             && (key_event.modifiers.control || key_event.modifiers.logo);
                         if is_paste {
                             handled_input = true;
-                        } else if let Some(event) = crate::input::translate_key_event(key_event, true) {
+                        } else if let Some(event) =
+                            crate::input::translate_key_event(key_event, true)
+                        {
                             self.send_input_event(event);
                             handled_input = true;
                         }
                     },
                     ServoWebViewAction::KeyUp { key_event } => {
                         // Suppress Ctrl+V — paste is handled via TextInput(was_paste).
-                        let is_paste = key_event.key_code == makepad_widgets::makepad_platform::KeyCode::KeyV
+                        let is_paste = key_event.key_code
+                            == makepad_widgets::makepad_platform::KeyCode::KeyV
                             && (key_event.modifiers.control || key_event.modifiers.logo);
                         if is_paste {
                             handled_input = true;
-                        } else if let Some(event) = crate::input::translate_key_event(key_event, false) {
+                        } else if let Some(event) =
+                            crate::input::translate_key_event(key_event, false)
+                        {
                             self.send_input_event(event);
                             handled_input = true;
                         }
@@ -366,12 +372,12 @@ impl App {
                                         pt.into(),
                                     ),
                                 ));
-                            }
+                            },
                             SelectionHandlePhase::Move => {
                                 self.send_input_event(servo::InputEvent::MouseMove(
                                     servo::MouseMoveEvent::new(pt.into()),
                                 ));
-                            }
+                            },
                             SelectionHandlePhase::End => {
                                 self.send_input_event(servo::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
@@ -383,14 +389,23 @@ impl App {
                                 // Update handle positions from selection rects.
                                 #[cfg(any(target_os = "android", target_os = "ios"))]
                                 if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                                    let rects = layout_api::shared_document_selection_for(tab.webview_id).get();
-                                    if let (Some(first), Some(last)) = (rects.first(), rects.last()) {
-                                        let start = dvec2(first.origin.x as f64, (first.origin.y + first.size.height) as f64);
-                                        let end = dvec2((last.origin.x + last.size.width) as f64, (last.origin.y + last.size.height) as f64);
+                                    let rects =
+                                        layout_api::shared_document_selection_for(tab.webview_id)
+                                            .get();
+                                    if let (Some(first), Some(last)) = (rects.first(), rects.last())
+                                    {
+                                        let start = dvec2(
+                                            first.origin.x as f64,
+                                            (first.origin.y + first.size.height) as f64,
+                                        );
+                                        let end = dvec2(
+                                            (last.origin.x + last.size.width) as f64,
+                                            (last.origin.y + last.size.height) as f64,
+                                        );
                                         cx.update_selection_handles(start, end);
                                     }
                                 }
-                            }
+                            },
                         }
                         let _ = handle;
                         handled_input = true;

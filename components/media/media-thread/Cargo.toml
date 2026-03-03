@@ -13,3 +13,4 @@ path = "lib.rs"
 
 [dependencies]
 crossbeam-channel = { workspace = true }
+log = { workspace = true }

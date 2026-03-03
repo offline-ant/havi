@@ -4,10 +4,10 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::f64;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::f64;
 
 use base64::Engine as _;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
@@ -103,7 +103,6 @@ static MEDIA_CONTROL_CSS: &str = include_str!("../../resources/media-controls.cs
 /// A JS file to control the media controls.
 static MEDIA_CONTROL_JS: &str = include_str!("../../resources/media-controls.js");
 
-
 /// Keeps the current and poster frame for a video element.
 #[derive(MallocSizeOf)]
 pub(crate) struct VideoFrameState {
@@ -113,7 +112,10 @@ pub(crate) struct VideoFrameState {
 
 impl VideoFrameState {
     fn new() -> Self {
-        Self { current_frame: None, poster_frame: None }
+        Self {
+            current_frame: None,
+            poster_frame: None,
+        }
     }
 
     fn set_poster_frame(&mut self, image: Option<Arc<RasterImage>>) {
@@ -438,8 +440,8 @@ impl HTMLMediaElement {
         // Generally "ended" and "looping" are exclusive. Here, the loop attribute is ignored to
         // seek back to start in case loop was set after playback ended.
         // <https://github.com/whatwg/html/issues/4487>
-        if self.ended_playback(LoopCondition::Ignored) &&
-            self.direction_of_playback() == PlaybackDirection::Forwards
+        if self.ended_playback(LoopCondition::Ignored)
+            && self.direction_of_playback() == PlaybackDirection::Forwards
         {
             self.seek(
                 self.earliest_possible_position(),
@@ -471,9 +473,9 @@ impl HTMLMediaElement {
             // readyState attribute has the value HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA: notify about
             // playing for the element.
             match state {
-                ReadyState::HaveNothing |
-                ReadyState::HaveMetadata |
-                ReadyState::HaveCurrentData => {
+                ReadyState::HaveNothing
+                | ReadyState::HaveMetadata
+                | ReadyState::HaveCurrentData => {
                     self.queue_media_element_task_to_fire_event(atom!("waiting"));
                 },
                 ReadyState::HaveFutureData | ReadyState::HaveEnoughData => {
@@ -660,8 +662,8 @@ impl HTMLMediaElement {
 
         // => "If the previous ready state was HAVE_CURRENT_DATA or less, and the new ready state is
         // HAVE_FUTURE_DATA or more"
-        if old_ready_state <= ReadyState::HaveCurrentData &&
-            ready_state >= ReadyState::HaveFutureData
+        if old_ready_state <= ReadyState::HaveCurrentData
+            && ready_state >= ReadyState::HaveFutureData
         {
             // The user agent must queue a media element task given the media element to fire an
             // event named canplay at the element.
@@ -1293,17 +1295,17 @@ impl HTMLMediaElement {
 
     /// <https://html.spec.whatwg.org/multipage/#potentially-playing>
     fn is_potentially_playing(&self) -> bool {
-        !self.paused.get() &&
-            !self.ended_playback(LoopCondition::Included) &&
-            self.error.get().is_none() &&
-            !self.is_blocked_media_element()
+        !self.paused.get()
+            && !self.ended_playback(LoopCondition::Included)
+            && self.error.get().is_none()
+            && !self.is_blocked_media_element()
     }
 
     /// <https://html.spec.whatwg.org/multipage/#blocked-media-element>
     fn is_blocked_media_element(&self) -> bool {
-        self.ready_state.get() <= ReadyState::HaveCurrentData ||
-            self.is_paused_for_user_interaction() ||
-            self.is_paused_for_in_band_content()
+        self.ready_state.get() <= ReadyState::HaveCurrentData
+            || self.is_paused_for_user_interaction()
+            || self.is_paused_for_in_band_content()
     }
 
     /// <https://html.spec.whatwg.org/multipage/#paused-for-user-interaction>
@@ -1728,13 +1730,19 @@ impl HTMLMediaElement {
             self.queue_media_element_task_to_fire_event(atom!("postershown"));
         }
 
-        self.video_frame_state.lock().unwrap().set_poster_frame(image);
+        self.video_frame_state
+            .lock()
+            .unwrap()
+            .set_poster_frame(image);
 
         self.upcast::<Node>().dirty(NodeDamage::Other);
     }
 
     fn video_id(&self) -> Option<u64> {
-        self.media_controller.borrow().as_ref().map(|mc| mc.video_id)
+        self.media_controller
+            .borrow()
+            .as_ref()
+            .map(|mc| mc.video_id)
     }
 
     fn create_media_player(&self, resource: &Resource) -> Result<(), ()> {
@@ -1756,6 +1764,20 @@ impl HTMLMediaElement {
             self.media_type_id(),
             HTMLMediaElementTypeId::HTMLVideoElement
         );
+        let source_kind = match &source {
+            MediaSource::InMemory(_) => "memory",
+            MediaSource::Network(_) => "network",
+            MediaSource::Filesystem(_) => "file",
+        };
+
+        info!(
+            "media: create player kind={} source={} autoplay={} loop={} muted={}",
+            if is_video { "video" } else { "audio" },
+            source_kind,
+            autoplay,
+            should_loop,
+            muted,
+        );
 
         let controller = if is_video {
             // Generate an image key for the video frame; registered in VideoTextureMap
@@ -1766,6 +1788,7 @@ impl HTMLMediaElement {
                 .map(|k| (k.0.0, k.1))
                 .unwrap_or((0, 0));
 
+            info!("media: video image_key={:?}", image_key);
             MediaController::new_video(source, image_key, autoplay, should_loop)
         } else {
             MediaController::new_audio(source, autoplay, should_loop)
@@ -1776,6 +1799,7 @@ impl HTMLMediaElement {
         }
 
         let video_id = controller.video_id;
+        info!("media: controller ready video_id={}", video_id);
         *self.media_controller.borrow_mut() = Some(controller);
 
         // Spawn bridge thread: waits on MediaEvent channel, queues tasks on script thread.
@@ -1818,14 +1842,22 @@ impl HTMLMediaElement {
                 if let Some(rest) = url_str.strip_prefix("data:") {
                     // data: URL — decode base64 body
                     let comma = rest.find(',').ok_or(())?;
+                    let mime = rest[..comma].split(';').next().unwrap_or("");
                     let encoded = &rest[comma + 1..];
                     let bytes = base64::engine::general_purpose::STANDARD
                         .decode(encoded.trim())
                         .map_err(|_| ())?;
+                    info!(
+                        "media: resolved data url mime={} bytes={}",
+                        mime,
+                        bytes.len()
+                    );
                     Ok(MediaSource::InMemory(std::sync::Arc::new(bytes)))
                 } else if url_str.starts_with("file://") {
+                    info!("media: resolved file source {}", &url_str[7..]);
                     Ok(MediaSource::Filesystem(url_str[7..].to_string()))
                 } else {
+                    info!("media: resolved network source {}", url_str);
                     Ok(MediaSource::Network(url_str.to_string()))
                 }
             },
@@ -1834,6 +1866,7 @@ impl HTMLMediaElement {
                 match src_object.as_ref().ok_or(())? {
                     SrcObject::Blob(blob) => {
                         let bytes = blob.get_bytes().map_err(|_| ())?;
+                        info!("media: resolved blob source bytes={}", bytes.len());
                         Ok(MediaSource::InMemory(std::sync::Arc::new(bytes)))
                     },
                     SrcObject::MediaStream(_) => Err(()),
@@ -1879,8 +1912,13 @@ impl HTMLMediaElement {
             } => {
                 // Build a Metadata-like structure and reuse playback_metadata_updated logic.
                 self.handle_prepared(
-                    width, height, duration_ms, is_seekable,
-                    video_tracks, audio_tracks, can_gc,
+                    width,
+                    height,
+                    duration_ms,
+                    is_seekable,
+                    video_tracks,
+                    audio_tracks,
+                    can_gc,
                 );
             },
             MediaEvent::PositionChanged(pos_ms) => {
@@ -1916,41 +1954,69 @@ impl HTMLMediaElement {
 
         for (i, _) in audio_track_names.iter().enumerate() {
             let audio_track_list = self.AudioTracks(can_gc);
-            let kind = if i == 0 { DOMString::from("main") } else { DOMString::new() };
+            let kind = if i == 0 {
+                DOMString::from("main")
+            } else {
+                DOMString::new()
+            };
             let audio_track = crate::dom::audio::audiotrack::AudioTrack::new(
-                self.global().as_window(), DOMString::new(), kind,
-                DOMString::new(), DOMString::new(), Some(&*audio_track_list), can_gc,
+                self.global().as_window(),
+                DOMString::new(),
+                kind,
+                DOMString::new(),
+                DOMString::new(),
+                Some(&*audio_track_list),
+                can_gc,
             );
             audio_track_list.add(&audio_track);
             if audio_track_list.enabled_index().is_none() {
                 audio_track_list.set_enabled(audio_track_list.len() - 1, true);
             }
             let event = crate::dom::trackevent::TrackEvent::new(
-                self.global().as_window(), atom!("addtrack"), false, false,
-                &Some(VideoTrackOrAudioTrackOrTextTrack::AudioTrack(audio_track)), can_gc,
+                self.global().as_window(),
+                atom!("addtrack"),
+                false,
+                false,
+                &Some(VideoTrackOrAudioTrackOrTextTrack::AudioTrack(audio_track)),
+                can_gc,
             );
             event.upcast::<crate::dom::event::Event>().fire(
-                audio_track_list.upcast::<crate::dom::eventtarget::EventTarget>(), can_gc,
+                audio_track_list.upcast::<crate::dom::eventtarget::EventTarget>(),
+                can_gc,
             );
         }
 
         for (i, _) in video_track_names.iter().enumerate() {
             let video_track_list = self.VideoTracks(can_gc);
-            let kind = if i == 0 { DOMString::from("main") } else { DOMString::new() };
+            let kind = if i == 0 {
+                DOMString::from("main")
+            } else {
+                DOMString::new()
+            };
             let video_track = crate::dom::videotrack::VideoTrack::new(
-                self.global().as_window(), DOMString::new(), kind,
-                DOMString::new(), DOMString::new(), Some(&*video_track_list), can_gc,
+                self.global().as_window(),
+                DOMString::new(),
+                kind,
+                DOMString::new(),
+                DOMString::new(),
+                Some(&*video_track_list),
+                can_gc,
             );
             video_track_list.add(&video_track);
             if video_track_list.selected_index().is_none() {
                 video_track_list.set_selected(video_track_list.len() - 1, true);
             }
             let event = crate::dom::trackevent::TrackEvent::new(
-                self.global().as_window(), atom!("addtrack"), false, false,
-                &Some(VideoTrackOrAudioTrackOrTextTrack::VideoTrack(video_track)), can_gc,
+                self.global().as_window(),
+                atom!("addtrack"),
+                false,
+                false,
+                &Some(VideoTrackOrAudioTrackOrTextTrack::VideoTrack(video_track)),
+                can_gc,
             );
             event.upcast::<crate::dom::event::Event>().fire(
-                video_track_list.upcast::<crate::dom::eventtarget::EventTarget>(), can_gc,
+                video_track_list.upcast::<crate::dom::eventtarget::EventTarget>(),
+                can_gc,
             );
         }
 
@@ -1977,10 +2043,8 @@ impl HTMLMediaElement {
                     if mc.image_key != (0, 0) {
                         // Construct the ImageKey for the MediaFrame.
                         use webrender_api::IdNamespace;
-                        let image_key = webrender_api::ImageKey(
-                            IdNamespace(mc.image_key.0),
-                            mc.image_key.1,
-                        );
+                        let image_key =
+                            webrender_api::ImageKey(IdNamespace(mc.image_key.0), mc.image_key.1);
                         self.video_frame_state.lock().unwrap().current_frame = Some(MediaFrame {
                             image_key,
                             width: width as i32,
@@ -1994,6 +2058,16 @@ impl HTMLMediaElement {
 
         self.change_ready_state(ReadyState::HaveMetadata);
         self.change_ready_state(ReadyState::HaveEnoughData);
+
+        // Keep platform playback state in sync with HTMLMediaElement paused state.
+        // This ensures autoplay and early play() calls start decoding after metadata
+        // is ready, even if backend-level autoplay was not triggered.
+        if !self.Paused() {
+            if let Some(mc) = self.media_controller.borrow_mut().as_mut() {
+                info!("media: begin playback video_id={}", mc.video_id);
+                mc.play();
+            }
+        }
     }
 
     pub(crate) fn set_audio_track(&self, _idx: usize, _enabled: bool) {
@@ -2031,8 +2105,8 @@ impl HTMLMediaElement {
             // direction of playback is forwards, and the media element does not have a loop
             // attribute specified.
             PlaybackDirection::Forwards => {
-                playback_position >= self.Duration() &&
-                    (loop_condition == LoopCondition::Ignored || !self.Loop())
+                playback_position >= self.Duration()
+                    && (loop_condition == LoopCondition::Ignored || !self.Loop())
             },
             // Or: The current playback position is the earliest possible position, and the
             // direction of playback is backwards.
@@ -2354,9 +2428,9 @@ impl HTMLMediaElement {
         if let Some(servo_url) = self.resource_url.borrow().as_ref() {
             let fragment = MediaFragmentParser::from(servo_url);
             if let Some(initial_playback_position) = fragment.start() {
-                if initial_playback_position > 0. &&
-                    initial_playback_position < self.duration.get() &&
-                    !jumped
+                if initial_playback_position > 0.
+                    && initial_playback_position < self.duration.get()
+                    && !jumped
                 {
                     self.seek(
                         initial_playback_position,
@@ -2650,7 +2724,11 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
         self.muted.set(value);
 
         if let Some(ref mc) = *self.media_controller.borrow() {
-            if value { mc.mute(); } else { mc.unmute(); }
+            if value {
+                mc.mute();
+            } else {
+                mc.unmute();
+            }
         }
 
         // The user agent must queue a media element task given the media element to fire an event
@@ -2869,8 +2947,8 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
 
     /// <https://html.spec.whatwg.org/multipage/#dom-media-ended>
     fn Ended(&self) -> bool {
-        self.ended_playback(LoopCondition::Included) &&
-            self.direction_of_playback() == PlaybackDirection::Forwards
+        self.ended_playback(LoopCondition::Included)
+            && self.direction_of_playback() == PlaybackDirection::Forwards
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-media-fastseek>
@@ -3141,11 +3219,11 @@ impl MicrotaskRunnable for MediaElementMicrotask {
 
     fn enter_realm<'cx>(&self, cx: &'cx mut js::context::JSContext) -> AutoRealm<'cx> {
         match self {
-            &MediaElementMicrotask::ResourceSelection { ref elem, .. } |
-            &MediaElementMicrotask::PauseIfNotInDocument { ref elem } |
-            &MediaElementMicrotask::Seeked { ref elem, .. } |
-            &MediaElementMicrotask::SelectNextSourceChild { ref elem, .. } |
-            &MediaElementMicrotask::SelectNextSourceChildAfterWait { ref elem, .. } => {
+            &MediaElementMicrotask::ResourceSelection { ref elem, .. }
+            | &MediaElementMicrotask::PauseIfNotInDocument { ref elem }
+            | &MediaElementMicrotask::Seeked { ref elem, .. }
+            | &MediaElementMicrotask::SelectNextSourceChild { ref elem, .. }
+            | &MediaElementMicrotask::SelectNextSourceChildAfterWait { ref elem, .. } => {
                 enter_auto_realm(cx, &**elem)
             },
         }
@@ -3321,7 +3399,6 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
                 }
             }
         }
-
     }
 
     fn process_response_chunk(&mut self, _: RequestId, chunk: Vec<u8>) {
@@ -3436,7 +3513,12 @@ impl ResourceTimingListener for HTMLMediaElementFetchListener {
 }
 
 impl HTMLMediaElementFetchListener {
-    fn new(element: &HTMLMediaElement, request_id: RequestId, url: BrowserUrl, offset: u64) -> Self {
+    fn new(
+        element: &HTMLMediaElement,
+        request_id: RequestId,
+        url: BrowserUrl,
+        offset: u64,
+    ) -> Self {
         Self {
             element: Trusted::new(element),
             generation_id: element.generation_id.get(),
@@ -3449,5 +3531,3 @@ impl HTMLMediaElementFetchListener {
         }
     }
 }
-
-

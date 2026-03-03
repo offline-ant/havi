@@ -8,9 +8,8 @@ const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
 fn build_display_info(
     bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
 ) -> servo::gl_device::egl::EglDisplayInfo {
-    let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void = unsafe {
-        std::mem::transmute(bridge.get_proc_address("eglGetProcAddress"))
-    };
+    let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void =
+        unsafe { std::mem::transmute(bridge.get_proc_address("eglGetProcAddress")) };
     servo::gl_device::egl::EglDisplayInfo {
         display: bridge.egl_display(),
         config: bridge.egl_config(),
@@ -94,9 +93,16 @@ impl App {
         // Set Wayland app_id to "havi"
         cx.windows[CxWindowPool::id_zero()].create_app_id = "havi".to_string();
 
+        self.init_media_bridge();
+
         self.initialized = true;
         self.dpi_factor = dpi_factor;
-        log!("[havishell] init_servo: dpi={} size={}x{}", dpi_factor, inner.x, inner.y);
+        log!(
+            "[havishell] init_servo: dpi={} size={}x{}",
+            dpi_factor,
+            inner.x,
+            inner.y
+        );
 
         // Init resource reader
         servo::resources::set(Box::new(ResourceReader));
@@ -436,8 +442,7 @@ impl App {
             eprintln!("HAVI_URL={}", self.start_url);
             eprintln!(
                 "[havi] startup: state={:?}, start_navigation_done={}",
-                self.startup_state,
-                self.start_navigation_done
+                self.startup_state, self.start_navigation_done
             );
         }
 
@@ -468,10 +473,10 @@ impl App {
                                 break;
                             }
                             SignalToUI::set_ui_signal();
-                        }
+                        },
                         Err(e) => {
                             eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
-                        }
+                        },
                     }
                 }
             });
@@ -615,6 +620,4 @@ impl App {
             SignalToUI::set_ui_signal,
         ));
     }
-
-
 }
