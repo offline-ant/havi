@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 mod actions;
+mod capabilities;
 mod clipboard;
 mod context_menu;
 mod delegate;
@@ -252,45 +253,47 @@ script_mod! {
                         // Context menu rendered in popup window (see context_menu.rs)
                         context_menu := View{
                             visible: false
-                            width: 168 height: Fit
+                            width: 220 height: Fit
                             flow: Down
                             padding: Inset{left: 4 right: 4 top: 4 bottom: 4}
                             spacing: 0
                             show_bg: true
                             draw_bg.color: #xffffff
 
-                            context_copy_btn := Button{
-                                text: "Copy"
-                                width: 160 height: 28
-                                padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
-                                draw_text.color: #x111111
-                                draw_text.text_style.font_size: 12.0
-                                draw_bg +: {
-                                    color: uniform(#xffffff)
-                                    color_hover: uniform(#xf0f0f0)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
+                            // Extracted once and removed from children at runtime.
+                            context_item_template := View{
+                                width: 212 height: 28
+                                flow: Overlay
+                                context_item_button := Button{
+                                    text: "Action"
+                                    width: Fill height: Fill
+                                    padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
+                                    draw_text.color: #x111111
+                                    draw_text.text_style.font_size: 12.0
+                                    draw_bg +: {
+                                        color: uniform(#xffffff)
+                                        color_hover: uniform(#xf0f0f0)
+                                        pixel: fn() {
+                                            let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                            sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                                            sdf.fill(mix(self.color, self.color_hover, self.hover))
+                                            return sdf.result
+                                        }
                                     }
                                 }
                             }
-                            context_edit_btn := Button{
-                                text: "Go to Editor"
-                                width: 160 height: 28
-                                padding: Inset{left: 12 right: 12 top: 4 bottom: 4}
-                                draw_text.color: #x111111
-                                draw_text.text_style.font_size: 12.0
-                                draw_bg +: {
-                                    color: uniform(#xffffff)
-                                    color_hover: uniform(#xf0f0f0)
-                                    pixel: fn() {
-                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                        sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
-                                        sdf.fill(mix(self.color, self.color_hover, self.hover))
-                                        return sdf.result
-                                    }
+
+                            // Extracted once and removed from children at runtime.
+                            context_separator_template := View{
+                                width: Fill
+                                height: 9
+                                flow: Overlay
+                                sep_line := View{
+                                    width: Fill
+                                    height: 1
+                                    margin: Inset{left: 8 right: 8 top: 4 bottom: 4}
+                                    show_bg: true
+                                    draw_bg.color: #xe3e3e3
                                 }
                             }
                         }
@@ -907,6 +910,22 @@ pub struct App {
     /// Draw list for rendering context menu contents into the popup pass.
     #[rust]
     context_popup_draw_list: Option<DrawList2d>,
+    /// Dynamic context-menu entries mirroring Servo's menu payload.
+    #[rust]
+    context_menu_entries: Vec<context_menu::ContextMenuEntry>,
+    /// Cached ScriptObjectRef for context item template.
+    #[rust]
+    context_item_template_source: ScriptObjectRef,
+    /// Cached ScriptObjectRef for context separator template.
+    #[rust]
+    context_separator_template_source: ScriptObjectRef,
+    /// Latest known element flags for context-sensitive capabilities.
+    #[rust]
+    last_context_menu_flags: Option<servo::ContextMenuElementInformationFlags>,
+
+    /// True while Servo reports an active IME/editable context.
+    #[rust]
+    ime_visible: bool,
 
     /// Latest advertised public via from pylon listener events.
     #[rust]

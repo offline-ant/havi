@@ -282,6 +282,7 @@ impl App {
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
+        self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.pending_clipboard_menu = None;
@@ -314,6 +315,7 @@ impl App {
         }
         // Activate the now-current tab
         self.activate_tab_webview(self.active_tab_idx);
+        self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.pending_clipboard_menu = None;
@@ -334,6 +336,7 @@ impl App {
         }
         self.active_tab_idx = idx;
         self.activate_tab_webview(idx);
+        self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.pending_clipboard_menu = None;

@@ -255,15 +255,8 @@ impl MatchEvent for App {
         }
 
         // --- Context menu ---
-        if self.ui.button(cx, ids!(context_copy_btn)).clicked(actions) {
-            self.select_context_menu_action(cx, servo::ContextMenuAction::Copy);
-        }
-        if self.ui.button(cx, ids!(context_edit_btn)).clicked(actions) {
-            self.hide_context_menu(cx);
-            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            if let Some(edit_url) = context_menu::editor_url_for(&url_text) {
-                nav_action = Some(NavCommand::Navigate(edit_url));
-            }
+        if let Some(cmd) = self.handle_context_menu_actions(cx, actions) {
+            nav_action = Some(cmd);
         }
 
         // --- Pylon dot click ---
@@ -454,6 +447,7 @@ impl MatchEvent for App {
                         .get(self.active_tab_idx)
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
+                        self.ime_visible = true;
                         let web_view = self.ui.servo_web_view(cx, ids!(web_view));
                         let area = web_view.area();
                         let rect = area.rect(cx);
@@ -467,6 +461,7 @@ impl MatchEvent for App {
                         .get(self.active_tab_idx)
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
+                        self.ime_visible = false;
                         cx.hide_text_ime();
                     }
                 },
@@ -481,6 +476,7 @@ impl MatchEvent for App {
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
                         if let Some(menu) = context_menu.lock().unwrap().take() {
+                            self.last_context_menu_flags = Some(menu.element_info().flags);
                             self.active_context_menu = Some(menu);
                             self.show_context_menu(cx);
                         }
@@ -820,11 +816,19 @@ impl AppMain for App {
                     let ready = !snapshot.rects.is_empty()
                         && (snapshot.revision != pending.baseline_revision || contains_anchor);
                     if ready {
+                        let capabilities =
+                            self.selection_capabilities_for_active_tab(&snapshot, self.ime_visible);
                         let rect = makepad_widgets::Rect {
                             pos: pending.anchor_abs,
                             size: dvec2(1.0, 1.0),
                         };
-                        cx.show_clipboard_actions(true, rect, 0.0);
+                        cx.show_clipboard_actions(capabilities.can_copy, rect, 0.0);
+                        ::log::trace!(
+                            "[havishell] mobile clipboard actions rev={} rects={} caps={}",
+                            snapshot.revision,
+                            snapshot.rects.len(),
+                            capabilities.summary()
+                        );
                         self.pending_clipboard_menu = None;
                     }
                 }

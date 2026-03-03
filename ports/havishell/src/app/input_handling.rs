@@ -300,7 +300,7 @@ impl App {
                             // Store paste text for the clipboard delegate, then
                             // trigger Servo's paste editing action.
                             if let Some(ref state) = self.clipboard_state {
-                                *state.pending_paste.borrow_mut() = Some(input.clone());
+                                state.set_pending_paste(input.clone());
                             }
                             self.send_input_event(servo::InputEvent::EditingAction(
                                 EditingActionEvent::Paste,

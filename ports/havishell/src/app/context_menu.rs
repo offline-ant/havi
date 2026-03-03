@@ -1,11 +1,12 @@
 use makepad_widgets::makepad_platform::event::PopupDismissedEvent;
 use makepad_widgets::*;
 
-use super::App;
+use super::{App, NavCommand};
 
-/// Context menu dimensions (must match DSL definition).
-const MENU_WIDTH: f64 = 168.0;
+/// Context menu dimensions.
+const MENU_WIDTH: f64 = 220.0;
 const ITEM_HEIGHT: f64 = 28.0;
+const SEPARATOR_HEIGHT: f64 = 9.0;
 const MENU_PADDING: f64 = 8.0; // top + bottom (4 each side)
 
 /// Build an `hppr-editor://` URL from the current page URL.
@@ -21,28 +22,255 @@ pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
     ))
 }
 
+#[derive(Clone, Debug)]
+pub(super) enum ContextMenuEntryKind {
+    Action(servo::ContextMenuAction),
+    GoToEditor,
+    Separator,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ContextMenuEntry {
+    pub(super) widget_id: LiveId,
+    pub(super) label: String,
+    pub(super) enabled: bool,
+    pub(super) kind: ContextMenuEntryKind,
+}
+
+static CONTEXT_ITEM_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn next_context_item_live_id() -> LiveId {
+    LiveId(CONTEXT_ITEM_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
 impl App {
+    fn ensure_context_templates(&mut self, cx: &mut Cx) {
+        if !self.context_item_template_source.is_zero()
+            && !self.context_separator_template_source.is_zero()
+        {
+            return;
+        }
+
+        let menu_ref = self.ui.view(cx, ids!(context_menu));
+        let (mut item_source, mut separator_source) = (None, None);
+
+        {
+            if let Some(menu) = menu_ref.borrow_mut() {
+                for (id, child) in menu.children.iter() {
+                    if *id == live_id!(context_item_template) {
+                        if let Some(view) = child.borrow_mut::<View>() {
+                            item_source = Some(view.source.clone());
+                        }
+                    } else if *id == live_id!(context_separator_template) {
+                        if let Some(view) = child.borrow_mut::<View>() {
+                            separator_source = Some(view.source.clone());
+                        }
+                    }
+                }
+            };
+        }
+
+        if let Some(source) = item_source {
+            self.context_item_template_source = source;
+        }
+        if let Some(source) = separator_source {
+            self.context_separator_template_source = source;
+        }
+
+        {
+            if let Some(mut menu) = menu_ref.borrow_mut() {
+                menu.children.retain(|(id, _)| {
+                    *id != live_id!(context_item_template)
+                        && *id != live_id!(context_separator_template)
+                });
+            };
+        }
+    }
+
+    fn push_context_separator(&mut self) {
+        if self
+            .context_menu_entries
+            .last()
+            .is_some_and(|entry| matches!(entry.kind, ContextMenuEntryKind::Separator))
+        {
+            return;
+        }
+        self.context_menu_entries.push(ContextMenuEntry {
+            widget_id: next_context_item_live_id(),
+            label: String::new(),
+            enabled: false,
+            kind: ContextMenuEntryKind::Separator,
+        });
+    }
+
+    fn push_context_action(&mut self, label: String, enabled: bool, kind: ContextMenuEntryKind) {
+        self.context_menu_entries.push(ContextMenuEntry {
+            widget_id: next_context_item_live_id(),
+            label,
+            enabled,
+            kind,
+        });
+    }
+
+    fn rebuild_context_menu_entries(&mut self, cx: &mut Cx) {
+        self.ensure_context_templates(cx);
+
+        self.context_menu_entries.clear();
+
+        let selection_snapshot = self
+            .tabs
+            .get(self.active_tab_idx)
+            .map(|tab| layout_api::shared_document_selection_for(tab.webview_id).snapshot())
+            .unwrap_or_default();
+        let editable_context = self.last_context_menu_flags.is_some_and(|flags| {
+            flags.contains(servo::ContextMenuElementInformationFlags::EditableText)
+        });
+        let capabilities =
+            self.selection_capabilities_for_active_tab(&selection_snapshot, editable_context);
+
+        let menu_items = self
+            .active_context_menu
+            .as_ref()
+            .map(|menu| menu.items().to_vec())
+            .unwrap_or_default();
+        for item in menu_items {
+            match item {
+                servo::ContextMenuItem::Item {
+                    label,
+                    action,
+                    enabled,
+                } => {
+                    let enabled = match action {
+                        servo::ContextMenuAction::Copy => capabilities.can_copy,
+                        servo::ContextMenuAction::Cut => capabilities.can_cut,
+                        servo::ContextMenuAction::Paste => capabilities.can_paste,
+                        servo::ContextMenuAction::SelectAll => capabilities.can_select_all,
+                        _ => enabled,
+                    };
+                    self.push_context_action(label, enabled, ContextMenuEntryKind::Action(action));
+                },
+                servo::ContextMenuItem::Separator => {
+                    self.push_context_separator();
+                },
+            }
+        }
+
+        let url_text = self.ui.text_input(cx, ids!(url_input)).text();
+        if editor_url_for(&url_text).is_some() {
+            if !self.context_menu_entries.is_empty() {
+                self.push_context_separator();
+            }
+            self.push_context_action(
+                "Go to Editor".to_string(),
+                true,
+                ContextMenuEntryKind::GoToEditor,
+            );
+        }
+
+        while self
+            .context_menu_entries
+            .last()
+            .is_some_and(|entry| matches!(entry.kind, ContextMenuEntryKind::Separator))
+        {
+            self.context_menu_entries.pop();
+        }
+
+        if self.context_menu_entries.is_empty() {
+            self.push_context_action(
+                "No actions".to_string(),
+                false,
+                ContextMenuEntryKind::GoToEditor,
+            );
+        }
+
+        let item_template = self.context_item_template_source.clone();
+        let separator_template = self.context_separator_template_source.clone();
+        let mut children: Vec<(LiveId, WidgetRef)> =
+            Vec::with_capacity(self.context_menu_entries.len());
+
+        for entry in &self.context_menu_entries {
+            let widget = match entry.kind {
+                ContextMenuEntryKind::Separator => cx.with_vm(|vm| {
+                    let template_val: ScriptValue = separator_template.as_object().into();
+                    WidgetRef::script_from_value(vm, template_val)
+                }),
+                _ => cx.with_vm(|vm| {
+                    let template_val: ScriptValue = item_template.as_object().into();
+                    WidgetRef::script_from_value(vm, template_val)
+                }),
+            };
+
+            if !matches!(entry.kind, ContextMenuEntryKind::Separator) {
+                widget
+                    .button(cx, ids!(context_item_button))
+                    .set_text(cx, &entry.label);
+                widget
+                    .button(cx, ids!(context_item_button))
+                    .set_enabled(cx, entry.enabled);
+            }
+
+            children.push((entry.widget_id, widget));
+        }
+
+        if let Some(mut menu) = self.ui.view(cx, ids!(context_menu)).borrow_mut() {
+            menu.children.clear();
+            menu.children.extend(children);
+        }
+    }
+
+    fn context_menu_height(&self) -> f64 {
+        let body_height = self
+            .context_menu_entries
+            .iter()
+            .map(|entry| {
+                if matches!(entry.kind, ContextMenuEntryKind::Separator) {
+                    SEPARATOR_HEIGHT
+                } else {
+                    ITEM_HEIGHT
+                }
+            })
+            .sum::<f64>();
+        MENU_PADDING + body_height
+    }
+
     /// Show the context menu at the right-click position as a popup window.
     pub(super) fn show_context_menu(&mut self, cx: &mut Cx) {
+        self.rebuild_context_menu_entries(cx);
+
+        if let Some(tab) = self.tabs.get(self.active_tab_idx) {
+            let selection = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+            let editable = self.last_context_menu_flags.is_some_and(|flags| {
+                flags.contains(servo::ContextMenuElementInformationFlags::EditableText)
+            });
+            let capabilities = self.selection_capabilities_for_active_tab(&selection, editable);
+            let visible_actions: Vec<&str> = self
+                .context_menu_entries
+                .iter()
+                .filter_map(|entry| {
+                    if matches!(entry.kind, ContextMenuEntryKind::Separator) {
+                        None
+                    } else {
+                        Some(entry.label.as_str())
+                    }
+                })
+                .collect();
+            ::log::trace!(
+                "[havishell] context menu rev={} rects={} caps={} actions={:?}",
+                selection.revision,
+                selection.rects.len(),
+                capabilities.summary(),
+                visible_actions
+            );
+        }
+
         // Take old handles but keep them alive until after the new popup is
-        // allocated.  This prevents the pool allocator from reusing the freed
+        // allocated. This prevents the pool allocator from reusing the freed
         // slot and bumping its generation before the deferred CloseWindow op
         // (which still references the old generation) is processed.
         let _old_pass = self.context_popup_pass.take();
         let mut old_window = self.context_popup_window.take();
 
-        let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-        let has_editor = editor_url_for(&url_text).is_some();
-        self.ui
-            .button(cx, ids!(context_edit_btn))
-            .set_visible(cx, has_editor);
-
-        // Compute visible item count for height calculation.
-        let mut visible_items = 1; // Copy button always visible
-        if has_editor {
-            visible_items += 1;
-        }
-        let menu_height = MENU_PADDING + (visible_items as f64) * ITEM_HEIGHT;
+        let menu_height = self.context_menu_height();
 
         // Position in parent-client coordinates (from FingerDown abs).
         let parent_window_id = CxWindowPool::id_zero();
@@ -61,7 +289,6 @@ impl App {
         if let Some(ref mut w) = old_window {
             w.close(cx);
         }
-        // Old handles drop here, freeing pool slots after close ops are queued.
 
         // The context_menu View stays invisible in the main window tree.
         // It is drawn only into the popup pass by draw_context_menu_popup().
@@ -70,6 +297,8 @@ impl App {
 
     pub(super) fn hide_context_menu(&mut self, cx: &mut Cx) {
         self.active_context_menu.take();
+        self.context_menu_entries.clear();
+        self.last_context_menu_flags = None;
         self.close_context_popup(cx);
         cx.redraw_all();
     }
@@ -126,6 +355,55 @@ impl App {
         cx.end_pass(pass);
     }
 
+    pub(super) fn handle_context_menu_actions(
+        &mut self,
+        cx: &mut Cx,
+        actions: &Actions,
+    ) -> Option<NavCommand> {
+        let clicked_entry_id = {
+            let mut clicked = None;
+            if let Some(menu) = self.ui.view(cx, ids!(context_menu)).borrow_mut() {
+                for (child_id, child_widget) in menu.children.iter() {
+                    if child_widget
+                        .button(cx, ids!(context_item_button))
+                        .clicked(actions)
+                    {
+                        clicked = Some(*child_id);
+                        break;
+                    }
+                }
+            }
+            clicked
+        };
+
+        let Some(clicked_entry_id) = clicked_entry_id else {
+            return None;
+        };
+
+        let entry = self
+            .context_menu_entries
+            .iter()
+            .find(|entry| entry.widget_id == clicked_entry_id)?
+            .clone();
+
+        if !entry.enabled {
+            return None;
+        }
+
+        match entry.kind {
+            ContextMenuEntryKind::Action(action) => {
+                self.select_context_menu_action(cx, action);
+                None
+            },
+            ContextMenuEntryKind::GoToEditor => {
+                self.hide_context_menu(cx);
+                let url_text = self.ui.text_input(cx, ids!(url_input)).text();
+                editor_url_for(&url_text).map(NavCommand::Navigate)
+            },
+            ContextMenuEntryKind::Separator => None,
+        }
+    }
+
     /// Select a context menu action and close the menu.
     pub(super) fn select_context_menu_action(
         &mut self,
@@ -135,6 +413,8 @@ impl App {
         if let Some(menu) = self.active_context_menu.take() {
             menu.select(action);
         }
+        self.context_menu_entries.clear();
+        self.last_context_menu_flags = None;
         self.close_context_popup(cx);
         cx.redraw_all();
     }

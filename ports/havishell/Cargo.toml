@@ -52,5 +52,8 @@ media = { path = "../../components/media/media-thread" }
 [build-dependencies]
 cc = "1"
 
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+arboard = { workspace = true }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 libservo = { path = "../../components/servo", features = ["background_hang_monitor", "no-wgl"] }
