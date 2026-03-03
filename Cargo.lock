@@ -8791,7 +8791,6 @@ dependencies = [
  "servo-media-player",
  "servo-media-streams",
  "servo-media-traits",
- "servo-media-webrtc",
 ]
 
 [[package]]
@@ -8835,7 +8834,6 @@ dependencies = [
  "servo-media-player",
  "servo-media-streams",
  "servo-media-traits",
- "servo-media-webrtc",
 ]
 
 [[package]]
@@ -8866,15 +8864,6 @@ version = "0.0.1"
 dependencies = [
  "malloc_size_of_derive",
  "servo_malloc_size_of",
-]
-
-[[package]]
-name = "servo-media-webrtc"
-version = "0.0.1"
-dependencies = [
- "log",
- "servo-media-streams",
- "uuid",
 ]
 
 [[package]]

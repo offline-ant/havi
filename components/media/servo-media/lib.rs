@@ -6,8 +6,6 @@ pub extern crate servo_media_audio as audio;
 pub extern crate servo_media_player as player;
 pub extern crate servo_media_streams as streams;
 pub extern crate servo_media_traits as traits;
-pub extern crate servo_media_webrtc as webrtc;
-
 extern crate once_cell;
 
 use std::ops::Deref;
@@ -27,7 +25,6 @@ use streams::device_monitor::MediaDeviceMonitor;
 use streams::registry::MediaStreamId;
 use streams::{MediaOutput, MediaSocket, MediaStreamType};
 pub use traits::*;
-use webrtc::{WebRtcController, WebRtcSignaller};
 
 pub struct ServoMedia(Box<dyn Backend>);
 
@@ -65,7 +62,6 @@ pub trait Backend: Send + Sync {
         id: &ClientContextId,
         options: AudioContextOptions,
     ) -> Result<Arc<Mutex<AudioContext>>, AudioSinkError>;
-    fn create_webrtc(&self, signaller: Box<dyn WebRtcSignaller>) -> WebRtcController;
     fn can_play_type(&self, media_type: &str) -> SupportsMediaType;
     fn set_capture_mocking(&self, _mock: bool) {}
     /// Allow muting/unmuting the media instances associated with the given client context identifier.

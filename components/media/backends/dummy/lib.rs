@@ -8,8 +8,6 @@ extern crate servo_media_audio;
 extern crate servo_media_player;
 extern crate servo_media_streams;
 extern crate servo_media_traits;
-extern crate servo_media_webrtc;
-
 use std::any::Any;
 use std::ops::Range;
 use std::sync::mpsc::{self, Sender};
@@ -30,11 +28,6 @@ use servo_media_streams::device_monitor::{MediaDeviceInfo, MediaDeviceMonitor};
 use servo_media_streams::registry::{MediaStreamId, register_stream, unregister_stream};
 use servo_media_streams::{MediaOutput, MediaSocket, MediaStream, MediaStreamType};
 use servo_media_traits::{ClientContextId, MediaInstance};
-use servo_media_webrtc::{
-    BundlePolicy, DataChannelId, DataChannelInit, DataChannelMessage, IceCandidate,
-    SessionDescription, WebRtcBackend, WebRtcController, WebRtcControllerBackend,
-    WebRtcDataChannelResult, WebRtcResult, WebRtcSignaller, thread,
-};
 
 pub struct DummyBackend;
 
@@ -108,10 +101,6 @@ impl Backend for DummyBackend {
             sender,
             options,
         )?)))
-    }
-
-    fn create_webrtc(&self, signaller: Box<dyn WebRtcSignaller>) -> WebRtcController {
-        WebRtcController::new::<Self>(signaller)
     }
 
     fn can_play_type(&self, _media_type: &str) -> SupportsMediaType {
@@ -232,16 +221,6 @@ impl Player for DummyPlayer {
     }
 }
 
-impl WebRtcBackend for DummyBackend {
-    type Controller = DummyWebRtcController;
-    fn construct_webrtc_controller(
-        _: Box<dyn WebRtcSignaller>,
-        _: WebRtcController,
-    ) -> Self::Controller {
-        DummyWebRtcController
-    }
-}
-
 pub struct DummyAudioDecoder;
 
 impl AudioDecoder for DummyAudioDecoder {
@@ -307,63 +286,6 @@ impl AudioSink for DummyAudioSink {
 pub struct DummyMediaOutput;
 impl MediaOutput for DummyMediaOutput {
     fn add_stream(&mut self, _stream: &MediaStreamId) {}
-}
-
-pub struct DummyWebRtcController;
-
-impl WebRtcControllerBackend for DummyWebRtcController {
-    fn configure(&mut self, _: &str, _: BundlePolicy) -> WebRtcResult {
-        Ok(())
-    }
-    fn set_remote_description(
-        &mut self,
-        _: SessionDescription,
-        _: Box<dyn FnOnce() + Send + 'static>,
-    ) -> WebRtcResult {
-        Ok(())
-    }
-    fn set_local_description(
-        &mut self,
-        _: SessionDescription,
-        _: Box<dyn FnOnce() + Send + 'static>,
-    ) -> WebRtcResult {
-        Ok(())
-    }
-    fn add_ice_candidate(&mut self, _: IceCandidate) -> WebRtcResult {
-        Ok(())
-    }
-    fn create_offer(
-        &mut self,
-        _: Box<dyn FnOnce(SessionDescription) + Send + 'static>,
-    ) -> WebRtcResult {
-        Ok(())
-    }
-    fn create_answer(
-        &mut self,
-        _: Box<dyn FnOnce(SessionDescription) + Send + 'static>,
-    ) -> WebRtcResult {
-        Ok(())
-    }
-    fn add_stream(&mut self, _: &MediaStreamId) -> WebRtcResult {
-        Ok(())
-    }
-    fn create_data_channel(&mut self, _: &DataChannelInit) -> WebRtcDataChannelResult {
-        Ok(0)
-    }
-    fn close_data_channel(&mut self, _: &DataChannelId) -> WebRtcResult {
-        Ok(())
-    }
-    fn send_data_channel_message(
-        &mut self,
-        _: &DataChannelId,
-        _: &DataChannelMessage,
-    ) -> WebRtcResult {
-        Ok(())
-    }
-    fn internal_event(&mut self, _: thread::InternalEvent) -> WebRtcResult {
-        Ok(())
-    }
-    fn quit(&mut self) {}
 }
 
 impl MediaInstance for DummyPlayer {

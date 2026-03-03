@@ -67,3 +67,10 @@ fallback covers older devices.
 
 Restricting to one codec simplifies testing and ensures consistent
 behavior. MP4 is the standard container for AV1 distribution.
+
+## WebRTC
+
+HAVI does not implement WebRTC (`RTCPeerConnection`, `RTCDataChannel`, etc.).
+
+Real-time communication uses HPPR StreamIn/StreamOut APIs instead.
+See `060-JS-API.md` for StreamIn and StreamOut.
