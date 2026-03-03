@@ -542,6 +542,11 @@ impl MatchEvent for App {
                         }
                     }
                 },
+                Some(MakepadServoAction::CameraRequest(request)) => {
+                    if let Some(request) = request.lock().unwrap().take() {
+                        self.camera.handle_request(cx, request);
+                    }
+                },
                 _ => {},
             }
         }

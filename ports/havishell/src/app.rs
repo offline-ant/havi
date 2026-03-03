@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 mod actions;
+mod camera;
 mod capabilities;
 mod clipboard;
 mod context_menu;
@@ -28,6 +29,7 @@ mod pylon_menu;
 mod runtime;
 mod tabs;
 
+use camera::CameraState;
 use clipboard::ClipboardState;
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
@@ -681,6 +683,9 @@ impl App {
                     should_loop,
                 } => {
                     let texture = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                    let tex_y = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                    let tex_u = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                    let tex_v = Texture::new_with_format(cx, TextureFormat::VideoRGB);
                     havi_render::video_texture_map::register_video_texture(
                         image_key,
                         texture.clone(),
@@ -701,6 +706,9 @@ impl App {
                         makepad_video_source(source),
                         0,
                         texture.texture_id(),
+                        tex_y.texture_id(),
+                        tex_u.texture_id(),
+                        tex_v.texture_id(),
                         autoplay,
                         should_loop,
                     );
@@ -820,6 +828,9 @@ impl App {
                     havi_render::video_texture_map::deregister_video_texture(image_key);
                 }
                 self.video_logged_first_frame.remove(&ev.video_id.0);
+            },
+            Event::VideoInputs(ev) => {
+                self.camera.handle_video_inputs_event(ev);
             },
             _ => {},
         }
@@ -983,6 +994,10 @@ pub struct App {
     /// Tracks whether a first frame has been observed for each video_id.
     #[rust]
     video_logged_first_frame: HashSet<u64>,
+
+    /// Camera subsystem state.
+    #[rust]
+    camera: CameraState,
 
     /// Last primary selection text sent to the platform, for change detection.
     #[cfg(target_os = "linux")]

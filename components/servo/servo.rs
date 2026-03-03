@@ -664,6 +664,9 @@ impl ServoInner {
                         .handle_control_operation(webview, request);
                 }
             },
+            EmbedderMsg::CameraRequest(_webview_id, camera_request) => {
+                self.delegate.borrow().handle_camera_request(camera_request);
+            },
             EmbedderMsg::WatchGetMode(webview_id, sender) => {
                 self.delegate.borrow().watch_get_mode(webview_id, sender);
             },

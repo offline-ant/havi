@@ -8,15 +8,15 @@
 interface MediaStreamTrack : EventTarget {
     readonly        attribute DOMString kind;
     readonly        attribute DOMString id;
-    // readonly        attribute DOMString label;
-    //                 attribute boolean enabled;
+    readonly        attribute DOMString label;
+                    attribute boolean enabled;
     // readonly        attribute boolean muted;
     //                 attribute EventHandler onmute;
     //                 attribute EventHandler onunmute;
-    // readonly        attribute MediaStreamTrackState readyState;
+    readonly        attribute DOMString readyState;
     //                 attribute EventHandler onended;
     MediaStreamTrack clone();
-    // void stop();
+    undefined stop();
     // MediaTrackCapabilities getCapabilities();
     // MediaTrackConstraints getConstraints();
     // MediaTrackSettings getSettings();

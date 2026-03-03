@@ -1,5 +1,5 @@
 use super::*;
-use servo::EmbedderControl;
+use servo::{CameraRequest, EmbedderControl};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -58,6 +58,8 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         update: Arc<Mutex<Option<servo::accesskit::TreeUpdate>>>,
     },
+    /// Camera request from script.
+    CameraRequest(Arc<Mutex<Option<CameraRequest>>>),
 }
 
 impl std::fmt::Debug for MakepadServoAction {
@@ -115,6 +117,7 @@ impl std::fmt::Debug for MakepadServoAction {
                 .debug_struct("AccessibilityUpdate")
                 .field("webview_id", webview_id)
                 .finish(),
+            Self::CameraRequest(_) => write!(f, "CameraRequest"),
         }
     }
 }
@@ -268,6 +271,13 @@ impl servo::ServoDelegate for HaviServoDelegate {
             mode,
             response_sender,
         });
+        SignalToUI::set_ui_signal();
+    }
+
+    fn handle_camera_request(&self, request: CameraRequest) {
+        Cx::post_action(MakepadServoAction::CameraRequest(
+            Arc::new(Mutex::new(Some(request))),
+        ));
         SignalToUI::set_ui_signal();
     }
 }

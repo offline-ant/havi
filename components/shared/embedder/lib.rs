@@ -494,6 +494,54 @@ pub enum HpprControlResponse {
 }
 
 
+/// Unique identifier for an active camera stream.
+pub type CameraStreamId = u64;
+
+/// Information about a single camera device.
+#[derive(Clone, Debug)]
+pub struct CameraDeviceInfo {
+    pub device_id: String,
+    pub label: String,
+    pub formats: Vec<CameraFormat>,
+}
+
+/// A supported camera format (resolution + frame rate).
+#[derive(Clone, Debug)]
+pub struct CameraFormat {
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+}
+
+/// Successful result of opening a camera stream.
+/// Contains the information script needs to render frames via the existing
+/// `MediaFrame` / `ImageKey` path — no pixel data crosses this boundary.
+#[derive(Clone, Debug)]
+pub struct CameraStreamInfo {
+    pub stream_id: CameraStreamId,
+    /// Raw (namespace, index) image key registered in VideoTextureMap.
+    pub image_key: (u32, u32),
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Requests from script to the embedder for camera access.
+pub enum CameraRequest {
+    /// Enumerate available camera devices.
+    EnumerateDevices(Sender<Vec<CameraDeviceInfo>>),
+    /// Open a camera stream. Embedder allocates a texture, starts capture,
+    /// and responds with the image key and dimensions.
+    Open {
+        device_id: Option<String>,
+        width: u32,
+        height: u32,
+        frame_rate: f64,
+        response: Sender<Result<CameraStreamInfo, String>>,
+    },
+    /// Close an active camera stream.
+    Close(CameraStreamId),
+}
+
 /// Messages towards the embedder.
 #[derive(Deserialize, IntoStaticStr, Serialize)]
 pub enum EmbedderMsg {
@@ -613,6 +661,9 @@ pub enum EmbedderMsg {
     /// Set watch mode for a specific WebView in embedder (havishell) and return resulting mode.
     #[serde(skip)]
     WatchSetMode(WebViewId, String, Sender<String>),
+    /// Camera request from script (getUserMedia / enumerateDevices).
+    #[serde(skip)]
+    CameraRequest(WebViewId, CameraRequest),
     /// Request a screenshot from the devtools debugger.
     #[serde(skip)]
     TakeScreenshot(WebViewId, Sender<Result<image::RgbaImage, ScreenshotCaptureError>>),

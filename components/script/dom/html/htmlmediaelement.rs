@@ -1229,14 +1229,66 @@ impl HTMLMediaElement {
                                 Some(BrowserUrl::parse(&blob_url.str()).expect("infallible"));
                             self.fetch_request(None);
                         },
-                        SrcObject::MediaStream(_stream) => {
-                            // MediaStream via Makepad not yet implemented.
-                            self.resource_selection_algorithm_failure_steps();
+                        SrcObject::MediaStream(stream) => {
+                            self.setup_media_stream(stream);
                         },
                     }
                 }
             },
         }
+    }
+
+    /// Set up a MediaStream as the source for this media element.
+    ///
+    /// Finds the video track's image key (registered in VideoTextureMap by
+    /// the embedder) and wires it into `video_frame_state` so the existing
+    /// renderer draws the camera frames.
+    fn setup_media_stream(&self, stream: &MediaStream) {
+        use servo_media::streams::MediaStreamType;
+        use webrender_api::IdNamespace;
+
+        self.load_state.set(LoadState::LoadingFromSrcObject);
+
+        // Find the first video track with an image key.
+        let tracks = stream.get_tracks();
+        let video_track = tracks
+            .iter()
+            .find(|t| t.ty() == MediaStreamType::Video);
+
+        let video_track = match video_track {
+            Some(t) => t,
+            None => {
+                // Audio-only stream — no video to render.
+                self.change_ready_state(ReadyState::HaveEnoughData);
+                return;
+            },
+        };
+
+        let raw_key = match video_track.source().image_key() {
+            Some(k) => k,
+            None => {
+                self.resource_selection_algorithm_failure_steps();
+                return;
+            },
+        };
+
+        // Build the webrender ImageKey from raw (namespace, index).
+        let image_key = webrender_api::ImageKey(IdNamespace(raw_key.0), raw_key.1);
+
+        // Dimensions will be updated when VideoPlaybackPrepared fires.
+        // Use a placeholder for now; the renderer handles zero-size gracefully.
+        self.video_frame_state.lock().unwrap().current_frame = Some(MediaFrame {
+            image_key,
+            width: 0,
+            height: 0,
+        });
+
+        // Transition to a ready state so playback can proceed.
+        self.change_ready_state(ReadyState::HaveMetadata);
+        self.change_ready_state(ReadyState::HaveEnoughData);
+        self.show_poster.set(false);
+
+        self.upcast::<Node>().dirty(NodeDamage::Other);
     }
 
     /// Queues a task to run the [dedicated media source failure steps][steps].
@@ -1746,7 +1798,7 @@ impl HTMLMediaElement {
     }
 
     fn create_media_player(&self, resource: &Resource) -> Result<(), ()> {
-        // MediaStream sources are not yet supported via Makepad; fall through.
+        // MediaStream sources use the camera texture path, not a media player.
         if let Resource::Object = resource {
             if let Some(SrcObject::MediaStream(_)) = self.src_object.borrow().as_ref() {
                 return Err(());

@@ -4,7 +4,7 @@
 use base::generic_channel;
 use base::id::WebViewId;
 use crossbeam_channel::Sender;
-use embedder_traits::{ConsoleLogLevel, Notification};
+use embedder_traits::{CameraRequest, ConsoleLogLevel, Notification};
 
 use crate::webview_delegate::{AllowOrDenyRequest, WebResourceLoad};
 
@@ -53,6 +53,20 @@ pub trait ServoDelegate {
     /// Set watch mode for a WebView in embedder state and return resulting mode.
     fn watch_set_mode(&self, _webview_id: WebViewId, mode: String, response_sender: Sender<String>) {
         let _ = response_sender.send(mode);
+    }
+
+    /// Handle a camera request (enumerate, open, close).
+    fn handle_camera_request(&self, request: CameraRequest) {
+        // Default: no camera support — return empty/error.
+        match request {
+            CameraRequest::EnumerateDevices(sender) => {
+                let _ = sender.send(vec![]);
+            },
+            CameraRequest::Open { response, .. } => {
+                let _ = response.send(Err("Camera not supported".to_string()));
+            },
+            CameraRequest::Close(_) => {},
+        }
     }
 }
 

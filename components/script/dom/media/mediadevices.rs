@@ -5,11 +5,11 @@
 use std::rc::Rc;
 
 use dom_struct::dom_struct;
+use embedder_traits::{CameraRequest, EmbedderMsg};
 use servo_media::ServoMedia;
 use servo_media::streams::MediaStreamType;
-use servo_media::streams::capture::{Constrain, ConstrainRange, MediaTrackConstraintSet};
+use servo_media::streams::capture::MediaTrackConstraintSet;
 
-use crate::conversions::Convert;
 use crate::dom::bindings::codegen::Bindings::MediaDevicesBinding::{
     MediaDevicesMethods, MediaStreamConstraints,
 };
@@ -17,6 +17,7 @@ use crate::dom::bindings::codegen::UnionTypes::{
     BooleanOrMediaTrackConstraints, ClampedUnsignedLongOrConstrainULongRange as ConstrainULong,
     DoubleOrConstrainDoubleRange as ConstrainDouble,
 };
+use crate::dom::bindings::error::Error;
 use crate::dom::bindings::reflector::{DomGlobal, reflect_dom_object};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::eventtarget::EventTarget;
@@ -54,20 +55,73 @@ impl MediaDevicesMethods<crate::DomTypeHolder> for MediaDevices {
         can_gc: CanGc,
     ) -> Rc<Promise> {
         let p = Promise::new_in_current_realm(comp, can_gc);
-        let media = ServoMedia::get();
-        let stream = MediaStream::new(&self.global(), can_gc);
-        if let Some(constraints) = convert_constraints(&constraints.audio) {
-            if let Some(audio) = media.create_audioinput_stream(constraints) {
+        let global = self.global();
+        let stream = MediaStream::new(&global, can_gc);
+
+        // Audio: keep using servo-media DummyBackend for audio input streams.
+        if let Some(audio_constraints) = convert_constraints(&constraints.audio) {
+            let media = ServoMedia::get();
+            if let Some(audio) = media.create_audioinput_stream(audio_constraints) {
                 let track =
-                    MediaStreamTrack::new(&self.global(), audio, MediaStreamType::Audio, can_gc);
+                    MediaStreamTrack::new(&global, audio, MediaStreamType::Audio, can_gc);
                 stream.add_track(&track);
             }
         }
-        if let Some(constraints) = convert_constraints(&constraints.video) {
-            if let Some(video) = media.create_videoinput_stream(constraints) {
-                let track =
-                    MediaStreamTrack::new(&self.global(), video, MediaStreamType::Video, can_gc);
-                stream.add_track(&track);
+
+        // Video: use embedder camera channel.
+        let wants_video = match &constraints.video {
+            BooleanOrMediaTrackConstraints::Boolean(b) => *b,
+            BooleanOrMediaTrackConstraints::MediaTrackConstraints(_) => true,
+        };
+
+        if wants_video {
+            let webview_id = match global.webview_id() {
+                Some(id) => id,
+                None => {
+                    p.reject_error(Error::NotSupported(None), can_gc);
+                    return p;
+                },
+            };
+
+            // Extract requested dimensions from constraints.
+            let (width, height, frame_rate) = extract_video_constraints(&constraints.video);
+
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            global.send_to_embedder(EmbedderMsg::CameraRequest(
+                webview_id,
+                CameraRequest::Open {
+                    device_id: None,
+                    width,
+                    height,
+                    frame_rate,
+                    response: tx,
+                },
+            ));
+
+            // Block on response. The embedder processes this synchronously
+            // via Makepad action dispatch on the main thread. In single-process
+            // mode this completes immediately after the event loop processes
+            // the action.
+            match rx.recv() {
+                Ok(Ok(info)) => {
+                    let track = MediaStreamTrack::new_camera(
+                        &global,
+                        info.stream_id,
+                        info.image_key,
+                        String::new(),
+                        can_gc,
+                    );
+                    stream.add_track(&track);
+                },
+                Ok(Err(err)) => {
+                    log::warn!("getUserMedia camera open failed: {}", err);
+                    p.reject_error(Error::NotFound(None), can_gc);
+                    return p;
+                },
+                Err(_) => {
+                    p.reject_error(Error::Abort(None), can_gc);
+                    return p;
+                },
             }
         }
 
@@ -77,41 +131,90 @@ impl MediaDevicesMethods<crate::DomTypeHolder> for MediaDevices {
 
     /// <https://w3c.github.io/mediacapture-main/#dom-mediadevices-enumeratedevices>
     fn EnumerateDevices(&self, can_gc: CanGc) -> Rc<Promise> {
-        // Step 1.
         let in_realm_proof = AlreadyInRealm::assert::<crate::DomTypeHolder>();
         let p = Promise::new_in_current_realm(InRealm::Already(&in_realm_proof), can_gc);
+        let global = self.global();
 
-        // Step 2.
-        // XXX These steps should be run in parallel.
-        // XXX Steps 2.1 - 2.4
+        let webview_id = match global.webview_id() {
+            Some(id) => id,
+            None => {
+                p.resolve_native(&Vec::<DomRoot<MediaDeviceInfo>>::new(), can_gc);
+                return p;
+            },
+        };
 
-        // Step 2.5
-        let media = ServoMedia::get();
-        let device_monitor = media.get_device_monitor();
-        let result_list = device_monitor
-            .enumerate_devices()
-            .map(|devices| {
-                devices
-                    .iter()
-                    .map(|device| {
-                        // XXX The media backend has no way to group devices yet.
-                        MediaDeviceInfo::new(
-                            &self.global(),
-                            &device.device_id,
-                            device.kind.convert(),
-                            &device.label,
-                            "",
-                            can_gc,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        global.send_to_embedder(EmbedderMsg::CameraRequest(
+            webview_id,
+            CameraRequest::EnumerateDevices(tx),
+        ));
+
+        let result_list = match rx.recv() {
+            Ok(devices) => devices
+                .iter()
+                .map(|device| {
+                    MediaDeviceInfo::new(
+                        &global,
+                        &device.device_id,
+                        crate::conversions::Convert::convert(
+                            servo_media::streams::device_monitor::MediaDeviceKind::VideoInput,
+                        ),
+                        &device.label,
+                        "",
+                        can_gc,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            Err(_) => vec![],
+        };
 
         p.resolve_native(&result_list, can_gc);
-
-        // Step 3.
         p
+    }
+}
+
+fn extract_video_constraints(js: &BooleanOrMediaTrackConstraints) -> (u32, u32, f64) {
+    match js {
+        BooleanOrMediaTrackConstraints::Boolean(_) => (640, 480, 30.0),
+        BooleanOrMediaTrackConstraints::MediaTrackConstraints(c) => {
+            let width = c
+                .parent
+                .width
+                .as_ref()
+                .and_then(extract_culong_value)
+                .unwrap_or(640);
+            let height = c
+                .parent
+                .height
+                .as_ref()
+                .and_then(extract_culong_value)
+                .unwrap_or(480);
+            let fps = c
+                .parent
+                .frameRate
+                .as_ref()
+                .and_then(extract_cdouble_value)
+                .unwrap_or(30.0);
+            (width, height, fps)
+        },
+    }
+}
+
+fn extract_culong_value(js: &ConstrainULong) -> Option<u32> {
+    match js {
+        ConstrainULong::ClampedUnsignedLong(val) => Some(*val),
+        ConstrainULong::ConstrainULongRange(range) => {
+            range.ideal.or(range.exact).or(range.parent.max)
+        },
+    }
+}
+
+fn extract_cdouble_value(js: &ConstrainDouble) -> Option<f64> {
+    match js {
+        ConstrainDouble::Double(val) => Some(**val),
+        ConstrainDouble::ConstrainDoubleRange(range) => {
+            range.ideal.map(|x| *x).or(range.exact.map(|x| *x)).or(range.parent.max.map(|x| *x))
+        },
     }
 }
 
@@ -129,7 +232,8 @@ fn convert_constraints(js: &BooleanOrMediaTrackConstraints) -> Option<MediaTrack
     }
 }
 
-fn convert_culong(js: &ConstrainULong) -> Option<Constrain<u32>> {
+fn convert_culong(js: &ConstrainULong) -> Option<servo_media::streams::capture::Constrain<u32>> {
+    use servo_media::streams::capture::{Constrain, ConstrainRange};
     match js {
         ConstrainULong::ClampedUnsignedLong(val) => Some(Constrain::Value(*val)),
         ConstrainULong::ConstrainULongRange(range) => {
@@ -146,7 +250,8 @@ fn convert_culong(js: &ConstrainULong) -> Option<Constrain<u32>> {
     }
 }
 
-fn convert_cdouble(js: &ConstrainDouble) -> Option<Constrain<f64>> {
+fn convert_cdouble(js: &ConstrainDouble) -> Option<servo_media::streams::capture::Constrain<f64>> {
+    use servo_media::streams::capture::{Constrain, ConstrainRange};
     match js {
         ConstrainDouble::Double(val) => Some(Constrain::Value(**val)),
         ConstrainDouble::ConstrainDoubleRange(range) => {
