@@ -92,9 +92,6 @@ impl CameraState {
                     PlatformVideoSource::Camera(input_id, format_id),
                     0,
                     texture.texture_id(),
-                    TextureId::default(),
-                    TextureId::default(),
-                    TextureId::default(),
                     true,  // autoplay
                     false, // no loop (live stream)
                 );

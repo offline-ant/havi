@@ -683,9 +683,6 @@ impl App {
                     should_loop,
                 } => {
                     let texture = Texture::new_with_format(cx, TextureFormat::VideoRGB);
-                    let tex_y = Texture::new_with_format(cx, TextureFormat::VideoRGB);
-                    let tex_u = Texture::new_with_format(cx, TextureFormat::VideoRGB);
-                    let tex_v = Texture::new_with_format(cx, TextureFormat::VideoRGB);
                     havi_render::video_texture_map::register_video_texture(
                         image_key,
                         texture.clone(),
@@ -706,9 +703,6 @@ impl App {
                         makepad_video_source(source),
                         0,
                         texture.texture_id(),
-                        tex_y.texture_id(),
-                        tex_u.texture_id(),
-                        tex_v.texture_id(),
                         autoplay,
                         should_loop,
                     );
