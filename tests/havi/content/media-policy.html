@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Media Policy Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_media_policy() {
+        log('--- canPlayType AV1/MP4-only policy ---');
+
+        var v = document.createElement('video');
+
+        // AV1 in MP4: supported
+        assertEqual(v.canPlayType('video/mp4'), 'maybe',
+            'video/mp4 bare → maybe');
+        assertEqual(v.canPlayType('video/mp4; codecs="av01.0.04M.08"'), 'probably',
+            'video/mp4 av01 → probably');
+        assertEqual(v.canPlayType('video/mp4; codecs="av01.0.04M.08, opus"'), 'probably',
+            'video/mp4 av01+opus → probably');
+        assertEqual(v.canPlayType('video/mp4; codecs="av01.0.04M.08, mp4a.40.2"'), 'probably',
+            'video/mp4 av01+aac → probably');
+
+        // Non-AV1 video codecs in MP4: rejected
+        assertEqual(v.canPlayType('video/mp4; codecs="avc1.42E01E"'), '',
+            'video/mp4 h264 → empty');
+        assertEqual(v.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"'), '',
+            'video/mp4 h265 → empty');
+        assertEqual(v.canPlayType('video/mp4; codecs="vp09.00.10.08"'), '',
+            'video/mp4 vp9 → empty');
+
+        // WebM container: rejected regardless of codec
+        assertEqual(v.canPlayType('video/webm'), '',
+            'video/webm → empty');
+        assertEqual(v.canPlayType('video/webm; codecs="vp8"'), '',
+            'video/webm vp8 → empty');
+        assertEqual(v.canPlayType('video/webm; codecs="vp9"'), '',
+            'video/webm vp9 → empty');
+        assertEqual(v.canPlayType('video/webm; codecs="av01.0.04M.08"'), '',
+            'video/webm av01 → empty (wrong container)');
+
+        // Other video containers: rejected
+        assertEqual(v.canPlayType('video/ogg'), '',
+            'video/ogg → empty');
+        assertEqual(v.canPlayType('video/x-matroska'), '',
+            'video/x-matroska → empty');
+
+        // video/x-m4v: same as video/mp4
+        assertEqual(v.canPlayType('video/x-m4v'), 'maybe',
+            'video/x-m4v bare → maybe');
+        assertEqual(v.canPlayType('video/x-m4v; codecs="av01.0.04M.08"'), 'probably',
+            'video/x-m4v av01 → probably');
+
+        log('--- audio types (platform-dependent) ---');
+
+        // Audio types are not blocked by HAVI policy (delegated to platform).
+        // We only verify they don't crash and return a string.
+        var audioTypes = [
+            'audio/mp4',
+            'audio/mpeg',
+            'audio/ogg',
+            'audio/webm',
+            'audio/flac',
+        ];
+        for (var i = 0; i < audioTypes.length; i++) {
+            var r = v.canPlayType(audioTypes[i]);
+            assert(typeof r === 'string', audioTypes[i] + ' returns string ("' + r + '")');
+        }
+    }
+
+    (async function() {
+      var summary = await window.runTests(suite_media_policy, 'media-policy');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

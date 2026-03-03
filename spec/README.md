@@ -22,6 +22,7 @@ These docs define runtime behavior, security, and developer APIs.
 - [060-JS-API](060-JS-API.md)
 - [070-X-ELEMENT](070-X-ELEMENT.md)
 - [075-JSONQA](075-JSONQA.md)
+- [080-MEDIA](080-MEDIA.md)
 
 ## Related docs
 

@@ -160,18 +160,82 @@ pub fn deregister_event_sender(video_id: u64) {
 /// Returns the canPlayType string for the given MIME type.
 /// `""` = cannot play, `"maybe"` = might play, `"probably"` = can play.
 ///
-/// Delegates to the Makepad platform backend via the stored callback so the
-/// answer reflects what the current platform can actually decode.
+/// HAVI video policy: AV1 in MP4 only. All other video containers and codecs
+/// return `""`. Audio types delegate to the platform backend.
 pub fn can_play_type(mime: &str) -> &'static str {
+    let (base, codecs) = parse_mime_codecs(mime);
+
+    if base.starts_with("video/") {
+        return can_play_video_type(base, codecs);
+    }
+
+    // Audio types: delegate to platform backend.
     if let Some(f) = CAN_PLAY_TYPE_FN.lock().unwrap().as_ref() {
         f(mime)
     } else {
-        // Fallback before platform callback is registered: conservative default.
         ""
     }
 }
 
-/// Platform callback type for canPlayType queries.
+/// AV1/MP4-only video policy.
+///
+/// - `video/mp4` without codecs → `"maybe"` (might contain AV1)
+/// - `video/mp4` with all video codecs being `av01` → `"probably"`
+/// - `video/mp4` with any non-AV1 video codec → `""`
+/// - All other video containers → `""`
+fn can_play_video_type(base: &str, codecs: Option<&str>) -> &'static str {
+    if base != "video/mp4" && base != "video/x-m4v" {
+        return "";
+    }
+
+    let Some(codecs) = codecs else {
+        // Bare video/mp4 — might be AV1, might not.
+        return "maybe";
+    };
+
+    // Parse comma-separated codec list. Every video codec must be av01.
+    // Known audio codecs (opus, mp4a, flac) are acceptable companions.
+    let mut has_video_codec = false;
+    for codec in codecs.split(',') {
+        let c = codec.trim();
+        if c.is_empty() {
+            continue;
+        }
+        if c.starts_with("av01") {
+            has_video_codec = true;
+        } else if c.starts_with("mp4a")
+            || c.starts_with("opus")
+            || c.starts_with("flac")
+            || c.starts_with("Opus")
+        {
+            // Acceptable audio companion codec.
+        } else {
+            // Unrecognized or non-AV1 video codec (avc1, hev1, vp09, etc.)
+            return "";
+        }
+    }
+
+    if has_video_codec { "probably" } else { "maybe" }
+}
+
+/// Split a MIME string into base type and optional codecs parameter value.
+/// E.g. `video/mp4; codecs="av01.0.04M.08"` → `("video/mp4", Some("av01.0.04M.08"))`.
+fn parse_mime_codecs(mime: &str) -> (&str, Option<&str>) {
+    let base = mime.split(';').next().unwrap_or("").trim();
+    let codecs = mime
+        .split(';')
+        .skip(1)
+        .find_map(|param| {
+            let param = param.trim();
+            let param = param.strip_prefix("codecs=")?;
+            // Strip optional quotes.
+            let param = param.trim_matches('"').trim_matches('\'');
+            Some(param)
+        });
+    (base, codecs)
+}
+
+/// Platform callback type for canPlayType queries (used for audio types).
 type CanPlayTypeFn = Box<dyn Fn(&str) -> &'static str + Send>;
 
 static CAN_PLAY_TYPE_FN: Mutex<Option<CanPlayTypeFn>> = Mutex::new(None);
@@ -179,6 +243,85 @@ static CAN_PLAY_TYPE_FN: Mutex<Option<CanPlayTypeFn>> = Mutex::new(None);
 /// Register the platform's canPlayType implementation. Called once at startup.
 pub fn set_can_play_type_fn(f: impl Fn(&str) -> &'static str + Send + 'static) {
     *CAN_PLAY_TYPE_FN.lock().unwrap() = Some(Box::new(f));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn av1_mp4_probably() {
+        assert_eq!(can_play_video_type("video/mp4", Some("av01.0.04M.08")), "probably");
+    }
+
+    #[test]
+    fn av1_mp4_with_opus() {
+        assert_eq!(can_play_video_type("video/mp4", Some("av01.0.04M.08, opus")), "probably");
+    }
+
+    #[test]
+    fn av1_mp4_with_mp4a() {
+        assert_eq!(can_play_video_type("video/mp4", Some("av01.0.04M.08, mp4a.40.2")), "probably");
+    }
+
+    #[test]
+    fn bare_mp4_maybe() {
+        assert_eq!(can_play_video_type("video/mp4", None), "maybe");
+    }
+
+    #[test]
+    fn h264_mp4_rejected() {
+        assert_eq!(can_play_video_type("video/mp4", Some("avc1.42E01E")), "");
+    }
+
+    #[test]
+    fn h265_mp4_rejected() {
+        assert_eq!(can_play_video_type("video/mp4", Some("hev1.1.6.L93.B0")), "");
+    }
+
+    #[test]
+    fn vp9_mp4_rejected() {
+        assert_eq!(can_play_video_type("video/mp4", Some("vp09.00.10.08")), "");
+    }
+
+    #[test]
+    fn webm_rejected() {
+        assert_eq!(can_play_video_type("video/webm", None), "");
+        assert_eq!(can_play_video_type("video/webm", Some("vp8")), "");
+        assert_eq!(can_play_video_type("video/webm", Some("vp9")), "");
+        assert_eq!(can_play_video_type("video/webm", Some("av01.0.04M.08")), "");
+    }
+
+    #[test]
+    fn ogg_rejected() {
+        assert_eq!(can_play_video_type("video/ogg", None), "");
+    }
+
+    #[test]
+    fn matroska_rejected() {
+        assert_eq!(can_play_video_type("video/x-matroska", None), "");
+    }
+
+    #[test]
+    fn parse_codecs_basic() {
+        let (base, codecs) = parse_mime_codecs("video/mp4; codecs=\"av01.0.04M.08\"");
+        assert_eq!(base, "video/mp4");
+        assert_eq!(codecs, Some("av01.0.04M.08"));
+    }
+
+    #[test]
+    fn parse_codecs_unquoted() {
+        let (base, codecs) = parse_mime_codecs("video/mp4; codecs=av01.0.04M.08");
+        assert_eq!(base, "video/mp4");
+        assert_eq!(codecs, Some("av01.0.04M.08"));
+    }
+
+    #[test]
+    fn parse_codecs_absent() {
+        let (base, codecs) = parse_mime_codecs("video/webm");
+        assert_eq!(base, "video/webm");
+        assert_eq!(codecs, None);
+    }
 }
 
 /// Send a MediaEvent to the controller registered for video_id.
