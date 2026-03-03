@@ -33,6 +33,7 @@ use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
 use script_bindings::codegen::GenericBindings::HTMLLabelElementBinding::HTMLLabelElementMethods;
 use script_bindings::codegen::GenericBindings::NavigatorBinding::NavigatorMethods;
 use script_bindings::codegen::GenericBindings::NodeBinding::NodeMethods;
+use script_bindings::codegen::GenericBindings::PerformanceBinding::PerformanceMethods;
 use script_bindings::codegen::GenericBindings::TouchBinding::TouchMethods;
 use script_bindings::codegen::GenericBindings::WindowBinding::{ScrollBehavior, WindowMethods};
 use script_bindings::inheritance::Castable;
@@ -409,7 +410,7 @@ impl DocumentEventHandler {
 
         let common_ancestor = match related_target.as_ref() {
             Some(related_target) => event_target
-                .common_ancestor(related_target, ShadowIncluding::Yes)
+                .common_ancestor_in_flat_tree(related_target)
                 .unwrap_or_else(|| DomRoot::from_ref(&*event_target)),
             None => DomRoot::from_ref(&*event_target),
         };
@@ -422,7 +423,7 @@ impl DocumentEventHandler {
             if node == common_ancestor {
                 break;
             }
-            current = node.GetParentNode();
+            current = node.parent_in_flat_tree();
             targets.push(node);
         }
 
@@ -2323,7 +2324,7 @@ impl DocumentEventHandler {
         let mut current: Option<DomRoot<Node>> = Some(DomRoot::from_ref(target_element.upcast()));
         while let Some(node) = current {
             targets.push(DomRoot::from_ref(&*node));
-            current = node.GetParentNode();
+            current = node.parent_in_flat_tree();
         }
 
         // Reverse to dispatch from topmost ancestor to target
