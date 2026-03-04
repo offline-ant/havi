@@ -8,7 +8,7 @@ publish = false
 havi-types = { path = "../types" }
 havi-fonts = { path = "../fonts" }
 
-makepad-widgets = { path = "../../../makepad/widgets" }
+makepad-widgets = { path = "../../../makepad/widgets", features = ["dav1d", "svt-av1"] }
 
 stylo = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", features = ["servo"] }
 servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }

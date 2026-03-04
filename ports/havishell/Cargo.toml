@@ -28,7 +28,7 @@ refcell_backtrace = ["libservo/refcell_backtrace"]
 webgpu = ["libservo/webgpu"]
 
 [dependencies]
-makepad-widgets = { path = "../../../makepad/widgets" }
+makepad-widgets = { path = "../../../makepad/widgets", features = ["dav1d", "svt-av1"] }
 libservo = { path = "../../components/servo", features = ["background_hang_monitor"], default-features = false }
 url = "2"
 log = "0.4"

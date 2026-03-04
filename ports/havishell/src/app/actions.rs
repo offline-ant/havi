@@ -406,6 +406,13 @@ impl MatchEvent for App {
                         if idx == self.active_tab_idx {
                             self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
                         }
+
+                        let title = self.tabs[idx].title.clone();
+                        if let Err(e) =
+                            havi_protocols::state_db::global_state_db().insert_history(&url, &title)
+                        {
+                            log!("[havi] failed to persist history entry: {}", e);
+                        }
                     }
                 },
                 Some(MakepadServoAction::NewFrameReady { webview_id }) => {

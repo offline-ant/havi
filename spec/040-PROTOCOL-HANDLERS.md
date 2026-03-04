@@ -113,8 +113,11 @@ All `file://` pages share one origin and one site Ring1 identity.
 
 ## `havi://`
 
-Internal admin pages for overview, routes, home-repo status, ring0 proxy
-approvals, and pylon service management.
+Internal browser pages for local administration and diagnostics.
+
+The `havi://` scheme is implementation-defined UI. The spec defines only the
+handler-level behavior and privilege model, not specific page inventory or
+layout.
 
 `havi:///services` exposes pylon controls for:
 

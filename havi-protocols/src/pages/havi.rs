@@ -20,6 +20,7 @@
 
 use crate::PageResponse;
 use crate::client::get_admin_credentials;
+use crate::state_db::global_state_db;
 use crate::util::html_escape;
 
 /// Handle an havi:// URL request.
@@ -313,22 +314,52 @@ fn render_nav(active: &str) -> String {
 
 /// Render the dashboard page.
 fn render_dashboard() -> String {
-    render_admin_page(
-        "HAVI",
-        "Overview",
-        "",
+    let history_rows = global_state_db().list_history(100).unwrap_or_default();
+
+    let history_html = if history_rows.is_empty() {
+        "<p class=\"empty\">No history yet.</p>".to_string()
+    } else {
+        let items: Vec<String> = history_rows
+            .iter()
+            .map(|row| {
+                let url = html_escape(&row.url);
+                let title = if row.title.trim().is_empty() {
+                    "(untitled)".to_string()
+                } else {
+                    html_escape(&row.title)
+                };
+                format!(
+                    r#"<div class="list-item">
+                        <div>
+                            <div><a href="{url}">{title}</a></div>
+                            <div class="muted">{url}</div>
+                        </div>
+                        <div class="muted">{ts}</div>
+                    </div>"#,
+                    url = url,
+                    title = title,
+                    ts = row.ts_unix,
+                )
+            })
+            .collect();
+        items.join("\n")
+    };
+
+    let body = format!(
         r#"
+    {nav}
+
     <div class="card">
-        <h2>Browser Administration</h2>
-        <p><a href="havi:///home-repo">Home Repo</a> - Port, repo path, and home repo status</p>
-        <p><a href="havi:///routes">Routes &amp; Trust</a> - Manage route repo endpoints and keys</p>
-        <p><a href="havi:///anyone">Anyone</a> - Edit anyone account permissions</p>
-        <p><a href="havi:///ring2">Ring2</a> - Manage group membership</p>
-        <p><a href="havi:///ring1">Ring1</a> - Manage ring1 accounts and requests</p>
-        <p><a href="havi:///ring0">Ring0 Proxy</a> - Review and approve ring1 proxy requests</p>
-        <p><a href="havi:///services">Services</a> - Pylon service manager (services, listeners, mounts, nat)</p>
-    </div>"#,
-    )
+        <div class="muted">recent pages</div>
+        {history_html}
+    </div>
+
+    "#,
+        nav = render_nav("Overview"),
+        history_html = history_html,
+    );
+
+    crate::page_shell::render_page("HAVI", ADMIN_CSS, &body)
 }
 
 /// Render the home repo configuration page.

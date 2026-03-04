@@ -22,6 +22,7 @@ pub mod url;
 pub mod util;
 pub mod watch;
 pub mod repo_target;
+pub mod state_db;
 
 /// Response from a protocol page handler.
 ///

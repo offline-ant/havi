@@ -42,10 +42,16 @@ pub fn config_dir() -> PathBuf {
     }
 }
 
-/// Directory for per-server admin credentials.
-/// Path: <config_dir>/credentials/
-pub fn credentials_dir() -> PathBuf {
-    config_dir().join("credentials")
+/// SQLite state DB file.
+/// Path: <config_dir>/havi.sqlite
+pub fn db_path() -> PathBuf {
+    config_dir().join("havi.sqlite")
+}
+
+/// Single-instance IPC socket path (Unix).
+/// Path: <config_dir>/havi.sock
+pub fn ipc_socket_path() -> PathBuf {
+    config_dir().join("havi.sock")
 }
 
 /// Directory for embedded hpprd repository.

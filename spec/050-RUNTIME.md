@@ -4,14 +4,15 @@ Credentials, configuration, and watch behavior.
 
 ## Credentials
 
-Local admin credentials are stored at:
+Local admin credentials are stored in SQLite at:
 
-`~/.config/HAVI/credentials/<home-repo-key>`
+`<config-dir>/havi.sqlite` table `credentials`
 
-Format:
+Columns:
 
-1. ring1 name
-2. token
+1. `repo_vkey`
+2. `ring1_name`
+3. `token`
 
 Startup flow:
 
@@ -25,6 +26,10 @@ Startup flow:
 Site credentials for route operations are cached in memory per group/app.
 
 ## Configuration
+
+HAVI local state is stored in:
+
+`<config-dir>/havi.sqlite`
 
 Environment variables:
 
@@ -45,6 +50,17 @@ Host integration runtime policy:
 
 All runtime paths keep the same pylon TCP control protocol and service control
 line/event shapes.
+
+## History
+
+Top-level URL changes are persisted to SQLite table `history`.
+
+Columns:
+
+- `id` (autoincrement)
+- `ts_unix`
+- `url`
+- `title`
 
 ## Watch Modes
 

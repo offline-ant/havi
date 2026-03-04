@@ -35,6 +35,12 @@ Environment variables:
 - `HAVI_DEVTOOLS` — enable DevTools server (`<port>` or `<host>:<port>`)
 - `HAVI_MAKEPAD_EVENTS` — enable Makepad event injection (JSON lines over stdin/stdout)
 
+## Local State
+
+HAVI stores local configuration, credentials, and history in:
+
+`<config-dir>/havi.sqlite`
+
 ## Repository Connection
 
 HAVI always goes through [pylon](pylon.md).

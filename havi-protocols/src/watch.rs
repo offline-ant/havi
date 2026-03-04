@@ -342,7 +342,7 @@ mod tests {
             .build()
             .expect("test runtime");
         let handle = runtime.handle().clone();
-        let mut pool = WatchPool::new(handle, || {});
+        let mut pool = WatchPool::new(handle, "tcp+127.0.0.1:4777".to_string(), || {});
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let conn = pool.get_or_create("//group/app");
