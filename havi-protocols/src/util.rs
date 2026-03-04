@@ -157,14 +157,48 @@ pub async fn resolve_route_endpoint(
             (endpoint, route_info.upstream_verification_key)
         },
         Err(e) => {
-            log::debug!(
-                "No route for {}/{}: {}, falling back to repo",
-                group,
-                app,
-                e
-            );
-            (repo_target, None)
-        },
+            log::debug!("No route for {}/{}: {}", group, app, e);
+
+            match hppr_client::tokio::index::lookup_bootstrap_index_if_indexed(group, app).await {
+                Ok(Some(index)) => {
+                    let mut headers = format!(
+                        "Group: repo\nApp: admin\nLocation: route/{group}/{app}\nSeal-By: oldest\nUpstream: {}\n",
+                        index.upstream
+                    );
+                    if let Some(vkey) = &index.upstream_verification_key {
+                        headers.push_str(&format!("Upstream-Verification-Key: {}\n", vkey));
+                    }
+
+                    let add_args = hppr_client::build_add_args(headers.as_bytes(), Some(&[]));
+                    match repo_client.add(&add_args).await {
+                        Ok(_) => log::info!(
+                            "Installed bootstrap route for //{}/{} -> {}",
+                            group,
+                            app,
+                            index.upstream
+                        ),
+                        Err(err) => log::info!(
+                            "Bootstrap route resolved for //{}/{}, install failed (continuing): {}",
+                            group,
+                            app,
+                            err
+                        ),
+                    }
+
+                    (index.upstream, index.upstream_verification_key)
+                }
+                Ok(None) => (repo_target, None),
+                Err(err) => {
+                    log::info!(
+                        "Bootstrap lookup failed for //{}/{}: {}, falling back to repo",
+                        group,
+                        app,
+                        err
+                    );
+                    (repo_target, None)
+                }
+            }
+        }
     }
 }
 
