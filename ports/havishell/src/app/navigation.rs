@@ -12,13 +12,18 @@ pub(super) fn parse_navigation_url(url_str: &str) -> Option<servo::BrowserUrl> {
         return Some(url);
     }
 
-    // Bare host/path input is treated as https. Inputs that already contain
-    // an explicit authority separator (://) are left unchanged.
+    // Preserve explicit scheme input exactly. Heuristic normalization only
+    // applies to bare coordinates.
     if url_str.contains("://") {
         return None;
     }
 
-    servo::BrowserUrl::parse(&format!("https://{}", url_str)).ok()
+    let coord = url_str.trim_start_matches('/');
+    if coord.is_empty() {
+        return None;
+    }
+
+    servo::BrowserUrl::parse(&format!("hppr://{}", coord)).ok()
 }
 
 impl App {
@@ -66,8 +71,20 @@ mod tests {
     }
 
     #[test]
-    fn rewrites_bare_host_to_https() {
-        let url = parse_navigation_url("example.com").unwrap();
-        assert_eq!(url.as_str(), "https://example.com/");
+    fn rewrites_bare_coordinate_to_hppr() {
+        let url = parse_navigation_url("sol/chat/").unwrap();
+        assert_eq!(url.as_str(), "hppr://sol/chat/");
+    }
+
+    #[test]
+    fn rewrites_slash_prefixed_coordinate_to_hppr() {
+        let url = parse_navigation_url("//sol/chat/").unwrap();
+        assert_eq!(url.as_str(), "hppr://sol/chat/");
+    }
+
+    #[test]
+    fn rewrites_double_slash_input_to_hppr() {
+        let url = parse_navigation_url("//u/example").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/example");
     }
 }
