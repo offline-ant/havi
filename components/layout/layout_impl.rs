@@ -26,6 +26,7 @@ use layout_api::{
     OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
     ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
     RegisterPropertyError, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
+    with_layout_state,
 };
 use log::{debug, error};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
