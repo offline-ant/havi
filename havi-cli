@@ -10,9 +10,9 @@ Subcommand groups:
     devtools  Servo webview control (JS eval, navigate, DOM screenshot)
 
 Built-in commands:
-    publish     Store signed file, trust, and navigate
-    publish-dir Store directory tree, trust, and navigate
-    trust       Ensure site-trust for group/app
+    publish     Store signed file and navigate
+    publish-dir Store directory tree and navigate
+    deploy      Write deployment pointer for group/app
     navigate    Navigate HAVI to a URL
 
 The makepad and devtools groups delegate to havi-makepad-cli and
@@ -22,6 +22,7 @@ Examples:
     havi-cli makepad screenshot /tmp/out.png
     havi-cli makepad click 300 400
     havi-cli devtools eval 'document.title'
+    havi-cli deploy u web //u/web V.EXAMPLE.H3
     havi-cli publish //u/web/index.html page.html
 """
 
@@ -47,37 +48,14 @@ def _parse_coordinate(coord):
     return parts[0], parts[1], parts[2] if len(parts) > 2 else ""
 
 
-def _get_repo_vkey():
-    """Get repo-vkey from hppr hello (third /-separated field)."""
-    r = subprocess.run(["hppr", "hello"], capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"error: hppr hello failed: {r.stderr.strip()}")
-    parts = r.stdout.strip().split("/")
-    if len(parts) < 3:
-        sys.exit(f"error: unexpected hppr hello output: {r.stdout.strip()}")
-    return parts[2]
-
-
 def _debug_port():
     """Resolve debug port from environment."""
     port = os.environ.get("HAVI_DEVTOOLS")
     if not port:
         sys.exit("error: set HAVI_DEVTOOLS")
-    # HAVI_DEVTOOLS is host:port or bare port
     if ":" in port:
         port = port.rsplit(":", 1)[1]
     return str(port)
-
-
-def _do_trust(group, app):
-    """Ensure site-trust exists for group/app. Idempotent."""
-    r = subprocess.run(["hppr", "headers", f"//{group}/{app}/site-trust/|"],
-                       capture_output=True, text=True)
-    if r.returncode == 0:
-        return
-    vkey = _get_repo_vkey()
-    _run(["hppr", "add", "--seal-by", "oldest",
-          f"//{group}/{app}/site-trust", "-H", f"Member: {vkey}"])
 
 
 def cmd_navigate(args):
@@ -85,10 +63,21 @@ def cmd_navigate(args):
     _run(["havi-devtools-cli", "-p", port, "navigate", args[0]])
 
 
-def cmd_trust(args):
-    if len(args) < 2:
-        sys.exit("usage: havi-cli trust <group> <app>")
-    _do_trust(args[0], args[1])
+def cmd_deploy(args):
+    if len(args) < 4:
+        sys.exit("usage: havi-cli deploy <group> <app> <deploy-root> <deploy-signer>")
+    group, app, deploy_root, deploy_signer = args[0], args[1], args[2], args[3]
+    if not deploy_root.startswith("//"):
+        sys.exit("error: deploy-root must start with //")
+    if not (deploy_signer.startswith("V.") and deploy_signer.endswith(".H3")):
+        sys.exit("error: deploy-signer must be V.<...>.H3")
+
+    _run([
+        "hppr", "add", "--seal-by", "oldest",
+        f"//{group}/admin/deploy/{app}",
+        "-H", f"Deploy-Root: {deploy_root}",
+        "-H", f"Deploy-Signer: {deploy_signer}",
+    ])
 
 
 def cmd_publish(args):
@@ -100,8 +89,6 @@ def cmd_publish(args):
         _run(["hppr", "add", "--seal-by", "oldest",
               "-H", f"Content-Type: {content_type}",
               coordinate], stdin=f)
-    group, app, _ = _parse_coordinate(coordinate)
-    _do_trust(group, app)
     port = _debug_port()
     _run(["havi-devtools-cli", "-p", port, "navigate", f"hppr://{coordinate[2:]}"])
 
@@ -112,14 +99,13 @@ def cmd_publish_dir(args):
     coordinate, dirpath = args[0], args[1]
     _run(["dir-pac", "--server-side", dirpath, coordinate])
     group, app, _ = _parse_coordinate(coordinate)
-    _do_trust(group, app)
     port = _debug_port()
     _run(["havi-devtools-cli", "-p", port, "navigate", f"hppr://{group}/{app}/"])
 
 
 BUILTIN = {
     "navigate": cmd_navigate,
-    "trust": cmd_trust,
+    "deploy": cmd_deploy,
     "publish": cmd_publish,
     "publish-dir": cmd_publish_dir,
 }
@@ -132,15 +118,16 @@ Subcommand groups (delegate to standalone tools):
     devtools <cmd> ...   Servo webview control (havi-devtools-cli)
 
 Built-in commands:
-    navigate <url>                 Navigate HAVI to a URL
-    trust <group> <app>            Ensure site-trust for group/app
-    publish <coordinate> <file>    Store signed file, trust, navigate
-    publish-dir <coordinate> <dir> Store directory tree, trust, navigate
+    navigate <url>                                         Navigate HAVI to a URL
+    deploy <group> <app> <deploy-root> <deploy-signer>    Write deployment pointer
+    publish <coordinate> <file>                            Store signed file, navigate
+    publish-dir <coordinate> <dir>                         Store directory tree, navigate
 
 Examples:
     havi-cli makepad screenshot /tmp/out.png
     havi-cli makepad click 300 400
     havi-cli devtools eval 'document.title'
+    havi-cli deploy u web //u/web V.EXAMPLE.H3
     havi-cli publish //u/web/index.html page.html
 """
 

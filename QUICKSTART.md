@@ -44,10 +44,10 @@ HAVI has a **home repo** (local persistent store) and optional **route repos**
 - `window.route`: remote route client, nullable/unavailable when route/auth is
   missing
 
-Route config and trust config are separate:
+Route and deployment config are separate:
 
-- route decides **where** content is fetched
-- site-trust decides **which signer keys** may run JavaScript
+- route decides **which upstream repo** is used
+- deployment pointer decides **which content root and signer** back `//<group>/<app>/`
 
 Origin boundary is HPPR-native: `//<group>/<app>/`.
 
@@ -62,7 +62,7 @@ scheme://group/app/location{via:endpoint}
 Supported schemes:
 
 - `hppr://` — normal content navigation
-- `hppr-setup://` — endpoint trust/route setup flow
+- `hppr-setup://` — endpoint route setup flow
 - `hppr-sandbox://` — untrusted preview (JS blocked, strict CSP)
 - `hppr-browse://` — coordinate tree browser
 - `hppr-editor://` — local packet editor (home + ring0 tools)
@@ -75,12 +75,13 @@ Routing behavior:
 
 Trailing slash means LIST view; no trailing slash means GET and render content.
 
-## Trust and execution rules
+## Deployment and execution rules
 
-HAVI enables page JavaScript only when signer trust for `//group/app/` passes.
+For routed origins, HAVI resolves content through a group deployment pointer
+(`//<group>/admin/deploy/<app>/|`) that declares `Deploy-Root` and
+`Deploy-Signer`.
 
-Trust source is local site-trust data in the home repo. ACL enforcement still
-happens server-side in `hpprd` for every command.
+ACL enforcement still happens server-side in `hpprd` for every command.
 
 Each site gets an isolated Ring1 identity (`HAVI-site:<group>#<app>`), so
 cross-site privilege sharing does not happen implicitly.

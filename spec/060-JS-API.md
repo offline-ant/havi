@@ -15,6 +15,10 @@ These APIs replace HTTP-style fetch patterns with signed packet operations.
 `window.route` is `null` when no route exists or no matching route auth key is
 available.
 
+For `hppr://` routed pages, route/deploy resolution happens before page JS runs.
+If deploy metadata is missing or invalid, navigation fails with `HpprError` from
+handler operations.
+
 ## H3
 
 Crypto namespace for H3 format operations (BLAKE3 + HSB3).

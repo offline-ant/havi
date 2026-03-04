@@ -84,17 +84,6 @@ async function loadRoutes() {
             const upstreamAddressVal = upstreamAddress ? upstreamAddress.split(':').slice(1).join(':').trim() : '(unknown)';
             const upstreamKeyVal = upstreamKey ? upstreamKey.split(':').slice(1).join(':').trim() : '(none)';
 
-            // Load site-trust members for this coordinate
-            /** @type {string[]} */
-            let trustedKeys = [];
-            try {
-                const siteTrustUrc = '//' + route.group + '/' + route.app + '/site-trust/|/seal/' + adminKey;
-                const result = await window.ring0.members(siteTrustUrc);
-                trustedKeys = (result || []).map(/** @param {string} line */ line => line.split(' ')[0]);
-            } catch (_e) {
-                // No site-trust
-            }
-
             html += `
                 <div class="route-item">
                     <div class="route-header">
@@ -111,12 +100,6 @@ async function loadRoutes() {
                         <span class="route-label">Upstream-Key:</span>
                         <span class="route-value trusted-key" title="${upstreamKeyVal}">
                             ${truncateKey(upstreamKeyVal)}
-                        </span>
-                    </div>
-                    <div class="route-detail">
-                        <span class="route-label">Site-Trust:</span>
-                        <span class="route-value trusted-key">
-                            ${trustedKeys.length > 0 ? trustedKeys.map(k => truncateKey(k)).join(', ') : '(none)'}
                         </span>
                     </div>
                 </div>

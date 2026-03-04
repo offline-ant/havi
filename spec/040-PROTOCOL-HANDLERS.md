@@ -24,7 +24,7 @@ Packet signatures provide integrity and authorship regardless of transport.
 ## Supported schemes
 
 - `hppr://` for normal content navigation
-- `hppr-setup://` for trust and route setup
+- `hppr-setup://` for route setup
 - `hppr-join://` for Ring2 membership requests
 - `hppr-sandbox://` for untrusted preview
 - `hppr-browse://` for directory browsing
@@ -35,6 +35,22 @@ Packet signatures provide integrity and authorship regardless of transport.
 ## `hppr://`
 
 Primary browsing scheme.
+
+### Routed non-repo resolution
+
+For routed non-repo pages (`hppr://<group>/<app>/...`), HAVI resolves in this
+order:
+
+1. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
+2. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
+3. target from `Deploy-Root` + requested location
+
+Fetch behavior:
+
+- GET uses sealed target: `<target>/|/seal/<Deploy-Signer>`
+- LIST uses unsealed target: `<target>/`
+
+Origin remains `//<group>/<app>/`.
 
 ### Content fetch
 
@@ -58,8 +74,6 @@ If GET returns a chunk manifest (`Chunk+Link` + `Data-Length: 0`), HAVI:
 `document.packet` exposes the rendered packet.
 For manifest-level inspection, use envelope/raw APIs in `060-JS-API.md`.
 
-Publishers should use smaller chunk sizes for seek-heavy media.
-
 ### Direct endpoint redirect
 
 If a direct endpoint URL has no local route config, HAVI redirects to setup:
@@ -73,13 +87,11 @@ redirects to:
 
 `hppr-join://group/app/`
 
-This provides a local join-request flow instead of a generic error page.
-
 ## `hppr-setup://`
 
-Setup flow for new route endpoint trust.
+Setup flow for route configuration.
 
-This scheme exposes `window.ring0` so the setup page can store local route/trust
+This scheme exposes `window.ring0` so the setup page can store local route
 packets after user approval.
 
 Setup pages may embed untrusted preview through `hppr-sandbox://`.

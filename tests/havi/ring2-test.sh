@@ -20,9 +20,8 @@ create_remote_key
 import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 setup_remote_ring2 "$TEST_GROUP" "$TEST_APP"
 
-# Set up trust before route (setup_trust writes to local repo;
-# after setup_route, the coordinate resolves to the remote)
-setup_trust "$TEST_GROUP" "$TEST_APP"
+# Set up route and remote deploy pointer
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
 setup_route "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/ring2.html"

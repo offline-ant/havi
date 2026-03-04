@@ -185,31 +185,6 @@ pub async fn resolve_route_endpoint(
                         ),
                     }
 
-                    if !index.trusted_signers.is_empty() {
-                        let mut trust_headers = format!(
-                            "Group: {}\nApp: {}\nLocation: site-trust\nSeal-By: oldest\n",
-                            group, app
-                        );
-                        for signer in &index.trusted_signers {
-                            trust_headers.push_str(&format!("Member: {}\n", signer));
-                        }
-                        let trust_args = hppr_client::build_add_args(trust_headers.as_bytes(), Some(&[]));
-                        match repo_client.add(&trust_args).await {
-                            Ok(_) => log::info!(
-                                "Installed bootstrap site-trust for //{}/{} with {} signer(s)",
-                                group,
-                                app,
-                                index.trusted_signers.len()
-                            ),
-                            Err(err) => log::info!(
-                                "Bootstrap site-trust install failed for //{}/{} (continuing): {}",
-                                group,
-                                app,
-                                err
-                            ),
-                        }
-                    }
-
                     (index.upstream, index.upstream_verification_key)
                 }
                 Ok(None) => (repo_target, None),

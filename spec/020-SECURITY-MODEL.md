@@ -2,33 +2,34 @@
 
 HAVI security has three layers:
 
-1. trust decisions
+1. route and deployment resolution
 2. site sandboxing
 3. repo ACL enforcement
 
-## Trust decisions
+## Route and deployment resolution
 
-HAVI enables JavaScript only when packet signer keys are trusted for the page
-origin.
+HAVI keeps origin semantics stable while resolving content through local route and
+remote deployment pointers.
 
 Origin format: `//<group>/<app>/`.
 
-Trust config is local site-trust data. Route config and trust config are
-separate:
+For routed non-repo pages (`hppr://<group>/<app>/...`):
 
-- route controls where packets are fetched
-- site-trust controls which signer keys may run code
+1. Read local route packet from home repo:
+   `//repo/admin/route/<group>/<app>/|/seal/<home-repo-vkey>`
+2. Connect to route upstream.
+3. Read remote deployment packet:
+   `//<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>`
+4. Use deployment headers:
+   - `Deploy-Root: //<...>`
+   - `Deploy-Signer: V.<...>.H3`
+5. Build target coordinate by appending requested location to `Deploy-Root`.
+6. Execute:
+   - GET: `<target>/|/seal/<Deploy-Signer>`
+   - LIST: `<target>/`
 
-### Site-trust packet
-
-Coordinate:
-
-`//<group>/<app>/site-trust/|/seal/<repo-vkey>`
-
-Content uses membership headers such as `Member` and `Member-Delegate`.
-
-`repo-vkey` is the home repo's oldest ring0 verification key, returned in HELLO
-`Seal-By`.
+The page origin remains `//<group>/<app>/` even when content resolves to a
+different coordinate under `Deploy-Root`.
 
 ### Route packet
 
@@ -41,11 +42,21 @@ Typical headers:
 - `Upstream`
 - `Upstream-Verification-Key`
 
-Route endpoint keys authenticate endpoint identity. They do not authorize site
-JavaScript.
+Route config is local. Only ring0 can write route packets.
 
-Route config is stored in the home repo admin namespace. Only ring0 can write
-route packets.
+### Deployment packet
+
+Coordinate:
+
+`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
+
+Required headers:
+
+- `Deploy-Root`
+- `Deploy-Signer`
+
+Deployment packet is evaluated on the upstream repo. It controls what content
+coordinate and signer back the routed origin.
 
 ### Route keys
 
@@ -61,40 +72,18 @@ Headers:
 - `Verification-Key: V.<b64a>.H3`
 
 Route keys are secrets. Access is restricted to ring0 and site Ring1 accounts
-with explicit ACL grants. Route keys are shared by CLI and HAVI.
+with explicit ACL grants.
 
 ### Setup flow
 
 For a new direct endpoint, HAVI:
 
-1. fetches HELLO
-2. fetches remote trust info
-3. asks the user to approve
-4. stores route config and trust packets locally
+1. fetches remote HELLO
+2. compares current local route endpoint
+3. asks the user to approve route update
+4. stores route config locally
 5. creates route key for group if not exists
 6. navigates to normal `hppr://` URL
-
-Revocation is local trust editing. Remove keys from site-trust or detach the
-trust packet.
-
-### Bootstrap-index route/trust install
-
-For indexed coordinates (`//u/...` and configured bootstrap set), HAVI may
-bootstrap from an index entry signed by the compiled bootstrap key.
-
-Index entry headers:
-
-- `Upstream`
-- `Upstream-Verification-Key`
-- `Trusted-Signer` (repeatable)
-
-On successful bootstrap verification, HAVI stores in home repo:
-
-1. route packet at `//repo/admin/route/<group>/<app>/|`
-2. site-trust packet at `//<group>/<app>/site-trust/|` with one `Member` per
-   `Trusted-Signer`
-
-This allows JS trust to be installed before remote group membership exists.
 
 ## Site sandboxing
 
@@ -104,8 +93,7 @@ Ring1 name format:
 
 `site:<group>#<app>`
 
-Sites are isolated across group/app origins, including origins signed by the
-same publisher key.
+Sites are isolated across group/app origins.
 
 ### Default site ACL pattern
 
@@ -123,14 +111,6 @@ ACL-Rule: rwl //repo/admin/ring1/site:<group>#<app>/
 ACL-Rule: r.. //repo/admin/route-keys/
 ```
 
-This allows local app state and blocks cross-site access.
-
-### Remote identity
-
-Remote (Ring2) operations use the per-group route key, not the site key. This
-separates home sandbox isolation (per-app) from remote group identity
-(per-group).
-
 `window.home`: Ring1 auth with `site:<group>#<app>` key.
 
 `window.route`: Ring2 auth with route key for group.
@@ -141,7 +121,7 @@ ACL checks run in `hpprd`, not in page JavaScript.
 
 When page code calls `window.home` APIs:
 
-1. HAVI signs the request with the site Ring1 key
+1. HAVI signs request with the site Ring1 key
 2. repo verifies signature and session
 3. repo applies ACL rules
 4. repo allows or denies
@@ -152,7 +132,5 @@ Privilege escalation requires explicit ring0 approval for proxy actions.
 
 - HPPR origins are secure contexts.
 - XSS still applies when apps render untrusted content unsafely.
-- CSRF behavior differs because identities are per-site.
-- Delegated trust chains increase compromise blast radius.
-- Route key compromise affects all routes in the group. Per-group isolation is
-  the default. Users who want stronger isolation can create separate route keys.
+- Route key compromise affects all routes in the group.
+- Deployment pointer compromise affects routed content selection for that app.

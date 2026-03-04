@@ -11,7 +11,7 @@ interface HTMLXFrame : HTMLElement {
     // Source attribute - URC or relative coordinate
     [CEReactions] attribute USVString src;
 
-    // Trust inheritance from parent document's site-trust
+    // Trust inheritance from parent document's resolved deploy signer set
     [CEReactions] attribute boolean trustParent;
 
     // Watch for coordinate changes

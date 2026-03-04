@@ -18,12 +18,12 @@ and havi-devtools-cli, and provides built-in workflow commands.
 
 - `navigate <url>`
   - Navigate HAVI to a URL via havi-devtools-cli.
-- `trust <group> <app>`
-  - Ensure site-trust exists for an origin. Idempotent.
+- `deploy <group> <app> <deploy-root> <deploy-signer>`
+  - Write deployment pointer packet for routed app resolution.
 - `publish <coordinate> <file>`
-  - Store a signed file, ensure trust, navigate.
+  - Store a signed file and navigate.
 - `publish-dir <coordinate> <dir>`
-  - Store a directory tree, ensure trust, navigate.
+  - Store a directory tree and navigate.
 
 ## Environment
 
@@ -36,6 +36,6 @@ and havi-devtools-cli, and provides built-in workflow commands.
 havi-cli makepad screenshot /tmp/out.png
 havi-cli makepad click 300 400
 havi-cli devtools eval 'document.title'
+havi-cli deploy u web //u/web V.EXAMPLE.H3
 havi-cli publish //u/web/index.html page.html
-havi-cli trust mysite www
 ```

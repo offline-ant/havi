@@ -58,6 +58,13 @@ pub struct RouteKeyInfo {
     pub signing_key: String,
 }
 
+/// Deployment pointer information for routed app content.
+#[derive(Debug, Clone)]
+pub struct DeployInfo {
+    pub root: String,
+    pub signer: String,
+}
+
 /// Helper to get raw admin credentials from the global store, falling back to defaults.
 ///
 /// Returns (ring1_name, token) tuple. Used to construct a Signer::ring1_adhoc.
@@ -437,52 +444,44 @@ impl HpprdClientAsync {
     }
 
     // ========================================================================
-    // Site-Trust Methods (MEMBERS-compatible)
+    // Deployment Pointer Methods
     // ========================================================================
 
-    /// Get trusted verification keys from site-trust packet.
+    /// Get deployment pointer for a group/app from target repo.
     ///
-    /// Resolves //<g>/<a>/site-trust/|/seal/<admin-key> via MEMBERS.
-    /// Returns empty vec if no site-trust exists.
-    pub async fn get_site_trust_keys(
+    /// Coordinate:
+    /// `//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
+    pub async fn get_deploy(
         &self,
         group: &str,
         app: &str,
+        repo_vkey: &str,
         _account: &str,
         _token: &str,
-    ) -> Vec<String> {
-        let admin_key = match self.get_admin_identity("", "").await {
-            Ok(key) => key,
-            Err(_) => return vec![],
-        };
-        let app_part = if app.is_empty() {
-            String::new()
-        } else {
-            format!("/{}", app)
-        };
-        let urc = format!("//{}{}/site-trust/|/seal/{}", group, app_part, admin_key);
-        if let Ok(members_result) = self.members(&urc).await {
-            return members_result
-                .iter()
-                .filter_map(|l| l.split_whitespace().next().map(String::from))
-                .collect();
-        }
-        vec![]
-    }
+    ) -> Result<DeployInfo, String> {
+        let urc = format!("//{}/admin/deploy/{}/|/seal/{}", group, app, repo_vkey);
+        let packet = self.get_packet(&urc).await?;
 
-    /// Check if a key is trusted for a group/app via site-trust.
-    pub async fn is_trusted(
-        &self,
-        group: &str,
-        app: &str,
-        trust_key: &str,
-        _account: &str,
-        _token: &str,
-    ) -> bool {
-        self.get_site_trust_keys(group, app, "", "")
-            .await
-            .iter()
-            .any(|k| k == trust_key)
+        let root = packet
+            .header("Deploy-Root")
+            .ok_or("Deploy packet missing Deploy-Root header")?
+            .to_string();
+        let signer = packet
+            .header("Deploy-Signer")
+            .ok_or("Deploy packet missing Deploy-Signer header")?
+            .to_string();
+
+        if !root.starts_with("//") {
+            return Err(format!("invalid Deploy-Root '{}': must start with //", root));
+        }
+        if !(signer.starts_with("V.") && signer.ends_with(".H3")) {
+            return Err(format!(
+                "invalid Deploy-Signer '{}': must start with V. and end with .H3",
+                signer
+            ));
+        }
+
+        Ok(DeployInfo { root, signer })
     }
 
     // ========================================================================

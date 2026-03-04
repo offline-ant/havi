@@ -16,7 +16,7 @@ start_remote_server
 setup_remote_acl "$TEST_GROUP" "$TEST_APP"
 create_remote_key
 import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
-setup_remote_trust "$TEST_GROUP" "$TEST_APP"
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr-setup://$TEST_GROUP/$TEST_APP/{via:127.0.0.1:$REMOTE_PORT}"
 

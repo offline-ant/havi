@@ -15,8 +15,7 @@ HAVI_DEVTOOLS=6000 ./havi/havi-cli publish //u/site/index.html ./index.html
 What it does:
 
 1. `hppr add --seal-by oldest` with inferred `Content-Type`
-2. ensures `//u/site/site-trust` exists
-3. navigates HAVI to `hppr://u/site/index.html`
+2. navigates HAVI to `hppr://u/site/index.html`
 
 Use this for quick iteration on one file.
 
@@ -36,7 +35,27 @@ hppr add --seal-by oldest \
 
 Use this for CI scripts and repeatable deploy steps.
 
-### 3) Exact-bytes path: `mkpac` + `store`
+### 3) Route deployment pointer (routed apps)
+
+For routed origins (`hppr://<group>/<app>/...`), set deployment metadata on the
+upstream repo:
+
+```bash
+./havi/havi-cli deploy <group> <app> //<deploy-root> <deploy-signer>
+```
+
+This writes:
+
+`//<group>/admin/deploy/<app>/|`
+
+Headers:
+
+- `Deploy-Root: //<...>`
+- `Deploy-Signer: V.<...>.H3`
+
+At runtime HAVI resolves routed GET/LIST through this deployment pointer.
+
+### 4) Exact-bytes path: `mkpac` + `store`
 
 Use this when you must control packet bytes exactly (offline build pipelines,
 reproducible artifacts, prebuilt packet bundles).
@@ -48,7 +67,7 @@ hppr mkpac seal -k "$SIGNING_KEY" //u/site/index.html < ./index.html | hppr stor
 - `mkpac` builds the packet locally.
 - `store` sends packet bytes unchanged.
 
-### 4) Large file path: `hppr chunk`
+### 5) Large file path: `hppr chunk`
 
 For content above blob limits, use chunk manifests.
 

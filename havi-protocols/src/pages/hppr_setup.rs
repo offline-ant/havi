@@ -1,16 +1,16 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain name at https://mozilla.org/MPL/2.0/. */
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 //! HPPR Setup page handler.
 //!
-//! Handles hppr-setup: URLs for trust establishment with remote repos.
+//! Handles hppr-setup: URLs for route setup with remote repos.
 //! URL format: hppr-setup://group/app/location{via:endpoint}
 //!
 //! Serves a static HTML page that:
-//! 1. Creates anyone client via HpprClient.connect() and calls hello() to get the repo's verification key
-//! 2. Shows UI to accept/trust that key
-//! 3. Stores route and site-trust packets via ring0
+//! 1. Creates anyone client via HpprClient.connect() and calls hello()
+//! 2. Compares existing local route endpoint
+//! 3. Stores/updates route packet via ring0
 //! 4. Displays a sandboxed preview using the `<x>` xframe element
 
 use std::sync::Arc;
@@ -130,7 +130,7 @@ fn render_setup_page(endpoint: &str, group: &str, app: &str, location: &str) -> 
 <body>
     <details>
         <summary>
-            Trust Setup &mdash;
+            Route Setup &mdash;
             <span class="endpoint">{endpoint}</span>
             <span class="coord">{coord}</span>
         </summary>
@@ -156,10 +156,6 @@ fn render_setup_page(endpoint: &str, group: &str, app: &str, location: &str) -> 
                         <span class="info-label">Repo Key</span>
                         <span class="info-value key-small" id="repo-key"></span>
                     </div>
-                    <div class="info-row">
-                        <span class="info-label">Site Trust</span>
-                        <span class="info-value key-small" id="remote-trust-keys"></span>
-                    </div>
                 </div>
 
                 <div class="card" id="local-state" style="display: none;">
@@ -168,21 +164,10 @@ fn render_setup_page(endpoint: &str, group: &str, app: &str, location: &str) -> 
                         <span class="info-label">Upstream</span>
                         <span class="info-value" id="local-endpoint"></span>
                     </div>
-                    <div class="info-row">
-                        <span class="info-label">Site Trust</span>
-                        <span class="info-value key-small" id="local-trust-keys"></span>
-                    </div>
                 </div>
 
                 <div class="card">
                     <div class="section-title">Actions</div>
-                    <div class="checkbox-row">
-                        <input type="checkbox" id="adopt-admin-key" checked>
-                        <div class="checkbox-label">
-                            <div class="title">Adopt Site Trust<span id="trust-diff" class="diff-indicator"></span></div>
-                            <div class="desc">Use the remote repo's trusted keys for content verification</div>
-                        </div>
-                    </div>
                     <div class="checkbox-row">
                         <input type="checkbox" id="set-endpoint" checked>
                         <div class="checkbox-label">
@@ -193,12 +178,12 @@ fn render_setup_page(endpoint: &str, group: &str, app: &str, location: &str) -> 
                 </div>
 
                 <div class="warning">
-                    Only accept keys from repos you trust.
+                    Accept only if this endpoint and repo key are correct.
                 </div>
 
                 <div class="buttons">
                     <button class="secondary" onclick="cancel()">Cancel</button>
-                    <button class="primary" id="accept-btn" onclick="accept()">Accept &amp; Trust</button>
+                    <button class="primary" id="accept-btn" onclick="accept()">Accept &amp; Save Route</button>
                 </div>
             </div>
         </div>
@@ -222,7 +207,6 @@ fn render_setup_page(endpoint: &str, group: &str, app: &str, location: &str) -> 
         location_js = html_escape(location),
     );
 
-    // Inject the external JS before the closing </body> tag
     let setup_js = include_str!("../js/hppr-setup.js");
     html.replace(
         "</body>",

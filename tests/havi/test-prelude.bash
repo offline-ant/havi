@@ -287,25 +287,16 @@ setup_route() {
         -H "Upstream-Verification-Key: $REMOTE_SIGNING_KEY" <<< ""
 }
 
-# Set up site-trust packet with remote signing key as member.
-# Uses ring0/init identity so site-trust is sealed by the repo admin key
-# (Seal-By: oldest). This matches what get_site_trust_keys() expects.
-setup_trust() {
-    local group="$1" app="$2"
-    HPPR_SIGNER='!ring0/init' $HPPR add "//$group/$app/site-trust" \
-        -H "Seal-By: oldest" \
-        -H "Member: $REMOTE_SIGNING_KEY" <<< ""
-}
-
-# Set up site-trust on remote repo.
-# Must be sealed by remote repo-vkey (ring0) so hppr-setup can read it at
-# //<group>/<app>/site-trust/|/seal/<remote-repo-vkey>.
-setup_remote_trust() {
+# Set up deployment pointer on remote repo.
+# Resolver reads //<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>.
+setup_remote_deploy() {
     local group="$1" app="$2"
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='!ring0/init' \
-        $HPPR add "//$group/$app/site-trust" \
+        $HPPR add "//$group/admin/deploy/$app" \
         -H "Seal-By: oldest" \
-        -H "Member: $REMOTE_SIGNING_KEY" <<< ""
+        -H "Deploy-App: $app" \
+        -H "Deploy-Root: //$group/$app" \
+        -H "Deploy-Signer: $REMOTE_SIGNING_KEY" <<< ""
 }
 
 # Set up ring2 on remote repo and pre-create site ring1 account locally.
@@ -536,8 +527,7 @@ inject_hppr_setup_tests() {
     const acceptBtn = document.getElementById('accept-btn');
     assert(acceptBtn && !acceptBtn.disabled, 'Accept button enabled');
 
-    // Checkboxes should be checked by default
-    assert(document.getElementById('adopt-admin-key')?.checked, 'Adopt trust checkbox checked');
+    // Route checkbox should be checked by default
     assert(document.getElementById('set-endpoint')?.checked, 'Set endpoint checkbox checked');
 
     // window.ring0 should be available (pre-fetched admin credentials)
