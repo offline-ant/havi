@@ -77,6 +77,25 @@ For a new direct endpoint, HAVI:
 Revocation is local trust editing. Remove keys from site-trust or detach the
 trust packet.
 
+### Bootstrap-index route/trust install
+
+For indexed coordinates (`//u/...` and configured bootstrap set), HAVI may
+bootstrap from an index entry signed by the compiled bootstrap key.
+
+Index entry headers:
+
+- `Upstream`
+- `Upstream-Verification-Key`
+- `Trusted-Signer` (repeatable)
+
+On successful bootstrap verification, HAVI stores in home repo:
+
+1. route packet at `//repo/admin/route/<group>/<app>/|`
+2. site-trust packet at `//<group>/<app>/site-trust/|` with one `Member` per
+   `Trusted-Signer`
+
+This allows JS trust to be installed before remote group membership exists.
+
 ## Site sandboxing
 
 Each site origin gets its own Ring1 identity for home repo isolation.

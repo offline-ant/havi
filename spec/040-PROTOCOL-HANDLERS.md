@@ -25,6 +25,7 @@ Packet signatures provide integrity and authorship regardless of transport.
 
 - `hppr://` for normal content navigation
 - `hppr-setup://` for trust and route setup
+- `hppr-join://` for Ring2 membership requests
 - `hppr-sandbox://` for untrusted preview
 - `hppr-browse://` for directory browsing
 - `hppr-editor://` for local packet editing
@@ -65,6 +66,15 @@ If a direct endpoint URL has no local route config, HAVI redirects to setup:
 
 `hppr-setup://group/app/path{via:endpoint}`
 
+### Ring2 unauthorized redirect
+
+For routed non-repo content, if remote GET returns `UNAUTHORIZED`, HAVI
+redirects to:
+
+`hppr-join://group/app/`
+
+This provides a local join-request flow instead of a generic error page.
+
 ## `hppr-setup://`
 
 Setup flow for new route endpoint trust.
@@ -73,6 +83,22 @@ This scheme exposes `window.ring0` so the setup page can store local route/trust
 packets after user approval.
 
 Setup pages may embed untrusted preview through `hppr-sandbox://`.
+
+## `hppr-join://`
+
+Ring2 membership request flow.
+
+The page is local HTML and receives `window.route` credentials for the target
+route endpoint and group route key signer.
+
+Join flow:
+
+1. show group/app and requester route verification key
+2. submit request with `window.route.add()` to `//<group>/admin/request/member/|`
+3. watch `//<group>/admin/request/member/<requester-vkey>/reply/`
+4. on `Request-Status: approved`, navigate to `hppr://<group>/<app>/`
+
+`hppr-join://` does not expose `window.ring0`.
 
 ## `hppr-sandbox://`
 

@@ -313,6 +313,13 @@ impl App {
             ),
         );
         let _ = protocol_registry.register(
+            "hppr-join",
+            crate::protocols::hppr_join::HpprJoinHandler::new(
+                hppr_handler.clone(),
+                credential_store.clone(),
+            ),
+        );
+        let _ = protocol_registry.register(
             "hppr-editor",
             crate::protocols::hppr_editor::HpprEditorHandler::new(
                 hppr_handler.clone(),

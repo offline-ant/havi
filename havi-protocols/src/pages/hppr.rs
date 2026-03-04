@@ -322,6 +322,11 @@ async fn handle_get(
     let packet = match fetch_result {
         Ok(p) => p,
         Err(e) => {
+            if e.contains("UNAUTHORIZED") && !is_repo {
+                let join_url = format!("hppr-join://{}/{}/", group, app);
+                let html = render_join_redirect(&join_url, group, app);
+                return PageResponse::html(html);
+            }
             if e.contains("NOT_FOUND") {
                 return render_not_found_response(url);
             }
@@ -544,6 +549,35 @@ fn render_trust_redirect(setup_url: &str, endpoint: &ViaSpec, trust_key: &str) -
         setup_url = escaped_url,
         endpoint = escaped_endpoint,
         key_display = escaped_key,
+    )
+}
+
+/// Render redirect page to hppr-join for unauthorized Ring2 access.
+fn render_join_redirect(join_url: &str, group: &str, app: &str) -> String {
+    let escaped_url = html_escape(join_url);
+    let escaped_group = html_escape(group);
+    let escaped_app = html_escape(app);
+
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Join Required - HAVI</title>
+    <meta http-equiv="refresh" content="0;url={join_url}">
+    <style>{base}</style>
+</head>
+<body>
+    <h1>Join Required</h1>
+    <p>Access to <code>//{group}/{app}/</code> requires group membership.</p>
+    <p>Redirecting to join page...</p>
+    <p><a href="{join_url}">Click here if not redirected</a></p>
+</body>
+</html>"#,
+        base = crate::page_shell::BASE_CSS,
+        join_url = escaped_url,
+        group = escaped_group,
+        app = escaped_app,
     )
 }
 

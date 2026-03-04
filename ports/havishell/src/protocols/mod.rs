@@ -12,6 +12,7 @@ pub mod havi;
 pub mod hppr;
 pub mod hppr_browse;
 pub mod hppr_editor;
+pub mod hppr_join;
 pub mod hppr_sandbox;
 pub mod hppr_setup;
 
