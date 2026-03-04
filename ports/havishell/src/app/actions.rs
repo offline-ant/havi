@@ -1,4 +1,5 @@
 use super::*;
+use super::navigation::parse_navigation_url;
 
 fn servo_cursor_to_makepad(cursor: servo::Cursor) -> MouseCursor {
     match cursor {
@@ -536,6 +537,47 @@ impl MatchEvent for App {
                         self.ensure_watch_pool();
                     }
                     let _ = response_sender.send(new_mode);
+                },
+                Some(MakepadServoAction::DevtoolsSetUrl {
+                    webview_id,
+                    url,
+                    response_sender,
+                }) => {
+                    let response = if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        if let Some(parsed) = parse_navigation_url(url) {
+                            let parsed_url = parsed.to_string();
+                            self.tabs[idx].webview.load(parsed);
+                            self.tabs[idx].url = parsed_url.clone();
+                            if idx == self.active_tab_idx {
+                                self.ui.text_input(cx, ids!(url_input)).set_text(cx, &parsed_url);
+                            }
+                            self.sync_tab_bar(cx);
+                            self.needs_paint = true;
+                            self.idle_frames = 0;
+                            self.next_frame = cx.new_next_frame();
+                            Ok(parsed_url)
+                        } else {
+                            Err("invalid url".to_string())
+                        }
+                    } else {
+                        Err("unknown webview".to_string())
+                    };
+                    let _ = response_sender.send(response);
+                },
+                Some(MakepadServoAction::DevtoolsActivateWebView {
+                    webview_id,
+                    response_sender,
+                }) => {
+                    let response = if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        self.switch_tab(cx, idx);
+                        self.needs_paint = true;
+                        self.idle_frames = 0;
+                        self.next_frame = cx.new_next_frame();
+                        Ok(())
+                    } else {
+                        Err("unknown webview".to_string())
+                    };
+                    let _ = response_sender.send(response);
                 },
                 Some(MakepadServoAction::AccessibilityUpdate { webview_id, update }) => {
                     let webview_id = *webview_id;
