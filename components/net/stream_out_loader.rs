@@ -6,6 +6,9 @@
 //!
 //! Handles the network side of STREAM_OUT connections, using tokio::select!
 //! for efficient cancellation and byte-oriented data forwarding.
+//!
+//! Raw bytes are always forwarded to DOM immediately. Packet finalization events
+//! are optional diagnostics and are not part of the primary streaming path.
 
 use std::sync::Arc;
 
@@ -201,9 +204,6 @@ pub async fn start_stream_out(
         return; // DOM dropped
     }
 
-    // Segment detector: accumulates trailer bytes and emits packets at boundaries
-    let mut detector = hppr_segment::segment_buffer::SegmentBuffer::new();
-
     // Main loop: read bytes from TCP, forward Close from DOM
     let mut buf = [0u8; 32768];
     loop {
@@ -225,23 +225,9 @@ pub async fn start_stream_out(
                     }
                     Ok(n) => {
                         let chunk = &buf[..n];
-                        // Always forward raw bytes for ReadableStream
+                        // Primary path: push incremental bytes to ReadableStream.
                         if event_sender.send(StreamOutNetworkEvent::Data(chunk.to_vec())).is_err() {
                             break; // DOM dropped
-                        }
-                        // Check for completed segments
-                        match detector.push(chunk) {
-                            Ok(segments) => {
-                                for seg in segments {
-                                    let bytes = seg.packet.as_bytes().to_vec();
-                                    if event_sender.send(StreamOutNetworkEvent::Packet(bytes)).is_err() {
-                                        break;
-                                    }
-                                }
-                            }
-                            Err(_) => {
-                                log::warn!("stream_out: segment too large");
-                            }
                         }
                     }
                     Err(e) => {

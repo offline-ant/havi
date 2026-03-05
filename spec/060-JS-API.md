@@ -206,7 +206,7 @@ Live publisher API.
 
 Modes:
 
-- raw mode: write trailer bytes directly
+- raw mode: write bytes directly
 - publisher mode: provide signing key and auto-segment output
 
 Key options:
@@ -221,9 +221,17 @@ Events:
 - `onopen`
 - `onerror`
 - `onclose`
-- `onpacket` (segment hash)
+- `onpacket` (optional diagnostics)
 
 `write()` resolves when queued, not when TCP flush completes.
+
+### Incremental byte-stream semantics
+
+StreamIn and StreamOut are transparent byte pipes for the primary media path.
+Applications are expected to frame payloads at the application layer (for
+example, length-prefixed chunks) and parse incrementally from `streamOut.stream`.
+
+`onpacket` is optional and is not required for media playback.
 
 ## StreamOut
 
@@ -236,6 +244,21 @@ Lifecycle events:
 - `onopen`
 - `onerror`
 - `onclose`
+
+Byte delivery is incremental and order-preserving for the received stream.
+
+## MediaRecorder and MediaSource status
+
+`MediaRecorder` and `MediaSource` are not exposed yet in HAVI.
+
+Current chat-path implementation scope is:
+
+- `getUserMedia()` for camera stream acquisition
+- `video.srcObject = stream` for local preview
+- `StreamIn`/`StreamOut` incremental byte transport for app-framed payloads
+
+Pages must feature-probe recorder and MSE APIs and provide a fallback path when
+those APIs are absent.
 
 ## Errors
 

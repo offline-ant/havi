@@ -46,6 +46,13 @@ When a video source is loaded that the platform cannot decode (e.g. a
 non-AV1 stream inside an MP4), the media element fires an `error` event
 with `MEDIA_ERR_SRC_NOT_SUPPORTED` or `MEDIA_ERR_DECODE`.
 
+## Recorder/MSE status
+
+`MediaRecorder` and `MediaSource` are not exposed yet.
+
+Current live-chat transport work uses camera preview (`getUserMedia` +
+`srcObject`) plus application-framed bytes over StreamIn/StreamOut.
+
 ## Audio
 
 Audio types delegate to platform capabilities. Common supported formats:
