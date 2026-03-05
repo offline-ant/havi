@@ -15,7 +15,7 @@ use net_traits::image_cache::{Image, ImageOrMetadataAvailable, VectorImage};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use selectors::Element;
 use servo_arc::Arc as ServoArc;
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 use style::Zero;
 use style::attr::AttrValue;
 use style::computed_values::object_fit::T as ObjectFit;
@@ -128,7 +128,7 @@ pub(crate) struct IFrameInfo {
 pub(crate) struct ImageInfo {
     pub image: Option<Image>,
     pub showing_broken_image_icon: bool,
-    pub url: Option<ServoUrl>,
+    pub url: Option<BrowserUrl>,
 }
 
 #[derive(Debug, MallocSizeOf)]
