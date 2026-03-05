@@ -543,6 +543,7 @@ pub trait Layout {
         point: LayoutPoint,
         flags: ElementsFromPointFlags,
     ) -> Vec<ElementsFromPointResult>;
+    fn query_effective_overflow(&self, node: TrustedNodeAddress) -> Option<AxesOverflow>;
     fn register_custom_property(
         &mut self,
         property_registration: PropertyRegistration,
@@ -630,6 +631,13 @@ impl AxesOverflow {
             y: self.y.to_scrollable(),
         }
     }
+
+    /// Whether or not the `overflow` value establishes a scroll container.
+    pub fn establishes_scroll_container(&self) -> bool {
+        // Checking one axis suffices, because the computed value ensures that
+        // either both axes are scrollable, or none is scrollable.
+        self.x.is_scrollable()
+    }
 }
 
 #[derive(Clone)]
@@ -644,6 +652,7 @@ pub enum QueryMsg {
     BoxAreas,
     ClientRectQuery,
     CurrentCSSZoomQuery,
+    EffectiveOverflow,
     ElementInnerOuterTextQuery,
     ElementsFromPoint,
     InnerWindowDimensionsQuery,

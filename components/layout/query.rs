@@ -1835,4 +1835,20 @@ pub fn query_elements_from_point(
     }
 }
 
+<<<<<<< HEAD
 
+=======
+pub(crate) fn process_effective_overflow_query(
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<AxesOverflow> {
+    let fragments = node.fragments_for_pseudo(None);
+    let box_fragment = fragments.first()?.retrieve_box_fragment()?;
+    let box_fragment = box_fragment.borrow();
+
+    Some(
+        box_fragment
+            .style()
+            .effective_overflow(box_fragment.base.flags),
+    )
+}
+>>>>>>> a672397f2dc (layout: Add a query for getting the effective overflow of an element and use it in `script` (#42251))

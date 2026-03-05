@@ -22,9 +22,9 @@ use fonts::{FontContext, FontContextWebFontMethods, WebFontDocumentContext};
 use fonts_traits::StylesheetWebFontLoadFinishedCallback;
 use layout_api::wrapper_traits::LayoutNode;
 use layout_api::{
-    BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig, LayoutFactory,
-    OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
-    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
+    AxesOverflow, BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig,
+    LayoutFactory, OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
+    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult, ReflowStatistics,
     RegisterPropertyError, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
 };
 use log::{debug, error};
@@ -90,9 +90,9 @@ use crate::query::{
     find_text_node_at_viewport_point,
     get_the_text_steps, process_box_area_request,
     process_box_areas_request, process_client_rect_request, process_current_css_zoom_query,
-    process_node_scroll_area_request, process_offset_parent_query, process_padding_request,
-    process_resolved_font_style_query, process_resolved_style_request,
-    process_scroll_container_query, query_elements_from_point,
+    process_effective_overflow_query, process_node_scroll_area_request,
+    process_offset_parent_query, process_padding_request, process_resolved_font_style_query,
+    process_resolved_style_request, process_scroll_container_query, query_elements_from_point,
 };
 use crate::traversal::{RecalcStyle, compute_damage_and_rebuild_box_tree};
 use crate::{BoxTree, FragmentTree};
@@ -516,6 +516,14 @@ impl Layout for LayoutThread {
             return Vec::new();
         };
         query_elements_from_point(fragment_tree, point, flags)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_effective_overflow(&self, node: TrustedNodeAddress) -> Option<AxesOverflow> {
+        with_layout_state(|| {
+            let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+            process_effective_overflow_query(node)
+        })
     }
 
     fn exit_now(&mut self) {}
@@ -1594,6 +1602,7 @@ impl ReflowPhases {
                 QueryMsg::TextIndexQuery => Self::StackingContextTreeConstruction,
                 QueryMsg::ClientRectQuery |
                 QueryMsg::CurrentCSSZoomQuery |
+                QueryMsg::EffectiveOverflow |
                 QueryMsg::ElementInnerOuterTextQuery |
                 QueryMsg::InnerWindowDimensionsQuery |
                 QueryMsg::PaddingQuery |
