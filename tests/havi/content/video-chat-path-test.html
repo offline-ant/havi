@@ -77,7 +77,7 @@
       assert(home !== null && home !== undefined, 'window.home exists');
       assert(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function',
           'navigator.mediaDevices.getUserMedia exists');
-      assert(typeof window.MediaRecorder === 'undefined', 'MediaRecorder is not exposed yet');
+      assert(typeof window.MediaRecorder === 'function', 'MediaRecorder is exposed');
       assert(typeof window.MediaSource === 'undefined', 'MediaSource is not exposed yet');
 
       log('--- local srcObject preview path ---');

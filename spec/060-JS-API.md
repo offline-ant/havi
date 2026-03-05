@@ -249,16 +249,27 @@ Byte delivery is incremental and order-preserving for the received stream.
 
 ## MediaRecorder and MediaSource status
 
-`MediaRecorder` and `MediaSource` are not exposed yet in HAVI.
+`MediaRecorder` is exposed in HAVI with a strict part-1 surface.
 
-Current chat-path implementation scope is:
+Available API surface:
 
-- `getUserMedia()` for camera stream acquisition
-- `video.srcObject = stream` for local preview
-- `StreamIn`/`StreamOut` incremental byte transport for app-framed payloads
+- constructor: `new MediaRecorder(stream, options)`
+- static: `MediaRecorder.isTypeSupported(mimeType)`
+- attributes: `state`, `mimeType`, `stream`
+- event handlers: `onstart`, `onstop`, `ondataavailable`, `onerror`
+- methods: `start(timeslice?)`, `stop()`, `pause()`, `resume()`, `requestData()`
 
-Pages must feature-probe recorder and MSE APIs and provide a fallback path when
-those APIs are absent.
+Part-1 behavior:
+
+- constructor validates options and stores recorder state
+- `isTypeSupported()` follows HAVI media policy checks
+- `start()` / `stop()` perform state transitions and fire `start` / `stop` events
+- encoder data production is not implemented yet
+
+Not-yet-implemented execution paths throw DOMException with messages containing
+`NotYetImplemented` (NotSupportedError or InvalidStateError).
+
+`MediaSource` remains not exposed in this part.
 
 ## Errors
 

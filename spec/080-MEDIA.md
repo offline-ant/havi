@@ -48,10 +48,24 @@ with `MEDIA_ERR_SRC_NOT_SUPPORTED` or `MEDIA_ERR_DECODE`.
 
 ## Recorder/MSE status
 
-`MediaRecorder` and `MediaSource` are not exposed yet.
+`MediaRecorder` is exposed with a strict part-1 surface.
 
-Current live-chat transport work uses camera preview (`getUserMedia` +
-`srcObject`) plus application-framed bytes over StreamIn/StreamOut.
+Implemented in part 1:
+
+- constructor + option validation
+- `MediaRecorder.isTypeSupported()` wired to HAVI media policy checks
+- `state`/`mimeType`/`stream` attributes
+- `start()` / `stop()` state transitions with `start` / `stop` event dispatch
+
+Not implemented in part 1:
+
+- encoder-backed chunk production (`dataavailable` payload path)
+- pause/resume/requestData execution path
+
+Not-yet-implemented paths throw NotSupportedError or InvalidStateError with
+`NotYetImplemented` in the error message.
+
+`MediaSource` is still not exposed.
 
 ## Audio
 

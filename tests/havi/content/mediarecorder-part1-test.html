@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MediaRecorder Part1 Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    function assertThrowsNotYetImplemented(name, fn, expectedName) {
+      try {
+        fn();
+        assert(false, name + ' should throw');
+      } catch (e) {
+        assertEqual(e.name, expectedName, name + ' throws ' + expectedName);
+        assertContains(String(e.message || ''), 'NotYetImplemented', name + ' message contains NotYetImplemented');
+      }
+    }
+
+    async function suite_mediarecorder_part1() {
+      assert(typeof window.MediaRecorder === 'function', 'MediaRecorder constructor exists');
+      assert(typeof MediaRecorder.isTypeSupported === 'function', 'MediaRecorder.isTypeSupported exists');
+
+      assertEqual(
+        MediaRecorder.isTypeSupported('video/mp4; codecs="av01.0.04M.08"'),
+        true,
+        'isTypeSupported AV1/MP4'
+      );
+      assertEqual(
+        MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E"'),
+        false,
+        'isTypeSupported H264/MP4 rejected'
+      );
+      assertEqual(
+        MediaRecorder.isTypeSupported('video/webm; codecs="vp8"'),
+        false,
+        'isTypeSupported WebM rejected'
+      );
+
+      const stream = new MediaStream();
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/mp4; codecs="av01.0.04M.08"' });
+
+      assertEqual(recorder.state, 'inactive', 'initial state is inactive');
+      assertEqual(recorder.mimeType, 'video/mp4; codecs="av01.0.04M.08"', 'mimeType stored from constructor options');
+      assert(recorder.stream === stream, 'stream attribute returns constructor stream');
+
+      let startCount = 0;
+      let stopCount = 0;
+      recorder.onstart = () => { startCount += 1; };
+      recorder.onstop = () => { stopCount += 1; };
+
+      recorder.start(200);
+      assertEqual(recorder.state, 'recording', 'start transitions to recording');
+      assertEqual(startCount, 1, 'start event dispatched');
+
+      recorder.stop();
+      assertEqual(recorder.state, 'inactive', 'stop transitions to inactive');
+      assertEqual(stopCount, 1, 'stop event dispatched');
+
+      assertThrowsNotYetImplemented(
+        'pause while inactive',
+        () => recorder.pause(),
+        'InvalidStateError'
+      );
+      assertThrowsNotYetImplemented(
+        'resume while inactive',
+        () => recorder.resume(),
+        'InvalidStateError'
+      );
+      assertThrowsNotYetImplemented(
+        'requestData while inactive',
+        () => recorder.requestData(),
+        'InvalidStateError'
+      );
+
+      const recorder2 = new MediaRecorder(stream, { mimeType: 'video/mp4; codecs="av01.0.04M.08"' });
+      recorder2.start();
+      assertThrowsNotYetImplemented(
+        'pause while recording',
+        () => recorder2.pause(),
+        'NotSupportedError'
+      );
+      assertThrowsNotYetImplemented(
+        'resume while recording',
+        () => recorder2.resume(),
+        'NotSupportedError'
+      );
+      assertThrowsNotYetImplemented(
+        'requestData while recording',
+        () => recorder2.requestData(),
+        'NotSupportedError'
+      );
+      recorder2.stop();
+
+      assertThrowsNotYetImplemented(
+        'constructor rejects unsupported mimeType',
+        () => new MediaRecorder(stream, { mimeType: 'video/mp4; codecs="avc1.42E01E"' }),
+        'NotSupportedError'
+      );
+
+      assertThrowsNotYetImplemented(
+        'constructor rejects bitrate options in part1',
+        () => new MediaRecorder(stream, { bitsPerSecond: 1000000 }),
+        'NotSupportedError'
+      );
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_mediarecorder_part1, 'mediarecorder-part1');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>
