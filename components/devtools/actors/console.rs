@@ -522,7 +522,11 @@ impl Actor for ConsoleActor {
             },
 
             "evaluateJSAsync" => {
-                let result_id = Uuid::new_v4().to_string();
+                let result_id = msg
+                    .get("resultID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_owned())
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
                 let early_reply = EvaluateJSAsyncReply {
                     from: self.name(),
                     result_id: result_id.clone(),
