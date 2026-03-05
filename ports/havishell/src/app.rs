@@ -693,6 +693,7 @@ impl App {
                     );
                     self.video_image_keys.insert(video_id, image_key);
                     self.video_logged_first_frame.remove(&video_id);
+                    self.video_texture_update_count.remove(&video_id);
 
                     log!(
                         "[video] prepare id={} key={:?} autoplay={} loop={}",
@@ -751,6 +752,7 @@ impl App {
                         havi_render::video_texture_map::deregister_video_texture(image_key);
                     }
                     self.video_logged_first_frame.remove(&video_id);
+                    self.video_texture_update_count.remove(&video_id);
                     cx.cleanup_video_playback_resources(LiveId(video_id));
                 },
             }
@@ -780,6 +782,12 @@ impl App {
                 );
             },
             Event::VideoTextureUpdated(ev) => {
+                let count = self
+                    .video_texture_update_count
+                    .entry(ev.video_id.0)
+                    .and_modify(|n| *n += 1)
+                    .or_insert(1);
+
                 if self.video_logged_first_frame.insert(ev.video_id.0) {
                     log!(
                         "[video] first-frame id={} pos={}ms",
@@ -787,6 +795,15 @@ impl App {
                         ev.current_position_ms
                     );
                 }
+                if *count <= 5 || *count % 30 == 0 {
+                    log!(
+                        "[video] frame id={} count={} pos={}ms",
+                        ev.video_id.0,
+                        count,
+                        ev.current_position_ms
+                    );
+                }
+
                 media_controller::dispatch_media_event(
                     ev.video_id.0,
                     ThreadMediaEvent::PositionChanged(ev.current_position_ms),
@@ -798,6 +815,12 @@ impl App {
                 cx.redraw_all();
             },
             Event::VideoPlaybackCompleted(ev) => {
+                let frames = self
+                    .video_texture_update_count
+                    .get(&ev.video_id.0)
+                    .copied()
+                    .unwrap_or(0);
+                log!("[video] completed id={} frames={}", ev.video_id.0, frames);
                 media_controller::dispatch_media_event(
                     ev.video_id.0,
                     ThreadMediaEvent::PlaybackCompleted,
@@ -827,6 +850,7 @@ impl App {
                     havi_render::video_texture_map::deregister_video_texture(image_key);
                 }
                 self.video_logged_first_frame.remove(&ev.video_id.0);
+                self.video_texture_update_count.remove(&ev.video_id.0);
             },
             Event::VideoInputs(ev) => {
                 self.camera.handle_video_inputs_event(ev);
@@ -839,7 +863,13 @@ impl App {
 fn makepad_video_source(source: ThreadMediaSource) -> PlatformVideoSource {
     match source {
         ThreadMediaSource::InMemory(data) => {
-            PlatformVideoSource::InMemory(Rc::new(data.as_ref().clone()))
+            // Fast path: avoid cloning the full in-memory payload when this Arc
+            // has unique ownership at the hand-off boundary.
+            let bytes = match std::sync::Arc::try_unwrap(data) {
+                Ok(bytes) => bytes,
+                Err(shared) => shared.as_ref().clone(),
+            };
+            PlatformVideoSource::InMemory(Rc::new(bytes))
         },
         ThreadMediaSource::Network(url) => PlatformVideoSource::Network(url),
         ThreadMediaSource::Filesystem(path) => PlatformVideoSource::Filesystem(path),
@@ -993,6 +1023,10 @@ pub struct App {
     /// Tracks whether a first frame has been observed for each video_id.
     #[rust]
     video_logged_first_frame: HashSet<u64>,
+
+    /// Per-video number of VideoTextureUpdated events seen.
+    #[rust]
+    video_texture_update_count: HashMap<u64, u64>,
 
     /// Camera subsystem state.
     #[rust]
