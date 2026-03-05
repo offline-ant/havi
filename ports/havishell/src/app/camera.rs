@@ -384,6 +384,35 @@ impl CameraState {
 
                 cx.use_video_input(&[(active.input_id, active.format_id)]);
 
+                // Contract guard: unsupported camera/encoder combinations must fail fast.
+                // If no encoded packets appear shortly after start, surface NYI instead of
+                // leaving recorder in a chunk-timeout state.
+                let mut saw_packets = false;
+                for _ in 0..20 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    let has_packets = {
+                        let buffer = shared.lock().unwrap();
+                        !buffer.packets.is_empty()
+                    };
+                    if has_packets {
+                        saw_packets = true;
+                        break;
+                    }
+                }
+
+                if !saw_packets {
+                    {
+                        let mut buffer = shared.lock().unwrap();
+                        buffer.running = false;
+                        buffer.packets.clear();
+                    }
+                    let _ = response.send(Err(
+                        "NotYetImplemented: no encoder-friendly camera format (no encoder packets produced)"
+                            .to_string(),
+                    ));
+                    return;
+                }
+
                 let tick_ms = timeslice_ms.max(1);
                 let shared_thread = shared.clone();
                 let worker = std::thread::spawn(move || {
