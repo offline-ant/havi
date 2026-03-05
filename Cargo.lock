@@ -870,6 +870,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitreader"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "886559b1e163d56c765bc3a985febb4eee8009f625244511d8ee3c432e08c066"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "bitstream-io"
 version = "4.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2737,6 +2746,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
+name = "fallible_collections"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a88c69768c0a15262df21899142bc6df9b9b823546d4b4b9a7bc2d6c448ec6fd"
+dependencies = [
+ "hashbrown 0.13.2",
+]
+
+[[package]]
 name = "fastbloom"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3521,6 +3539,15 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
+dependencies = [
+ "ahash",
+]
+
+[[package]]
+name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
@@ -3639,6 +3666,7 @@ dependencies = [
  "layout_api",
  "libservo",
  "log",
+ "makepad-media",
  "makepad-widgets",
  "media",
  "paint_api",
@@ -5548,6 +5576,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-media"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "makepad-android-state",
+ "makepad-jni-sys",
+ "makepad-platform",
+ "mp4parse",
+]
+
+[[package]]
 name = "makepad-micro-proc-macro"
 version = "1.0.0"
 
@@ -5588,7 +5627,6 @@ version = "2.0.0"
 dependencies = [
  "ash",
  "bitflags 2.10.0",
- "cc",
  "hilog-sys",
  "makepad-android-state",
  "makepad-apple-sys",
@@ -5967,6 +6005,20 @@ dependencies = [
  "libz-sys",
  "tar",
  "walkdir",
+]
+
+[[package]]
+name = "mp4parse"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63a35203d3c6ce92d5251c77520acb2e57108c88728695aa883f70023624c570"
+dependencies = [
+ "bitreader",
+ "byteorder 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fallible_collections",
+ "log",
+ "num-traits",
+ "static_assertions",
 ]
 
 [[package]]
@@ -7346,6 +7398,7 @@ dependencies = [
  "euclid",
  "image",
  "log",
+ "makepad-media",
  "malloc_size_of_derive",
  "serde",
  "servo_malloc_size_of",

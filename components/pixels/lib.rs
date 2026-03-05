@@ -524,6 +524,10 @@ pub fn load_from_memory(buffer: &[u8], cors_status: CorsStatus) -> Option<Raster
             None
         },
         Ok(format) => {
+            if format == ImageFormat::Avif {
+                return decode_avif_image(cors_status, buffer);
+            }
+
             let Ok(image_decoder) = make_decoder(format, buffer) else {
                 return None;
             };
@@ -576,6 +580,8 @@ pub fn detect_image_format(buffer: &[u8]) -> Result<ImageFormat, &str> {
         Ok(ImageFormat::Bmp)
     } else if is_ico(buffer) {
         Ok(ImageFormat::Ico)
+    } else if is_avif(buffer) {
+        Ok(ImageFormat::Avif)
     } else {
         Err("Image Format Not Supported")
     }
@@ -705,6 +711,13 @@ fn is_webp(buffer: &[u8]) -> bool {
     buffer[8..].len() >= len && &buffer[8..12] == b"WEBP"
 }
 
+fn is_avif(buffer: &[u8]) -> bool {
+    if buffer.len() < 12 {
+        return false;
+    }
+    &buffer[4..8] == b"ftyp" && (&buffer[8..12] == b"avif" || &buffer[8..12] == b"avis")
+}
+
 enum GenericImageDecoder<R: std::io::BufRead + std::io::Seek> {
     Png(Box<png::PngDecoder<R>>),
     Gif(Box<gif::GifDecoder<R>>),
@@ -734,6 +747,38 @@ fn make_decoder(
                 ImageFormatHint::Exact(format).into(),
             ));
         },
+    })
+}
+
+fn decode_avif_image(cors_status: CorsStatus, bytes: &[u8]) -> Option<RasterImage> {
+    let decoded = makepad_media::avif::decode_primary_rgba(bytes)
+        .map_err(|e| {
+            debug!("AVIF decoding error: {e}");
+            e
+        })
+        .ok()?;
+
+    let mut rgba = decoded.rgba;
+    let is_opaque = rgba8_premultiply_inplace(&mut rgba);
+
+    let frame = ImageFrame {
+        delay: None,
+        byte_range: 0..rgba.len(),
+        width: decoded.width,
+        height: decoded.height,
+    };
+
+    Some(RasterImage {
+        metadata: ImageMetadata {
+            width: decoded.width,
+            height: decoded.height,
+        },
+        format: PixelFormat::RGBA8,
+        frames: vec![frame],
+        bytes: Arc::new(rgba),
+        id: None,
+        cors_status,
+        is_opaque,
     })
 }
 
@@ -870,6 +915,7 @@ mod test {
         ];
         let bmp = [0x42, 0x4D];
         let ico = [0x00, 0x00, 0x01, 0x00];
+        let avif = [0x00, 0x00, 0x00, 0x1C, b'f', b't', b'y', b'p', b'a', b'v', b'i', b'f'];
         let junk_format = [0x01, 0x02, 0x03, 0x04, 0x05];
 
         assert!(detect_image_format(&gif1).is_ok());
@@ -879,6 +925,7 @@ mod test {
         assert!(detect_image_format(&webp).is_ok());
         assert!(detect_image_format(&bmp).is_ok());
         assert!(detect_image_format(&ico).is_ok());
+        assert!(detect_image_format(&avif).is_ok());
         assert!(detect_image_format(&junk_format).is_err());
     }
 }

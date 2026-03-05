@@ -15,6 +15,7 @@ use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::Once;
 use std::sync::mpsc;
 
 mod actions;
@@ -661,9 +662,12 @@ impl App {
             return;
         }
 
+        static INSTALL_MEDIA_PLUGIN: Once = Once::new();
+        INSTALL_MEDIA_PLUGIN.call_once(makepad_media::install);
+
         let (tx, rx) = media_controller::create_video_op_channel();
         media_controller::set_video_op_sender(tx);
-        media_controller::set_can_play_type_fn(makepad_widgets::can_play_type);
+        media_controller::set_can_play_type_fn(makepad_widgets::makepad_platform::can_play_type);
         self.video_op_rx = Some(rx);
         log!("[video] media bridge initialized");
     }
@@ -682,7 +686,7 @@ impl App {
                     autoplay,
                     should_loop,
                 } => {
-                    let texture = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                    let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
                     havi_render::video_texture_map::register_video_texture(
                         image_key,
                         texture.clone(),
@@ -701,6 +705,7 @@ impl App {
                     cx.prepare_video_playback(
                         LiveId(video_id),
                         makepad_video_source(source),
+                        makepad_widgets::makepad_platform::event::video_playback::CameraPreviewMode::Texture,
                         0,
                         texture.texture_id(),
                         autoplay,

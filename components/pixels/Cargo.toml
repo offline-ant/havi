@@ -16,6 +16,7 @@ base = { workspace = true }
 euclid = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
+makepad-media = { path = "../../../makepad-media/makepad-media", features = ["dav1d"] }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

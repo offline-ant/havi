@@ -74,7 +74,7 @@ impl CameraState {
 
                 // Allocate a texture and register it in VideoTextureMap,
                 // same as video playback does in drain_video_ops.
-                let texture = Texture::new_with_format(cx, TextureFormat::VideoRGB);
+                let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
                 let image_key = (stream_id as u32, video_id as u32);
                 havi_render::video_texture_map::register_video_texture(
                     image_key,
@@ -90,6 +90,7 @@ impl CameraState {
                 cx.prepare_video_playback(
                     LiveId(video_id),
                     PlatformVideoSource::Camera(input_id, format_id),
+                    makepad_widgets::makepad_platform::event::video_playback::CameraPreviewMode::Texture,
                     0,
                     texture.texture_id(),
                     true,  // autoplay
