@@ -1,4 +1,4 @@
-//! GPU shader definitions: DrawRoundedColor, DrawBoxShadow, DrawGradient.
+//! GPU shader definitions: DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawVideoYuv.
 
 use makepad_widgets::*;
 
@@ -170,6 +170,66 @@ script_mod! {
         }
     }
 
+    set_type_default() do #(DrawVideoYuv::script_shader(vm)){
+        ..mod.draw.DrawQuad
+        tex_y: texture_2d(float)
+        tex_u: texture_2d(float)
+        tex_v: texture_2d(float)
+        yuv_type: 0.0
+        yuv_biplanar: 0.0
+        yuv_rotation_steps: 0.0
+        opacity: 1.0
+
+        sample_yuv: fn(coord: vec2) -> vec4 {
+            let coord_90 = vec2(1.0 - coord.y, coord.x)
+            let coord_180 = vec2(1.0 - coord.x, 1.0 - coord.y)
+            let coord_270 = vec2(coord.y, 1.0 - coord.x)
+
+            let is_90 = step(0.5, self.yuv_rotation_steps) * step(self.yuv_rotation_steps, 1.5)
+            let is_180 = step(1.5, self.yuv_rotation_steps) * step(self.yuv_rotation_steps, 2.5)
+            let is_270 = step(2.5, self.yuv_rotation_steps)
+            let is_0 = 1.0 - is_90 - is_180 - is_270
+            let sample_coord = coord * is_0 + coord_90 * is_90 + coord_180 * is_180 + coord_270 * is_270
+
+            let y_val = self.tex_y.sample(sample_coord).x
+            let uv_sample = self.tex_u.sample(sample_coord)
+            let u_val = uv_sample.x
+            let v_val = mix(self.tex_v.sample(sample_coord).x, uv_sample.y, step(0.5, self.yuv_biplanar))
+
+            let y = (y_val * 255.0 - 16.0) / 219.0
+            let u = (u_val * 255.0 - 128.0) / 224.0
+            let v = (v_val * 255.0 - 128.0) / 224.0
+
+            let r709 = y + 1.5748 * v
+            let g709 = y - 0.1873 * u - 0.4681 * v
+            let b709 = y + 1.8556 * u
+
+            let r601 = y + 1.402 * v
+            let g601 = y - 0.3441 * u - 0.7141 * v
+            let b601 = y + 1.772 * u
+
+            let r2020 = y + 1.4746 * v
+            let g2020 = y - 0.1646 * u - 0.5714 * v
+            let b2020 = y + 1.8814 * u
+
+            let is_601 = step(0.5, self.yuv_type) * step(self.yuv_type, 1.5)
+            let is_2020 = step(1.5, self.yuv_type)
+            let is_709 = 1.0 - is_601 - is_2020
+
+            let r = is_709 * r709 + is_601 * r601 + is_2020 * r2020
+            let g = is_709 * g709 + is_601 * g601 + is_2020 * g2020
+            let b = is_709 * b709 + is_601 * b601 + is_2020 * b2020
+
+            return vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), 1.0)
+        }
+
+        pixel: fn(){
+            let color = self.sample_yuv(self.pos)
+            let a = color.w * self.opacity
+            return vec4(color.xyz * a, a)
+        }
+    }
+
     set_type_default() do #(DrawFilterImage::script_shader(vm)){
         ..mod.draw.DrawQuad
         filter_texture: texture_2d(float)
@@ -250,6 +310,30 @@ script_mod! {
             let fa = color.a * self.opacity
             return vec4(color.rgb * fa, fa)
         }
+    }
+}
+
+/// Dedicated YUV draw primitive for video planes.
+#[derive(Script, ScriptHook, Debug)]
+#[repr(C)]
+pub struct DrawVideoYuv {
+    #[deref]
+    pub draw_super: DrawQuad,
+    #[live]
+    pub yuv_type: f32,
+    #[live]
+    pub yuv_biplanar: f32,
+    #[live]
+    pub yuv_rotation_steps: f32,
+    #[live(1.0)]
+    pub opacity: f32,
+}
+
+impl DrawVideoYuv {
+    pub fn draw_abs(&mut self, cx: &mut Cx2d, rect: Rect) {
+        self.draw_super.rect_pos = rect.pos.into();
+        self.draw_super.rect_size = rect.size.into();
+        self.draw_super.draw(cx);
     }
 }
 

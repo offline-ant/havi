@@ -687,10 +687,7 @@ impl App {
                     should_loop,
                 } => {
                     let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
-                    havi_render::video_texture_map::register_video_texture(
-                        image_key,
-                        texture.clone(),
-                    );
+                    havi_render::video_texture_map::set_external_texture(image_key, texture.clone());
                     self.video_image_keys.insert(video_id, image_key);
                     self.video_logged_first_frame.remove(&video_id);
                     self.video_texture_update_count.remove(&video_id);
@@ -749,7 +746,7 @@ impl App {
                 },
                 VideoOp::Cleanup(video_id) => {
                     if let Some(image_key) = self.video_image_keys.remove(&video_id) {
-                        havi_render::video_texture_map::deregister_video_texture(image_key);
+                        havi_render::video_texture_map::remove_video_binding(image_key);
                     }
                     self.video_logged_first_frame.remove(&video_id);
                     self.video_texture_update_count.remove(&video_id);
@@ -781,7 +778,35 @@ impl App {
                     },
                 );
             },
+            Event::VideoYuvTexturesReady(ev) => {
+                let image_key = self
+                    .video_image_keys
+                    .get(&ev.video_id.0)
+                    .copied()
+                    .or_else(|| self.camera.image_key_for_video_id(ev.video_id.0));
+                if let Some(image_key) = image_key {
+                    havi_render::video_texture_map::set_yuv_planes(
+                        image_key,
+                        ev.tex_y.clone(),
+                        ev.tex_u.clone(),
+                        ev.tex_v.clone(),
+                    );
+                }
+                self.needs_paint = true;
+                self.idle_frames = 0;
+                self.next_frame = cx.new_next_frame();
+                cx.redraw_all();
+            },
             Event::VideoTextureUpdated(ev) => {
+                let image_key = self
+                    .video_image_keys
+                    .get(&ev.video_id.0)
+                    .copied()
+                    .or_else(|| self.camera.image_key_for_video_id(ev.video_id.0));
+                if let Some(image_key) = image_key {
+                    havi_render::video_texture_map::set_yuv_metadata(image_key, ev.yuv);
+                }
+
                 let count = self
                     .video_texture_update_count
                     .entry(ev.video_id.0)
@@ -847,7 +872,7 @@ impl App {
             },
             Event::VideoPlaybackResourcesReleased(ev) => {
                 if let Some(image_key) = self.video_image_keys.remove(&ev.video_id.0) {
-                    havi_render::video_texture_map::deregister_video_texture(image_key);
+                    havi_render::video_texture_map::remove_video_binding(image_key);
                 }
                 self.video_logged_first_frame.remove(&ev.video_id.0);
                 self.video_texture_update_count.remove(&ev.video_id.0);

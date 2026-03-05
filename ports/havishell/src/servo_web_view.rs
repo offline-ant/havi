@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use makepad_widgets::*;
 
-use havi_render::{DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor};
+use havi_render::{
+    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
+};
 
 // ---------------------------------------------------------------------------
 // Widget registration
@@ -133,6 +135,8 @@ pub struct ServoWebView {
     draw_box_shadow: DrawBoxShadow,
     #[live]
     draw_gradient: DrawGradient,
+    #[live]
+    draw_video_yuv: DrawVideoYuv,
     #[live]
     draw_filter_image: DrawFilterImage,
     #[live]
@@ -383,6 +387,7 @@ impl Widget for ServoWebView {
                 &mut self.draw_rounded_bg,
                 &mut self.draw_box_shadow,
                 &mut self.draw_gradient,
+                &mut self.draw_video_yuv,
                 self.shared_selection
                     .as_ref()
                     .map(|ss| {

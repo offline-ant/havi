@@ -16,9 +16,9 @@ use crate::text::draw_text_run;
 use crate::transform::{compute_css_transform_2d, compute_css_transform_3d, is_3d_matrix};
 use crate::{CssFilters, compute_sticky_offset, is_scroll_container, resolve_css_filters};
 use crate::{
-    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, FilterPass, FilterState,
-    OpacityPass, OpacityState, ScrollDrawListState, ScrollState, SelectionHighlight, TextureCache,
-    TransformState,
+    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv, FilterPass,
+    FilterState, OpacityPass, OpacityState, ScrollDrawListState, ScrollState,
+    SelectionHighlight, TextureCache, TransformState,
 };
 
 /// All the Makepad draw state needed for rendering.
@@ -34,6 +34,7 @@ pub(crate) struct MakepadDrawState<'a> {
     pub draw_rounded_bg: &'a mut DrawRoundedColor,
     pub draw_box_shadow: &'a mut DrawBoxShadow,
     pub draw_gradient: &'a mut DrawGradient,
+    pub draw_video_yuv: &'a mut DrawVideoYuv,
     pub selection: Option<&'a SelectionHighlight>,
     pub transform_state: &'a mut TransformState,
     pub opacity_state: &'a mut OpacityState,
@@ -667,6 +668,7 @@ fn paint_content(
                 w,
                 h,
                 state.draw_image,
+                state.draw_video_yuv,
                 state.texture_cache,
                 state.image_overrides,
                 opacity,
@@ -732,25 +734,48 @@ fn draw_image_fragment(
     w: f32,
     h: f32,
     draw_image: &mut DrawImage,
+    draw_video_yuv: &mut DrawVideoYuv,
     texture_cache: &mut TextureCache,
     image_overrides: &havi_types::ImageOverrides,
     opacity: f32,
 ) {
     let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
 
-    // Check for a live video texture registered via VideoTextureMap (zero-copy path).
+    // Check for a live video binding registered via VideoTextureMap.
     if let Some(key) = img.image_key {
-        if let Some(video_tex) = crate::video_texture_map::get_video_texture(key) {
-            draw_image.draw_vars.set_texture(0, &video_tex);
-            draw_image.opacity = opacity;
-            draw_image.draw_abs(
-                cx,
-                Rect {
-                    pos: dvec2(x, y),
-                    size: dvec2(w as f64, h as f64),
-                },
-            );
-            return;
+        if let Some(binding) = crate::video_texture_map::get_video_binding(key) {
+            if binding.yuv_metadata.enabled {
+                if let Some(planes) = binding.yuv_planes.as_ref() {
+                    draw_video_yuv.draw_vars.set_texture(0, &planes.tex_y);
+                    draw_video_yuv.draw_vars.set_texture(1, &planes.tex_u);
+                    draw_video_yuv.draw_vars.set_texture(2, &planes.tex_v);
+                    draw_video_yuv.yuv_type = binding.yuv_metadata.matrix;
+                    draw_video_yuv.yuv_biplanar = binding.yuv_metadata.shader_biplanar();
+                    draw_video_yuv.yuv_rotation_steps = binding.yuv_metadata.rotation_steps;
+                    draw_video_yuv.opacity = opacity;
+                    draw_video_yuv.draw_abs(
+                        cx,
+                        Rect {
+                            pos: dvec2(x, y),
+                            size: dvec2(w as f64, h as f64),
+                        },
+                    );
+                    return;
+                }
+            }
+
+            if let Some(video_tex) = binding.external_texture {
+                draw_image.draw_vars.set_texture(0, &video_tex);
+                draw_image.opacity = opacity;
+                draw_image.draw_abs(
+                    cx,
+                    Rect {
+                        pos: dvec2(x, y),
+                        size: dvec2(w as f64, h as f64),
+                    },
+                );
+                return;
+            }
         }
     }
 

@@ -30,6 +30,13 @@ pub(super) struct CameraState {
 }
 
 impl CameraState {
+    pub(super) fn image_key_for_video_id(&self, video_id: u64) -> Option<(u32, u32)> {
+        self.streams
+            .values()
+            .find(|stream| stream.video_id == video_id)
+            .map(|stream| stream.image_key)
+    }
+
     pub(super) fn handle_video_inputs_event(
         &mut self,
         ev: &VideoInputsEvent,
@@ -76,10 +83,7 @@ impl CameraState {
                 // same as video playback does in drain_video_ops.
                 let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
                 let image_key = (stream_id as u32, video_id as u32);
-                havi_render::video_texture_map::register_video_texture(
-                    image_key,
-                    texture.clone(),
-                );
+                havi_render::video_texture_map::set_external_texture(image_key, texture.clone());
 
                 // Use the first available device with default format.
                 // TODO: match requested device_id/width/height/frame_rate
@@ -116,7 +120,7 @@ impl CameraState {
             CameraRequest::Close(stream_id) => {
                 if let Some(active) = self.streams.remove(&stream_id) {
                     log!("[camera] closing stream_id={} video_id={}", stream_id, active.video_id);
-                    havi_render::video_texture_map::deregister_video_texture(active.image_key);
+                    havi_render::video_texture_map::remove_video_binding(active.image_key);
                     cx.cleanup_video_playback_resources(LiveId(active.video_id));
                 }
             },

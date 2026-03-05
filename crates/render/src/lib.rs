@@ -43,7 +43,9 @@ use app_units::Au;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
 
-pub use shaders::{DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawFilterImage};
+pub use shaders::{
+    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
+};
 pub use hit_test::{hit_test, find_scroll_container};
 pub use stacking_context::CachedStackingContextTree;
 
@@ -187,6 +189,7 @@ pub fn render_fragments(
     draw_rounded_bg: &mut DrawRoundedColor,
     draw_box_shadow: &mut DrawBoxShadow,
     draw_gradient: &mut DrawGradient,
+    draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
     transform_state: &mut TransformState,
     opacity_state: &mut OpacityState,
@@ -197,10 +200,23 @@ pub fn render_fragments(
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
     let mut state = makepad_builder::MakepadDrawState {
-        draw_bg, draw_text, draw_text_bold, draw_text_mono,
-        draw_image, texture_cache, scroll_state, draw_rounded_bg,
-        draw_box_shadow, draw_gradient, selection, transform_state,
-        opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
+        draw_bg,
+        draw_text,
+        draw_text_bold,
+        draw_text_mono,
+        draw_image,
+        texture_cache,
+        scroll_state,
+        draw_rounded_bg,
+        draw_box_shadow,
+        draw_gradient,
+        draw_video_yuv,
+        selection,
+        transform_state,
+        opacity_state,
+        filter_state,
+        draw_filter_image,
+        scroll_draw_lists,
         image_overrides,
     };
     makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
@@ -223,6 +239,7 @@ pub fn render_fragments_clipped(
     draw_rounded_bg: &mut DrawRoundedColor,
     draw_box_shadow: &mut DrawBoxShadow,
     draw_gradient: &mut DrawGradient,
+    draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
     transform_state: &mut TransformState,
     opacity_state: &mut OpacityState,
@@ -232,14 +249,32 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let mut state = makepad_builder::MakepadDrawState {
-        draw_bg, draw_text, draw_text_bold, draw_text_mono,
-        draw_image, texture_cache, scroll_state, draw_rounded_bg,
-        draw_box_shadow, draw_gradient, selection, transform_state,
-        opacity_state, filter_state, draw_filter_image, scroll_draw_lists,
+        draw_bg,
+        draw_text,
+        draw_text_bold,
+        draw_text_mono,
+        draw_image,
+        texture_cache,
+        scroll_state,
+        draw_rounded_bg,
+        draw_box_shadow,
+        draw_gradient,
+        draw_video_yuv,
+        selection,
+        transform_state,
+        opacity_state,
+        filter_state,
+        draw_filter_image,
+        scroll_draw_lists,
         image_overrides,
     };
     makepad_builder::paint_stacking_context(
-        cx, cached_tree.tree(), origin, Some((viewport_top, viewport_bottom)), 1.0, &mut state,
+        cx,
+        cached_tree.tree(),
+        origin,
+        Some((viewport_top, viewport_bottom)),
+        1.0,
+        &mut state,
     );
 }
 
