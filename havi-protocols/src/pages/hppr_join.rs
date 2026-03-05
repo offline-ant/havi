@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
+use crate::join_fixture::get_join_fixture_state;
 use crate::util::{html_escape, resolve_route_endpoint};
 
 /// Handle an hppr-join:// URL request.
@@ -46,7 +47,9 @@ pub async fn handle_request(
 
     let (endpoint, _) = resolve_route_endpoint(&group, &app, client, credential_store).await;
 
-    let mut response = PageResponse::html(render_join_page(&group, &app, &route_vkey, &route_sk));
+    let fixture_state = get_join_fixture_state().as_str().to_string();
+    let mut response =
+        PageResponse::html(render_join_page(&group, &app, &route_vkey, &route_sk, &fixture_state));
     response.hppr_endpoint = Some(endpoint.to_string());
     response.hppr_signer = Some(format!("@{}#{}", group, route_sk));
     response
@@ -80,7 +83,13 @@ fn signing_to_verifying_key(signing_key: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to derive route verification key: {}", e))
 }
 
-fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) -> String {
+fn render_join_page(
+    group: &str,
+    app: &str,
+    route_vkey: &str,
+    route_sk: &str,
+    fixture_state: &str,
+) -> String {
     let css = r#"
         body { max-width: 720px; margin: 40px auto; }
         h1 { margin-bottom: 12px; }
@@ -116,6 +125,10 @@ fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) ->
             <span class="label">Your route verification key</span>
             <div class="mono" id="route-vkey">{route_vkey}</div>
         </div>
+        <div class="row">
+            <span class="label">Join fixture</span>
+            <div class="mono" id="join-fixture">{fixture_state}</div>
+        </div>
         <div class="actions">
             <button class="secondary" id="copy-btn">Copy key</button>
             <button class="primary" id="join-btn">Request to join</button>
@@ -129,6 +142,7 @@ fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) ->
         const APP = {app_js:?};
         const ROUTE_VKEY = {vkey_js:?};
         const ROUTE_SK = {sk_js:?};
+        const JOIN_FIXTURE = {fixture_js:?};
 
         const joinBtn = document.getElementById('join-btn');
         const copyBtn = document.getElementById('copy-btn');
@@ -148,7 +162,7 @@ fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) ->
 
                 if (status === 'approved') {{
                     setStatus('Approved. Opening site...', 'ok');
-                    window.location.href = 'hppr://' + GROUP + '/' + APP + '/';
+                    window.address.href = 'hppr://' + GROUP + '/' + APP + '/';
                     return true;
                 }}
                 if (status === 'denied') {{
@@ -170,6 +184,16 @@ fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) ->
 
             joinBtn.disabled = true;
             setStatus('Submitting join request...');
+
+            if (JOIN_FIXTURE === 'pending') {{
+                setStatus('Request status: pending (fixture)', 'ok');
+                return;
+            }}
+            if (JOIN_FIXTURE === 'approved') {{
+                setStatus('Approved. Opening site... (fixture)', 'ok');
+                window.address.href = 'hppr://' + GROUP + '/' + APP + '/';
+                return;
+            }}
 
             try {{
                 await window.route.add({{
@@ -224,10 +248,12 @@ fn render_join_page(group: &str, app: &str, route_vkey: &str, route_sk: &str) ->
         group = html_escape(group),
         app = html_escape(app),
         route_vkey = html_escape(route_vkey),
+        fixture_state = html_escape(fixture_state),
         group_js = group,
         app_js = app,
         vkey_js = route_vkey,
         sk_js = route_sk,
+        fixture_js = fixture_state,
     );
 
     crate::page_shell::render_page("Join group - HAVI", css, &body)

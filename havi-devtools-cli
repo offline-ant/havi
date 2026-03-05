@@ -7,6 +7,7 @@
 
 import argparse
 import base64
+import itertools
 import json
 import os
 import queue
@@ -214,6 +215,17 @@ def get_root(client, timeout):
     return client.send_receive({"to": "root", "type": "getRoot"}, timeout=timeout) or {}
 
 
+def get_shell_actor(client, timeout):
+    root = get_root(client, timeout)
+    return root.get("shellActor")
+
+
+def shell_request(client, shell_actor, msg_type, payload, timeout):
+    req = {"to": shell_actor, "type": msg_type}
+    req.update(payload)
+    return client.send_receive(req, timeout=timeout, predicate=lambda p: p.get("from") == shell_actor)
+
+
 def get_target(client, tab_actor, timeout):
     return client.send_receive({"to": tab_actor, "type": "getTarget"}, timeout=timeout) or {}
 
@@ -229,7 +241,20 @@ def select_tab(tabs, tab_index, text_mode=False):
     return tabs[tab_index]
 
 
-def connect_for_console(port, timeout, text_mode=False, tab_index=0):
+def default_tab_index(tabs):
+    for i, tab in enumerate(tabs):
+        if tab.get("selected", False):
+            return i
+    return 0
+
+
+def resolve_tab(tabs, tab_index, text_mode=False):
+    if tab_index is None:
+        return select_tab(tabs, default_tab_index(tabs), text_mode)
+    return select_tab(tabs, tab_index, text_mode)
+
+
+def connect_for_console(port, timeout, text_mode=False, tab_index=None):
     client = RDPClient()
     try:
         client.connect("localhost", port, timeout=timeout)
@@ -241,7 +266,7 @@ def connect_for_console(port, timeout, text_mode=False, tab_index=0):
         client.disconnect()
         output_error(text_mode, EXIT_CONNECTION, "connection", "no tabs open")
 
-    tab = select_tab(tabs, tab_index, text_mode)
+    tab = resolve_tab(tabs, tab_index, text_mode)
     target = get_target(client, tab["actor"], timeout)
     # getTarget wraps the BrowsingContextActor data in a "frame" field
     frame = target.get("frame", target)
@@ -258,18 +283,30 @@ def connect_for_console(port, timeout, text_mode=False, tab_index=0):
 # Eval core
 # ---------------------------------------------------------------------------
 
+_EVAL_RESULT_ID = itertools.count(1)
+
+
 def evaluate_js(client, console_actor_id, js, timeout=10.0):
     result_event = threading.Event()
     eval_result = {}
+    result_id = str(next(_EVAL_RESULT_ID))
 
     def on_result(pkt):
+        pkt_result_id = pkt.get("resultID")
+        if pkt_result_id is not None and str(pkt_result_id) != result_id:
+            return
         if "result" in pkt or "exception" in pkt or "exceptionMessage" in pkt:
             eval_result.update(pkt)
             result_event.set()
 
     client.add_event_listener(console_actor_id, EVENT_EVALUATION_RESULT, on_result)
     try:
-        client.send({"to": console_actor_id, "type": "evaluateJSAsync", "text": js})
+        client.send({
+            "to": console_actor_id,
+            "type": "evaluateJSAsync",
+            "text": js,
+            "resultID": result_id,
+        })
         if not result_event.wait(timeout=timeout):
             return None
         return eval_result
@@ -399,7 +436,16 @@ def cmd_tabs(args):
     try:
         client.connect("localhost", args.port, timeout=args.timeout)
         tabs = list_tabs(client, args.timeout)
-        value = [{"index": i, "url": t.get("url", ""), "title": t.get("title", "")} for i, t in enumerate(tabs)]
+
+        value = []
+        for i, t in enumerate(tabs):
+            value.append({
+                "index": i,
+                "browserId": t.get("browserId"),
+                "selected": bool(t.get("selected", False)),
+                "url": t.get("url", ""),
+                "title": t.get("title", ""),
+            })
         output_ok(args.text, value)
     except Exception as e:
         output_error(args.text, EXIT_CONNECTION, "connection", f"failed to connect localhost:{args.port}: {e}")
@@ -440,7 +486,25 @@ def cmd_navigate(args):
 
     deadline = time.time() + args.timeout
     try:
-        evaluate_js(client, console_actor_id, f"window.address.href = {json.dumps(args.url)}", timeout=5.0)
+        tabs = list_tabs(client, args.timeout)
+        tab = resolve_tab(tabs, args.tab, args.text)
+        browser_id = tab.get("browserId")
+
+        shell_actor = get_shell_actor(client, args.timeout)
+        if shell_actor and browser_id is not None:
+            reply = shell_request(
+                client,
+                shell_actor,
+                "setUrl",
+                {"url": args.url, "browserId": browser_id},
+                timeout=min(5.0, args.timeout),
+            )
+            if not reply:
+                output_error(args.text, EXIT_TIMEOUT, "timeout", "shell setUrl timed out")
+            if "error" in reply:
+                output_error(args.text, EXIT_CONNECTION, "navigate", reply.get("error", "navigation failed"))
+        else:
+            evaluate_js(client, console_actor_id, f"window.address.href = {json.dumps(args.url)}", timeout=5.0)
 
         while time.time() < deadline:
             for ev in nav_events:
@@ -462,6 +526,76 @@ def cmd_navigate(args):
             time.sleep(0.1)
 
         output_error(args.text, EXIT_TIMEOUT, "timeout", f"navigation timeout after {args.timeout}s")
+    finally:
+        client.disconnect()
+
+
+def cmd_set_url(args):
+    client = RDPClient()
+    try:
+        client.connect("localhost", args.port, timeout=args.timeout)
+        tabs = list_tabs(client, args.timeout)
+        if not tabs:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
+        tab = resolve_tab(tabs, args.tab, args.text)
+        browser_id = tab.get("browserId")
+        if browser_id is None:
+            output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
+
+        shell_actor = get_shell_actor(client, args.timeout)
+        if not shell_actor:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no shell actor available")
+
+        reply = shell_request(
+            client,
+            shell_actor,
+            "setUrl",
+            {"url": args.url, "browserId": browser_id},
+            timeout=args.timeout,
+        )
+        if not reply:
+            output_error(args.text, EXIT_TIMEOUT, "timeout", "set-url timed out")
+        if "error" in reply:
+            output_error(args.text, EXIT_CONNECTION, "set-url", reply["error"])
+
+        output_ok(args.text, reply.get("url", args.url))
+    except Exception as e:
+        output_error(args.text, EXIT_CONNECTION, "connection", f"failed to connect localhost:{args.port}: {e}")
+    finally:
+        client.disconnect()
+
+
+def cmd_select_tab(args):
+    client = RDPClient()
+    try:
+        client.connect("localhost", args.port, timeout=args.timeout)
+        tabs = list_tabs(client, args.timeout)
+        if not tabs:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
+        tab = select_tab(tabs, args.index, args.text)
+        browser_id = tab.get("browserId")
+        if browser_id is None:
+            output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
+
+        shell_actor = get_shell_actor(client, args.timeout)
+        if not shell_actor:
+            output_error(args.text, EXIT_CONNECTION, "connection", "no shell actor available")
+
+        reply = shell_request(
+            client,
+            shell_actor,
+            "activateTab",
+            {"browserId": browser_id},
+            timeout=args.timeout,
+        )
+        if not reply:
+            output_error(args.text, EXIT_TIMEOUT, "timeout", "select-tab timed out")
+        if "error" in reply:
+            output_error(args.text, EXIT_CONNECTION, "select-tab", reply["error"])
+
+        output_ok(args.text, {"index": args.index, "browserId": browser_id})
+    except Exception as e:
+        output_error(args.text, EXIT_CONNECTION, "connection", f"failed to connect localhost:{args.port}: {e}")
     finally:
         client.disconnect()
 
@@ -496,7 +630,7 @@ def cmd_screenshot(args):
         tabs = list_tabs(client, args.timeout)
         if not tabs:
             output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
-        tab = select_tab(tabs, args.tab, args.text)
+        tab = resolve_tab(tabs, args.tab, args.text)
         browser_id = tab.get("browserId")
         if browser_id is None:
             output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
@@ -543,7 +677,7 @@ def cmd_watch(args):
         tabs = list_tabs(client, args.timeout)
         if not tabs:
             output_error(args.text, EXIT_CONNECTION, "connection", "no tabs open")
-        tab = select_tab(tabs, args.tab, args.text)
+        tab = resolve_tab(tabs, args.tab, args.text)
         browser_id = tab.get("browserId")
         if browser_id is None:
             output_error(args.text, EXIT_CONNECTION, "connection", "tab has no browserId")
@@ -628,8 +762,8 @@ def add_tab_arg(parser):
     parser.add_argument(
         "--tab",
         type=int,
-        default=0,
-        help="Tab index from 'tabs' output (default: 0)",
+        default=None,
+        help="Tab index from 'tabs' output (default: selected tab)",
     )
 
 
@@ -658,6 +792,13 @@ def build_parser():
     pn = sub.add_parser("navigate", help="Navigate to URL and wait for load")
     pn.add_argument("url", help="URL to navigate to")
     add_tab_arg(pn)
+
+    psu = sub.add_parser("set-url", help="Set URL in tab via shell control")
+    psu.add_argument("url", help="URL to navigate to")
+    add_tab_arg(psu)
+
+    pst = sub.add_parser("select-tab", help="Activate tab by index in HAVI shell")
+    pst.add_argument("index", type=int, help="Tab index to activate")
 
     pw = sub.add_parser("wait-for", help="Poll expression until truthy")
     pw.add_argument("expr", help="JavaScript expression to poll")
@@ -690,6 +831,8 @@ def main():
         "tabs": cmd_tabs,
         "eval": cmd_eval,
         "navigate": cmd_navigate,
+        "set-url": cmd_set_url,
+        "select-tab": cmd_select_tab,
         "wait-for": cmd_wait_for,
         "events": cmd_events,
         "repl": cmd_repl,

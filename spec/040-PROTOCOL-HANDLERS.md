@@ -42,8 +42,10 @@ For routed non-repo pages (`hppr://<group>/<app>/...`), HAVI resolves in this
 order:
 
 1. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
-2. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-3. target from `Deploy-Root` + requested location
+2. if route is missing and `group` does not start with `.`, try bootstrap index
+   lookup at `//u/index/<group>/<app>` and use/store returned route values
+3. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
+4. target from `Deploy-Root` + requested location
 
 Fetch behavior:
 
@@ -82,8 +84,8 @@ If a direct endpoint URL has no local route config, HAVI redirects to setup:
 
 ### Ring2 unauthorized redirect
 
-For routed non-repo content, if remote GET returns `UNAUTHORIZED`, HAVI
-redirects to:
+For routed non-repo content, if remote GET or LIST returns `UNAUTHORIZED`,
+HAVI redirects to:
 
 `hppr-join://group/app/`
 
@@ -109,6 +111,16 @@ Join flow:
 2. submit request with `window.route.add()` to `//<group>/admin/request/member/|`
 3. watch `//<group>/admin/request/member/<requester-vkey>/reply/`
 4. on `Request-Status: approved`, navigate to `hppr://<group>/<app>/`
+
+Join fixture mode for deterministic tests can override join result handling with
+process-local state:
+
+- `none`: normal network join flow
+- `pending`: show pending state without sending network request
+- `approved`: navigate directly to `hppr://<group>/<app>/`
+
+Fixture state is controlled from `havi:///diagnostics` API and resets when HAVI
+restarts.
 
 `hppr-join://` does not expose `window.ring0`.
 
@@ -163,5 +175,16 @@ layout.
 - hpprd listen/unlisten
 - mount/unmount
 - status and mounts inspection
+
+`havi:///diagnostics` exposes route/deploy/auth/join diagnostics and fixture
+controls.
+
+`havi:///diagnostics/api` commands:
+
+- `inspect` with `group`, `app`, optional `location`
+- `join_fixture_get`
+- `join_fixture_set` with `state=none|pending|approved`
+
+Join fixture state is process-local and resets on restart.
 
 All `havi://` pages have pre-authorized `window.ring0` access.

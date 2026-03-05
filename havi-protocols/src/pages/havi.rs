@@ -16,17 +16,25 @@
 //! - /ring2: Group membership management (stub)
 //! - /ring1: View account requests (stub)
 //! - /ring0: Ring0 proxy page for ring1 proxy requests
+//! - /diagnostics: Route/deploy/auth/join diagnostics + join fixtures
 //! - /services: Pylon service manager (services, listeners, mounts, nat)
 
+use std::sync::Arc;
+
 use crate::PageResponse;
-use crate::client::get_admin_credentials;
+use crate::client::{HpprdClientAsync, get_admin_credentials};
+use crate::credentials::CredentialStoreHandle;
 use crate::state_db::global_state_db;
 use crate::util::html_escape;
 
 /// Handle an havi:// URL request.
 ///
 /// Returns a PageResponse with admin credentials set for window.ring0 access.
-pub async fn handle_request(url: &str) -> PageResponse {
+pub async fn handle_request(
+    url: &str,
+    client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) -> PageResponse {
     let path = url.strip_prefix("havi:").unwrap_or(url);
     let path = path.trim_start_matches('/');
     let path = format!("/{}", path);
@@ -34,6 +42,17 @@ pub async fn handle_request(url: &str) -> PageResponse {
     // Handle services API endpoint
     if path.starts_with("/services/api") {
         let json = handle_services_api(&path);
+        return PageResponse::new("application/json", json.into_bytes());
+    }
+
+    // Handle diagnostics API endpoint
+    if path.starts_with("/diagnostics/api") {
+        let json = crate::pages::havi_diagnostics::handle_diagnostics_api(
+            &path,
+            client,
+            credential_store,
+        )
+        .await;
         return PageResponse::new("application/json", json.into_bytes());
     }
 
@@ -46,6 +65,7 @@ pub async fn handle_request(url: &str) -> PageResponse {
         "/ring2" => render_groups_page(),
         "/ring1" => render_accounts_page(),
         "/ring0" => render_ring0_proxy_page(),
+        "/diagnostics" => render_diagnostics_page(),
         "/services" => render_services_page(),
         _ => render_not_found(&path),
     };
@@ -294,6 +314,7 @@ fn render_nav(active: &str) -> String {
         ("havi:///ring2", "Ring2"),
         ("havi:///ring1", "Ring1"),
         ("havi:///ring0", "Ring0"),
+        ("havi:///diagnostics", "Diagnostics"),
         ("havi:///services", "Services"),
     ];
 
@@ -608,6 +629,45 @@ fn render_ring0_proxy_page() -> String {
     );
 
     render_admin_page("Ring0 Proxy", "Ring0", extra_css, &body)
+}
+
+/// Render route/deploy/auth/join diagnostics page.
+fn render_diagnostics_page() -> String {
+    let diagnostics_js = include_str!("../js/havi-diagnostics.js");
+    let body = format!(
+        r#"
+    <div id="message"></div>
+
+    <div class="card">
+        <h2>Inspect Route/Deploy/Auth/Join</h2>
+        <div class="inline-row">
+            <input type="text" id="diagGroup" placeholder="group" value="u">
+            <input type="text" id="diagApp" placeholder="app" value="web">
+            <input type="text" id="diagLocation" placeholder="location (optional)">
+            <button onclick="runDiagnostics()">Inspect</button>
+        </div>
+        <p class="muted">Reads local route, remote deploy, auth probe, and join request/reply status.</p>
+        <pre id="diagOutput" class="codebox">Click Inspect</pre>
+    </div>
+
+    <div class="card">
+        <h2>Join Fixture State</h2>
+        <p class="muted">Process-local deterministic join state for hppr-join testing.</p>
+        <div class="inline-row">
+            <button onclick="setJoinFixture('none')">none</button>
+            <button onclick="setJoinFixture('pending')">pending</button>
+            <button onclick="setJoinFixture('approved')">approved</button>
+        </div>
+        <p class="muted">Current: <span id="joinFixtureState">loading...</span></p>
+    </div>
+
+    <script>
+{diagnostics_js}
+    </script>"#,
+        diagnostics_js = diagnostics_js
+    );
+
+    render_admin_page("Diagnostics", "Diagnostics", "", &body)
 }
 
 /// Render the services page.

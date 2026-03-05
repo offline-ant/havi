@@ -55,6 +55,16 @@ pub trait ServoDelegate {
         let _ = response_sender.send(mode);
     }
 
+    /// Navigate a WebView to URL from DevTools shell control.
+    fn devtools_set_url(&self, _webview_id: WebViewId, _url: String, response_sender: Sender<Result<String, String>>) {
+        let _ = response_sender.send(Err("unsupported".to_string()));
+    }
+
+    /// Activate a WebView tab from DevTools shell control.
+    fn devtools_activate_webview(&self, _webview_id: WebViewId, response_sender: Sender<Result<(), String>>) {
+        let _ = response_sender.send(Err("unsupported".to_string()));
+    }
+
     /// Handle a camera request (enumerate, open, close).
     fn handle_camera_request(&self, request: CameraRequest) {
         // Default: no camera support — return empty/error.

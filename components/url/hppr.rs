@@ -5,7 +5,7 @@
 //! HPPR URL types for HAVI protocol handlers.
 //!
 //! Provides unified parsing for all HPPR-family URLs:
-//! - `hppr://`, `hppr-setup:`, `hppr-sandbox:`, `hppr-browse://`, `hppr-editor://` - URC-based URLs
+//! - `hppr://`, `hppr-setup:`, `hppr-sandbox:`, `hppr-browse://`, `hppr-editor://`, `hppr-join://` - URC-based URLs
 //! - `havi://` - Admin page URLs with simple path format
 //!
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
@@ -30,6 +30,8 @@ pub enum HpprScheme {
     HpprBrowse,
     /// hppr-editor:// - Local editor (no endpoint)
     HpprEditor,
+    /// hppr-join:// - Ring2 join request flow
+    HpprJoin,
 }
 
 impl HpprScheme {
@@ -41,6 +43,7 @@ impl HpprScheme {
             HpprScheme::HpprSandbox => "hppr-sandbox:",
             HpprScheme::HpprBrowse => "hppr-browse:",
             HpprScheme::HpprEditor => "hppr-editor:",
+            HpprScheme::HpprJoin => "hppr-join:",
         }
     }
 
@@ -266,6 +269,8 @@ impl HAVIAddress {
             (HpprScheme::HpprSandbox, r)
         } else if let Some(r) = url.strip_prefix("hppr-browse:") {
             (HpprScheme::HpprBrowse, r)
+        } else if let Some(r) = url.strip_prefix("hppr-join:") {
+            (HpprScheme::HpprJoin, r)
         } else if let Some(r) = url.strip_prefix("hppr:") {
             (HpprScheme::Hppr, r)
         } else {
@@ -532,7 +537,7 @@ impl fmt::Display for HaviUrl {
 /// Unified entry point for parsing all HPPR URL types.
 #[derive(Debug, Clone)]
 pub enum HpprUrl {
-    /// URC-based URL (hppr://, hppr-setup:, hppr-sandbox:, hppr-browse://, hppr-editor://)
+    /// URC-based URL (hppr://, hppr-setup:, hppr-sandbox:, hppr-browse://, hppr-editor://, hppr-join://)
     HAVIAddress(HAVIAddress),
     /// Admin page URL (havi://)
     Havi(HaviUrl),
@@ -559,6 +564,7 @@ impl HpprUrl {
                 | "hppr-sandbox"
                 | "hppr-browse"
                 | "hppr-editor"
+                | "hppr-join"
                 | "havi"
         )
     }
@@ -704,6 +710,16 @@ mod tests {
     }
 
     #[test]
+    fn test_hppr_join() {
+        let url = HAVIAddress::parse("hppr-join://sol/chat/").unwrap();
+        assert_eq!(url.scheme(), HpprScheme::HpprJoin);
+        assert!(url.endpoint().is_none());
+        assert_eq!(url.group(), Some("sol".to_string()));
+        assert_eq!(url.app(), Some("chat".to_string()));
+        assert!(url.is_listing());
+    }
+
+    #[test]
     fn test_unknown_scheme() {
         let result = HAVIAddress::parse("http://example.com");
         assert!(matches!(result, Err(HpprUrlParseError::UnknownScheme(_))));
@@ -783,6 +799,7 @@ mod tests {
         assert!(HpprUrl::is_hppr_scheme("hppr-sandbox"));
         assert!(HpprUrl::is_hppr_scheme("hppr-browse"));
         assert!(HpprUrl::is_hppr_scheme("hppr-editor"));
+        assert!(HpprUrl::is_hppr_scheme("hppr-join"));
         assert!(HpprUrl::is_hppr_scheme("havi"));
         assert!(!HpprUrl::is_hppr_scheme("http"));
         assert!(!HpprUrl::is_hppr_scheme("https"));

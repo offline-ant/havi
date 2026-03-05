@@ -550,7 +550,14 @@ async fn handle_list(
             let html = render_list_html(path, &children);
             PageResponse::html(html)
         },
-        Err(e) => PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url))),
+        Err(e) => {
+            if e.contains("UNAUTHORIZED") && !is_repo {
+                let join_url = format!("hppr-join://{}/{}/", group, app);
+                let html = render_join_redirect(&join_url, group, app);
+                return PageResponse::html(html);
+            }
+            PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)))
+        },
     }
 }
 

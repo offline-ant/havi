@@ -661,6 +661,12 @@ pub enum EmbedderMsg {
     /// Set watch mode for a specific WebView in embedder (havishell) and return resulting mode.
     #[serde(skip)]
     WatchSetMode(WebViewId, String, Sender<String>),
+    /// DevTools shell command: navigate a specific WebView to URL.
+    #[serde(skip)]
+    DevtoolsSetUrl(WebViewId, String, Sender<Result<String, String>>),
+    /// DevTools shell command: activate/switch the current WebView tab.
+    #[serde(skip)]
+    DevtoolsActivateWebView(WebViewId, Sender<Result<(), String>>),
     /// Camera request from script (getUserMedia / enumerateDevices).
     #[serde(skip)]
     CameraRequest(WebViewId, CameraRequest),

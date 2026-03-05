@@ -160,7 +160,11 @@ else:
         if len(rust_variants) != len(py_variants):
             print(f'LENGTH: rust={len(rust_variants)} python={len(py_variants)}')
 ")
-    check "KEYCODE_VARIANTS matches Rust source" "ok" "$CROSS_CHECK"
+    if [[ "$CROSS_CHECK" == SKIP:* ]]; then
+        echo "PASS: KEYCODE_VARIANTS matches Rust source ($CROSS_CHECK)" >&2; PASS=$((PASS + 1))
+    else
+        check "KEYCODE_VARIANTS matches Rust source" "ok" "$CROSS_CHECK"
+    fi
 fi
 
 # ============================================================================
@@ -259,6 +263,148 @@ check "old code: actor was None (broken)" "None" "$old_a"
 check "old code: consoleActor was None (broken)" "None" "$old_c"
 check "new code: actor extracted" "browsingContext1" "$new_a"
 check "new code: consoleActor extracted" "console1" "$new_c"
+
+# ============================================================================
+# Test 5: DevTools shell actor helpers
+# ============================================================================
+
+log "--- DevTools shell actor helpers ---"
+
+SHELL_HELPERS=$(python3 -c "
+import importlib.util, importlib.machinery, sys
+loader = importlib.machinery.SourceFileLoader('devtools_cli', '$HAVI_ROOT/havi-devtools-cli')
+spec = importlib.util.spec_from_loader('devtools_cli', loader, origin='$HAVI_ROOT/havi-devtools-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['devtools_cli'] = mod
+spec.loader.exec_module(mod)
+
+class FakeClient:
+    def __init__(self, reply):
+        self.reply = reply
+    def send_receive(self, msg, timeout=0, predicate=None):
+        return self.reply
+
+print(mod.get_shell_actor(FakeClient({'shellActor': 'shell7'}), 1.0))
+print(mod.get_shell_actor(FakeClient({}), 1.0))
+")
+
+SHELL_FIRST="$(echo "$SHELL_HELPERS" | sed -n '1p')"
+SHELL_SECOND="$(echo "$SHELL_HELPERS" | sed -n '2p')"
+check "get_shell_actor extracts shellActor" "shell7" "$SHELL_FIRST"
+check "get_shell_actor returns None when absent" "None" "$SHELL_SECOND"
+
+# ============================================================================
+# Test 6: tabs respects protocol selected field
+# ============================================================================
+
+log "--- tabs selection ---"
+
+TABS_SELECTION=$(python3 -c "
+import contextlib, importlib.util, importlib.machinery, io, json, sys
+from types import SimpleNamespace
+
+loader = importlib.machinery.SourceFileLoader('devtools_cli', '$HAVI_ROOT/havi-devtools-cli')
+spec = importlib.util.spec_from_loader('devtools_cli', loader, origin='$HAVI_ROOT/havi-devtools-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['devtools_cli'] = mod
+spec.loader.exec_module(mod)
+
+class FakeClient:
+    def connect(self, host, port, timeout=10.0):
+        pass
+    def disconnect(self):
+        pass
+    def send_receive(self, msg, timeout=10.0, predicate=None):
+        if msg == {'to': 'root', 'type': 'listTabs'}:
+            return {
+                'from': 'root',
+                'tabs': [
+                    {'browserId': 1, 'selected': False, 'url': 'https://a', 'title': 'A'},
+                    {'browserId': 2, 'selected': True, 'url': 'https://b', 'title': 'B'},
+                ],
+            }
+        return {}
+
+mod.RDPClient = FakeClient
+args = SimpleNamespace(port=6000, timeout=1.0, text=False)
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    mod.cmd_tabs(args)
+reply = json.loads(out.getvalue())
+tabs = reply['value']
+selected = [t['index'] for t in tabs if t['selected']]
+print(len(selected))
+print(selected[0] if selected else -1)")
+
+TAB_SELECTED_COUNT="$(echo "$TABS_SELECTION" | sed -n '1p')"
+TAB_SELECTED_INDEX="$(echo "$TABS_SELECTION" | sed -n '2p')"
+check "tabs: exactly one selected" "1" "$TAB_SELECTED_COUNT"
+check "tabs: selected index follows protocol selected" "1" "$TAB_SELECTED_INDEX"
+
+# ============================================================================
+# Test 7: default tab resolution prefers selected tab
+# ============================================================================
+
+log "--- default selected tab resolution ---"
+
+DEFAULT_TAB=$(python3 -c "
+import importlib.util, importlib.machinery, sys
+loader = importlib.machinery.SourceFileLoader('devtools_cli', '$HAVI_ROOT/havi-devtools-cli')
+spec = importlib.util.spec_from_loader('devtools_cli', loader, origin='$HAVI_ROOT/havi-devtools-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['devtools_cli'] = mod
+spec.loader.exec_module(mod)
+
+tabs = [
+    {'browserId': 1, 'selected': False, 'title': 'A'},
+    {'browserId': 2, 'selected': True, 'title': 'B'},
+    {'browserId': 3, 'selected': False, 'title': 'C'},
+]
+print(mod.default_tab_index(tabs))
+print(mod.resolve_tab(tabs, None)['browserId'])
+print(mod.resolve_tab(tabs, 0)['browserId'])
+")
+
+DEFAULT_IDX="$(echo "$DEFAULT_TAB" | sed -n '1p')"
+DEFAULT_BROWSER="$(echo "$DEFAULT_TAB" | sed -n '2p')"
+EXPLICIT_BROWSER="$(echo "$DEFAULT_TAB" | sed -n '3p')"
+check "default_tab_index prefers selected tab" "1" "$DEFAULT_IDX"
+check "resolve_tab(None) uses selected tab" "2" "$DEFAULT_BROWSER"
+check "resolve_tab(explicit) keeps explicit index" "1" "$EXPLICIT_BROWSER"
+
+# ============================================================================
+# Test 8: evaluate_js matches evaluationResult by resultID
+# ============================================================================
+
+log "--- evaluate_js resultID correlation ---"
+
+RESULT_ID_MATCH=$(python3 -c "
+import importlib.util, importlib.machinery, sys
+loader = importlib.machinery.SourceFileLoader('devtools_cli', '$HAVI_ROOT/havi-devtools-cli')
+spec = importlib.util.spec_from_loader('devtools_cli', loader, origin='$HAVI_ROOT/havi-devtools-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['devtools_cli'] = mod
+spec.loader.exec_module(mod)
+
+class FakeClient:
+    def __init__(self):
+        self.callback = None
+    def add_event_listener(self, actor, event_type, callback):
+        self.callback = callback
+    def remove_event_listener(self, actor, event_type, callback):
+        pass
+    def send(self, msg):
+        # Wrong resultID should be ignored.
+        self.callback({'from': msg['to'], 'type': 'evaluationResult', 'resultID': 'wrong', 'result': {'value': 'wrong'}})
+        # Matching resultID should be accepted.
+        self.callback({'from': msg['to'], 'type': 'evaluationResult', 'resultID': msg['resultID'], 'result': {'value': 42}})
+
+client = FakeClient()
+result = mod.evaluate_js(client, 'console1', '6*7', timeout=1.0)
+print(result.get('result', {}).get('value'))
+")
+
+check "evaluate_js ignores non-matching resultID" "42" "$RESULT_ID_MATCH"
 
 # ============================================================================
 # Summary

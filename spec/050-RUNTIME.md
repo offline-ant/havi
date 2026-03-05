@@ -31,6 +31,9 @@ HAVI local state is stored in:
 
 `<config-dir>/havi.sqlite`
 
+`hppr-join` fixture state (`none|pending|approved`) is process-local runtime
+state and is not persisted. It resets when HAVI restarts.
+
 Environment variables:
 
 - `HAVI_HOME` — remote hpprd endpoint. When set, pylon runs in remote mode.
@@ -173,4 +176,55 @@ Timeout (5 second deadline):
 
 ```json
 {"from": "watch", "error": "watch timeout"}
+```
+
+## DevTools Shell Actor
+
+The shell actor exposes HAVI chrome-level controls via DevTools.
+
+Actor name: `shell`.
+
+### setUrl
+
+Request:
+
+```json
+{"to": "shell", "type": "setUrl", "url": "hppr://u/web/index.html"}
+```
+
+Optional `browserId` field targets a specific tab. When omitted, targets the
+active tab.
+
+Response:
+
+```json
+{"from": "shell", "ok": true, "url": "hppr://u/web/index.html"}
+```
+
+### activateTab
+
+Request:
+
+```json
+{"to": "shell", "type": "activateTab", "browserId": 1}
+```
+
+Response:
+
+```json
+{"from": "shell", "ok": true}
+```
+
+### Errors
+
+Unknown browser id:
+
+```json
+{"from": "shell", "error": "unknown browserId"}
+```
+
+Timeout (5 second deadline):
+
+```json
+{"from": "shell", "error": "shell timeout"}
 ```

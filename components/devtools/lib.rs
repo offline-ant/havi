@@ -50,6 +50,7 @@ use crate::actors::network_event::NetworkEventActor;
 use crate::actors::pause::PauseActor;
 use crate::actors::root::RootActor;
 use crate::actors::screenshot::ScreenshotActor;
+use crate::actors::shell::ShellActor;
 use crate::actors::source::SourceActor;
 use crate::actors::watch::WatchActor;
 use crate::actors::thread::{ThreadActor, ThreadInterruptedReply};
@@ -81,6 +82,7 @@ mod actors {
     pub mod reflow;
     pub mod root;
     pub mod screenshot;
+    pub mod shell;
     pub mod source;
     pub mod watch;
     pub mod stylesheets;
@@ -240,11 +242,21 @@ impl DevtoolsInstance {
         );
         registry.register(watch_actor);
 
+        let shell_name = registry.new_name::<ShellActor>();
+        let shell_actor = ShellActor::new(
+            shell_name.clone(),
+            embedder.clone(),
+            active_webview.clone(),
+            webviews_by_browser_id.clone(),
+        );
+        registry.register(shell_actor);
+
         // Store global actor names on the root actor
         {
             let root = registry.find::<RootActor>("root");
             root.global_actors.borrow_mut().screenshot_actor = screenshot_name;
             root.global_actors.borrow_mut().watch_actor = watch_name;
+            root.global_actors.borrow_mut().shell_actor = shell_name;
         }
 
         let instance = Self {

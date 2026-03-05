@@ -13,15 +13,15 @@ use servo::protocol_handler::{
 };
 
 pub struct HaviHandler {
-    _client: Arc<HpprdClientAsync>,
-    _credential_store: CredentialStoreHandle,
+    client: Arc<HpprdClientAsync>,
+    credential_store: CredentialStoreHandle,
 }
 
 impl HaviHandler {
     pub fn new(client: Arc<HpprdClientAsync>, credential_store: CredentialStoreHandle) -> Self {
         Self {
-            _client: client,
-            _credential_store: credential_store,
+            client,
+            credential_store,
         }
     }
 }
@@ -36,9 +36,11 @@ impl ProtocolHandler for HaviHandler {
         let url = request.current_url();
         let timing_type = request.timing_type();
         let url_str = url.as_str().to_string();
+        let client = self.client.clone();
+        let creds = self.credential_store.clone();
 
         Box::pin(async move {
-            let page = havi_protocols::pages::havi::handle_request(&url_str).await;
+            let page = havi_protocols::pages::havi::handle_request(&url_str, &client, &creds).await;
             super::page_response_to_servo(page, url, ResourceFetchTiming::new(timing_type))
         })
     }

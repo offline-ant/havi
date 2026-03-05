@@ -18,7 +18,7 @@ if (input) {
                 value = 'hppr://' + value;
             }
 
-            window.location.href = value;
+            window.address.href = value;
         }
     });
 }

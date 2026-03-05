@@ -10,6 +10,7 @@
 
 pub mod file;
 pub mod havi;
+pub mod havi_diagnostics;
 pub mod hppr;
 pub mod hppr_browse;
 pub mod hppr_editor;

@@ -74,6 +74,26 @@ Headers:
 Route keys are secrets. Access is restricted to ring0 and site Ring1 accounts
 with explicit ACL grants.
 
+### Bootstrap index fallback
+
+If no local route packet exists for `//<group>/<app>/`, HAVI may resolve one
+from the public bootstrap index.
+
+Lookup target:
+
+`//u/index/<group>/<app>`
+
+Rules:
+
+- groups starting with `.` are local/private and skip bootstrap lookup
+- bootstrap lookup responses must be Seals signed by the configured bootstrap
+  verification key
+- on success, HAVI uses the returned `Upstream` and
+  `Upstream-Verification-Key` values and attempts to store a local route packet
+
+If lookup is skipped, missing, or invalid, HAVI falls back to the home repo
+endpoint.
+
 ### Setup flow
 
 For a new direct endpoint, HAVI:

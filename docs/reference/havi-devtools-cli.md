@@ -21,13 +21,18 @@ Default target: `localhost:${HAVI_DEVTOOLS:-6000}`.
 ## Commands
 
 - `tabs`
-  - List open tabs (`index`, `url`, `title`).
+  - List open tabs (`index`, `browserId`, `selected`, `url`, `title`).
 - `eval [js] [--await]`
-  - Evaluate JavaScript in the first tab.
+  - Evaluate JavaScript in the selected tab (or `--tab <index>`).
   - Reads JS from stdin when `js` is omitted.
   - `--await` waits for Promise resolution.
 - `navigate <url>`
-  - Set `window.address.href` and wait for load completion.
+  - Navigate tab and wait for load completion.
+  - Uses HAVI shell control actor when available.
+- `set-url <url>`
+  - Navigate tab through HAVI shell control actor.
+- `select-tab <index>`
+  - Activate a tab in HAVI shell by tab index.
 - `wait-for <expr> [--interval MS]`
   - Poll expression until truthy.
 - `events`
@@ -53,5 +58,7 @@ havi-devtools-cli -p 6000 eval 'document.title'
 havi-devtools-cli -p 6000 eval --await \
   'window.home.get("//u/demo/msg.txt").then(p => p.text())'
 havi-devtools-cli -p 6000 navigate 'hppr://u/showcase/index.html'
+havi-devtools-cli -p 6000 set-url 'hppr://sol/chat/'
+havi-devtools-cli -p 6000 select-tab 1
 havi-devtools-cli -p 6000 screenshot /tmp/havi.png
 ```

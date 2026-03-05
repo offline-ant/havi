@@ -48,6 +48,17 @@ pub enum MakepadServoAction {
         mode: String,
         response_sender: Sender<String>,
     },
+    /// DevTools shell request: navigate a specific WebView to URL.
+    DevtoolsSetUrl {
+        webview_id: WebViewId,
+        url: String,
+        response_sender: Sender<Result<String, String>>,
+    },
+    /// DevTools shell request: activate/switch current tab by WebView.
+    DevtoolsActivateWebView {
+        webview_id: WebViewId,
+        response_sender: Sender<Result<(), String>>,
+    },
     /// Servo requests showing a context menu for a webview.
     ContextMenuShow {
         webview_id: WebViewId,
@@ -108,6 +119,17 @@ impl std::fmt::Debug for MakepadServoAction {
                 .debug_struct("WatchSetMode")
                 .field("webview_id", webview_id)
                 .field("mode", mode)
+                .finish(),
+            Self::DevtoolsSetUrl {
+                webview_id, url, ..
+            } => f
+                .debug_struct("DevtoolsSetUrl")
+                .field("webview_id", webview_id)
+                .field("url", url)
+                .finish(),
+            Self::DevtoolsActivateWebView { webview_id, .. } => f
+                .debug_struct("DevtoolsActivateWebView")
+                .field("webview_id", webview_id)
                 .finish(),
             Self::ContextMenuShow { webview_id, .. } => f
                 .debug_struct("ContextMenuShow")
@@ -269,6 +291,32 @@ impl servo::ServoDelegate for HaviServoDelegate {
         Cx::post_action(MakepadServoAction::WatchSetMode {
             webview_id,
             mode,
+            response_sender,
+        });
+        SignalToUI::set_ui_signal();
+    }
+
+    fn devtools_set_url(
+        &self,
+        webview_id: WebViewId,
+        url: String,
+        response_sender: crossbeam_channel::Sender<Result<String, String>>,
+    ) {
+        Cx::post_action(MakepadServoAction::DevtoolsSetUrl {
+            webview_id,
+            url,
+            response_sender,
+        });
+        SignalToUI::set_ui_signal();
+    }
+
+    fn devtools_activate_webview(
+        &self,
+        webview_id: WebViewId,
+        response_sender: crossbeam_channel::Sender<Result<(), String>>,
+    ) {
+        Cx::post_action(MakepadServoAction::DevtoolsActivateWebView {
+            webview_id,
             response_sender,
         });
         SignalToUI::set_ui_signal();

@@ -23,8 +23,8 @@ else
 fi
 
 # Build hppr and hpprd (quiet, only rebuilds if needed)
-cargo build -q --manifest-path "$HPPR_ROOT/cli/Cargo.toml" --bin hppr
-cargo build -q --manifest-path "$HPPR_ROOT/hpprd/Cargo.toml" --bin hpprd
+cargo build -q --manifest-path "$HPPR_ROOT/rust/tools/cli/Cargo.toml" --bin hppr
+cargo build -q --manifest-path "$HPPR_ROOT/rust/services/hpprd/Cargo.toml" --bin hpprd
 
 # hppr binaries from cargo build, shell tools from hppr/bin/
 export PATH="$HPPR_ROOT/target/debug:$HPPR_ROOT/bin:$PATH"

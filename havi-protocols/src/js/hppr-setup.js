@@ -132,7 +132,7 @@ async function accept() {
         }
 
         const appPart = APP ? '/' + APP : '';
-        window.location.href = 'hppr://' + GROUP + appPart + '/';
+        window.address.href = 'hppr://' + GROUP + appPart + '/';
     } catch (e) {
         showError('Failed to save route: ' + (e instanceof Error ? e.message : String(e)));
         if (btn) {
@@ -146,7 +146,7 @@ function cancel() {
     if (history.length > 1) {
         history.back();
     } else {
-        window.location.href = 'havi:///overview';
+        window.address.href = 'havi:///overview';
     }
 }
 

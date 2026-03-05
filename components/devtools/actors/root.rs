@@ -53,6 +53,7 @@ pub(crate) struct GlobalActors {
     preference_actor: String,
     pub(crate) screenshot_actor: String,
     pub(crate) watch_actor: String,
+    pub(crate) shell_actor: String,
 }
 
 #[derive(Serialize)]
@@ -217,22 +218,41 @@ impl Actor for RootActor {
             },
 
             "listTabs" => {
+                let mut tabs: Vec<TabDescriptorActorMsg> = self
+                    .tabs
+                    .borrow()
+                    .iter()
+                    .filter_map(|target| {
+                        let tab_actor = registry.find::<TabDescriptorActor>(target);
+                        // Filter out iframes and workers
+                        if tab_actor.is_top_level_global() {
+                            Some(tab_actor.encode(registry))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let selected_actor = {
+                    let active = self.active_tab.borrow().clone();
+                    if let Some(active_actor) = active.filter(|name| tabs.iter().any(|tab| tab.actor() == *name)) {
+                        active_actor
+                    } else if let Some(first_tab) = tabs.first() {
+                        let actor = first_tab.actor();
+                        *self.active_tab.borrow_mut() = Some(actor.clone());
+                        actor
+                    } else {
+                        String::new()
+                    }
+                };
+
+                for tab in &mut tabs {
+                    tab.selected = !selected_actor.is_empty() && tab.actor() == selected_actor;
+                }
+
                 let actor = ListTabsReply {
                     from: "root".to_owned(),
-                    tabs: self
-                        .tabs
-                        .borrow()
-                        .iter()
-                        .filter_map(|target| {
-                            let tab_actor = registry.find::<TabDescriptorActor>(target);
-                            // Filter out iframes and workers
-                            if tab_actor.is_top_level_global() {
-                                Some(tab_actor.encode(registry))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
+                    tabs,
                 };
                 request.reply_final(&actor)?
             },
@@ -296,6 +316,7 @@ impl RootActor {
                 preference_actor: preference.name(),
                 screenshot_actor: String::new(),
                 watch_actor: String::new(),
+                shell_actor: String::new(),
             }),
             process: process.name(),
             ..Default::default()
@@ -325,6 +346,28 @@ impl RootActor {
             *self.active_tab.borrow_mut() = Some(msg.actor());
         }
         tab_msg
+    }
+
+    pub(crate) fn set_active_tab_by_browser_id(&self, registry: &ActorRegistry, browser_id: u32) -> bool {
+        let tab_name = self
+            .tabs
+            .borrow()
+            .iter()
+            .filter_map(|target| {
+                let tab_actor = registry.find::<TabDescriptorActor>(target);
+                tab_actor
+                    .is_top_level_global()
+                    .then(|| registry.encode::<TabDescriptorActor, _>(target))
+            })
+            .find(|tab| tab.browser_id() == browser_id)
+            .map(|tab| tab.actor());
+
+        if let Some(name) = tab_name {
+            *self.active_tab.borrow_mut() = Some(name);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn active_tab(&self) -> Option<String> {

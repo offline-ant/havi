@@ -156,7 +156,7 @@ impl MallocSizeOf for HpprUrlData {
 pub enum BrowserUrl {
     /// Standard web URL (http, https, about, data, file, etc.).
     Web(#[allow(unused)] Arc<Url>),
-    /// HPPR-family URL (hppr, hppr-sandbox, hppr-setup, hppr-browse, hppr-editor, havi).
+    /// HPPR-family URL (hppr, hppr-sandbox, hppr-setup, hppr-browse, hppr-editor, hppr-join, havi).
     Hppr(Arc<HpprUrlData>),
 }
 
@@ -1232,6 +1232,14 @@ mod tests {
         let url = BrowserUrl::parse("hppr-editor://g/a/loc").unwrap();
         assert!(matches!(url, BrowserUrl::Hppr(_)));
         assert_eq!(url.scheme(), "hppr-editor");
+    }
+
+    #[test]
+    fn hppr_join_scheme() {
+        let url = BrowserUrl::parse("hppr-join://sol/chat/").unwrap();
+        assert!(matches!(url, BrowserUrl::Hppr(_)));
+        assert_eq!(url.scheme(), "hppr-join");
+        assert_eq!(url.as_str(), "hppr-join://sol/chat/");
     }
 
     #[test]
