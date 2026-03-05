@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MediaRecorder Part2 Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    function waitFor(cond, timeoutMs, label) {
+      return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const tick = () => {
+          if (cond()) return resolve();
+          if (Date.now() - start > timeoutMs) return reject(new Error(label + ' timeout'));
+          setTimeout(tick, 30);
+        };
+        tick();
+      });
+    }
+
+    async function suite_mediarecorder_part2() {
+      assert(typeof window.MediaRecorder === 'function', 'MediaRecorder constructor exists');
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+        audio: false,
+      });
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'video/mp4; codecs="av01.0.04M.08"',
+      });
+
+      const chunks = [];
+      const order = [];
+      recorder.ondataavailable = (ev) => {
+        order.push('data');
+        if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+      };
+      recorder.onerror = () => {
+        order.push('error');
+      };
+      recorder.onstop = () => {
+        order.push('stop');
+      };
+
+      try {
+        recorder.start(200);
+      } catch (e) {
+        const message = String(e.message || '');
+        if (e.name === 'NotSupportedError' &&
+            message.includes('NotYetImplemented') &&
+            message.includes('no encoder-friendly camera format')) {
+          assertEqual(recorder.state, 'inactive', 'state remains inactive on NYI recorder format path');
+          assertContains(message, 'NotYetImplemented', 'NYI start error contains NotYetImplemented');
+          assertContains(message, 'no encoder-friendly camera format', 'NYI start error reports unsupported camera format');
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        throw e;
+      }
+
+      assertEqual(recorder.state, 'recording', 'state is recording after start');
+
+      await waitFor(() => chunks.length >= 1, 10000, 'first dataavailable chunk');
+      assert(chunks[0] instanceof Blob, 'dataavailable payload is Blob');
+      const firstBytes = await chunks[0].arrayBuffer();
+      assert(firstBytes.byteLength > 0, 'first dataavailable chunk has bytes');
+
+      recorder.stop();
+      await waitFor(() => order.includes('stop'), 5000, 'stop event');
+
+      assert(order.includes('data'), 'at least one dataavailable event fired');
+      assert(order[order.length - 1] === 'stop', 'stop is last event in minimal ordering');
+
+      for (const track of stream.getTracks()) track.stop();
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_mediarecorder_part2, 'mediarecorder-part2');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

@@ -108,6 +108,11 @@ impl MediaDevicesMethods<crate::DomTypeHolder> for MediaDevices {
                         &global,
                         info.stream_id,
                         info.image_key,
+                        info.input_id,
+                        info.format_id,
+                        info.width,
+                        info.height,
+                        info.frame_rate,
                         String::new(),
                         can_gc,
                     );

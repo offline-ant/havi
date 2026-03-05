@@ -521,8 +521,19 @@ pub struct CameraStreamInfo {
     pub stream_id: CameraStreamId,
     /// Raw (namespace, index) image key registered in VideoTextureMap.
     pub image_key: (u32, u32),
+    /// Backend input/format ids used to configure the camera capture source.
+    pub input_id: u64,
+    pub format_id: u64,
     pub width: u32,
     pub height: u32,
+    pub frame_rate: f64,
+}
+
+/// MediaRecorder camera chunk from embedder.
+#[derive(Clone, Debug)]
+pub enum CameraRecordingEvent {
+    Chunk(Vec<u8>),
+    Error(String),
 }
 
 /// Requests from script to the embedder for camera access.
@@ -537,6 +548,19 @@ pub enum CameraRequest {
         height: u32,
         frame_rate: f64,
         response: Sender<Result<CameraStreamInfo, String>>,
+    },
+    /// Start AV1/MP4 recorder output for an active camera stream.
+    StartRecording {
+        stream_id: CameraStreamId,
+        mime_type: String,
+        timeslice_ms: u32,
+        event_sender: Sender<CameraRecordingEvent>,
+        response: Sender<Result<(), String>>,
+    },
+    /// Stop recorder output and return a final muxed chunk when available.
+    StopRecording {
+        stream_id: CameraStreamId,
+        response: Sender<Result<Option<Vec<u8>>, String>>,
     },
     /// Close an active camera stream.
     Close(CameraStreamId),

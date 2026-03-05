@@ -45,18 +45,11 @@
       assertEqual(recorder.mimeType, 'video/mp4; codecs="av01.0.04M.08"', 'mimeType stored from constructor options');
       assert(recorder.stream === stream, 'stream attribute returns constructor stream');
 
-      let startCount = 0;
-      let stopCount = 0;
-      recorder.onstart = () => { startCount += 1; };
-      recorder.onstop = () => { stopCount += 1; };
-
-      recorder.start(200);
-      assertEqual(recorder.state, 'recording', 'start transitions to recording');
-      assertEqual(startCount, 1, 'start event dispatched');
-
-      recorder.stop();
-      assertEqual(recorder.state, 'inactive', 'stop transitions to inactive');
-      assertEqual(stopCount, 1, 'stop event dispatched');
+      assertThrowsNotYetImplemented(
+        'start requires one live camera video track',
+        () => recorder.start(200),
+        'NotSupportedError'
+      );
 
       assertThrowsNotYetImplemented(
         'pause while inactive',
@@ -73,25 +66,6 @@
         () => recorder.requestData(),
         'InvalidStateError'
       );
-
-      const recorder2 = new MediaRecorder(stream, { mimeType: 'video/mp4; codecs="av01.0.04M.08"' });
-      recorder2.start();
-      assertThrowsNotYetImplemented(
-        'pause while recording',
-        () => recorder2.pause(),
-        'NotSupportedError'
-      );
-      assertThrowsNotYetImplemented(
-        'resume while recording',
-        () => recorder2.resume(),
-        'NotSupportedError'
-      );
-      assertThrowsNotYetImplemented(
-        'requestData while recording',
-        () => recorder2.requestData(),
-        'NotSupportedError'
-      );
-      recorder2.stop();
 
       assertThrowsNotYetImplemented(
         'constructor rejects unsupported mimeType',

@@ -7,9 +7,9 @@ HAVI now ships:
 - `getUserMedia()` camera acquisition
 - `video.srcObject` local preview
 - `StreamIn` / `StreamOut` incremental byte transport
-- `MediaRecorder` part-1 DOM surface (state + lifecycle scaffolding)
+- `MediaRecorder` part-2 camera chunk path
 
-## MediaRecorder part-1 scope
+## MediaRecorder part-2 scope
 
 Implemented:
 
@@ -17,12 +17,19 @@ Implemented:
 - `MediaRecorder.isTypeSupported()` via HAVI media policy
 - `state`, `mimeType`, `stream`
 - `onstart`, `onstop`, `ondataavailable`, `onerror`
-- `start()` / `stop()` state transitions and event dispatch scaffolding
+- `start(timeslice)` camera-backed periodic chunk emission
+- `stop()` final chunk (when available) then stop event
+
+Current supported path:
+
+- one live camera video track
+- AV1-in-MP4 mime policy
 
 Pending:
 
-- encoder-backed chunk emission (`dataavailable` payload path)
-- `pause()` / `resume()` / `requestData()` execution path
+- audio-only recorder
+- mixed audio/video recorder
+- pause/resume/requestData explicit control path
 
 Pending paths throw NotSupportedError / InvalidStateError with
 `NotYetImplemented` in the message.
@@ -30,8 +37,3 @@ Pending paths throw NotSupportedError / InvalidStateError with
 ## Still not exposed
 
 - `MediaSource` / `SourceBuffer`
-
-## Next vertical slice
-
-- Real recorder chunk production
-- Real MSE append playback path

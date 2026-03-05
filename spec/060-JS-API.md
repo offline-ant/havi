@@ -249,7 +249,7 @@ Byte delivery is incremental and order-preserving for the received stream.
 
 ## MediaRecorder and MediaSource status
 
-`MediaRecorder` is exposed in HAVI with a strict part-1 surface.
+`MediaRecorder` is exposed in HAVI with a strict part-2 camera path.
 
 Available API surface:
 
@@ -259,15 +259,23 @@ Available API surface:
 - event handlers: `onstart`, `onstop`, `ondataavailable`, `onerror`
 - methods: `start(timeslice?)`, `stop()`, `pause()`, `resume()`, `requestData()`
 
-Part-1 behavior:
+Part-2 behavior:
 
 - constructor validates options and stores recorder state
 - `isTypeSupported()` follows HAVI media policy checks
-- `start()` / `stop()` perform state transitions and fire `start` / `stop` events
-- encoder data production is not implemented yet
+- `start(timeslice)` starts camera-backed AV1 encode and emits periodic
+  `dataavailable` chunks (`Blob` payload in `event.data`)
+- `stop()` emits a final chunk when available, then `stop`
+
+Current supported execution path:
+
+- exactly one live camera video track
+- AV1-in-MP4 media policy mime (`video/mp4` + AV1 codecs)
 
 Not-yet-implemented execution paths throw DOMException with messages containing
-`NotYetImplemented` (NotSupportedError or InvalidStateError).
+`NotYetImplemented` (NotSupportedError or InvalidStateError), including
+audio-only streams, mixed audio/video streams, and explicit
+pause/resume/requestData control paths.
 
 `MediaSource` remains not exposed in this part.
 

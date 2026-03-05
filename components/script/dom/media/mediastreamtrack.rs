@@ -31,6 +31,12 @@ pub(crate) enum TrackSource {
         stream_id: CameraStreamId,
         /// Raw (namespace, index) image key registered in VideoTextureMap.
         image_key: (u32, u32),
+        /// Backend camera source ids and format metadata used by MediaRecorder.
+        input_id: u64,
+        format_id: u64,
+        width: u32,
+        height: u32,
+        frame_rate: f64,
     },
     // Future variants:
     // ScreenCapture { stream_id: ..., image_key: (u32, u32) },
@@ -101,6 +107,11 @@ impl MediaStreamTrack {
         global: &GlobalScope,
         stream_id: CameraStreamId,
         image_key: (u32, u32),
+        input_id: u64,
+        format_id: u64,
+        width: u32,
+        height: u32,
+        frame_rate: f64,
         label: String,
         can_gc: CanGc,
     ) -> DomRoot<MediaStreamTrack> {
@@ -108,7 +119,15 @@ impl MediaStreamTrack {
             MediaStreamId::new(),
             MediaStreamType::Video,
         );
-        track.source = TrackSource::Camera { stream_id, image_key };
+        track.source = TrackSource::Camera {
+            stream_id,
+            image_key,
+            input_id,
+            format_id,
+            width,
+            height,
+            frame_rate,
+        };
         track.label = label;
         reflect_dom_object(Box::new(track), global, can_gc)
     }

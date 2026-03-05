@@ -75,6 +75,12 @@ pub trait ServoDelegate {
             CameraRequest::Open { response, .. } => {
                 let _ = response.send(Err("Camera not supported".to_string()));
             },
+            CameraRequest::StartRecording { response, .. } => {
+                let _ = response.send(Err("NotYetImplemented: camera recorder not supported".to_string()));
+            },
+            CameraRequest::StopRecording { response, .. } => {
+                let _ = response.send(Err("NotYetImplemented: camera recorder not supported".to_string()));
+            },
             CameraRequest::Close(_) => {},
         }
     }

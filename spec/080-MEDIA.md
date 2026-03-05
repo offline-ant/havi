@@ -48,19 +48,22 @@ with `MEDIA_ERR_SRC_NOT_SUPPORTED` or `MEDIA_ERR_DECODE`.
 
 ## Recorder/MSE status
 
-`MediaRecorder` is exposed with a strict part-1 surface.
+`MediaRecorder` is exposed with a strict part-2 camera path.
 
-Implemented in part 1:
+Implemented in part 2:
 
 - constructor + option validation
 - `MediaRecorder.isTypeSupported()` wired to HAVI media policy checks
 - `state`/`mimeType`/`stream` attributes
-- `start()` / `stop()` state transitions with `start` / `stop` event dispatch
+- camera-backed `start(timeslice)` periodic chunk generation
+- `dataavailable` events carrying Blob chunks (`event.data`)
+- `stop()` final-chunk + `stop` ordering
 
-Not implemented in part 1:
+Not implemented in part 2:
 
-- encoder-backed chunk production (`dataavailable` payload path)
-- pause/resume/requestData execution path
+- audio-only recorder path
+- mixed audio/video recorder path
+- pause/resume/requestData control path
 
 Not-yet-implemented paths throw NotSupportedError or InvalidStateError with
 `NotYetImplemented` in the error message.
