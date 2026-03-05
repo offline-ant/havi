@@ -26,10 +26,18 @@ fi
 cargo build -q --manifest-path "$HPPR_ROOT/rust/tools/cli/Cargo.toml" --bin hppr
 cargo build -q --manifest-path "$HPPR_ROOT/rust/services/hpprd/Cargo.toml" --bin hpprd
 
+HOST_OS="$(uname -s)"
+if [[ "$HOST_OS" == "Linux" ]]; then
+    cargo build -q --manifest-path "$HPPR_ROOT/rust/services/fuse/Cargo.toml" --bin hppr-fuse
+else
+    cargo build -q --manifest-path "$HPPR_ROOT/rust/services/nfs/Cargo.toml" --bin hppr-nfs
+fi
+
 # hppr binaries from cargo build, shell tools from hppr/bin/
 export PATH="$HPPR_ROOT/target/debug:$HPPR_ROOT/bin:$PATH"
 HPPR="$HPPR_ROOT/target/debug/hppr"
-HPPR_FS="$HPPR_ROOT/target/debug/hppr-nfs"
+HPPR_FUSE="$HPPR_ROOT/target/debug/hppr-fuse"
+HPPR_NFS="$HPPR_ROOT/target/debug/hppr-nfs"
 
 echo "--- CLI versions ---"
 "$HAVI_ROOT/target/debug/havi" --version || true
@@ -210,25 +218,56 @@ setup_remote_acl() {
         $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
 }
 
-# Start hppr-nfs, mount, and export FS_MNT / FS_PID / FS_PORT.
+# Start filesystem mount and export FS_MNT / FS_PID / FS_PORT / FS_BACKEND.
+# Linux uses hppr-fuse directly. macOS/Windows use hppr-nfs.
 # Call fs_unmount to clean up.
 # Usage: fs_mount <home> <signer> <root> [--seal-with <key>]
 fs_mount() {
     local home="$1" signer="$2" root="$3"
     shift 3
 
-    FS_PORT=$(_pick_port)
     FS_MNT=$(mktemp -d)
 
-    local -a fs_args=(
+    if [[ "$HOST_OS" == "Linux" ]]; then
+        FS_BACKEND="fuse"
+
+        local -a fuse_args=(
+            --home "$home" --signer "$signer"
+            --root "$root" --mount "$FS_MNT"
+        )
+        if [[ $# -gt 0 && "$1" == "--seal-with" ]]; then
+            fuse_args+=(--rw --seal-with "$2")
+        fi
+
+        "$HPPR_FUSE" "${fuse_args[@]}" &
+        FS_PID=$!
+
+        local i=0
+        while ! mountpoint -q "$FS_MNT" 2>/dev/null; do
+            sleep 0.1
+            ((i++))
+            if ((i > 50)); then
+                kill "$FS_PID" 2>/dev/null || true
+                rm -rf "$FS_MNT"
+                echo "ERROR: hppr-fuse did not mount $FS_MNT" >&2
+                return 1
+            fi
+        done
+        return 0
+    fi
+
+    FS_BACKEND="nfs"
+    FS_PORT=$(_pick_port)
+
+    local -a nfs_args=(
         --home "$home" --signer "$signer"
         --root "$root" --bind "127.0.0.1:$FS_PORT"
     )
     if [[ $# -gt 0 && "$1" == "--seal-with" ]]; then
-        fs_args+=(--rw --seal-with "$2")
+        nfs_args+=(--rw --seal-with "$2")
     fi
 
-    "$HPPR_FS" "${fs_args[@]}" &
+    "$HPPR_NFS" "${nfs_args[@]}" &
     FS_PID=$!
 
     local i=0
@@ -247,9 +286,14 @@ fs_mount() {
         "127.0.0.1:/" "$FS_MNT"
 }
 
-# Unmount and stop hppr-nfs started by fs_mount.
+# Unmount and stop filesystem service started by fs_mount.
 fs_unmount() {
-    sudo umount "$FS_MNT" 2>/dev/null || true
+    if [[ "${FS_BACKEND:-}" == "fuse" ]]; then
+        fusermount3 -u "$FS_MNT" 2>/dev/null || umount "$FS_MNT" 2>/dev/null || true
+    else
+        sudo umount "$FS_MNT" 2>/dev/null || true
+    fi
+
     kill "$FS_PID" 2>/dev/null || true
     wait "$FS_PID" 2>/dev/null || true
     rm -rf "$FS_MNT"
@@ -260,7 +304,7 @@ _pick_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
 }
 
-# Import content directory as sealed packets via hppr-nfs mount + cp.
+# Import content directory as sealed packets via filesystem mount + cp.
 import_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "$HPPR_HOME" "!ring0/init" "//$group/$app" --seal-with oldest
@@ -268,7 +312,7 @@ import_content() {
     fs_unmount
 }
 
-# Import content to remote repo via hppr-nfs mount + cp.
+# Import content to remote repo via filesystem mount + cp.
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "!ring0/init" "//$group/$app" --seal-with oldest
