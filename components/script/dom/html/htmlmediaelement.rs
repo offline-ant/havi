@@ -20,7 +20,7 @@ use http::header::{self, HeaderMap, HeaderValue};
 use ipc_channel::ipc::{self};
 use js::realm::{AutoRealm, CurrentRealm};
 use layout_api::MediaFrame;
-use media::controller::{MediaController, MediaEvent, MediaSource, register_event_sender};
+use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
 use net_traits::request::{Destination, RequestId};
 use net_traits::{
     CoreResourceThread, FetchMetadata, FilteredMetadata, NetworkError, ResourceFetchTiming,
@@ -1817,9 +1817,9 @@ impl HTMLMediaElement {
             HTMLMediaElementTypeId::HTMLVideoElement
         );
         let source_kind = match &source {
-            MediaSource::InMemory(_) => "memory",
-            MediaSource::Network(_) => "network",
-            MediaSource::Filesystem(_) => "file",
+            MediaOrigin::InMemory(_) => "memory",
+            MediaOrigin::Network(_) => "network",
+            MediaOrigin::Filesystem(_) => "file",
         };
 
         info!(
@@ -1886,8 +1886,8 @@ impl HTMLMediaElement {
         Ok(())
     }
 
-    /// Resolve a media resource to a MediaSource.
-    fn resolve_media_source(&self, resource: &Resource) -> Result<MediaSource, ()> {
+    /// Resolve a media resource to a MediaOrigin.
+    fn resolve_media_source(&self, resource: &Resource) -> Result<MediaOrigin, ()> {
         match resource {
             Resource::Url(url) => {
                 let url_str = url.as_str();
@@ -1904,13 +1904,13 @@ impl HTMLMediaElement {
                         mime,
                         bytes.len()
                     );
-                    Ok(MediaSource::InMemory(std::sync::Arc::new(bytes)))
+                    Ok(MediaOrigin::InMemory(std::sync::Arc::new(bytes)))
                 } else if url_str.starts_with("file://") {
                     info!("media: resolved file source {}", &url_str[7..]);
-                    Ok(MediaSource::Filesystem(url_str[7..].to_string()))
+                    Ok(MediaOrigin::Filesystem(url_str[7..].to_string()))
                 } else {
                     info!("media: resolved network source {}", url_str);
-                    Ok(MediaSource::Network(url_str.to_string()))
+                    Ok(MediaOrigin::Network(url_str.to_string()))
                 }
             },
             Resource::Object => {
@@ -1919,7 +1919,7 @@ impl HTMLMediaElement {
                     SrcObject::Blob(blob) => {
                         let bytes = blob.get_bytes().map_err(|_| ())?;
                         info!("media: resolved blob source bytes={}", bytes.len());
-                        Ok(MediaSource::InMemory(std::sync::Arc::new(bytes)))
+                        Ok(MediaOrigin::InMemory(std::sync::Arc::new(bytes)))
                     },
                     SrcObject::MediaStream(_) => Err(()),
                 }
@@ -1985,6 +1985,12 @@ impl HTMLMediaElement {
             },
             MediaEvent::SeekableRanges(_) | MediaEvent::BufferedRanges(_) => {
                 // Ranges stored in controller.apply_event; layout queries use them.
+            },
+            MediaEvent::MseAppendDone { .. }
+            | MediaEvent::MseInitSegmentParsed { .. }
+            | MediaEvent::MseError(_) => {
+                // MSE events are handled by SourceBuffer, not HTMLMediaElement directly.
+                // State updates are applied via controller.apply_event().
             },
         }
     }

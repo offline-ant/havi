@@ -7,7 +7,7 @@ use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::*;
 use media::controller::{
-    self as media_controller, MediaEvent as ThreadMediaEvent, MediaSource as ThreadMediaSource,
+    self as media_controller, MediaEvent as ThreadMediaEvent, MediaOrigin as ThreadMediaOrigin,
     VideoOp,
 };
 use servo::protocol_handler::ProtocolRegistry;
@@ -750,7 +750,101 @@ impl App {
                     }
                     self.video_logged_first_frame.remove(&video_id);
                     self.video_texture_update_count.remove(&video_id);
+                    self.mse_players.remove(&video_id);
                     cx.cleanup_video_playback_resources(LiveId(video_id));
+                },
+
+                // --- MSE operations ---
+
+                VideoOp::PrepareMseVideo { video_id, mime, image_key } => {
+                    log!("[mse] prepare id={} mime={} key={:?}", video_id, mime, image_key);
+                    let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+                    havi_render::video_texture_map::set_external_texture(image_key, texture);
+                    self.video_image_keys.insert(video_id, image_key);
+
+                    match makepad_widgets::makepad_platform::media_plugin()
+                        .ok_or_else(|| "no media plugin".to_string())
+                        .and_then(|p| p.create_mse_player(&mime))
+                    {
+                        Ok(player) => {
+                            self.mse_players.insert(video_id, player);
+                        }
+                        Err(e) => {
+                            log!("[mse] error creating player: {}", e);
+                            media_controller::dispatch_media_event(
+                                video_id,
+                                ThreadMediaEvent::MseError(e),
+                            );
+                        }
+                    }
+                },
+                VideoOp::MseAppendData { video_id, data } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        match player.append_data(&data) {
+                            Ok(result) => {
+                                if result.init_segment_parsed {
+                                    log!(
+                                        "[mse] init parsed id={} {}x{} dur={}ms",
+                                        video_id, result.width, result.height, result.duration_ms
+                                    );
+                                    media_controller::dispatch_media_event(
+                                        video_id,
+                                        ThreadMediaEvent::MseInitSegmentParsed {
+                                            width: result.width,
+                                            height: result.height,
+                                            duration_ms: result.duration_ms,
+                                        },
+                                    );
+                                }
+                                // TODO: upload decoded YUV frames to GPU textures
+                                // once platform texture-from-data path is wired.
+                                let has_frames = !result.new_frames.is_empty();
+                                if has_frames {
+                                    log!("[mse] decoded {} frames for id={}", result.new_frames.len(), video_id);
+                                    self.needs_paint = true;
+                                    self.idle_frames = 0;
+                                    self.next_frame = cx.new_next_frame();
+                                    cx.redraw_all();
+                                }
+                                media_controller::dispatch_media_event(
+                                    video_id,
+                                    ThreadMediaEvent::MseAppendDone {
+                                        buffered_ranges: result.buffered_ranges,
+                                    },
+                                );
+                            }
+                            Err(e) => {
+                                log!("[mse] append error id={}: {}", video_id, e);
+                                media_controller::dispatch_media_event(
+                                    video_id,
+                                    ThreadMediaEvent::MseError(e),
+                                );
+                            }
+                        }
+                    }
+                },
+                VideoOp::MseEndOfStream { video_id } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        match player.end_of_stream() {
+                            Ok(_frames) => {
+                                media_controller::dispatch_media_event(
+                                    video_id,
+                                    ThreadMediaEvent::PlaybackCompleted,
+                                );
+                            }
+                            Err(e) => {
+                                media_controller::dispatch_media_event(
+                                    video_id,
+                                    ThreadMediaEvent::MseError(e),
+                                );
+                            }
+                        }
+                    }
+                },
+                VideoOp::MseRemove { video_id, start, end } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        player.remove(start, end);
+                    }
                 },
             }
         }
@@ -885,9 +979,9 @@ impl App {
     }
 }
 
-fn makepad_video_source(source: ThreadMediaSource) -> PlatformVideoSource {
+fn makepad_video_source(source: ThreadMediaOrigin) -> PlatformVideoSource {
     match source {
-        ThreadMediaSource::InMemory(data) => {
+        ThreadMediaOrigin::InMemory(data) => {
             // Fast path: avoid cloning the full in-memory payload when this Arc
             // has unique ownership at the hand-off boundary.
             let bytes = match std::sync::Arc::try_unwrap(data) {
@@ -896,8 +990,8 @@ fn makepad_video_source(source: ThreadMediaSource) -> PlatformVideoSource {
             };
             PlatformVideoSource::InMemory(Rc::new(bytes))
         },
-        ThreadMediaSource::Network(url) => PlatformVideoSource::Network(url),
-        ThreadMediaSource::Filesystem(path) => PlatformVideoSource::Filesystem(path),
+        ThreadMediaOrigin::Network(url) => PlatformVideoSource::Network(url),
+        ThreadMediaOrigin::Filesystem(path) => PlatformVideoSource::Filesystem(path),
     }
 }
 
@@ -1052,6 +1146,10 @@ pub struct App {
     /// Per-video number of VideoTextureUpdated events seen.
     #[rust]
     video_texture_update_count: HashMap<u64, u64>,
+
+    /// MSE players keyed by video_id.
+    #[rust]
+    mse_players: HashMap<u64, Box<dyn makepad_widgets::makepad_platform::MsePlayer>>,
 
     /// Camera subsystem state.
     #[rust]

@@ -28,11 +28,11 @@ pub fn next_video_id() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// MediaSource (mirrors makepad_platform::VideoSource without the dep)
+// MediaOrigin (mirrors makepad_platform::VideoSource without the dep)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub enum MediaSource {
+pub enum MediaOrigin {
     /// In-memory bytes (e.g. decoded from a data: URL or blob).
     InMemory(std::sync::Arc<Vec<u8>>),
     /// HTTP/HPPR URL.
@@ -49,7 +49,7 @@ pub enum VideoOp {
     /// Set up a video player with texture output.
     PrepareVideo {
         video_id: u64,
-        source: MediaSource,
+        source: MediaOrigin,
         /// Raw (namespace, index) image key for VideoTextureMap registration.
         image_key: (u32, u32),
         autoplay: bool,
@@ -58,7 +58,7 @@ pub enum VideoOp {
     /// Set up an audio-only player (no texture).
     PrepareAudio {
         video_id: u64,
-        source: MediaSource,
+        source: MediaOrigin,
         autoplay: bool,
         should_loop: bool,
     },
@@ -80,6 +80,32 @@ pub enum VideoOp {
         rate: f64,
     },
     Cleanup(u64),
+
+    // --- MSE operations ---
+
+    /// Set up an MSE-backed video player (no source URL; data pushed via MseAppendData).
+    PrepareMseVideo {
+        video_id: u64,
+        /// MIME type with codecs parameter, e.g. `video/mp4; codecs="av01.0.04M.08"`.
+        mime: String,
+        /// Raw (namespace, index) image key for VideoTextureMap registration.
+        image_key: (u32, u32),
+    },
+    /// Push fMP4 data (init segment or media segment) to an MSE player.
+    MseAppendData {
+        video_id: u64,
+        data: Vec<u8>,
+    },
+    /// Signal end of stream for an MSE player.
+    MseEndOfStream {
+        video_id: u64,
+    },
+    /// Remove buffered data in a time range (seconds).
+    MseRemove {
+        video_id: u64,
+        start: f64,
+        end: f64,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +133,21 @@ pub enum MediaEvent {
     SeekableRanges(Vec<(f64, f64)>),
     /// Buffered (downloaded) time ranges (seconds).
     BufferedRanges(Vec<(f64, f64)>),
+
+    // --- MSE events ---
+
+    /// MSE append operation completed; source buffer can accept more data.
+    MseAppendDone {
+        buffered_ranges: Vec<(f64, f64)>,
+    },
+    /// MSE init segment parsed; video metadata available.
+    MseInitSegmentParsed {
+        width: u32,
+        height: u32,
+        duration_ms: u128,
+    },
+    /// MSE append or decode error.
+    MseError(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +201,8 @@ pub fn deregister_event_sender(video_id: u64) {
 /// Returns the canPlayType string for the given MIME type.
 /// `""` = cannot play, `"maybe"` = might play, `"probably"` = can play.
 ///
-/// HAVI video policy: AV1 in MP4 only. All other video containers and codecs
-/// return `""`. Audio types delegate to the platform backend.
+/// HAVI video policy: AV1 and H.264 in MP4. All other video containers and
+/// codecs return `""`. Audio types delegate to the platform backend.
 pub fn can_play_type(mime: &str) -> &'static str {
     let (base, codecs) = parse_mime_codecs(mime);
 
@@ -177,11 +218,13 @@ pub fn can_play_type(mime: &str) -> &'static str {
     }
 }
 
-/// AV1/MP4-only video policy.
+/// HAVI video codec policy.
 ///
-/// - `video/mp4` without codecs → `"maybe"` (might contain AV1)
-/// - `video/mp4` with all video codecs being `av01` → `"probably"`
-/// - `video/mp4` with any non-AV1 video codec → `""`
+/// Supported video codecs: AV1 (`av01`) and H.264 (`avc1`, `avc3`).
+///
+/// - `video/mp4` without codecs → `"maybe"`
+/// - `video/mp4` with supported video codecs → `"probably"`
+/// - `video/mp4` with unsupported video codecs → `""`
 /// - All other video containers → `""`
 fn can_play_video_type(base: &str, codecs: Option<&str>) -> &'static str {
     if base != "video/mp4" && base != "video/x-m4v" {
@@ -189,11 +232,10 @@ fn can_play_video_type(base: &str, codecs: Option<&str>) -> &'static str {
     }
 
     let Some(codecs) = codecs else {
-        // Bare video/mp4 — might be AV1, might not.
         return "maybe";
     };
 
-    // Parse comma-separated codec list. Every video codec must be av01.
+    // Parse comma-separated codec list. Every video codec must be av01 or avc1/avc3.
     // Known audio codecs (opus, mp4a, flac) are acceptable companions.
     let mut has_video_codec = false;
     for codec in codecs.split(',') {
@@ -201,7 +243,7 @@ fn can_play_video_type(base: &str, codecs: Option<&str>) -> &'static str {
         if c.is_empty() {
             continue;
         }
-        if c.starts_with("av01") {
+        if c.starts_with("av01") || c.starts_with("avc1") || c.starts_with("avc3") {
             has_video_codec = true;
         } else if c.starts_with("mp4a")
             || c.starts_with("opus")
@@ -210,7 +252,7 @@ fn can_play_video_type(base: &str, codecs: Option<&str>) -> &'static str {
         {
             // Acceptable audio companion codec.
         } else {
-            // Unrecognized or non-AV1 video codec (avc1, hev1, vp09, etc.)
+            // Unsupported video codec (hev1, vp09, etc.)
             return "";
         }
     }
@@ -270,8 +312,23 @@ mod tests {
     }
 
     #[test]
-    fn h264_mp4_rejected() {
-        assert_eq!(can_play_video_type("video/mp4", Some("avc1.42E01E")), "");
+    fn h264_mp4_probably() {
+        assert_eq!(can_play_video_type("video/mp4", Some("avc1.42E01E")), "probably");
+    }
+
+    #[test]
+    fn h264_avc3_mp4_probably() {
+        assert_eq!(can_play_video_type("video/mp4", Some("avc3.42E01E")), "probably");
+    }
+
+    #[test]
+    fn h264_with_aac_probably() {
+        assert_eq!(can_play_video_type("video/mp4", Some("avc1.42E01E, mp4a.40.2")), "probably");
+    }
+
+    #[test]
+    fn av1_and_h264_mixed() {
+        assert_eq!(can_play_video_type("video/mp4", Some("av01.0.04M.08, avc1.42E01E")), "probably");
     }
 
     #[test]
@@ -362,7 +419,7 @@ pub struct MediaController {
 impl MediaController {
     /// Create a video controller and send PrepareVideo to the platform.
     pub fn new_video(
-        source: MediaSource,
+        source: MediaOrigin,
         image_key: (u32, u32),
         autoplay: bool,
         should_loop: bool,
@@ -399,7 +456,7 @@ impl MediaController {
     }
 
     /// Create an audio-only controller and send PrepareAudio to the platform.
-    pub fn new_audio(source: MediaSource, autoplay: bool, should_loop: bool) -> Self {
+    pub fn new_audio(source: MediaOrigin, autoplay: bool, should_loop: bool) -> Self {
         let video_id = next_video_id();
         info!(
             "media: queue PrepareAudio id={} autoplay={} loop={}",
@@ -513,6 +570,16 @@ impl MediaController {
             MediaEvent::BufferedRanges(ranges) => {
                 self.buffered_ranges = ranges.clone();
             },
+            MediaEvent::MseAppendDone { buffered_ranges } => {
+                self.buffered_ranges = buffered_ranges.clone();
+            },
+            MediaEvent::MseInitSegmentParsed { width, height, duration_ms } => {
+                self.prepared = true;
+                self.width = *width;
+                self.height = *height;
+                self.duration_ms = *duration_ms;
+            },
+            MediaEvent::MseError(_) => {},
         }
     }
 }
