@@ -118,6 +118,7 @@ struct ListProcessesResponse {
 pub(crate) struct DescriptorTraits {
     pub(crate) watcher: bool,
     pub(crate) supports_reload_descriptor: bool,
+    pub(crate) supports_navigation: bool,
 }
 
 #[derive(Serialize)]
