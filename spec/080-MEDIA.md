@@ -4,11 +4,11 @@ HAVI media support policy.
 
 ## Video
 
-HAVI supports one video format: AV1 in MP4 containers.
+HAVI supports two video codecs in MP4 containers: AV1 and H.264.
 
 Rejected formats:
 
-- VP8, VP9, H.264, H.265 codecs
+- VP8, VP9, H.265 codecs
 - WebM, Ogg, Matroska containers
 
 ### canPlayType
@@ -21,7 +21,8 @@ Rejected formats:
 | `video/mp4; codecs="av01..."` | `probably` |
 | `video/mp4; codecs="av01..., opus"` | `probably` |
 | `video/mp4; codecs="av01..., mp4a..."` | `probably` |
-| `video/mp4; codecs="avc1..."` | (empty) |
+| `video/mp4; codecs="avc1..."` | `probably` |
+| `video/mp4; codecs="avc1..., mp4a..."` | `probably` |
 | `video/mp4; codecs="hev1..."` | (empty) |
 | `video/webm` | (empty) |
 | `video/webm; codecs="vp8"` | (empty) |
@@ -29,11 +30,11 @@ Rejected formats:
 | `video/webm; codecs="av01..."` | (empty) |
 | `video/ogg` | (empty) |
 
-Bare `video/mp4` returns `maybe` because the container may or may not hold
-AV1 content. With an explicit `av01` codec, the result is `probably`.
+Bare `video/mp4` returns `maybe` because the container may hold any codec.
+With an explicit `av01` or `avc1` codec, the result is `probably`.
 
-Any non-AV1 video codec in the codecs list causes rejection regardless of
-container.
+Any unsupported video codec (VP8, VP9, H.265) in the codecs list causes
+rejection regardless of container.
 
 ### Source element type filtering
 
@@ -43,7 +44,7 @@ source with `type="video/webm"` is skipped during resource selection.
 ### Runtime behavior
 
 When a video source is loaded that the platform cannot decode (e.g. a
-non-AV1 stream inside an MP4), the media element fires an `error` event
+VP9 stream inside an MP4), the media element fires an `error` event
 with `MEDIA_ERR_SRC_NOT_SUPPORTED` or `MEDIA_ERR_DECODE`.
 
 ## Recorder/MSE status
@@ -69,6 +70,9 @@ Not-yet-implemented paths throw NotSupportedError or InvalidStateError with
 `NotYetImplemented` in the error message.
 
 `MediaSource` is still not exposed.
+
+Remote playback for stream-delivered recorder chunks can use standard
+`<video>.srcObject = Blob` as a non-MSE runtime path.
 
 ## Audio
 
