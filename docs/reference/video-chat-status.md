@@ -1,4 +1,4 @@
-# Video chat status (2026-03-05)
+# Video chat status (2026-03-06)
 
 ## Current status
 
@@ -8,7 +8,8 @@ HAVI now ships:
 - `video.srcObject` local preview
 - `StreamIn` / `StreamOut` incremental byte transport
 - `MediaRecorder` part-2 camera chunk path
-- `video-chat.html` explicit two-branch sender contract (recording or NYI receive-only fallback)
+- `video-chat.html` explicit sender contract with remote playback path:
+  recorder sender when supported, NYI receive-only fallback when not
 
 ## MediaRecorder part-2 scope
 
@@ -44,8 +45,16 @@ Sender branch behavior is explicit:
   page enters receive-only mode, shows a clear user-visible status, and remains
   responsive (no hanging start state).
 
-Receiver byte-stream framing is always active. If `MediaSource` is unavailable,
-page continues parsing framed chunks and reports playback-unavailable state.
+Receiver byte-stream framing is always active.
+
+Playback path selection is explicit:
+
+- if `MediaSource` is available, append framed chunks through `SourceBuffer`
+- otherwise, enqueue each MP4 chunk as a `Blob` and play sequentially through
+  `remoteVideo.srcObject`
+
+If neither path is available, page stays receive-only and reports
+`NotYetImplemented` instead of hanging.
 
 ## Still not exposed
 

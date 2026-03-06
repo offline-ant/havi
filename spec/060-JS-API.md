@@ -279,6 +279,9 @@ pause/resume/requestData control paths.
 
 `MediaSource` remains not exposed in this part.
 
+For chunked recorder playback, pages can still use standard APIs by assigning
+`Blob` chunks to `<video>.srcObject` while consuming StreamOut incrementally.
+
 ## Errors
 
 HPPR methods throw `HpprError`.
