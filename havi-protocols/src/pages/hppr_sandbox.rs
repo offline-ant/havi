@@ -13,6 +13,8 @@
 //! before the user trusts a remote repo.
 
 use hppr_client::parse_via;
+use std::net::ToSocketAddrs;
+
 use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, spawn_connection};
 
 use crate::PageResponse;
@@ -75,8 +77,10 @@ async fn fetch_content(
     // Parse endpoint to socket address
     let addr = match endpoint {
         ViaSpec::Net { host, port, .. } => format!("{}:{}", host, port)
-            .parse::<std::net::SocketAddr>()
-            .map_err(|e| format!("Invalid address: {}", e))?,
+            .to_socket_addrs()
+            .map_err(|e| format!("Invalid address: {}", e))?
+            .next()
+            .ok_or_else(|| "Invalid address: no resolved socket address".to_string())?,
         _ => return Err("Unsupported transport for sandbox".to_string()),
     };
 

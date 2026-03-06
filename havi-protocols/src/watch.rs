@@ -9,6 +9,7 @@
 //! - `WatchHandle` — per-tab watch state with mode and event filtering
 
 use std::collections::HashMap;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::client::get_admin_credentials;
@@ -77,6 +78,40 @@ impl Drop for AbortOnDrop {
     }
 }
 
+fn resolve_watch_addr(endpoint: &str) -> Result<SocketAddr, String> {
+    let via = hppr_client::parse_via(endpoint)
+        .map_err(|e| format!("invalid repo endpoint '{}': {}", endpoint, e))?;
+
+    let (host, port, scheme) = match via {
+        hppr_client::ViaSpec::Net { host, port, scheme } => (host, port, scheme),
+        hppr_client::ViaSpec::Unix { .. } => {
+            return Err(format!(
+                "unsupported repo endpoint '{}': WATCH requires tcp+host:port or host:port",
+                endpoint
+            ));
+        }
+        hppr_client::ViaSpec::Unknown { .. } => {
+            return Err(format!(
+                "unsupported repo endpoint '{}': WATCH requires tcp+host:port or host:port",
+                endpoint
+            ));
+        }
+    };
+
+    if !matches!(scheme, None | Some(hppr_client::TransportScheme::Tcp)) {
+        return Err(format!(
+            "unsupported repo endpoint '{}': WATCH currently uses TCP only",
+            endpoint
+        ));
+    }
+
+    format!("{}:{}", host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("failed to resolve endpoint '{}': {}", endpoint, e))?
+        .next()
+        .ok_or_else(|| format!("endpoint '{}' resolved to no addresses", endpoint))
+}
+
 impl WatchConn {
     /// Spawn a new watch connection for the given `//group/app/` prefix.
     fn spawn(
@@ -95,12 +130,12 @@ impl WatchConn {
         let task = runtime.spawn(async move {
             let (ring1_name, token) = get_admin_credentials();
             let signer = hppr_client::Signer::ring1_adhoc(&ring1_name, &token);
-            let addr: std::net::SocketAddr = match endpoint.parse() {
+            let addr = match resolve_watch_addr(&endpoint) {
                 Ok(a) => a,
                 Err(e) => {
-                    log::error!("watch: invalid repo endpoint '{}': {}", endpoint, e);
+                    log::error!("watch: {}", e);
                     return;
-                },
+                }
             };
             let (events_tx, mut events_rx) = tokio::sync::mpsc::channel::<String>(64);
             let stream_task =
@@ -278,16 +313,17 @@ impl WatchHandle {
 
         let mut action = WatchAction::None;
         while let Ok(line) = rx.try_recv() {
+            let event = hppr_client::parse_watch_event(&line);
             let matches = match self.mode {
                 WatchMode::Off => false,
-                WatchMode::Dev => true, // any event under //group/app/
+                WatchMode::Dev => event.is_some(), // any parsed event under //group/app/
                 WatchMode::Auto | WatchMode::Notify => {
-                    // Match if the event line contains the tab's exact coordinate
-                    match &self.active_urc {
-                        Some(urc) => line.contains(urc),
-                        None => false,
+                    // Match if the event path contains the tab's exact coordinate.
+                    match (&self.active_urc, event.as_ref()) {
+                        (Some(urc), Some(ev)) => ev.path.contains(urc),
+                        _ => false,
                     }
-                },
+                }
             };
             if matches {
                 let new_action = match self.mode {
@@ -334,6 +370,37 @@ fn extract_group_app_and_urc(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_watch_addr_accepts_tcp_prefix() {
+        let addr = resolve_watch_addr("tcp+127.0.0.1:4777").unwrap();
+        assert_eq!(addr, "127.0.0.1:4777".parse::<SocketAddr>().unwrap());
+    }
+
+    #[test]
+    fn resolve_watch_addr_rejects_unix() {
+        let err = resolve_watch_addr("unix+/tmp/hpprd.sock").unwrap_err();
+        assert!(err.contains("WATCH requires tcp+host:port or host:port"));
+    }
+
+    #[test]
+    fn notify_mode_uses_structured_watch_path() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut handle = WatchHandle {
+            mode: WatchMode::Notify,
+            conn: None,
+            rx: Some(rx),
+            active_group_app: Some("//g/a".to_string()),
+            active_urc: Some("//g/a/doc".to_string()),
+            change_detected: false,
+        };
+
+        tx.send("+ //g/a/doc/|/plex/1735689600:000000000/P.X.H3".to_string())
+            .unwrap();
+        let action = handle.poll();
+        assert_eq!(action, WatchAction::ChangeDetected);
+        assert!(handle.change_detected);
+    }
 
     #[test]
     fn get_or_create_does_not_require_current_tokio_context() {
