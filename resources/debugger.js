@@ -206,7 +206,7 @@ function createFrameActor(frame, pipelineId) {
 
 function handlePauseAndRespond(frame, pauseReason) {
     dbg.onEnterFrame = undefined;
-    clearSteppingHooks();
+    clearSteppingHooks(frame);
 
     // Get the pipeline ID for this debuggee
     const pipelineId = debuggeesToPipelineIds.get(frame.script.global);
@@ -312,7 +312,14 @@ function makeSteppingHooks(steppingType, startFrame) {
                 return handlePauseAndRespond(startFrame, { type_: PAUSE_REASONS.RESUME_LIMIT });
             }
         },
-        onPop: () => {},
+        onPop: (completion) => {
+            this.reportedPop = true;
+            suspendedFrame = startFrame;
+            if (steppingType !== "finish") {
+                return handlePauseAndRespond(startFrame, completion);
+            }
+            attachSteppingHooks("next", startFrame);
+        },
     }
 }
 
@@ -328,7 +335,7 @@ function getNextStepFrame(frame) {
 // <https://searchfox.org/firefox-main/source/devtools/server/actors/thread.js#1235>
 function attachSteppingHooks(steppingType, frame) {
     if (steppingType === "finish" && frame.reportedPop) {
-      steppingType = "next";
+        steppingType = "next";
     }
 
     const stepFrame = getNextStepFrame(frame);
@@ -336,7 +343,7 @@ function attachSteppingHooks(steppingType, frame) {
         steppingType = "step";
     }
 
-    const { onEnterFrame, onPop, onStep } = makeSteppingHooks(
+    const { onEnterFrame, onStep, onPop } = makeSteppingHooks(
         steppingType,
         frame,
     );
@@ -352,6 +359,9 @@ function attachSteppingHooks(steppingType, frame) {
                 if (stepFrame.script) {
                     stepFrame.onStep = onStep;
                 }
+            case "finish":
+                stepFrame.onPop = onPop;
+                break;
         }
     }
 }
