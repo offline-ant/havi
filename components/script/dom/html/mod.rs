@@ -80,3 +80,4 @@ pub(crate) mod htmlulistelement;
 pub(crate) mod htmlunknownelement;
 pub(crate) mod htmlvideoelement;
 pub(crate) mod htmlxframe;
+pub(crate) mod interactive_element_command;
