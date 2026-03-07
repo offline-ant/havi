@@ -51,7 +51,7 @@ pub async fn handle_request(
     let mut response =
         PageResponse::html(render_join_page(&group, &app, &route_vkey, &route_sk, &fixture_state));
     response.hppr_endpoint = Some(endpoint.to_string());
-    response.hppr_signer = Some(format!("@{}#{}", group, route_sk));
+    response.hppr_signer = Some(format!("ring2:{}#{}", group, route_sk));
     response
 }
 
@@ -201,12 +201,12 @@ fn render_join_page(
                         'Seal-By: ' + ROUTE_VKEY + ' ' + ROUTE_SK,
                         'Group: ' + GROUP,
                         'App: admin',
-                        'Location: request/member'
+                        'Location: request/join'
                     ],
                     data: ''
                 }});
 
-                const replyPath = '//' + GROUP + '/admin/request/member/' + ROUTE_VKEY + '/reply/';
+                const replyPath = '//' + GROUP + '/admin/request/join/' + ROUTE_VKEY + '/reply/';
                 setStatus('Request sent. Waiting for response...');
 
                 if (await pollReply(replyPath)) {{

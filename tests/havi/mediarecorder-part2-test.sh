@@ -12,8 +12,8 @@ start_server
 setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 
-HPPR_SIGNER='!ring0/init' $HPPR add "//$TEST_GROUP/$TEST_APP/test-utils.js" < "$SCRIPT_DIR/content/test-utils.js"
-HPPR_SIGNER='!ring0/init' $HPPR add "//$TEST_GROUP/$TEST_APP/mediarecorder-part2-test.html" < "$SCRIPT_DIR/content/mediarecorder-part2-test.html"
+HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/test-utils.js" < "$SCRIPT_DIR/content/test-utils.js"
+HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/mediarecorder-part2-test.html" < "$SCRIPT_DIR/content/mediarecorder-part2-test.html"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/mediarecorder-part2-test.html"
 run_js_tests 40

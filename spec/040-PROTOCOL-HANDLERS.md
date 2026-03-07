@@ -108,8 +108,8 @@ route endpoint and group route key signer.
 Join flow:
 
 1. show group/app and requester route verification key
-2. submit request with `window.route.add()` to `//<group>/admin/request/member/|`
-3. watch `//<group>/admin/request/member/<requester-vkey>/reply/`
+2. submit request with `window.route.add()` to `//<group>/admin/request/join/|`
+3. watch `//<group>/admin/request/join/<requester-vkey>/reply/`
 4. on `Request-Status: approved`, navigate to `hppr://<group>/<app>/`
 
 Join fixture mode for deterministic tests can override join result handling with

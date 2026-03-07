@@ -31,13 +31,13 @@ done > "$CHUNK_DIR/data.txt"
 log "Test data size: $(wc -c < "$CHUNK_DIR/data.txt") bytes"
 
 # Chunk and store (1024-byte chunks forces multiple chunks for ~10KB file)
-HPPR_SIGNER='!ring0/init' $HPPR chunk "$CHUNK_DIR/data.txt" \
+HPPR_SIGNER='ring1:ring0#init' $HPPR chunk "$CHUNK_DIR/data.txt" \
     --chunk-size 1024 \
     "//$TEST_GROUP/$TEST_APP/chunked/data.txt"
 log "Chunked data stored"
 
 # Store a small non-chunked packet for regression test
-printf 'hello non-chunked world' | HPPR_SIGNER='!ring0/init' $HPPR add "//$TEST_GROUP/$TEST_APP/small/test.txt"
+printf 'hello non-chunked world' | HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/small/test.txt"
 log "Small packet stored"
 
 # Generate chunked HTML page that self-tests document.packet
@@ -133,7 +133,7 @@ NAVHTML
 log "Chunk-nav HTML size: $(wc -c < "$CHUNK_DIR/chunk-nav.html") bytes"
 
 # Chunk and store the HTML page
-HPPR_SIGNER='!ring0/init' $HPPR chunk "$CHUNK_DIR/chunk-nav.html" \
+HPPR_SIGNER='ring1:ring0#init' $HPPR chunk "$CHUNK_DIR/chunk-nav.html" \
     --chunk-size 1024 \
     "//$TEST_GROUP/$TEST_APP/chunked/nav.html"
 log "Chunked HTML page stored"

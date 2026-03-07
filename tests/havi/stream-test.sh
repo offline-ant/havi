@@ -51,7 +51,7 @@ make_trailer_segment "//$TEST_GROUP/$TEST_APP/live/seg/0001" "hello-havi" "$STRE
 log "Trailer segment size: $(wc -c < "$STREAM_TEMP/seg.bin") bytes"
 
 # Start publisher: delayed data feed keeps stream open until data arrives
-{ sleep 4; cat "$STREAM_TEMP/seg.bin"; } | HPPR_SIGNER='!ring0/init' $HPPR stream-in "//$TEST_GROUP/$TEST_APP/live" &
+{ sleep 4; cat "$STREAM_TEMP/seg.bin"; } | HPPR_SIGNER='ring1:ring0#init' $HPPR stream-in "//$TEST_GROUP/$TEST_APP/live" &
 PUB_PID=$!
 log "Publisher started (PID: $PUB_PID)"
 

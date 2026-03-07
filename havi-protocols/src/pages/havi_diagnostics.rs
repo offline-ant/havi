@@ -205,8 +205,8 @@ async fn inspect_route_deploy_auth_join(
     let mut join_request_path: Option<String> = None;
 
     if let Some(vkey) = requester_vkey.as_ref() {
-        let reply_path = format!("//{}/admin/request/member/{}/reply/|", group, vkey);
-        let request_path = format!("//{}/admin/request/member/|/seal/{}", group, vkey);
+        let reply_path = format!("//{}/admin/request/join/{}/reply/|", group, vkey);
+        let request_path = format!("//{}/admin/request/join/|/seal/{}", group, vkey);
         join_reply_path = Some(reply_path.clone());
         join_request_path = Some(request_path.clone());
 

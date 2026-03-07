@@ -74,7 +74,7 @@ async function loadAccounts() {
         for (const name of names) {
             const cleanName = name.replace(/\/$/, '');
             try {
-                const packet = await window.ring0.get('//repo/admin/ring1/' + cleanName + '/setup/|');
+                const packet = await window.ring0.get('//repo/admin/ring1/' + cleanName + '/|');
                 const ruleHeaders = packet.getHeaders('ACL-Rule');
                 const expire = packet.getHeader('Ring1-Expire');
                 const parsedRules = ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null);
@@ -111,12 +111,12 @@ async function loadRequests() {
 
     try {
         if (!window.ring0) return requests;
-        const names = await window.ring0.list('//repo/admin/request/ring1/');
+        const names = await window.ring0.list('//repo/admin/request/join/');
 
         for (const name of names) {
             const cleanName = name.replace(/\/$/, '');
             try {
-                const packet = await window.ring0.get('//repo/admin/request/ring1/' + cleanName + '/setup/|');
+                const packet = await window.ring0.get('//repo/admin/request/join/' + cleanName + '/|');
                 const ruleHeaders = packet.getHeaders('ACL-Rule');
                 const parsedRules = ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null);
                 requests.push({ name: cleanName, rules: /** @type {AclRule[]} */ (parsedRules), hash: packet.hash });
@@ -381,7 +381,7 @@ async function startEdit(name) {
 
     try {
         if (!window.ring0) throw new Error('ring0 unavailable');
-        const packet = await window.ring0.get('//repo/admin/ring1/' + name + '/setup/|');
+        const packet = await window.ring0.get('//repo/admin/ring1/' + name + '/|');
         const ruleHeaders = packet.getHeaders('ACL-Rule');
         editRules = /** @type {AclRule[]} */ (ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null));
     } catch (_e) {
@@ -450,7 +450,7 @@ async function saveEdit(name) {
         const headers = [
             'Group: repo',
             'App: admin',
-            'Location: ring1/' + name + '/setup',
+            'Location: ring1/' + name + '',
             'Ring1-Name: ' + name,
             ...editRules.map(r => 'ACL-Rule: ' + r.ops + ' ' + r.coord)
         ];
@@ -488,13 +488,13 @@ async function deleteAccount(name, hash) {
 async function approveRequest(name) {
     try {
         if (!window.ring0) throw new Error('ring0 unavailable');
-        const reqPacket = await window.ring0.get('//repo/admin/request/ring1/' + name + '/setup/|');
+        const reqPacket = await window.ring0.get('//repo/admin/request/join/' + name + '/|');
 
         const ruleHeaders = reqPacket.getHeaders('ACL-Rule');
         const headers = [
             'Group: repo',
             'App: admin',
-            'Location: ring1/' + name + '/setup',
+            'Location: ring1/' + name + '',
             'Ring1-Name: ' + name,
             ...ruleHeaders.map(/** @param {string} r */ r => 'ACL-Rule: ' + r)
         ];

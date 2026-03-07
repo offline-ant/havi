@@ -476,7 +476,7 @@ async fn handle_get(
             .get_or_create_route_credential_async(group, client)
             .await
         {
-            response.hppr_signer = Some(format!("@{}#{}", group, route_cred.signing_key()));
+            response.hppr_signer = Some(format!("ring2:{}#{}", group, route_cred.signing_key()));
         }
     }
 

@@ -18,14 +18,14 @@ start_remote_server
 create_remote_key
 
 # Seed remote content without NFS mount (Linux QA path should avoid NFS).
-HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='!ring0/init' \
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
     $HPPR add "//$TEST_GROUP/$TEST_APP/index.html" \
     -H "Content-Type: text/html" <<< "<html><body>join redirect test</body></html>"
 
 # Ring2 enabled on remote, but intentionally no members added.
-HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='!ring0/init' \
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
     $HPPR ring2 setup "//$TEST_GROUP" --init
-HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='!ring0/init' \
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
     $HPPR ring2 setup "//$TEST_GROUP" acl add r.l "//$TEST_GROUP/$TEST_APP/"
 
 # Deploy + route so hppr://group/app/ resolves to remote non-repo content.

@@ -46,6 +46,7 @@ interface HpprKeyPair {
 interface HpprClient {
   home(options?: HpprRepoOptions): Promise<HpprClient>;
   connect(endpoint: string, identity?: string): Promise<HpprClient>;
+  connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
   envelope(): EnvelopeHpprClient;
   readonly endpoint: string;
   readonly account: string | null;
@@ -69,6 +70,7 @@ declare var HpprClient: {
   prototype: HpprClient;
   home(options?: HpprRepoOptions): Promise<HpprClient>;
   connect(endpoint: string, identity?: string): Promise<HpprClient>;
+  connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
 };
 interface EnvelopeHpprClient {
   home(): Promise<EnvelopeHpprClient>;
