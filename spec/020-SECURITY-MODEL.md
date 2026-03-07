@@ -8,8 +8,8 @@ HAVI security has three layers:
 
 ## Route and deployment resolution
 
-HAVI keeps origin semantics stable while resolving content through local route and
-remote deployment pointers.
+HAVI keeps origin semantics stable while resolving content
+through local route and remote deployment pointers.
 
 Origin format: `//<group>/<app>/`.
 

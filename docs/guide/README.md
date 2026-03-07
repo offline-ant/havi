@@ -6,7 +6,8 @@ Task-focused guides for common HAVI workflows.
 
 - [Publishing](publishing.md)
   - Publish a single file or a full directory.
-  - Choose between `havi-cli`, `hppr add`, `hppr mkpac` + `hppr store`, and `hppr chunk`.
+  - Choose between `havi-cli`, `hppr add`,
+    `hppr mkpac` + `hppr store`, and `hppr chunk`.
 - [Access Patterns](access-patterns.md)
   - Local-first and remote-first read paths.
   - Offline handling, queued writes, and watch-driven refresh.

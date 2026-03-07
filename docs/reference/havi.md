@@ -33,7 +33,8 @@ Environment variables:
   - `path:<dir>`
 - `HAVI_URL` — override startup URL
 - `HAVI_DEVTOOLS` — enable DevTools server (`<port>` or `<host>:<port>`)
-- `HAVI_MAKEPAD_EVENTS` — enable Makepad event injection (JSON lines over stdin/stdout)
+- `HAVI_MAKEPAD_EVENTS` — enable Makepad event injection
+  (JSON lines over stdin/stdout)
 
 ## Local State
 

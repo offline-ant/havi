@@ -10,7 +10,8 @@ Reference docs for command-line tools live in `docs/reference/<tool>.md`.
 Practical workflows live in `docs/guide/`. SDK docs live in
 `docs/sdk/<lang>/`.
 
-- `docs/reference/` — command references (`havi-cli`, `havi-makepad-cli`, `havi-devtools-cli`, HPPR tools)
+- `docs/reference/` — command references (`havi-cli`,
+  `havi-makepad-cli`, `havi-devtools-cli`, HPPR tools)
 - `docs/guide/` — task guides (publishing, access patterns)
 - `docs/sdk/` — JS and Python client docs
 

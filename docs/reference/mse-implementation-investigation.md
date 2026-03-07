@@ -352,14 +352,15 @@ struct SourceBuffer {
 
 For MVP, use the existing software path:
 
-1. **Incremental MP4 demuxer**: Extend `makepad-media/makepad-media/src/demux.rs`
+1. **Incremental MP4 demuxer**: Extend
+   `makepad-media/makepad-media/src/demux.rs`
    to support incremental parsing. Current `parse_mp4()` requires seekable
    `Read+Seek` over the full file. Add `IncrementalDemuxer` struct that:
    - accepts `push_data(&mut self, data: &[u8])`
    - emits `DemuxEvent::InitSegment { width, height, timescale, ... }` and
      `DemuxEvent::MediaSample { data, pts, dts, is_sync }` as boxes complete.
    - Tracks state: waiting-for-ftyp → reading-moov → ready → reading-moof/mdat.
-   - CMAF/fMP4 format (init segment `[ftyp+moov]` + media segments `[moof+mdat]`).
+   - CMAF/fMP4 format (init `[ftyp+moov]` + media `[moof+mdat]`).
 
 2. **Incremental AV1 decode**: The existing `Dav1dDecoder` in
    `makepad-media/makepad-media/src/dav1d_ffi.rs` already accepts individual
@@ -727,7 +728,7 @@ to GPU textures on the Makepad main thread. The existing `VideoTextureMap`
 + YUV shader path handles this for regular playback but is driven by
 platform events. MSE needs to drive it from append results.
 
-**Validation**: Verify the existing `havi_render::video_texture_map::set_yuv_planes`
+**Validation**: Verify `havi_render::video_texture_map::set_yuv_planes`
 can be called with data from any thread. If not, use the existing `VideoOp`
 channel to shuttle frame data.
 

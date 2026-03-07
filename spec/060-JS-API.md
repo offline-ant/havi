@@ -249,7 +249,8 @@ Events:
 
 StreamIn and StreamOut are transparent byte pipes for the primary media path.
 Applications are expected to frame payloads at the application layer (for
-example, length-prefixed chunks) and parse incrementally from `streamOut.stream`.
+example, length-prefixed chunks) and parse incrementally
+from `streamOut.stream`.
 
 `onpacket` is optional and is not required for media playback.
 

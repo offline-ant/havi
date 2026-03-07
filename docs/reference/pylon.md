@@ -53,7 +53,8 @@ Canonical runtime values:
 - `self_exec`
 - `inline`
 
-`embedded-services` is the compile-time feature gate for `self_exec` and `inline`.
+`embedded-services` is the feature gate for `self_exec`
+and `inline`.
 
 - feature ON (default): all 3 modes are available where supported.
 - feature OFF (`--no-default-features`): only `external` is available.
@@ -82,8 +83,10 @@ Control protocol/event parity guarantee:
 Default. Pylon auto-starts hpprd on its default port (4777) and manages its
 full lifecycle: start, stop, listen, unlisten.
 
-Daemon-managed services support all runtime selectors (`external`, `self_exec`, `inline`)
-when `embedded-services` is enabled. Default mode is `external` on desktop platforms.
+Daemon-managed services support all runtime selectors
+(`external`, `self_exec`, `inline`) when
+`embedded-services` is enabled. Default is `external`
+on desktop platforms.
 Android defaults to `inline` for supported services.
 
 `--embedded-services` prefers embedded runtime dispatch when no explicit runtime
@@ -142,7 +145,9 @@ pylon nat stop                     # stop hppr-nat
 ### hpprd Options
 
 - `--repo_path <path>`: repository directory (injected by pylon automatically)
-- `--bind <spec>`: bind spec (`host:port`, `ws+host:port`, `quib+host:port`, `udp+host:port`, `unix+/path`, `all+host:port`)
+- `--bind <spec>`: bind spec (`host:port`, `ws+host:port`,
+  `quib+host:port`, `udp+host:port`, `unix+/path`,
+  `all+host:port`)
 - `--port <port>`: shorthand for `--bind 127.0.0.1:<port>`
 - default (no bind/port): `127.0.0.1:4777`
 - `--phc <params>`: Argon2id PHC string (set via `HPPR_PHC` env)
@@ -255,7 +260,8 @@ HAVI always connects through pylon. Startup sequence:
 
 1. Find or spawn pylon for `<config-dir>/repo/`
    - desktop hosts use **Self-Exec Process Runtime** startup (`havi pylon ...`)
-   - Android hosts use **In-Process Embedded Runtime** startup (internal thread host)
+   - Android hosts use **In-Process Embedded Runtime**
+     startup (internal thread host)
 2. If `HAVI_HOME` is set, pylon starts in remote mode (`--home <via>`)
 3. Subscribe to event stream → update toolbar status on service changes
 4. Background reader thread holds the TCP connection open
