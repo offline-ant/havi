@@ -139,7 +139,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
 
         let endpoint_str = endpoint.to_string();
 
-        // Validate endpoint format (host:port or just host)
         if endpoint_str.is_empty() {
             promise.reject_error(
                 Error::Type(c"Invalid endpoint: empty string".to_owned()),
@@ -148,7 +147,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
             return Ok(promise);
         }
 
-        // Parse identity string (empty/missing = anyone)
         let identity_str = identity.as_ref().map(|s| s.to_string()).unwrap_or_default();
         let signer = match Signer::parse(&identity_str) {
             Ok(s) => s,
@@ -161,6 +159,58 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
             }
         };
 
+        let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
+        let client = Self::new(global, &inner, can_gc);
+        promise.resolve_native(&*client, can_gc);
+        Ok(promise)
+    }
+
+    /// HpprClient.connectRing2Password(endpoint, group, username, password)
+    /// - create client to remote endpoint with a Ring2 adhoc signer.
+    /// - derive the signer locally from group, username, and password.
+    fn ConnectRing2Password(
+        window: &Window,
+        endpoint: DOMString,
+        group: DOMString,
+        username: DOMString,
+        password: DOMString,
+    ) -> Fallible<Rc<Promise>> {
+        let global = window.upcast::<GlobalScope>();
+        let can_gc = CanGc::note();
+        let promise = Promise::new(global, can_gc);
+
+        let endpoint_str = endpoint.to_string();
+        if endpoint_str.is_empty() {
+            promise.reject_error(
+                Error::Type(c"Invalid endpoint: empty string".to_owned()),
+                can_gc,
+            );
+            return Ok(promise);
+        }
+
+        let group_str = group.to_string();
+        let username_str = username.to_string();
+        let password_str = password.to_string();
+        let identity = format!("ring2:{}/{}#{}", group_str, username_str, password_str);
+        if let Err(e) = Signer::parse(&identity) {
+            promise.reject_error(
+                Error::Type(cformat!("Invalid Ring2 adhoc identity: {}", e)),
+                can_gc,
+            );
+            return Ok(promise);
+        }
+        let credential_input = format!("{}/{}#{}", group_str, username_str, password_str);
+        let signing_key = match hppr_client::derive_ring2_adhoc_signing_key(&credential_input) {
+            Ok(key) => key,
+            Err(e) => {
+                promise.reject_error(
+                    Error::Type(cformat!("Invalid Ring2 adhoc identity: {}", e)),
+                    can_gc,
+                );
+                return Ok(promise);
+            }
+        };
+        let signer = Signer::ring2(&group_str, &signing_key);
         let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
         let client = Self::new(global, &inner, can_gc);
         promise.resolve_native(&*client, can_gc);

@@ -87,6 +87,14 @@ interface HpprClient {
     [NewObject, Throws]
     static Promise<HpprClient> connect(DOMString endpoint, optional DOMString identity);
 
+    [NewObject, Throws]
+    static Promise<HpprClient> connectRing2Password(
+        DOMString endpoint,
+        DOMString group,
+        DOMString username,
+        DOMString password
+    );
+
     [NewObject] EnvelopeHpprClient envelope();
 
     readonly attribute DOMString endpoint;
@@ -121,12 +129,24 @@ interface HpprClient {
 `connect()` accepts an optional identity string following `Signer::parse()`
 format:
 
-- omitted or `""`: anyone (no authentication)
-- `!ring1/token`: Ring1 with adhoc token
-- `!ring1#&.<b64a>.H3`: Ring1 with explicit key
-- `@group#&.<b64a>.H3`: Ring2 with explicit key
+- omitted, `""`, or `"anyone"`: anyone
+- `ring1:<name>#<password>`: Ring1 password-derived key
+- `ring1:<name>#&.<b64a>.H3`: Ring1 explicit key
+- `ring2:<group>#&.<b64a>.H3`: Ring2 explicit key
+- `ring2:<group>/<user>#<password>`: Ring2 adhoc key
 
 Invalid identity strings reject the returned promise with a TypeError.
+
+### connectRing2Password()
+
+`connectRing2Password(endpoint, group, username, password)` creates a remote
+client with a Ring2 adhoc signer without requiring the caller to assemble a
+signer string manually.
+
+`username` follows one `Location` segment's constraints.
+The derived key remains client-side.
+It depends only on group, username, and password.
+The repo sees only the resulting Ring2 member verification key.
 
 Common return types:
 

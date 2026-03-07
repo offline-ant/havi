@@ -35,8 +35,17 @@ interface HpprClient {
 
     // Remote client with optional identity string
     // Omitted or empty: anyone (no authentication)
-    // Identity formats: !ring1/token, !ring1#&.key.H3, @group#&.key.H3
+    // Identity formats: ring1:<name>#<password>, ring1:<name>#&.key.H3,
+    // ring2:<group>#&.key.H3, ring2:<group>/<user>#<password>
     [NewObject, Throws] static Promise<HpprClient> connect(DOMString endpoint, optional DOMString identity);
+
+    // Remote client with Ring2 adhoc identity derived from group/user/password
+    [NewObject, Throws] static Promise<HpprClient> connectRing2Password(
+        DOMString endpoint,
+        DOMString group,
+        DOMString username,
+        DOMString password
+    );
 
     // Convert to EnvelopeHpprClient (returns HpprResult with envelopes)
     [NewObject] EnvelopeHpprClient envelope();

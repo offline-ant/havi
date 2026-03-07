@@ -111,7 +111,7 @@ Import a local directory into home repo:
 
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
-export HPPR_SIGNER='!ring0/init'
+export HPPR_SIGNER='ring1:ring0#init'
 pylon mount /mnt/hppr --root //u/showcase --rw --seal-with oldest
 cp -a showcase/. /mnt/hppr/
 pylon unmount /mnt/hppr
@@ -136,7 +136,7 @@ CLI prerequisites for this section:
 
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
-export HPPR_SIGNER='!ring0/init'
+export HPPR_SIGNER='ring1:ring0#init'
 ```
 
 HAVI embedded repo must be running.
