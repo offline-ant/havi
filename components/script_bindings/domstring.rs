@@ -301,7 +301,7 @@ impl Clone for DOMString {
     fn clone(&self) -> Self {
         self.make_rust();
         if let DOMStringType::Rust(ref s) = *self.0.borrow() {
-            DOMString::from_string(s.to_owned())
+            DOMString::from(s.to_owned())
         } else {
             unreachable!()
         }
@@ -341,10 +341,6 @@ impl DOMString {
             };
             Ok(DOMString(RefCell::new(inner)))
         }
-    }
-
-    pub fn from_string(s: String) -> DOMString {
-        DOMString(RefCell::new(DOMStringType::Rust(s)))
     }
 
     /// Transforms the string into rust string if not yet a rust string.
@@ -880,8 +876,14 @@ impl std::cmp::PartialEq for DOMString {
 impl std::cmp::Eq for DOMString {}
 
 impl From<std::string::String> for DOMString {
-    fn from(value: String) -> Self {
-        DOMString::from_string(value)
+    fn from(string: String) -> Self {
+        DOMString(RefCell::new(DOMStringType::Rust(string)))
+    }
+}
+
+impl From<&str> for DOMString {
+    fn from(string: &str) -> Self {
+        String::from(string).into()
     }
 }
 
@@ -984,12 +986,6 @@ impl From<DOMString> for Atom {
     }
 }
 
-impl From<&str> for DOMString {
-    fn from(contents: &str) -> DOMString {
-        DOMString(RefCell::new(DOMStringType::Rust(String::from(contents))))
-    }
-}
-
 impl From<DOMString> for String {
     fn from(val: DOMString) -> Self {
         val.make_rust();
@@ -1034,7 +1030,7 @@ macro_rules! match_domstring_ascii_inner {
 /// You are only allowed to match ascii strings otherwise this macro will
 /// lead to wrong results.
 /// ```ignore
-/// let s = DOMString::from_string(String::from("test"));
+/// let s = DOMString::from("test");
 /// let value = match_domstring!(s,
 /// "test1" => 1,
 /// "test2" => 2,
@@ -1176,7 +1172,7 @@ mod tests {
     fn partial_eq() {
         let s = from_latin1(vec![b'a', b'b', b'c', b'%', b'$']);
         let string = String::from("abc%$");
-        let s2 = DOMString::from_string(string.clone());
+        let s2 = DOMString::from(string.clone());
         assert_eq!(s, s2);
         assert_eq!(s, string);
     }
@@ -1217,7 +1213,7 @@ mod tests {
         let s = from_latin1(vec![b'a', b'b', b'c', b'%', b'$', 0xB2]);
         let s_converted = from_latin1(vec![b'a', b'b', b'c', b'%', b'$', 0xB2]);
         s_converted.make_rust();
-        let s2 = DOMString::from_string(String::from("abc%$²"));
+        let s2 = DOMString::from("abc%$²");
 
         let hash_s = hash_value(&s);
         let hash_s_converted = hash_value(&s_converted);
@@ -1259,7 +1255,7 @@ mod tests {
         }
 
         {
-            let s = DOMString::from_string(String::from("abcde"));
+            let s = DOMString::from("abcde");
             match_domstring_ascii!( s,
                 "abc" => assert!(false),
                 "bcd" => assert!(false),
@@ -1267,7 +1263,7 @@ mod tests {
             );
         }
         {
-            let s = DOMString::from_string(String::from("abc%$"));
+            let s = DOMString::from("abc%$");
             match_domstring_ascii!( s,
                 "bcd" => assert!(false),
                 "abc%$" => assert!(true),
@@ -1316,7 +1312,7 @@ mod tests {
         }
 
         {
-            let s = DOMString::from_string(String::from("abcde"));
+            let s = DOMString::from("abcde");
             let res = match_domstring_ascii!( s,
                 "abc" => false,
                 "bcd" => false,
@@ -1325,7 +1321,7 @@ mod tests {
             assert_eq!(res, true);
         }
         {
-            let s = DOMString::from_string(String::from("abc%$"));
+            let s = DOMString::from("abc%$");
             let res = match_domstring_ascii!( s,
                 "bcd" => false,
                 "abc%$" => true,
@@ -1347,7 +1343,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_match_panic() {
-        let s = DOMString::from_string(String::from("abcd"));
+        let s = DOMString::from("abcd");
         let _res = match_domstring_ascii!(s,
             "❤" => true,
             _ => false,);
@@ -1356,7 +1352,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_match_panic2() {
-        let s = DOMString::from_string(String::from("abcd"));
+        let s = DOMString::from("abcd");
         let _res = match_domstring_ascii!(s,
             "abc" => false,
             "❤" => true,
@@ -1376,7 +1372,7 @@ mod tests {
             assert_eq!(&*s.str(), "abc%$²");
         }
         {
-            let mut s = DOMString::from_string(String::from("   \n  abc%$ "));
+            let mut s = DOMString::from("   \n  abc%$ ");
 
             s.strip_leading_and_trailing_ascii_whitespace();
             s.make_rust();
@@ -1422,7 +1418,7 @@ mod tests {
     fn atom() {
         let s = from_latin1(vec![b'a', b'a', b'a', 0x20, b'a', b'a']);
         let atom1 = Atom::from(s);
-        let s2 = DOMString::from_string(String::from("aaa aa"));
+        let s2 = DOMString::from("aaa aa");
         let atom2 = Atom::from(s2);
         assert_eq!(atom1, atom2);
         let s3 = from_latin1(vec![b'a', b'a', b'a', 0xB2, b'a', b'a']);
@@ -1434,7 +1430,7 @@ mod tests {
     fn namespace() {
         let s = from_latin1(vec![b'a', b'a', b'a', ASCII_SPACE, b'a', b'a']);
         let atom1 = Namespace::from(s);
-        let s2 = DOMString::from_string(String::from("aaa aa"));
+        let s2 = DOMString::from("aaa aa");
         let atom2 = Namespace::from(s2);
         assert_eq!(atom1, atom2);
         let s3 = from_latin1(vec![b'a', b'a', b'a', LATIN1_POWER2, b'a', b'a']);
@@ -1446,7 +1442,7 @@ mod tests {
     fn localname() {
         let s = from_latin1(vec![b'a', b'a', b'a', ASCII_SPACE, b'a', b'a']);
         let atom1 = LocalName::from(s);
-        let s2 = DOMString::from_string(String::from("aaa aa"));
+        let s2 = DOMString::from("aaa aa");
         let atom2 = LocalName::from(s2);
         assert_eq!(atom1, atom2);
         let s3 = from_latin1(vec![b'a', b'a', b'a', LATIN1_POWER2, b'a', b'a']);
@@ -1464,9 +1460,9 @@ mod tests {
         assert!(s.is_ascii_lowercase());
         let s = from_latin1(vec![b'`', b'a', b'a', b'a', b'z']);
         assert!(!s.is_ascii_lowercase());
-        let s = DOMString::from_string(String::from("`aaaz"));
+        let s = DOMString::from("`aaaz");
         assert!(!s.is_ascii_lowercase());
-        let s = DOMString::from_string(String::from("aaaz"));
+        let s = DOMString::from("aaaz");
         assert!(s.is_ascii_lowercase());
     }
 
