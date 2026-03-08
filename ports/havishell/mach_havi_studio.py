@@ -9,6 +9,13 @@ import threading
 from typing import Any
 
 
+# Import generic Makepad control library.
+_tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "..", "..", "makepad", "tools")
+sys.path.insert(0, _tools_dir)
+import makepad_control as mc  # type: ignore[import-not-found]
+
+
 def _log(action: str, *, cmd: list[str] | None = None) -> None:
     print(f"[mach-havi] {action}")
     if cmd:
@@ -41,200 +48,47 @@ def run_desktop_makepad_socket(
 ) -> int:
     """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
 
-    Creates a Unix socket so havi-makepad-cli can connect. JSON lines from
-    socket clients are forwarded to HAVI's stdin; JSON lines from HAVI's
-    stdout are broadcast to all connected clients.
+    Uses the generic Makepad socket relay from makepad_control. Adds
+    HAVI-specific startup detection (ReadyToStart, HAVI_DEVTOOLS).
     """
-    import select
-    import socket as sock_mod
     import tempfile
 
-    sock_path = socket_path or os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
-
-    # Ensure socket parent directory exists and clean up stale socket file.
-    sock_parent = os.path.dirname(sock_path)
-    if sock_parent:
-        os.makedirs(sock_parent, exist_ok=True)
-    try:
-        os.unlink(sock_path)
-    except FileNotFoundError:
-        pass
-
-    # Create the Unix domain socket.
-    server = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
-    server.bind(sock_path)
-    server.listen(8)
-    server.setblocking(False)
+    sock_path = socket_path or os.path.join(
+        tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
 
     # Tell HAVI to use stdin/stdout event injection mode.
     env["HAVI_MAKEPAD_EVENTS"] = "1"
 
-    # Forward Wayland/display env to HAVI.
-    for var in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY"):
-        if var in os.environ and var not in env:
-            env[var] = os.environ[var]
-
     _log("desktop run (makepad-socket)", cmd=cmd)
-    havi_proc = subprocess.Popen(
-        cmd,
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=None,  # stderr passes through
-        cwd=str(havi_root),
-    )
 
-    assert havi_proc.stdin is not None
-    assert havi_proc.stdout is not None
-
-    # Connected socket clients.
-    clients: list[sock_mod.socket] = []
-    client_bufs: dict[int, str] = {}  # fd -> partial line buffer
-
-    # Wait for ReadyToStart from HAVI stdout.
-    ready = threading.Event()       # set on ReadyToStart OR stdout EOF
-    got_ready = threading.Event()   # set only on actual ReadyToStart
-    stdout_lock = threading.Lock()
+    # HAVI-specific state collected during startup.
     devtools_addr: list[str] = []
+    ready_event = threading.Event()
 
-    def _read_havi_stdout() -> None:
-        """Read JSON lines from HAVI stdout, broadcast to clients."""
-        assert havi_proc.stdout is not None
-        for raw in havi_proc.stdout:
-            line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-            line = line.rstrip("\n")
-            if not line:
-                continue
+    def on_nonjson_line(line: str) -> None:
+        print(line, file=sys.stderr)
+        if line.strip().startswith("HAVI_DEVTOOLS=") and not devtools_addr:
+            devtools_addr.append(line.strip().split("=", 1)[1])
 
-            # Check for ReadyToStart
-            try:
-                msg: Any = json.loads(line)
-                if isinstance(msg, dict) and "ReadyToStart" in msg:
-                    got_ready.set()
-                    ready.set()
-                # Debug: log Screenshot and WidgetTreeDump messages
-            except json.JSONDecodeError:
-                # Not JSON — might be stderr leak or log line.  Print it.
-                print(line, file=sys.stderr)
-                # Check for HAVI_DEVTOOLS in non-JSON output
-                if line.strip().startswith("HAVI_DEVTOOLS=") and not devtools_addr:
-                    devtools_addr.append(line.strip().split("=", 1)[1])
-                continue
+    def on_ready() -> None:
+        dt = devtools_addr[0] if devtools_addr else ""
+        dt_port = dt.rsplit(":", 1)[-1] if dt else ""
+        print(f"\nHAVI_MAKEPAD_SOCKET={sock_path}")
+        if dt:
+            print(f"HAVI_DEVTOOLS={dt}")
+        print(f"# havi-makepad-cli --socket {sock_path} screenshot /tmp/test.png")
+        if dt_port:
+            print(f"# havi-devtools-cli -p {dt_port} eval 'document.title'")
 
-            # Broadcast to all connected clients.
-            encoded = (line + "\n").encode("utf-8")
-            with stdout_lock:
-                dead = []
-                for c in clients:
-                    try:
-                        c.sendall(encoded)
-                    except (OSError, BrokenPipeError):
-                        dead.append(c)
-                for c in dead:
-                    clients.remove(c)
-                    client_bufs.pop(id(c), None)
-                    c.close()
+    def on_json_line(msg: Any) -> None:
+        if isinstance(msg, dict) and "ReadyToStart" in msg and not ready_event.is_set():
+            ready_event.set()
+            on_ready()
 
-        # stdout EOF — HAVI process died. Unblock the wait.
-        ready.set()
-
-    reader = threading.Thread(target=_read_havi_stdout, daemon=True)
-    reader.start()
-
-    ready.wait(timeout=30)
-
-    # Detect startup crash: process exited before sending ReadyToStart.
-    rc = havi_proc.poll()
-    if rc is not None and not got_ready.is_set():
-        print(f"[mach-havi] HAVI crashed during startup (exit code {rc})", file=sys.stderr)
-        server.close()
-        try:
-            os.unlink(sock_path)
-        except FileNotFoundError:
-            pass
-        return rc
-
-    if not got_ready.is_set():
-        print("[mach-havi] warning: HAVI did not send ReadyToStart within 30s", file=sys.stderr)
-
-    dt = devtools_addr[0] if devtools_addr else ""
-    dt_port = dt.rsplit(":", 1)[-1] if dt else ""
-    print(f"\nHAVI_MAKEPAD_SOCKET={sock_path}")
-    if dt:
-        print(f"HAVI_DEVTOOLS={dt}")
-    print(f"# havi-makepad-cli --socket {sock_path} screenshot /tmp/test.png")
-    if dt_port:
-        print(f"# havi-devtools-cli -p {dt_port} eval 'document.title'")
-
-    # Main relay loop: accept client connections, relay lines to HAVI stdin.
-    stdin_lock = threading.Lock()
-
-    def _write_to_havi(data: bytes) -> None:
-        assert havi_proc.stdin is not None
-        with stdin_lock:
-            try:
-                havi_proc.stdin.write(data)
-                havi_proc.stdin.flush()
-            except (OSError, BrokenPipeError):
-                pass
-
-    try:
-        while havi_proc.poll() is None:
-            # Build read list: server socket + all clients.
-            rlist = [server] + clients
-            try:
-                readable, _, _ = select.select(rlist, [], [], 0.5)
-            except (ValueError, OSError):
-                # Bad fd — prune dead clients.
-                with stdout_lock:
-                    alive = []
-                    for c in clients:
-                        try:
-                            c.fileno()
-                            alive.append(c)
-                        except Exception:
-                            client_bufs.pop(id(c), None)
-                    clients[:] = alive
-                continue
-
-            for s in readable:
-                if s is server:
-                    conn, _ = server.accept()
-                    conn.setblocking(True)
-                    with stdout_lock:
-                        clients.append(conn)
-                        client_bufs[id(conn)] = ""
-                else:
-                    try:
-                        data = s.recv(65536)
-                    except (OSError, ConnectionResetError):
-                        data = b""
-                    if not data:
-                        with stdout_lock:
-                            if s in clients:
-                                clients.remove(s)
-                            client_bufs.pop(id(s), None)
-                        s.close()
-                        continue
-                    # Buffer and extract complete lines.
-                    buf = client_bufs.get(id(s), "") + data.decode("utf-8", errors="replace")
-                    while "\n" in buf:
-                        line, buf = buf.split("\n", 1)
-                        line = line.strip()
-                        if line:
-                            _write_to_havi((line + "\n").encode("utf-8"))
-                    client_bufs[id(s)] = buf
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Cleanup.
-        server.close()
-        try:
-            os.unlink(sock_path)
-        except FileNotFoundError:
-            pass
-        if havi_proc.poll() is None:
-            havi_proc.terminate()
-            havi_proc.wait(timeout=5)
-
-    return havi_proc.returncode or 0
+    return mc.run_relay(
+        cmd, sock_path,
+        env=env,
+        on_json_line=on_json_line,
+        on_nonjson_line=on_nonjson_line,
+        ready_event=ready_event,
+    )
