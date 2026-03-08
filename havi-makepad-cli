@@ -23,10 +23,11 @@ sys.path.insert(0, _tools_dir)
 import makepad_control as mc  # type: ignore[import-not-found]
 
 # Import the CLI module (makepad-ui-cli lives next to makepad_control.py).
-# We load it as a module to reuse its parser and commands.
-import importlib.util
+# Load as a Python module despite no .py extension.
+import importlib.util, importlib.machinery
 _cli_path = os.path.join(_tools_dir, "makepad-ui-cli")
-_spec = importlib.util.spec_from_file_location("makepad_ui_cli", _cli_path)
+_loader = importlib.machinery.SourceFileLoader("makepad_ui_cli", _cli_path)
+_spec = importlib.util.spec_from_file_location("makepad_ui_cli", _cli_path, loader=_loader)
 _cli_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_cli_mod)
 
