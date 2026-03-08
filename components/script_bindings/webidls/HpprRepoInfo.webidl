@@ -14,6 +14,6 @@ interface HpprRepoInfo {
     // Get the hpprd repo path (e.g., ~/.config/HAVI/repo/)
     [NewObject] Promise<DOMString> repoPath();
 
-    // Get repo status: "embedded" or "external"
+    // Get repo status
     [NewObject] Promise<DOMString> status();
 };

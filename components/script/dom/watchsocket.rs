@@ -260,15 +260,7 @@ impl WatchSocketMethods<crate::DomTypeHolder> for WatchSocket {
 
     /// Close the watch connection.
     fn Close(&self) {
-        match self.ready_state.get() {
-            WatchSocketState::Closing | WatchSocketState::Closed => {
-                // Already closing or closed, do nothing
-            },
-            WatchSocketState::Connecting | WatchSocketState::Open => {
-                self.ready_state.set(WatchSocketState::Closing);
-                let _ = self.sender.send(WatchDomAction::Close);
-            },
-        }
+        self.close();
     }
 }
 

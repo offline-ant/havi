@@ -14,36 +14,15 @@
 use std::sync::Arc;
 
 use hppr_client::parse_via;
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use percent_encoding::utf8_percent_encode;
 
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
 use crate::url::{HAVIAddress, via_url};
-use crate::util::{html_escape, resolve_route_endpoint};
+use crate::util::{PATH_SEGMENT_ENCODE_SET, html_escape, resolve_route_endpoint};
 
-/// Characters that need encoding in URL path segments
-const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'#')
-    .add(b'<')
-    .add(b'>')
-    .add(b'`')
-    .add(b'?')
-    .add(b'{')
-    .add(b'}');
 
-/// Build URC from components (always with trailing slash for LIST).
-fn build_urc(group: &str, app: &str, location: &str) -> String {
-    let loc_is_empty = location.is_empty() || location == "/";
-    match (group.is_empty(), app.is_empty(), loc_is_empty) {
-        (true, _, _) => "//".to_string(),
-        (false, true, _) => format!("//{}/", group),
-        (false, false, true) => format!("//{}/{}/", group, app),
-        (false, false, false) => format!("//{}/{}/{}", group, app, location),
-    }
-}
 
 /// Handle an hppr-browse:// URL request.
 pub async fn handle_request(
@@ -54,7 +33,7 @@ pub async fn handle_request(
     let address = match HAVIAddress::parse(url) {
         Ok(u) => u,
         Err(e) => {
-            return render_error(&e.to_string());
+            return PageResponse::error("Browse Error", &e.to_string(), None);
         },
     };
 
@@ -64,13 +43,13 @@ pub async fn handle_request(
         location.push('/');
     }
 
-    let urc = build_urc(&parts.group, &parts.app, &location);
+    let urc = HAVIAddress::build_urc_string(&parts.group, &parts.app, &location);
 
     let _endpoint = if let Some(ep) = address.endpoint_string() {
         match parse_via(&ep) {
             Ok(v) => v,
             Err(e) => {
-                return render_error(&format!("Invalid endpoint: {}", e));
+                return PageResponse::error("Browse Error", &format!("Invalid endpoint: {}", e), None);
             },
         }
     } else {
@@ -106,7 +85,7 @@ async fn handle_list(
             let html = render_browse_html(group, app, location, &children, endpoint_str);
             PageResponse::html(html)
         },
-        Err(e) => render_error(&e),
+        Err(e) => PageResponse::error("Browse Error", &e, None),
     }
 }
 
@@ -174,7 +153,7 @@ fn render_browse_html(
     children: &[String],
     endpoint: Option<&str>,
 ) -> String {
-    let display_urc = build_urc(group, app, location);
+    let display_urc = HAVIAddress::build_urc_string(group, app, location);
     let breadcrumb = render_breadcrumb(group, app, location, endpoint);
 
     let hppr_url = |coord: &str| match endpoint {
@@ -268,32 +247,6 @@ fn render_browse_html(
     crate::page_shell::render_page(&format!("Browse {}", escaped_urc), css, &body)
 }
 
-/// Render error page.
-fn render_error(error: &str) -> PageResponse {
-    let css = r#"
-        body { max-width: 600px; margin: 100px auto; }
-        h1 { color: #ff6b6b; }
-        .error {
-            background: #2d1f1f;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #ff6b6b;
-            font-family: monospace;
-        }
-    "#;
-
-    let body = format!(
-        "    <h1>Browse Error</h1>\n    <div class=\"error\">{}</div>\n    <p><button onclick=\"history.back()\">Go Back</button></p>",
-        html_escape(error)
-    );
-
-    PageResponse::html(crate::page_shell::render_page(
-        "Browse Error - HAVI",
-        css,
-        &body,
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,10 +266,10 @@ mod tests {
 
     #[test]
     fn test_build_urc() {
-        assert_eq!(build_urc("", "", ""), "//");
-        assert_eq!(build_urc("g", "", ""), "//g/");
-        assert_eq!(build_urc("g", "a", ""), "//g/a/");
-        assert_eq!(build_urc("g", "a", "path/"), "//g/a/path/");
+        assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
+        assert_eq!(HAVIAddress::build_urc_string("g", "", ""), "//g/");
+        assert_eq!(HAVIAddress::build_urc_string("g", "a", "/"), "//g/a/");
+        assert_eq!(HAVIAddress::build_urc_string("g", "a", "path/"), "//g/a/path/");
     }
 
     #[test]

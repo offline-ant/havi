@@ -15,7 +15,7 @@ interface HpprPacket {
     DOMString? getHeader(DOMString name);        // Get single header value
     sequence<DOMString> getHeaders(DOMString name);  // Get all values for header
     sequence<DOMString> headers();               // All headers as "Name: value" strings
-    sequence<DOMString> customHeaders();           // Custom plex headers only (excludes Group,App, Location, Tai, Blob markline, and Data-Lenght)
+    sequence<DOMString> customHeaders();           // Custom plex headers only (excludes Group, App, Location, Tai, Blob markline, and Data-Length)
 
     // Coordinate (plex/seal only)
     readonly attribute DOMString? group;

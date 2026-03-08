@@ -8,25 +8,10 @@
 
 use std::sync::Arc;
 
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
-use pulldown_cmark::{Options, Parser, html};
-
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
-use crate::util::{html_escape, mime_from_path};
-
-/// Characters that need encoding in URL path segments.
-const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'#')
-    .add(b'<')
-    .add(b'>')
-    .add(b'`')
-    .add(b'?')
-    .add(b'{')
-    .add(b'}');
+use crate::util::{markdown_to_html, mime_from_path, render_directory_listing};
 
 /// Handle a file:// URL request.
 pub async fn handle_request(
@@ -140,70 +125,7 @@ fn render_directory(path: &str) -> PageResponse {
     }
     names.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let links: String = names
-        .iter()
-        .map(|(name, is_dir)| {
-            let display = if *is_dir {
-                format!("{}/", name)
-            } else {
-                name.clone()
-            };
-            let encoded = utf8_percent_encode(&display, PATH_SEGMENT_ENCODE_SET).to_string();
-            format!(
-                r#"<li><a href="./{}">{}</a></li>"#,
-                encoded,
-                html_escape(&display),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n            ");
-
-    let css = r#"
-        body { max-width: 800px; margin: 40px auto; }
-        h1 { border-bottom: 2px solid #4ecdc4; padding-bottom: 10px; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 8px 0; border-bottom: 1px solid #333; }
-        a { font-family: monospace; font-size: 1.1em; }
-        a:hover { color: #fff; }
-        .empty { color: #888; font-style: italic; }
-    "#;
-
-    let escaped_path = html_escape(path);
-    let content = if names.is_empty() {
-        r#"<p class="empty">(empty)</p>"#.to_string()
-    } else {
-        format!("<ul>\n            {}\n        </ul>", links)
-    };
-
-    let body = format!("    <h1>Index of {}</h1>\n    {}", escaped_path, content);
-    PageResponse::html(crate::page_shell::render_page(
-        &format!("Index of {}", escaped_path),
-        css,
-        &body,
-    ))
+    PageResponse::html(render_directory_listing(path, &names))
 }
 
-/// Convert markdown content to HTML with styling.
-fn markdown_to_html(markdown: &[u8], title: &str) -> Result<Vec<u8>, String> {
-    let markdown_str = std::str::from_utf8(markdown)
-        .map_err(|e| format!("markdown body is not valid UTF-8: {}", e))?;
 
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-
-    let parser = Parser::new_ext(markdown_str, options);
-    let mut html_body = String::new();
-    html::push_html(&mut html_body, parser);
-
-    let css = r#"
-        body { max-width: 800px; margin: 40px auto; line-height: 1.6; }
-        code { background: #2d2d4e; padding: 2px 6px; border-radius: 3px; }
-        pre { background: #2d2d4e; padding: 16px; border-radius: 8px; overflow-x: auto; }
-        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-        th, td { border: 1px solid #444; padding: 8px 12px; text-align: left; }
-        th { background: #2d2d4e; }
-    "#;
-
-    let page = crate::page_shell::render_page(title, css, &html_body);
-    Ok(page.into_bytes())
-}

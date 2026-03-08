@@ -17,7 +17,7 @@ use js::jsapi::{ClippedTime, JS_ClearPendingException, JS_GetPendingException, J
 use crate::script_runtime::JSContext as SafeJSContext;
 use js::jsval::UndefinedValue;
 use js::typedarray::ArrayBuffer;
-use malloc_size_of_derive::MallocSizeOf;
+
 
 use crate::body::decode_to_utf16_with_bom_removal;
 use crate::dom::bindings::codegen::Bindings::HpprPacketBinding::HpprPacketMethods;
@@ -31,34 +31,13 @@ use crate::dom::globalscope::GlobalScope;
 use crate::script_runtime::CanGc;
 use script_bindings::cformat;
 
-/// HPPR packet type for WebIDL compatibility.
-#[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq)]
-pub(crate) enum HpprPacketType {
-    Blob,
-    Plex,
-    Seal,
-    Null,
-}
-
-impl From<hppr_packet::PacketType> for HpprPacketType {
-    fn from(pt: hppr_packet::PacketType) -> Self {
-        match pt {
-            hppr_packet::PacketType::Blob => HpprPacketType::Blob,
-            hppr_packet::PacketType::Plex => HpprPacketType::Plex,
-            hppr_packet::PacketType::Seal => HpprPacketType::Seal,
-            hppr_packet::PacketType::Null => HpprPacketType::Null,
-        }
-    }
-}
-
-impl HpprPacketType {
-    fn as_str(&self) -> &'static str {
-        match self {
-            HpprPacketType::Blob => "Blob",
-            HpprPacketType::Plex => "Plex",
-            HpprPacketType::Seal => "Seal",
-            HpprPacketType::Null => "Null",
-        }
+/// Packet type as a display string.
+fn packet_type_str(pt: hppr_packet::PacketType) -> &'static str {
+    match pt {
+        hppr_packet::PacketType::Blob => "Blob",
+        hppr_packet::PacketType::Plex => "Plex",
+        hppr_packet::PacketType::Seal => "Seal",
+        hppr_packet::PacketType::Null => "Null",
     }
 }
 
@@ -120,11 +99,6 @@ impl HpprPacket {
             .collect()
     }
 
-    /// Get packet type.
-    fn packet_type(&self) -> HpprPacketType {
-        HpprPacketType::from(self.packet().packet_type())
-    }
-
     /// Access a field from `unpack()` for Plex/Seal packets. Returns None for Blob/Null.
     fn plex_field<'a, T>(&'a self, f: impl FnOnce(&hppr_packet::Unpacked<'a>) -> Option<T>) -> Option<T> {
         match self.packet().packet_type() {
@@ -133,34 +107,6 @@ impl HpprPacket {
             },
             _ => None,
         }
-    }
-
-    /// Extract Group (for Plex/Seal packets).
-    fn group(&self) -> Option<&str> {
-        self.plex_field(|u| u.group)
-    }
-
-    /// Extract App (for Plex/Seal packets).
-    fn app(&self) -> Option<&str> {
-        self.plex_field(|u| u.app)
-    }
-
-    /// Extract Location (for Plex/Seal packets).
-    fn location(&self) -> Option<&str> {
-        self.plex_field(|u| u.location)
-    }
-
-    /// Extract Seal-By (for Seal packets only).
-    fn seal_by(&self) -> Option<&str> {
-        match self.packet().packet_type() {
-            hppr_packet::PacketType::Seal => self.packet().unpack().seal_by,
-            _ => None,
-        }
-    }
-
-    /// Extract TAI (for Plex/Seal packets).
-    fn tai(&self) -> Option<&str> {
-        self.plex_field(|u| u.tai.map(|v| &**v))
     }
 }
 
@@ -198,7 +144,7 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
 
     /// Returns the packet type as string ("Blob", "Plex", "Seal", "Null").
     fn Type(&self) -> DOMString {
-        DOMString::from(self.packet_type().as_str())
+        DOMString::from(packet_type_str(self.packet().packet_type()))
     }
 
     /// Get a single header value by name.
@@ -233,22 +179,22 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
 
     /// Returns the Group header (Plex/Seal only).
     fn GetGroup(&self) -> Option<DOMString> {
-        self.group().map(DOMString::from)
+        self.plex_field(|u| u.group).map(DOMString::from)
     }
 
     /// Returns the App header (Plex/Seal only).
     fn GetApp(&self) -> Option<DOMString> {
-        self.app().map(DOMString::from)
+        self.plex_field(|u| u.app).map(DOMString::from)
     }
 
     /// Returns the Location header (Plex/Seal only).
     fn GetLocation(&self) -> Option<DOMString> {
-        self.location().map(DOMString::from)
+        self.plex_field(|u| u.location).map(DOMString::from)
     }
 
     /// Returns the TAI timestamp (Plex/Seal only).
     fn GetTai(&self) -> Option<DOMString> {
-        self.tai().map(DOMString::from)
+        self.plex_field(|u| u.tai.map(|v| &**v)).map(DOMString::from)
     }
 
     /// Returns the TAI as a JavaScript Date object (Plex/Seal only).
@@ -271,17 +217,18 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
 
     /// Returns the full coordinate (//<group>/<app>/<location>).
     fn GetCoordinate(&self) -> Option<DOMString> {
-        match (self.group(), self.app(), self.location()) {
-            (Some(g), Some(a), Some(l)) => {
-                Some(DOMString::from(format!("//{}/{}/{}", g, a, l)))
-            },
-            _ => None,
-        }
+        let group = self.plex_field(|u| u.group)?;
+        let app = self.plex_field(|u| u.app)?;
+        let loc = self.plex_field(|u| u.location)?;
+        Some(DOMString::from(format!("//{}/{}/{}", group, app, loc)))
     }
 
     /// Returns the Seal-By header (Seal only).
     fn GetSealBy(&self) -> Option<DOMString> {
-        self.seal_by().map(DOMString::from)
+        match self.packet().packet_type() {
+            hppr_packet::PacketType::Seal => self.packet().unpack().seal_by.map(DOMString::from),
+            _ => None,
+        }
     }
 
     /// Returns the data length in bytes.

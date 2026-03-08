@@ -138,8 +138,4 @@ impl HpprResultMethods<crate::DomTypeHolder> for HpprResult {
     fn Value(&self, _cx: JSContext, mut retval: MutableHandleValue) {
         retval.set(self.value.get())
     }
-
-    fn GetResponseEnvelope(&self) -> Option<DomRoot<HpprPacket>> {
-        None
-    }
 }

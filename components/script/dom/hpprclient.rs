@@ -191,14 +191,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         let group_str = group.to_string();
         let username_str = username.to_string();
         let password_str = password.to_string();
-        let identity = format!("ring2:{}/{}#{}", group_str, username_str, password_str);
-        if let Err(e) = Signer::parse(&identity) {
-            promise.reject_error(
-                Error::Type(cformat!("Invalid Ring2 adhoc identity: {}", e)),
-                can_gc,
-            );
-            return Ok(promise);
-        }
         let credential_input = format!("{}/{}#{}", group_str, username_str, password_str);
         let signing_key = match hppr_client::derive_ring2_adhoc_signing_key(&credential_input) {
             Ok(key) => key,

@@ -387,7 +387,7 @@ impl EnvelopeHpprClient {
     pub(crate) fn do_get_repo(&self) -> Option<DomRoot<HpprRepoInfo>> {
         if self.repo.get().is_none() {
             let can_gc = CanGc::note();
-            let repo = HpprRepoInfo::new(&self.global(), self, can_gc);
+            let repo = HpprRepoInfo::new(&self.global(), can_gc);
             self.repo.set(Some(&repo));
         }
         self.repo.get()

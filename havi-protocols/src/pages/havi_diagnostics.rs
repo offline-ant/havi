@@ -7,26 +7,7 @@ use std::sync::Arc;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
 use crate::join_fixture::{JoinFixtureState, get_join_fixture_state, set_join_fixture_state};
-
-fn append_location(root: &str, requested_location: &str) -> String {
-    let root_base = root.trim_end_matches('/');
-    let requested = requested_location.trim_matches('/');
-    if requested.is_empty() {
-        root_base.to_string()
-    } else {
-        format!("{}/{}", root_base, requested)
-    }
-}
-
-fn signing_to_verifying_key(signing_key: &str) -> Result<String, String> {
-    let (tc, sk_bytes) = hppr_packet::crypto::t_b64a_h3_decode(signing_key)
-        .map_err(|e| format!("Invalid route signing key: {}", e))?;
-    if tc != '&' {
-        return Err("Invalid route signing key: expected '&' prefix".to_string());
-    }
-    hppr_packet::crypto::get_verification_key(&sk_bytes)
-        .map_err(|e| format!("Failed to derive route verification key: {}", e))
-}
+use crate::util::{append_location, signing_to_verifying_key};
 
 async fn inspect_route_deploy_auth_join(
     group: &str,
@@ -52,15 +33,15 @@ async fn inspect_route_deploy_auth_join(
 
     let mut local_repo_vkey: Option<String> = None;
 
-    if let Some(admin) = credential_store.get_admin() {
+    if credential_store.get_admin().is_some() {
         match client
-            .get_admin_identity(&admin.ring1_name, admin.token())
+            .get_admin_identity()
             .await
         {
             Ok(repo_vkey) => {
                 local_repo_vkey = Some(repo_vkey.clone());
                 match client
-                    .get_route(group, app, &repo_vkey, &admin.ring1_name, admin.token())
+                    .get_route(group, app, &repo_vkey)
                     .await
                 {
                     Ok(route) => {
@@ -110,7 +91,7 @@ async fn inspect_route_deploy_auth_join(
 
     let remote_repo_vkey = match &route_upstream_key {
         Some(v) => Some(v.clone()),
-        None => match route_anyone.get_admin_identity("", "").await {
+        None => match route_anyone.get_admin_identity().await {
             Ok(v) => Some(v),
             Err(e) => {
                 deploy_json["error"] = serde_json::json!(e);
@@ -124,7 +105,7 @@ async fn inspect_route_deploy_auth_join(
     let mut target_get: Option<String> = None;
 
     if let Some(repo_vkey) = remote_repo_vkey.clone() {
-        match route_anyone.get_deploy(group, app, &repo_vkey, "", "").await {
+        match route_anyone.get_deploy(group, app, &repo_vkey).await {
             Ok(deploy) => {
                 let target = append_location(&deploy.root, location);
                 let target_urc = format!("{}/|/seal/{}", target, deploy.signer);
@@ -153,9 +134,9 @@ async fn inspect_route_deploy_auth_join(
     let mut requester_vkey: Option<String> = None;
     let mut route_key_error: Option<String> = None;
 
-    if let (Some(admin), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
+    if let (Some(_), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
         match client
-            .get_route_key(group, &repo_vkey, &admin.ring1_name, admin.token())
+            .get_route_key(group, &repo_vkey)
             .await
         {
             Ok(route_key) => {
@@ -186,7 +167,7 @@ async fn inspect_route_deploy_auth_join(
         ));
         let target = append_location(root, location);
         let target_urc = format!("{}/|/seal/{}", target, deploy_signer_value);
-        match route_auth.get_packet_authenticated(&target_urc, "", "").await {
+        match route_auth.get_packet_authenticated(&target_urc).await {
             Ok(_) => auth_probe = "authorized".to_string(),
             Err(e) => {
                 if e.contains("UNAUTHORIZED") {
@@ -210,7 +191,7 @@ async fn inspect_route_deploy_auth_join(
         join_reply_path = Some(reply_path.clone());
         join_request_path = Some(request_path.clone());
 
-        match route_anyone.get_packet_authenticated(&reply_path, "", "").await {
+        match route_anyone.get_packet_authenticated(&reply_path).await {
             Ok(packet) => {
                 let status = packet
                     .header("Request-Status")
@@ -222,7 +203,7 @@ async fn inspect_route_deploy_auth_join(
                     _ => "unknown".to_string(),
                 };
             },
-            Err(reply_err) => match route_anyone.get_packet_authenticated(&request_path, "", "").await {
+            Err(reply_err) => match route_anyone.get_packet_authenticated(&request_path).await {
                 Ok(_) => {
                     join_remote = "pending".to_string();
                 },

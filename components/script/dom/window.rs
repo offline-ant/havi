@@ -205,9 +205,7 @@ use crate::webdriver_handlers::{find_node_by_unique_id_in_document, jsval_to_web
 use hppr_client::Signer;
 use crate::{fetch, window_named_properties};
 
-fn default_hppr_endpoint() -> String {
-    ScriptThread::home_hppr_endpoint()
-}
+use crate::dom::envelopehpprclient::default_endpoint;
 
 /// A callback to call when a response comes back from the `ImageCache`.
 ///
@@ -1460,7 +1458,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
     /// HPPR home repo client (ring1 sandbox account).
     fn Home(&self) -> DomRoot<HpprClient> {
         self.hppr_home.or_init(|| {
-            let endpoint = default_hppr_endpoint();
+            let endpoint = default_endpoint();
 
             // Use pre-fetched home repo credentials from document (non-blocking)
             // Site credentials use keypair-based seal auth via Ring1 Member list
@@ -1515,7 +1513,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
         }
 
         Some(self.ring0.or_init(|| {
-            let endpoint = default_hppr_endpoint();
+            let endpoint = default_endpoint();
 
 
             // Read admin credentials (ring1_name, token) for window.ring0

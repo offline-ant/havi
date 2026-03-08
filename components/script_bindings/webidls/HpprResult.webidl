@@ -12,5 +12,4 @@ interface HpprResult {
     // - detach(): undefined
     // - hello(): DOMString
     readonly attribute any value;
-    readonly attribute HpprPacket? responseEnvelope;
 };

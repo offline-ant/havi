@@ -199,7 +199,6 @@ declare var Address: {
 };
 interface HpprResult {
   readonly value: any;
-  readonly responseEnvelope: HpprPacket | null;
 }
 interface HpprError extends DOMException {
   readonly type: string;

@@ -268,8 +268,6 @@ impl HpprdClientAsync {
     pub async fn get_authenticated(
         &self,
         urc: &str,
-        _account: &str,
-        _token: &str,
     ) -> Result<(String, Vec<u8>), String> {
         let p = self
             .request_packet(IoRequest::Get {
@@ -287,12 +285,10 @@ impl HpprdClientAsync {
         .await
     }
 
-    /// GET returning validated Packet (public wrapper, legacy signature).
+    /// GET returning validated Packet.
     pub async fn get_packet_authenticated(
         &self,
         urc: &str,
-        _account: &str,
-        _token: &str,
     ) -> Result<Packet, String> {
         self.get_packet(urc).await
     }
@@ -339,8 +335,6 @@ impl HpprdClientAsync {
         group: &str,
         app: &str,
         repo_vkey: &str,
-        _account: &str,
-        _token: &str,
     ) -> Result<RouteInfo, String> {
         let urc = format!("//repo/admin/route/{}/{}/|/seal/{}", group, app, repo_vkey);
         let packet = self.get_packet(&urc).await?;
@@ -385,8 +379,6 @@ impl HpprdClientAsync {
         &self,
         group: &str,
         repo_vkey: &str,
-        _account: &str,
-        _token: &str,
     ) -> Result<RouteKeyInfo, String> {
         let urc = format!("//repo/admin/route-keys/{}/|/seal/{}", group, repo_vkey);
         let packet = self.get_packet(&urc).await?;
@@ -408,10 +400,8 @@ impl HpprdClientAsync {
         &self,
         group: &str,
         repo_vkey: &str,
-        account: &str,
-        token: &str,
     ) -> Result<RouteKeyInfo, String> {
-        if let Ok(existing) = self.get_route_key(group, repo_vkey, account, token).await {
+        if let Ok(existing) = self.get_route_key(group, repo_vkey).await {
             return Ok(existing);
         }
 
@@ -427,13 +417,13 @@ impl HpprdClientAsync {
         );
         self.add(add_args.as_bytes()).await?;
 
-        self.get_route_key(group, repo_vkey, account, token).await
+        self.get_route_key(group, repo_vkey).await
     }
 
     /// Get admin identity (verification key) from host.
     ///
     /// Used for route lookups (coordinate scheme requires admin key).
-    pub async fn get_admin_identity(&self, _account: &str, _token: &str) -> Result<String, String> {
+    pub async fn get_admin_identity(&self) -> Result<String, String> {
         let urc = "//repo/admin/identity/|";
         let packet = self.get_packet(urc).await?;
 
@@ -456,8 +446,6 @@ impl HpprdClientAsync {
         group: &str,
         app: &str,
         repo_vkey: &str,
-        _account: &str,
-        _token: &str,
     ) -> Result<DeployInfo, String> {
         let urc = format!("//{}/admin/deploy/{}/|/seal/{}", group, app, repo_vkey);
         let packet = self.get_packet(&urc).await?;

@@ -18,7 +18,6 @@ use crate::dom::bindings::error::Error;
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
-use crate::dom::envelopehpprclient::EnvelopeHpprClient;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::promise::Promise;
 use crate::routed_promise::{RoutedPromiseListener, callback_promise};
@@ -54,7 +53,7 @@ impl HpprRepoInfo {
     }
 
     /// Create a new HpprRepoInfo instance.
-    pub(crate) fn new(global: &GlobalScope, _client: &EnvelopeHpprClient, can_gc: CanGc) -> DomRoot<Self> {
+    pub(crate) fn new(global: &GlobalScope, can_gc: CanGc) -> DomRoot<Self> {
         reflect_dom_object(Box::new(Self::new_inherited()), global, can_gc)
     }
 
@@ -81,50 +80,31 @@ impl HpprRepoInfo {
     }
 }
 
+impl HpprRepoInfo {
+    /// Check admin origin, create promise, and send a control operation.
+    fn admin_control(&self, request: HpprControlRequest) -> Rc<Promise> {
+        let can_gc = CanGc::note();
+        let global = self.global();
+        if let Err(promise) = check_admin_origin(&global, "repo", can_gc) {
+            return promise;
+        }
+        let promise = Promise::new(&global, can_gc);
+        self.send_control_operation(request, &promise);
+        promise
+    }
+}
+
 impl HpprRepoInfoMethods<crate::DomTypeHolder> for HpprRepoInfo {
-    /// Get the hpprd home repo daemon port.
     fn Port(&self) -> Rc<Promise> {
-        let can_gc = CanGc::note();
-        let global = self.global();
-
-        // Check origin restriction
-        if let Err(promise) = check_admin_origin(&global, "repo", can_gc) {
-            return promise;
-        }
-
-        let promise = Promise::new(&global, can_gc);
-        self.send_control_operation(HpprControlRequest::RepoPort, &promise);
-        promise
+        self.admin_control(HpprControlRequest::RepoPort)
     }
 
-    /// Get the hpprd repo path.
     fn RepoPath(&self) -> Rc<Promise> {
-        let can_gc = CanGc::note();
-        let global = self.global();
-
-        // Check origin restriction
-        if let Err(promise) = check_admin_origin(&global, "repo", can_gc) {
-            return promise;
-        }
-
-        let promise = Promise::new(&global, can_gc);
-        self.send_control_operation(HpprControlRequest::RepoPathQuery, &promise);
-        promise
+        self.admin_control(HpprControlRequest::RepoPathQuery)
     }
 
-    /// Get home repo status: "embedded" or "external".
     fn Status(&self) -> Rc<Promise> {
-        let can_gc = CanGc::note();
-        let global = self.global();
-
-        // Check origin restriction
-        if let Err(promise) = check_admin_origin(&global, "repo", can_gc) {
-            return promise;
-        }
-
-        let promise = Promise::new(&global, can_gc);
-        self.send_control_operation(HpprControlRequest::RepoStatus, &promise);
-        promise
+        self.admin_control(HpprControlRequest::RepoStatus)
     }
 }
 

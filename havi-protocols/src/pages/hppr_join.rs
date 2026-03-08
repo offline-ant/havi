@@ -13,7 +13,8 @@ use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
 use crate::join_fixture::get_join_fixture_state;
-use crate::util::{html_escape, resolve_route_endpoint};
+use crate::url::HAVIAddress;
+use crate::util::{html_escape, resolve_route_endpoint, signing_to_verifying_key};
 
 /// Handle an hppr-join:// URL request.
 pub async fn handle_request(
@@ -21,10 +22,15 @@ pub async fn handle_request(
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> PageResponse {
-    let (group, app) = match parse_join_url(url) {
-        Ok(parts) => parts,
-        Err(e) => return render_error(&e),
+    let address = match HAVIAddress::parse(url) {
+        Ok(a) => a,
+        Err(e) => return render_error(&e.to_string()),
     };
+    let parts = address.parts();
+    let (group, app) = (parts.group, parts.app);
+    if group.is_empty() || app.is_empty() {
+        return render_error("Invalid hppr-join URL: expected hppr-join://group/app/");
+    }
 
     let route_cred = match credential_store
         .get_or_create_route_credential_async(&group, client)
@@ -53,34 +59,6 @@ pub async fn handle_request(
     response.hppr_endpoint = Some(endpoint.to_string());
     response.hppr_signer = Some(format!("ring2:{}#{}", group, route_sk));
     response
-}
-
-fn parse_join_url(url: &str) -> Result<(String, String), String> {
-    let rest = url
-        .strip_prefix("hppr-join://")
-        .ok_or("Invalid hppr-join URL: expected hppr-join://group/app/")?;
-
-    let coord = rest.split('{').next().unwrap_or(rest);
-    let mut parts = coord.split('/').filter(|s| !s.is_empty());
-
-    let group = parts.next().unwrap_or_default().to_string();
-    let app = parts.next().unwrap_or_default().to_string();
-
-    if group.is_empty() || app.is_empty() {
-        return Err("Invalid hppr-join URL: expected hppr-join://group/app/".to_string());
-    }
-
-    Ok((group, app))
-}
-
-fn signing_to_verifying_key(signing_key: &str) -> Result<String, String> {
-    let (tc, sk_bytes) = hppr_packet::crypto::t_b64a_h3_decode(signing_key)
-        .map_err(|e| format!("Invalid route signing key: {}", e))?;
-    if tc != '&' {
-        return Err("Invalid route signing key: expected '&' prefix".to_string());
-    }
-    hppr_packet::crypto::get_verification_key(&sk_bytes)
-        .map_err(|e| format!("Failed to derive route verification key: {}", e))
 }
 
 fn render_join_page(

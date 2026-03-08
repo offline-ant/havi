@@ -218,14 +218,13 @@ impl CredentialStore {
             }
         }
 
-        let admin = self
-            .get_admin()
+        self.get_admin()
             .ok_or("No admin credential available for route key lookup")?;
         let repo_vkey = client
-            .get_admin_identity(&admin.ring1_name, admin.token())
+            .get_admin_identity()
             .await?;
         let route_key = client
-            .ensure_route_key(group, &repo_vkey, &admin.ring1_name, admin.token())
+            .ensure_route_key(group, &repo_vkey)
             .await?;
 
         let cred = RouteCredential::new(route_key.signing_key);

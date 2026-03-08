@@ -24,7 +24,7 @@ pub async fn handle_request(
     let address = match HAVIAddress::parse(url) {
         Ok(u) => u,
         Err(e) => {
-            return PageResponse::html(render_editor_error(&format!("Invalid coordinate: {}", e)));
+            return PageResponse::error("Editor Error", &format!("Invalid coordinate: {}", e), None);
         },
     };
 
@@ -32,22 +32,22 @@ pub async fn handle_request(
     let urc = address.urc_string();
 
     if parts.group.is_empty() || parts.app.is_empty() {
-        return PageResponse::html(render_editor_error("Group and app must not be empty"));
+        return PageResponse::error("Editor Error", "Group and app must not be empty", None);
     }
 
     // Fetch current content via ring0
     let current_content = match credential_store.get_admin() {
-        Some(cred) => {
-            let content_result = client
-                .get_authenticated(&urc, &cred.ring1_name, &cred.token().to_string())
-                .await;
+        Some(_cred) => {
+            let content_result = client.get_authenticated(&urc).await;
             match content_result {
                 Ok((_, body)) => match String::from_utf8(body) {
                     Ok(s) => s,
                     Err(_) => {
-                        return PageResponse::html(render_editor_error(
+                        return PageResponse::error(
+                            "Editor Error",
                             "Content is not valid UTF-8 and cannot be edited as text",
-                        ));
+                            None,
+                        );
                     },
                 },
                 Err(_) => String::new(),
@@ -180,29 +180,4 @@ fn render_editor_html(group: &str, app: &str, location: &str, content: &str, urc
     )
 }
 
-/// Render editor error page.
-fn render_editor_error(error: &str) -> String {
-    let css = r#"
-        .error-container { max-width: 600px; margin: 80px auto; }
-        h1 { color: #ff6b6b; }
-        .error {
-            background: #2d1f1f;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #ff6b6b;
-            font-family: monospace;
-            color: #ff6b6b;
-        }
-    "#;
 
-    let body = format!(
-        r#"    <div class="error-container">
-        <h1>Editor Error</h1>
-        <div class="error">{error}</div>
-        <p><button onclick="history.back()">Go Back</button></p>
-    </div>"#,
-        error = html_escape(error)
-    );
-
-    crate::page_shell::render_page("Editor Error - HAVI", css, &body)
-}
