@@ -381,6 +381,25 @@ def cmd_query(args, conn):
         print(line)
 
 
+def cmd_control(args, conn):
+    req_id = int(time.monotonic() * 1000) & 0xFFFFFFFF
+    op = args.op if args.op else ""
+    arg = " ".join(args.arg) if args.arg else ""
+    conn.send(mkv("WidgetControl", {"request_id": req_id, "id": args.id,
+                                     "op": op, "arg": arg}))
+    tick(conn)
+    resp = conn.recv(
+        match_fn=lambda m: isinstance(m, dict) and "WidgetResponse" in m,
+        timeout=10)
+    if not resp or "WidgetResponse" not in resp:
+        print(json.dumps(resp or {"error": "timeout"}))
+        sys.exit(1)
+    data = resp["WidgetResponse"]
+    if isinstance(data, list):
+        data = data[0]
+    print(json.dumps(data))
+
+
 def cmd_send(args, conn):
     msg = json.loads(args.json)
     conn.send(msg)
@@ -420,6 +439,9 @@ def cmd_pipe(args, conn):
             argparse.Namespace(), conn),
         "query": lambda parts: cmd_query(
             argparse.Namespace(query=" ".join(parts)), conn),
+        "control": lambda parts: cmd_control(
+            argparse.Namespace(id=parts[0], op=parts[1] if len(parts) > 1 else "",
+                               arg=parts[2:] if len(parts) > 2 else []), conn),
         "send": lambda parts: cmd_send(
             argparse.Namespace(json=" ".join(parts)), conn),
     }
@@ -511,6 +533,12 @@ def main():
     s = sub.add_parser("query", help="Query widget tree (id:name, type:name, or substring)")
     s.add_argument("query")
     s.set_defaults(func=cmd_query)
+
+    s = sub.add_parser("control", help="Control a widget by id")
+    s.add_argument("id", help="Widget id from dump")
+    s.add_argument("op", nargs="?", default="", help="Control operation (empty = list ops)")
+    s.add_argument("arg", nargs="*", help="Operation argument")
+    s.set_defaults(func=cmd_control)
 
     s = sub.add_parser("send", help="Send raw JSON")
     s.add_argument("json")
