@@ -107,20 +107,59 @@ fn render_join_page(
         }
         .primary { background: #27ae60; color: #fff; }
         .secondary { background: #444; color: #eee; }
-        #status { margin-top: 12px; color: #aaa; }
-        #status.error { color: #ff6b6b; }
-        #status.ok { color: #4ecdc4; }
+        input[type="text"], input[type="password"] {
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eee;
+            padding: 8px 10px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input:focus { border-color: #27ae60; outline: none; }
+        .separator {
+            text-align: center;
+            color: #666;
+            margin: 24px 0 8px;
+            font-size: 13px;
+        }
+        .separator span {
+            background: #0f0f23;
+            padding: 0 12px;
+        }
+        .separator hr {
+            border: none;
+            border-top: 1px solid #333;
+            margin-top: -8px;
+        }
+        .status { margin-top: 12px; color: #aaa; }
+        .status.error { color: #ff6b6b; }
+        .status.ok { color: #4ecdc4; }
     "#;
 
     let body = format!(
         r#"    <h1>Join group</h1>
-    <p>Request membership for <code>//{group}/{app}/</code>.</p>
+    <p>Access to <code>//{group}/{app}/</code> requires group membership.</p>
 
     <div class="card">
         <div class="row">
-            <span class="label">Group</span>
-            <div class="mono">{group}</div>
+            <span class="label">Username</span>
+            <input type="text" id="login-user" autocomplete="username">
         </div>
+        <div class="row">
+            <span class="label">Password</span>
+            <input type="password" id="login-pass" autocomplete="current-password">
+        </div>
+        <div class="actions">
+            <button class="primary" id="login-btn">Log in</button>
+        </div>
+        <div id="login-status" class="status"></div>
+    </div>
+
+    <div class="separator"><span>or request to join</span><hr></div>
+
+    <div class="card">
         <div class="row">
             <span class="label">Your route verification key</span>
             <div class="mono" id="route-vkey">{route_vkey}</div>
@@ -133,7 +172,7 @@ fn render_join_page(
             <button class="secondary" id="copy-btn">Copy key</button>
             <button class="primary" id="join-btn">Request to join</button>
         </div>
-        <div id="status"></div>
+        <div id="join-status" class="status"></div>
     </div>
 
     <script>
@@ -143,16 +182,70 @@ fn render_join_page(
         const ROUTE_VKEY = {vkey_js:?};
         const ROUTE_SK = {sk_js:?};
         const JOIN_FIXTURE = {fixture_js:?};
+        const ENDPOINT = window.route ? window.route.endpoint : '';
+
+        const loginBtn = document.getElementById('login-btn');
+        const loginUser = document.getElementById('login-user');
+        const loginPass = document.getElementById('login-pass');
+        const loginStatus = document.getElementById('login-status');
 
         const joinBtn = document.getElementById('join-btn');
         const copyBtn = document.getElementById('copy-btn');
-        const statusEl = document.getElementById('status');
+        const joinStatus = document.getElementById('join-status');
 
-        function setStatus(text, cls) {{
-            if (!statusEl) return;
-            statusEl.textContent = text;
-            statusEl.className = cls || '';
+        function setStatus(el, text, cls) {{
+            if (!el) return;
+            el.textContent = text;
+            el.className = 'status ' + (cls || '');
         }}
+
+        // --- Password login ---
+
+        async function passwordLogin() {{
+            const username = loginUser.value.trim();
+            const password = loginPass.value;
+
+            if (!username) {{
+                setStatus(loginStatus, 'Username is required.', 'error');
+                return;
+            }}
+            if (!password) {{
+                setStatus(loginStatus, 'Password is required.', 'error');
+                return;
+            }}
+            if (!ENDPOINT) {{
+                setStatus(loginStatus, 'No route endpoint available.', 'error');
+                return;
+            }}
+
+            loginBtn.disabled = true;
+            setStatus(loginStatus, 'Connecting...');
+
+            try {{
+                const client = await HpprClient.connectRing2Password(
+                    ENDPOINT, GROUP, username, password
+                );
+                // Probe: try HELLO to verify the derived key is accepted.
+                await client.hello();
+                setStatus(loginStatus, 'Authenticated. Opening site...', 'ok');
+                window.address.href = 'hppr://' + GROUP + '/' + APP + '/';
+            }} catch (e) {{
+                const msg = e && e.message ? e.message : String(e);
+                if (msg.includes('UNAUTHORIZED') || msg.includes('not a member')) {{
+                    setStatus(loginStatus, 'Login failed: not a member of this group.', 'error');
+                }} else {{
+                    setStatus(loginStatus, 'Login failed: ' + msg, 'error');
+                }}
+                loginBtn.disabled = false;
+            }}
+        }}
+
+        loginBtn.addEventListener('click', passwordLogin);
+        loginPass.addEventListener('keydown', function(e) {{
+            if (e.key === 'Enter') passwordLogin();
+        }});
+
+        // --- Join request ---
 
         async function pollReply(replyPath) {{
             try {{
@@ -161,15 +254,15 @@ fn render_join_page(
                 if (!status) return false;
 
                 if (status === 'approved') {{
-                    setStatus('Approved. Opening site...', 'ok');
+                    setStatus(joinStatus, 'Approved. Opening site...', 'ok');
                     window.address.href = 'hppr://' + GROUP + '/' + APP + '/';
                     return true;
                 }}
                 if (status === 'denied') {{
-                    setStatus('Join request denied.', 'error');
+                    setStatus(joinStatus, 'Join request denied.', 'error');
                     return true;
                 }}
-                setStatus('Request status: ' + status, 'ok');
+                setStatus(joinStatus, 'Request status: ' + status, 'ok');
                 return true;
             }} catch (_e) {{
                 return false;
@@ -178,19 +271,19 @@ fn render_join_page(
 
         async function requestJoin() {{
             if (!window.route) {{
-                setStatus('window.route is unavailable for this page.', 'error');
+                setStatus(joinStatus, 'window.route is unavailable for this page.', 'error');
                 return;
             }}
 
             joinBtn.disabled = true;
-            setStatus('Submitting join request...');
+            setStatus(joinStatus, 'Submitting join request...');
 
             if (JOIN_FIXTURE === 'pending') {{
-                setStatus('Request status: pending (fixture)', 'ok');
+                setStatus(joinStatus, 'Request status: pending (fixture)', 'ok');
                 return;
             }}
             if (JOIN_FIXTURE === 'approved') {{
-                setStatus('Approved. Opening site... (fixture)', 'ok');
+                setStatus(joinStatus, 'Approved. Opening site... (fixture)', 'ok');
                 window.address.href = 'hppr://' + GROUP + '/' + APP + '/';
                 return;
             }}
@@ -207,7 +300,7 @@ fn render_join_page(
                 }});
 
                 const replyPath = '//' + GROUP + '/admin/request/join/' + ROUTE_VKEY + '/reply/';
-                setStatus('Request sent. Waiting for response...');
+                setStatus(joinStatus, 'Request sent. Waiting for response...');
 
                 if (await pollReply(replyPath)) {{
                     return;
@@ -220,15 +313,15 @@ fn render_join_page(
                     }}
                 }};
                 watch.onerror = function() {{
-                    setStatus('Watch failed. Refresh to retry.', 'error');
+                    setStatus(joinStatus, 'Watch failed. Refresh to retry.', 'error');
                 }};
                 watch.onclose = function() {{
-                    if (!statusEl || statusEl.className !== 'ok') {{
+                    if (!joinStatus || !joinStatus.classList.contains('ok')) {{
                         joinBtn.disabled = false;
                     }}
                 }};
             }} catch (e) {{
-                setStatus('Join request failed: ' + (e && e.message ? e.message : String(e)), 'error');
+                setStatus(joinStatus, 'Join request failed: ' + (e && e.message ? e.message : String(e)), 'error');
                 joinBtn.disabled = false;
             }}
         }}
@@ -236,9 +329,9 @@ fn render_join_page(
         copyBtn.addEventListener('click', async function() {{
             try {{
                 await navigator.clipboard.writeText(ROUTE_VKEY);
-                setStatus('Route key copied.', 'ok');
+                setStatus(joinStatus, 'Route key copied.', 'ok');
             }} catch (_e) {{
-                setStatus('Failed to copy route key.', 'error');
+                setStatus(joinStatus, 'Failed to copy route key.', 'error');
             }}
         }});
 

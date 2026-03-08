@@ -40,7 +40,7 @@ pending_status=$("$debugtool" --timeout 10 eval --await \
 sleep 1
 
 pending_effect=$("$debugtool" --timeout 10 eval --await \
-    '(() => { const status = (document.getElementById("status") || {}).textContent || ""; return status.includes("pending") && window.address.href.startsWith("hppr-join://"); })()' \
+    '(() => { const status = (document.getElementById("join-status") || {}).textContent || ""; return status.includes("pending") && window.address.href.startsWith("hppr-join://"); })()' \
     2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$pending_effect" == "true" ]] || fail "pending fixture did not keep deterministic pending state"
 

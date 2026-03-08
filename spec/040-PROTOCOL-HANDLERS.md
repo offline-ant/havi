@@ -105,12 +105,32 @@ Ring2 membership request flow.
 The page is local HTML and receives `window.route` credentials for the target
 route endpoint and group route key signer.
 
-Join flow:
+The page offers two paths:
+
+### Password login
+
+If the user already has a group account (username + password), they can log in
+directly:
+
+1. enter username and password
+2. page derives Ring2 adhoc key client-side via `connectRing2Password()`
+3. test the derived identity with a probe request
+4. on success, navigate to `hppr://<group>/<app>/`
+5. on failure (not a member), show error
+
+Password login bypasses the join request/approval flow entirely. It works when
+the derived verification key is already registered as a `Member` in the group.
+
+### Join request
+
+If the user does not have credentials, request membership:
 
 1. show group/app and requester route verification key
 2. submit request with `window.route.add()` to `//<group>/admin/request/join/|`
 3. watch `//<group>/admin/request/join/<requester-vkey>/reply/`
 4. on `Request-Status: approved`, navigate to `hppr://<group>/<app>/`
+
+### Fixture mode
 
 Join fixture mode for deterministic tests can override join result handling with
 process-local state:

@@ -48,8 +48,14 @@ done
 
 join_btn=$($debugtool --timeout 5 eval 'Boolean(document.getElementById("join-btn"))' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 route_vkey=$($debugtool --timeout 5 eval 'Boolean(document.getElementById("route-vkey"))' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
+login_btn=$($debugtool --timeout 5 eval 'Boolean(document.getElementById("login-btn"))' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
+login_user=$($debugtool --timeout 5 eval 'Boolean(document.getElementById("login-user"))' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
+login_pass=$($debugtool --timeout 5 eval 'Boolean(document.getElementById("login-pass"))' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 
 [[ "$join_btn" == "true" ]] || fail "join page missing #join-btn"
 [[ "$route_vkey" == "true" ]] || fail "join page missing #route-vkey"
+[[ "$login_btn" == "true" ]] || fail "join page missing #login-btn"
+[[ "$login_user" == "true" ]] || fail "join page missing #login-user"
+[[ "$login_pass" == "true" ]] || fail "join page missing #login-pass"
 
 log "PASS"
