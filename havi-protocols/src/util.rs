@@ -15,6 +15,12 @@ use crate::client::HpprdClientAsync;
 // Re-export credential types from credentials module
 pub use crate::credentials::{CredentialStoreHandle, global_credential_store};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteEndpointSource {
+    HomeFallback,
+    Routed,
+}
+
 /// Characters that need encoding in URL path segments.
 pub const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -215,22 +221,22 @@ pub fn render_error_page(title: &str, message: &str, hint: Option<&str>) -> Stri
 /// - Admin identity lookup fails
 /// - Route lookup fails or has no upstream address
 ///
-/// Returns `(endpoint, upstream_verification_key)`.
+/// Returns `(endpoint, upstream_verification_key, source)`.
 pub async fn resolve_route_endpoint(
     group: &str,
     app: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
-) -> (ViaSpec, Option<String>) {
+) -> (ViaSpec, Option<String>, RouteEndpointSource) {
     let repo_target = repo_client.target();
 
     if group.is_empty() || app.is_empty() {
-        return (repo_target, None);
+        return (repo_target, None, RouteEndpointSource::HomeFallback);
     }
 
     if credential_store.get_admin().is_none() {
         log::debug!("No admin credential for route lookup, falling back to repo");
-        return (repo_target, None);
+        return (repo_target, None, RouteEndpointSource::HomeFallback);
     }
 
     let repo_vkey = match repo_client.get_admin_identity().await {
@@ -240,7 +246,7 @@ pub async fn resolve_route_endpoint(
                 "Failed to get admin identity for route lookup: {}, falling back to repo",
                 e
             );
-            return (repo_target, None);
+            return (repo_target, None, RouteEndpointSource::HomeFallback);
         },
     };
 
@@ -257,7 +263,11 @@ pub async fn resolve_route_endpoint(
                 );
                 repo_target.clone()
             });
-            (endpoint, route_info.upstream_verification_key)
+            (
+                endpoint,
+                route_info.upstream_verification_key,
+                RouteEndpointSource::Routed,
+            )
         },
         Err(e) => {
             log::debug!("No route for {}/{}: {}", group, app, e);
@@ -288,9 +298,13 @@ pub async fn resolve_route_endpoint(
                         ),
                     }
 
-                    (index.upstream, index.upstream_verification_key)
+                    (
+                        index.upstream,
+                        index.upstream_verification_key,
+                        RouteEndpointSource::Routed,
+                    )
                 }
-                Ok(None) => (repo_target, None),
+                Ok(None) => (repo_target, None, RouteEndpointSource::HomeFallback),
                 Err(err) => {
                     log::info!(
                         "Bootstrap lookup failed for //{}/{}: {}, falling back to repo",
@@ -298,7 +312,7 @@ pub async fn resolve_route_endpoint(
                         app,
                         err
                     );
-                    (repo_target, None)
+                    (repo_target, None, RouteEndpointSource::HomeFallback)
                 }
             }
         }

@@ -17,7 +17,8 @@ use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
 use crate::url::{HAVIAddress, via_url};
 use crate::util::{
-    append_location, html_escape, markdown_to_html, mime_from_path, resolve_route_endpoint,
+    RouteEndpointSource, append_location, html_escape, markdown_to_html, mime_from_path,
+    resolve_route_endpoint,
 };
 
 /// Resolve a HAVIAddress to endpoint and route metadata.
@@ -26,24 +27,24 @@ async fn resolve_target(
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
     page_endpoint: Option<&ViaSpec>,
-) -> Result<(ViaSpec, Option<String>), String> {
+) -> Result<(ViaSpec, Option<String>, RouteEndpointSource), String> {
     let repo_target = repo_client.target();
 
     let parts = url.parts();
-    let (endpoint, upstream_key) = if let Some(endpoint) = url.endpoint_string() {
+    let (endpoint, upstream_key, source) = if let Some(endpoint) = url.endpoint_string() {
         if endpoint == "repo" {
-            (repo_target, None)
+            (repo_target, None, RouteEndpointSource::HomeFallback)
         } else {
             let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
-            (via, None)
+            (via, None, RouteEndpointSource::Routed)
         }
     } else if let Some(endpoint) = page_endpoint {
-        (endpoint.clone(), None)
+        (endpoint.clone(), None, RouteEndpointSource::Routed)
     } else {
         resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await
     };
 
-    Ok((endpoint, upstream_key))
+    Ok((endpoint, upstream_key, source))
 }
 
 async fn resolve_deployment_target(
@@ -118,7 +119,7 @@ pub async fn handle_request(
         }
     }
 
-    let (endpoint, upstream_key) = match resolve_target(&address, client, credential_store, None).await {
+    let (endpoint, upstream_key, source) = match resolve_target(&address, client, credential_store, None).await {
         Ok(r) => r,
         Err(e) => {
             return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
@@ -131,7 +132,7 @@ pub async fn handle_request(
         endpoint,
         urc
     );
-    let is_repo = endpoint == client.target();
+    let is_repo = matches!(source, RouteEndpointSource::HomeFallback);
     let is_listing = address.is_listing();
 
     if is_listing {
