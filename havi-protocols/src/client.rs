@@ -114,14 +114,14 @@ impl HpprdClientAsync {
         }
     }
 
-    async fn get_conn(&self) -> Result<AnyConnection, String> {
-        let mut guard = self.conn.lock().await;
-        if let Some(conn) = guard.as_ref() {
-            return Ok(conn.fork().await.map_err(|e| e.to_string())?);
+    async fn ensure_conn<'a>(
+        &'a self,
+        guard: &'a mut Option<AnyConnection>,
+    ) -> Result<&'a mut AnyConnection, String> {
+        if guard.is_none() {
+            *guard = Some(self.connect_via().await?);
         }
-        let any = self.connect_via().await?;
-        *guard = Some(any.fork().await.map_err(|e| e.to_string())?);
-        Ok(any)
+        Ok(guard.as_mut().unwrap())
     }
 
     pub fn target(&self) -> ViaSpec {
@@ -156,7 +156,11 @@ impl HpprdClientAsync {
                         )
                         .await
                         .map_err(|e| e.to_string())?;
-                        Ok(AnyConnection::Tcp(conn))
+                        Ok(AnyConnection::Ws {
+                            conn,
+                            host: host.clone(),
+                            port: *port,
+                        })
                     },
                     Some(hppr_client::TransportScheme::Udp) => {
                         let conn = hppr_client::connect_udp_stateless(addr)
@@ -166,7 +170,7 @@ impl HpprdClientAsync {
                     },
                     None => {
                         // Auto-negotiate: connect TCP, check Transport headers
-                        let conn = spawn_connection(addr, self.signer.clone())
+                        let mut conn = spawn_connection(addr, self.signer.clone())
                             .await
                             .map_err(|e| e.to_string())?;
                         let resp = conn
@@ -234,8 +238,21 @@ impl HpprdClientAsync {
 
     /// Send a request and return the response.
     async fn send(&self, request: IoRequest) -> Result<hppr_client::HpprResponse, String> {
-        let conn = self.get_conn().await?;
-        conn.send(request).await.map_err(|e| e.to_string())
+        let mut guard = self.conn.lock().await;
+        let conn = self.ensure_conn(&mut guard).await?;
+        match conn.send(request.clone()).await {
+            Ok(response) => Ok(response),
+            Err(e) if e.should_close() => {
+                *guard = Some(self.connect_via().await?);
+                guard
+                    .as_mut()
+                    .unwrap()
+                    .send(request)
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     /// Send a request and extract a Packet from the response.

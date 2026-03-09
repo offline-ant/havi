@@ -118,7 +118,11 @@ impl HpprAsyncPool {
                         let conn = hppr_client::spawn_ws_connection(
                             host.clone(), *port, signer,
                         ).await?;
-                        Ok(AnyConnection::Tcp(conn))
+                        Ok(AnyConnection::Ws {
+                            conn,
+                            host: host.clone(),
+                            port: *port,
+                        })
                     }
                     Some(TransportScheme::Udp) => {
                         Ok(AnyConnection::Udp(
@@ -192,16 +196,16 @@ impl HpprAsyncPool {
         let base = { self.quib_bases.lock().remove(&key) };
 
         let (base, forked) = match base {
-            Some(base @ AnyConnection::Quib(_)) => match base.fork().await {
+            Some(mut base @ AnyConnection::Quib(_)) => match base.fork().await {
                 Ok(forked) => (base, forked),
                 Err(_) => {
-                    let base = AnyConnection::Quib(Box::new(connect_quib_async(addr, signer).await?));
+                    let mut base = AnyConnection::Quib(Box::new(connect_quib_async(addr, signer).await?));
                     let forked = base.fork().await?;
                     (base, forked)
                 },
             },
             _ => {
-                let base = AnyConnection::Quib(Box::new(connect_quib_async(addr, signer).await?));
+                let mut base = AnyConnection::Quib(Box::new(connect_quib_async(addr, signer).await?));
                 let forked = base.fork().await?;
                 (base, forked)
             },
@@ -213,7 +217,7 @@ impl HpprAsyncPool {
 
     /// Auto-negotiate transport: connect TCP, send HELLO, upgrade to QUIB if available.
     async fn connect_auto(&self, addr: SocketAddr, signer: Signer) -> Result<AnyConnection> {
-        let conn = spawn_connection(addr, signer.clone()).await?;
+        let mut conn = spawn_connection(addr, signer.clone()).await?;
         let resp = conn.send(IoRequest::Hello).await?;
         if let ResponseKind::Greeting(greeting) = &resp.kind {
             let host_str = addr.ip().to_string();

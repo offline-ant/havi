@@ -69,12 +69,12 @@ pub async fn fetch_chunk_blobs(
 
     // EXCHANGE on repo
     let repo_target = &hppr_state.default_target;
-    let repo_pooled = hppr_state
+    let mut repo_pooled = hppr_state
         .get_pooled(repo_target, Signer::anyone())
         .await
         .map_err(|e| format!("chunk exchange connect (repo): {e}"))?;
     let repo_resp = repo_pooled
-        .connection()
+        .connection_mut()
         .send(IoRequest::Exchange { items: items.clone() })
         .await
         .map_err(|e| format!("chunk exchange (repo): {e}"))?;
@@ -95,12 +95,12 @@ pub async fn fetch_chunk_blobs(
             .iter()
             .map(|h| ExchangeItem::Need(format!("////{h}")))
             .collect();
-        let route_pooled = hppr_state
+        let mut route_pooled = hppr_state
             .get_pooled(endpoint, Signer::anyone())
             .await
             .map_err(|e| format!("chunk exchange connect (route): {e}"))?;
         let route_resp = route_pooled
-            .connection()
+            .connection_mut()
             .send(IoRequest::Exchange { items: missing_items })
             .await
             .map_err(|e| format!("chunk exchange (route): {e}"))?;
@@ -110,9 +110,9 @@ pub async fn fetch_chunk_blobs(
                 let state = Arc::clone(hppr_state);
                 let cache_bytes = raw.clone();
                 tokio::spawn(async move {
-                    if let Ok(p) = state.get_pooled(&state.default_target, Signer::anyone()).await {
+                    if let Ok(mut p) = state.get_pooled(&state.default_target, Signer::anyone()).await {
                         let _ = p
-                            .connection()
+                            .connection_mut()
                             .send(IoRequest::Store { packet: cache_bytes })
                             .await;
                     }

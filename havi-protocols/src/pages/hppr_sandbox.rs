@@ -84,7 +84,7 @@ async fn fetch_content(
         _ => return Err("Unsupported transport for sandbox".to_string()),
     };
 
-    let conn = spawn_connection(addr, Signer::anyone())
+    let mut conn = spawn_connection(addr, Signer::anyone())
         .await
         .map_err(|e| format!("Connection failed: {}", e))?;
 

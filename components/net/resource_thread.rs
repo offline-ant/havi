@@ -533,9 +533,8 @@ impl ResourceChannelManager {
                 let is_get = matches!(request, hppr_client::HpprRequest::Get { .. });
                 spawn_task(async move {
                     match hppr_state.get_pooled(&endpoint, signer).await {
-                        Ok(pooled_conn) => {
-                            let conn = pooled_conn.connection();
-                            let response = conn.send(request).await;
+                        Ok(mut pooled_conn) => {
+                            let response = pooled_conn.connection_mut().send(request).await;
                             let response = response.map_err(|e| HpprProtocolError::from_hppr_error(&e));
 
                             // Auto-cache: STORE remote GET results to home repo
@@ -545,8 +544,8 @@ impl ResourceChannelManager {
                                         let state = Arc::clone(&hppr_state);
                                         let cache_bytes = pkt.as_bytes().to_vec();
                                         tokio::spawn(async move {
-                                            if let Ok(p) = state.get_pooled(&state.default_target, hppr_client::Signer::anyone()).await {
-                                                let _ = p.connection().send(
+                                            if let Ok(mut p) = state.get_pooled(&state.default_target, hppr_client::Signer::anyone()).await {
+                                                let _ = p.connection_mut().send(
                                                     hppr_client::HpprRequest::Store { packet: cache_bytes },
                                                 ).await;
                                             }
