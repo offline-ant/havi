@@ -29,7 +29,7 @@ use url::{Position, Url};
 use uuid::Uuid;
 
 pub use crate::origin::{ImmutableOrigin, MutableOrigin, OpaqueOrigin, OriginSnapshot};
-pub use hppr::{Endpoint, HAVIAddress, HaviUrl, HpprScheme, HpprUrl, HpprUrlParseError, via_url};
+pub use hppr::{Endpoint, HAVIAddress, HpprScheme, HpprUrlParseError, via_url};
 pub use hppr_packet::CoordinateParts;
 
 /// Compute the origin for a HAVIAddress.

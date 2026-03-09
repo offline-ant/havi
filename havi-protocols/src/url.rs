@@ -184,8 +184,7 @@ pub enum HpprUrlParseError {
     EndpointNotAllowed,
     /// Invalid URC format.
     InvalidUrc(String),
-    /// Invalid havi:// URL format.
-    InvalidHaviUrl(String),
+
 }
 
 impl fmt::Display for HpprUrlParseError {
@@ -196,7 +195,7 @@ impl fmt::Display for HpprUrlParseError {
             Self::MissingEndpoint => write!(f, "Endpoint required for this scheme"),
             Self::EndpointNotAllowed => write!(f, "Endpoint not allowed for this scheme"),
             Self::InvalidUrc(e) => write!(f, "Invalid URC: {}", e),
-            Self::InvalidHaviUrl(e) => write!(f, "Invalid havi:// URL: {}", e),
+
         }
     }
 }
@@ -477,72 +476,7 @@ fn parse_urc(urc_str: &str) -> Result<URC, HpprUrlParseError> {
     URC::parse(urc_str.to_string()).map_err(|e| HpprUrlParseError::InvalidUrc(e.to_string()))
 }
 
-/// Parsed havi:// admin page URL.
-///
-/// Format: `havi:///path` (simple path-based, no URC)
-/// Examples: `havi:///home-repo`, `havi:///homepage`, `havi:///ring0`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HaviUrl {
-    path: String,
-}
 
-impl HaviUrl {
-    /// Parse a havi:// URL.
-    ///
-    /// Expects format: `havi:///path` or `havi://path`
-    pub fn parse(url: &str) -> Result<Self, HpprUrlParseError> {
-        let rest = url.strip_prefix("havi:").ok_or_else(|| {
-            HpprUrlParseError::UnknownScheme(url.split(':').next().unwrap_or("").to_string())
-        })?;
-
-        // Strip leading slashes to get the path
-        let path = rest.trim_start_matches('/').to_string();
-        Ok(Self { path })
-    }
-
-    /// Get the path (e.g., "home-repo", "home", "ring0").
-    pub fn path(&self) -> &str {
-        &self.path
-    }
-}
-
-impl fmt::Display for HaviUrl {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "havi:///{}", self.path)
-    }
-}
-
-/// Any HPPR-family URL.
-///
-/// Unified entry point for parsing all HPPR URL types.
-#[derive(Debug, Clone)]
-pub enum HpprUrl {
-    /// URC-based URL (hppr://, hppr-setup:, hppr-sandbox:, hppr-browse://, hppr-editor://, hppr-join://)
-    HAVIAddress(HAVIAddress),
-    /// Admin page URL (havi://)
-    Havi(HaviUrl),
-}
-
-impl HpprUrl {
-    /// Parse any HPPR-family URL.
-    ///
-    /// Detects the scheme and delegates to the appropriate parser.
-    pub fn parse(url: &str) -> Result<Self, HpprUrlParseError> {
-        if url.starts_with("havi:") {
-            Ok(HpprUrl::Havi(HaviUrl::parse(url)?))
-        } else {
-            Ok(HpprUrl::HAVIAddress(HAVIAddress::parse(url)?))
-        }
-    }
-
-    /// Check if a scheme string is an HPPR-family scheme.
-    pub fn is_hppr_scheme(scheme: &str) -> bool {
-        matches!(
-            scheme,
-            "hppr" | "hppr-setup" | "hppr-sandbox" | "hppr-browse" | "hppr-editor" | "hppr-join" | "havi" | "file"
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -735,60 +669,6 @@ mod tests {
 
         let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
         assert!(!url.is_listing());
-    }
-
-    #[test]
-    fn test_havi_url_parse() {
-        let url = HaviUrl::parse("havi:///home-repo").unwrap();
-        assert_eq!(url.path(), "home-repo");
-
-        let url = HaviUrl::parse("havi:///homepage").unwrap();
-        assert_eq!(url.path(), "homepage");
-
-        let url = HaviUrl::parse("havi:///ring0").unwrap();
-        assert_eq!(url.path(), "ring0");
-    }
-
-    #[test]
-    fn test_havi_url_display() {
-        let url = HaviUrl::parse("havi:///home-repo").unwrap();
-        assert_eq!(url.to_string(), "havi:///home-repo");
-    }
-
-    #[test]
-    fn test_hppr_url_parse_havi() {
-        let url = HpprUrl::parse("havi:///home-repo").unwrap();
-        match url {
-            HpprUrl::Havi(havi) => assert_eq!(havi.path(), "home-repo"),
-            _ => panic!("Expected HaviUrl"),
-        }
-    }
-
-    #[test]
-    fn test_hppr_url_parse_havi_address() {
-        let url = HpprUrl::parse("hppr://chess/game/board.html").unwrap();
-        match url {
-            HpprUrl::HAVIAddress(address) => {
-                assert_eq!(address.scheme(), HpprScheme::Hppr);
-                assert_eq!(address.group(), Some("chess".to_string()));
-            },
-            _ => panic!("Expected HAVIAddress"),
-        }
-    }
-
-    #[test]
-    fn test_is_hppr_scheme() {
-        assert!(HpprUrl::is_hppr_scheme("hppr"));
-        assert!(HpprUrl::is_hppr_scheme("hppr-setup"));
-        assert!(HpprUrl::is_hppr_scheme("hppr-sandbox"));
-        assert!(HpprUrl::is_hppr_scheme("hppr-browse"));
-        assert!(HpprUrl::is_hppr_scheme("hppr-editor"));
-        assert!(HpprUrl::is_hppr_scheme("hppr-join"));
-        assert!(HpprUrl::is_hppr_scheme("havi"));
-        assert!(!HpprUrl::is_hppr_scheme("http"));
-        assert!(!HpprUrl::is_hppr_scheme("https"));
-        assert!(!HpprUrl::is_hppr_scheme("hppr-local"));
-        assert!(!HpprUrl::is_hppr_scheme("hpprs"));
     }
 
     #[test]

@@ -16,7 +16,6 @@ use net_traits::HpprProtocolResponse;
 
 use crate::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods, HpprRepoOptions};
 use crate::dom::bindings::codegen::Bindings::StreamInBinding::StreamInOptions;
-use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
@@ -24,7 +23,7 @@ use crate::dom::bindings::root::{Dom, DomRoot };
 
 use script_bindings::trace::RootedTraceableBox;
 use crate::dom::bindings::str::{DOMString, USVString};
-use crate::dom::envelopehpprclient::{EnvelopeHpprClient, default_endpoint};
+use crate::dom::envelopehpprclient::{EnvelopeHpprClient, resolve_home_credentials, resolve_connect_params};
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hpprerror::HpprError;
 use crate::dom::hpprpacket::HpprPacket;
@@ -86,45 +85,27 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         let can_gc = CanGc::note();
         let promise = Promise::new(global, can_gc);
 
-        // Get site credentials from document (pre-fetched during page load)
-        let url = global.get_url();
-        if !matches!(url.scheme(), "hppr" | "hppr-editor" | "file") {
-            promise.reject_error(
-                Error::Type(c"HpprClient.home() requires hppr:// origin".to_owned()),
-                can_gc,
-            );
-            return Ok(promise);
-        }
+        if let Some((endpoint, site_ring1_name, signing_key)) =
+            resolve_home_credentials(window, &promise, "HpprClient.home()", can_gc)
+        {
+            // Determine the ring1_name to use
+            let ring1_name = match &options.role {
+                Some(role_name) => {
+                    // Extract app from site_ring1_name (HAVI-site:<group>#<app>)
+                    let app = site_ring1_name
+                        .strip_prefix("HAVI-site:")
+                        .and_then(|s| s.split('#').nth(1))
+                        .unwrap_or("");
+                    // Use role's ring1_name but site's signing key
+                    format!("HAVI-role:{}#{}", app, role_name)
+                }
+                None => site_ring1_name,
+            };
 
-        let endpoint = default_endpoint();
-
-        match window.Document().site_credentials() {
-            Some((site_ring1_name, signing_key)) => {
-                // Determine the ring1_name to use
-                let ring1_name = match &options.role {
-                    Some(role_name) => {
-                        // Extract app from site_ring1_name (HAVI-site:<group>#<app>)
-                        let app = site_ring1_name
-                            .strip_prefix("HAVI-site:")
-                            .and_then(|s| s.split('#').nth(1))
-                            .unwrap_or("");
-                        // Use role's ring1_name but site's signing key
-                        format!("HAVI-role:{}#{}", app, role_name)
-                    }
-                    None => site_ring1_name,
-                };
-
-                let signer = Signer::ring1(&ring1_name, &signing_key);
-                let inner = EnvelopeHpprClient::new(global, signer, endpoint, None, can_gc);
-                let client = Self::new(global, &inner, can_gc);
-                promise.resolve_native(&*client, can_gc);
-            }
-            None => {
-                promise.reject_error(
-                    Error::Type(c"HpprClient.home() failed: site credentials not available".to_owned()),
-                    can_gc,
-                );
-            }
+            let signer = Signer::ring1(&ring1_name, &signing_key);
+            let inner = EnvelopeHpprClient::new(global, signer, endpoint, None, can_gc);
+            let client = Self::new(global, &inner, can_gc);
+            promise.resolve_native(&*client, can_gc);
         }
         Ok(promise)
     }
@@ -137,31 +118,13 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         let can_gc = CanGc::note();
         let promise = Promise::new(global, can_gc);
 
-        let endpoint_str = endpoint.to_string();
-
-        if endpoint_str.is_empty() {
-            promise.reject_error(
-                Error::Type(c"Invalid endpoint: empty string".to_owned()),
-                can_gc,
-            );
-            return Ok(promise);
+        if let Some((endpoint_str, signer)) =
+            resolve_connect_params(window, &endpoint, identity.as_ref(), &promise, can_gc)
+        {
+            let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
+            let client = Self::new(global, &inner, can_gc);
+            promise.resolve_native(&*client, can_gc);
         }
-
-        let identity_str = identity.as_ref().map(|s| s.to_string()).unwrap_or_default();
-        let signer = match Signer::parse(&identity_str) {
-            Ok(s) => s,
-            Err(e) => {
-                promise.reject_error(
-                    Error::Type(cformat!("Invalid identity: {}", e)),
-                    can_gc,
-                );
-                return Ok(promise);
-            }
-        };
-
-        let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
-        let client = Self::new(global, &inner, can_gc);
-        promise.resolve_native(&*client, can_gc);
         Ok(promise)
     }
 

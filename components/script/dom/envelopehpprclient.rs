@@ -49,6 +49,73 @@ pub(crate) fn default_endpoint() -> String {
     ScriptThread::home_hppr_endpoint()
 }
 
+/// Validate that the current page scheme allows Home() access, get endpoint and site credentials.
+///
+/// Returns (endpoint, ring1_name, signing_key) on success, or rejects the promise and returns None.
+pub(crate) fn resolve_home_credentials(
+    window: &Window,
+    promise: &Rc<Promise>,
+    method_name: &str,
+    can_gc: CanGc,
+) -> Option<(String, String, String)> {
+    let global = window.upcast::<GlobalScope>();
+    let url = global.get_url();
+    if !matches!(url.scheme(), "hppr" | "hppr-editor" | "file") {
+        promise.reject_error(
+            Error::Type(cformat!("{} requires hppr:// origin", method_name)),
+            can_gc,
+        );
+        return None;
+    }
+
+    let endpoint = default_endpoint();
+
+    match window.Document().site_credentials() {
+        Some((ring1_name, signing_key)) => Some((endpoint, ring1_name, signing_key)),
+        None => {
+            promise.reject_error(
+                Error::Type(cformat!("{} failed: site credentials not available", method_name)),
+                can_gc,
+            );
+            None
+        }
+    }
+}
+
+/// Parse endpoint and identity for Connect(), rejecting the promise on error.
+///
+/// Returns (endpoint, signer) on success, or rejects the promise and returns None.
+pub(crate) fn resolve_connect_params(
+    window: &Window,
+    endpoint: &DOMString,
+    identity: Option<&DOMString>,
+    promise: &Rc<Promise>,
+    can_gc: CanGc,
+) -> Option<(String, Signer)> {
+    let endpoint_str = endpoint.to_string();
+    if endpoint_str.is_empty() {
+        promise.reject_error(
+            Error::Type(c"Invalid endpoint: empty string".to_owned()),
+            can_gc,
+        );
+        return None;
+    }
+
+    let identity_str = identity.map(|s| s.to_string()).unwrap_or_default();
+    let signer = match Signer::parse(&identity_str) {
+        Ok(s) => s,
+        Err(e) => {
+            promise.reject_error(
+                Error::Type(cformat!("Invalid identity: {}", e)),
+                can_gc,
+            );
+            return None;
+        }
+    };
+
+    Some((endpoint_str, signer))
+}
+
 /// Envelope HPPR client
 ///
 /// Contains all client state and request building logic.
@@ -406,30 +473,12 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
         let can_gc = CanGc::note();
         let promise = Promise::new(global, can_gc);
 
-        // Get site credentials from document (pre-fetched during page load)
-        let url = global.get_url();
-        if !matches!(url.scheme(), "hppr" | "hppr-editor" | "file") {
-            promise.reject_error(
-                Error::Type(c"EnvelopeHpprClient.home() requires hppr:// origin".to_owned()),
-                can_gc,
-            );
-            return Ok(promise);
-        }
-
-        let endpoint = default_endpoint();
-
-        match window.Document().site_credentials() {
-            Some((ring1_name, signing_key)) => {
-                let signer = Signer::ring1(&ring1_name, &signing_key);
-                let client = Self::new(global, signer, endpoint, None, can_gc);
-                promise.resolve_native(&*client, can_gc);
-            }
-            None => {
-                promise.reject_error(
-                    Error::Type(c"EnvelopeHpprClient.home() failed: site credentials not available".to_owned()),
-                    can_gc,
-                );
-            }
+        if let Some((endpoint, ring1_name, signing_key)) =
+            resolve_home_credentials(window, &promise, "EnvelopeHpprClient.home()", can_gc)
+        {
+            let signer = Signer::ring1(&ring1_name, &signing_key);
+            let client = Self::new(global, signer, endpoint, None, can_gc);
+            promise.resolve_native(&*client, can_gc);
         }
         Ok(promise)
     }
@@ -442,32 +491,12 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
         let can_gc = CanGc::note();
         let promise = Promise::new(global, can_gc);
 
-        let endpoint_str = endpoint.to_string();
-
-        // Validate endpoint format (host:port or just host)
-        if endpoint_str.is_empty() {
-            promise.reject_error(
-                Error::Type(c"Invalid endpoint: empty string".to_owned()),
-                can_gc,
-            );
-            return Ok(promise);
+        if let Some((endpoint_str, signer)) =
+            resolve_connect_params(window, &endpoint, identity.as_ref(), &promise, can_gc)
+        {
+            let client = Self::new(global, signer, endpoint_str, None, can_gc);
+            promise.resolve_native(&*client, can_gc);
         }
-
-        // Parse identity string (empty/missing = anyone)
-        let identity_str = identity.as_ref().map(|s| s.to_string()).unwrap_or_default();
-        let signer = match Signer::parse(&identity_str) {
-            Ok(s) => s,
-            Err(e) => {
-                promise.reject_error(
-                    Error::Type(cformat!("Invalid identity: {}", e)),
-                    can_gc,
-                );
-                return Ok(promise);
-            }
-        };
-
-        let client = Self::new(global, signer, endpoint_str, None, can_gc);
-        promise.resolve_native(&*client, can_gc);
         Ok(promise)
     }
 
