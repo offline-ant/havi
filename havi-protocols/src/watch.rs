@@ -138,8 +138,16 @@ impl WatchConn {
                 }
             };
             let (events_tx, mut events_rx) = tokio::sync::mpsc::channel::<String>(64);
-            let stream_task =
-                stream_runtime.spawn(hppr_client::watch_stream(addr, signer, urc, events_tx));
+            let stream_task = stream_runtime.spawn(async move {
+                match hppr_client::spawn_connection(addr, signer).await {
+                    Ok(conn) => {
+                        if let Err(e) = conn.watch(urc, events_tx) {
+                            log::error!("watch: {}", e);
+                        }
+                    }
+                    Err(e) => log::error!("watch: {}", e),
+                }
+            });
             let _stream_task_guard = AbortOnDrop(stream_task);
             while let Some(line) = events_rx.recv().await {
                 let mut subs = subs.lock().unwrap();
