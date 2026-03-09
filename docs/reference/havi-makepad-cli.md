@@ -48,6 +48,13 @@ The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
   - Touch event at window coordinates.
 - `sleep <ms>`
   - Wait for milliseconds (for sequencing in scripts).
+- `control <id> <op> [arg...]`
+  - Invoke a widget control operation by widget id.
+  - Use `dump` or `query` to discover ids and advertised control ops.
+  - HAVI semantic controls:
+    - `nav_control get|set|focus|go|edit`
+    - `watch_control get|set|next`
+    - `dock_control get|set|toggle`
 - `send <json>`
   - Send a raw JSON StudioToApp message.
 - `pipe`
@@ -75,9 +82,14 @@ havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET click 400 55
 
 # Widget tree
 havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET dump
-havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET query id:address_bar
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET query id:nav_control
+
+# Semantic chrome controls
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control nav_control go hppr://u/web/index.html
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control watch_control set auto
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control dock_control set bottom
 
 # Pipe mode
-echo -e "click 200 120\nsleep 500\nscreenshot /tmp/out.png" | \
+echo -e "control watch_control set notify\ncontrol nav_control go havi:///services\nscreenshot /tmp/out.png" | \
   havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET pipe
 ```

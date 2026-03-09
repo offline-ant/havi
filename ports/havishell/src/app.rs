@@ -214,17 +214,156 @@ script_mod! {
                         forward_btn := Button{ text: "▶" }
                         reload_btn := Button{ text: "🔄" }
 
-                        url_input := TextInput{
+                        nav_control := View{
                             width: Fill height: Fit
-                            empty_text: "Enter URC..."
-                        }
+                            flow: Right
+                            spacing: 4
+                            show_child_controls: false
+                            on_control: {
+                                get: |arg| self.url_input.text()
+                                set: |arg| {
+                                    self.url_input.set_text(arg)
+                                    self.url_input.text()
+                                }
+                                focus: |arg| {
+                                    self.url_input.focus()
+                                    ""
+                                }
+                                go: |arg| {
+                                    if arg != "" {
+                                        self.url_input.set_text(arg)
+                                    }
+                                    self.go_btn.on_click()
+                                    self.url_input.text()
+                                }
+                                edit: |arg| {
+                                    if arg != "" {
+                                        self.url_input.set_text(arg)
+                                    }
+                                    self.edit_btn.on_click()
+                                    self.url_input.text()
+                                }
+                            }
 
-                        go_btn := Button{ text: "🚀" }
-                        edit_btn := Button{ text: "✏️" }
-                        watch_btn := Button{ text: "👁️" }
+                            url_input := TextInput{
+                                width: Fill height: Fit
+                                empty_text: "Enter URC..."
+                            }
+
+                            go_btn := Button{ text: "🚀" }
+                            edit_btn := Button{ text: "✏️" }
+                        }
+                        watch_control := View{
+                            width: Fit height: Fit
+                            show_child_controls: false
+                            on_control: {
+                                get: |arg| {
+                                    let text = self.watch_btn.text()
+                                    if text == "🔔" {
+                                        "notify"
+                                    }
+                                    else if text == "🔁" {
+                                        "auto"
+                                    }
+                                    else if text == "⚡" {
+                                        "dev"
+                                    }
+                                    else {
+                                        "off"
+                                    }
+                                }
+                                next: |arg| {
+                                    self.watch_btn.on_click()
+                                    ""
+                                }
+                                set: |arg| {
+                                    let text = self.watch_btn.text()
+                                    if arg == "notify" {
+                                        if text == "👁️" { self.watch_btn.on_click() }
+                                        else if text == "🔁" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "⚡" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                    }
+                                    else if arg == "auto" {
+                                        if text == "👁️" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "🔔" { self.watch_btn.on_click() }
+                                        else if text == "⚡" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                    }
+                                    else if arg == "dev" {
+                                        if text == "👁️" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "🔔" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "🔁" { self.watch_btn.on_click() }
+                                    }
+                                    else if arg == "off" {
+                                        if text == "🔔" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "🔁" {
+                                            self.watch_btn.on_click()
+                                            self.watch_btn.on_click()
+                                        }
+                                        else if text == "⚡" { self.watch_btn.on_click() }
+                                    }
+                                    arg
+                                }
+                            }
+
+                            watch_btn := Button{ text: "👁️" }
+                        }
                         share_btn := Button{ text: "🔗" }
                         home_btn := Button{ text: "🏠" }
-                        dock_btn := Button{ text: "↕️" }
+                        dock_control := View{
+                            width: Fit height: Fit
+                            show_child_controls: false
+                            on_control: {
+                                get: |arg| {
+                                    if self.dock_btn.text() == "🔽" {
+                                        "bottom"
+                                    }
+                                    else {
+                                        "top"
+                                    }
+                                }
+                                toggle: |arg| {
+                                    self.dock_btn.on_click()
+                                    ""
+                                }
+                                set: |arg| {
+                                    let text = self.dock_btn.text()
+                                    if arg == "bottom" && text != "🔽" {
+                                        self.dock_btn.on_click()
+                                    }
+                                    else if arg == "top" && text != "🔼" {
+                                        self.dock_btn.on_click()
+                                    }
+                                    arg
+                                }
+                            }
+
+                            dock_btn := Button{ text: "↕️" }
+                        }
 
                         pylon_dot := View{
                             cursor: MouseCursor.Hand
