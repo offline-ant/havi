@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reveal File Compatibility Test</title>
+  <link rel="stylesheet" href="../../../../site/presentation/dist/reveal.css">
+  <style>
+    body { margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+      <section>Slide one</section>
+      <section>Slide two</section>
+    </div>
+  </div>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script src="../../../../site/presentation/dist/reveal.js"></script>
+  <script>
+    async function suite_reveal_file_compat() {
+        let uncaught = null;
+        window.addEventListener('error', function(event) {
+            uncaught = String(event.error || event.message || 'unknown error');
+        }, { once: true });
+
+        assert(typeof Reveal === 'function' || typeof Reveal === 'object', 'Reveal global is available');
+
+        const initResult = Reveal.initialize({ hash: true });
+        if (initResult && typeof initResult.then === 'function') {
+            await initResult;
+        }
+        await new Promise(function(resolve) { setTimeout(resolve, 50); });
+
+        assert(uncaught === null, 'reveal initialization has no uncaught error');
+        assert(document.querySelector('.reveal').classList.contains('ready'), 'reveal deck reached ready state');
+        assert(!document.querySelector('.reveal').classList.contains('loading'), 'reveal deck left loading state');
+        assert(window.location.hash === '' || window.location.hash === '#/', 'location shim did not break reveal hash init');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_reveal_file_compat, 'reveal-file-compat');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

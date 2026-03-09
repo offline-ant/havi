@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>File Location Compatibility Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_file_location_compat() {
+        const originalWarn = console.warn;
+        const warns = [];
+        console.warn = function() {
+            warns.push(Array.prototype.join.call(arguments, ' '));
+            return originalWarn.apply(this, arguments);
+        };
+
+        try {
+            log('--- first access warns once ---');
+            const href = window.location.href;
+            void document.location.pathname;
+            assertEqual(warns.length, 1, 'file compat warns exactly once');
+            assertContains(warns[0], 'window.address', 'file warning mentions window.address');
+
+            log('--- basic file compatibility ---');
+            assert(window.location === document.location, 'window.location and document.location are same object');
+            assertContains(href, 'file://', 'file compat href uses file scheme');
+            assertContains(window.location.pathname, 'file-location-compat.html', 'pathname exposes file path');
+            assertEqual(window.location.search, '', 'initial file search empty');
+
+            log('--- history hash still works under shim ---');
+            history.replaceState(null, '', '#file-compat');
+            assertEqual(window.location.hash, '#file-compat', 'history.replaceState updates file hash');
+            assertContains(window.location.href, '#file-compat', 'file href reflects updated hash');
+        } finally {
+            console.warn = originalWarn;
+        }
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_file_location_compat, 'file-location-compat');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

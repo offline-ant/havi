@@ -5528,6 +5528,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-filesystem-watcher"
+version = "0.1.0"
+
+[[package]]
 name = "makepad-futures"
 version = "1.0.0"
 
@@ -5631,6 +5635,7 @@ dependencies = [
  "hilog-sys",
  "makepad-android-state",
  "makepad-apple-sys",
+ "makepad-filesystem-watcher",
  "makepad-futures",
  "makepad-futures-legacy",
  "makepad-jni-sys",

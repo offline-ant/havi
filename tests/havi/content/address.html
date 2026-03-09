@@ -69,6 +69,10 @@
         assertEqual(editor.scheme, 'hppr-editor', 'hppr-editor scheme');
         assertEqual(editor.hasDirectEndpoint, false, 'editor hasDirectEndpoint false (not hppr scheme)');
 
+        const join = new Address('hppr-join://g/a/');
+        assertEqual(join.scheme, 'hppr-join', 'hppr-join scheme');
+        assertEqual(join.hasDirectEndpoint, false, 'hppr-join hasDirectEndpoint false');
+
         // --- Error cases ---
         log('--- Error cases ---');
         let err;

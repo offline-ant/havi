@@ -191,11 +191,25 @@ Packet fields include:
 `endpoint` returns the raw `via` value (`host`, `host:port`, or keywords like
 `repo`).
 
-`window.address` replaces `window.location` semantics for HAVI pages.
+`window.address` is the exact HAVI address API.
 Setting `window.address = url` or `window.address.href = url` navigates
 (`PutForwards=href`).
 Setting `scheme`, `endpoint`, `group`, `app`, or `location` recomputes the full
 URL and navigates.
+
+HAVI also installs a `window.location` and `document.location` compatibility
+shim on `hppr*://` and `file://` pages.
+The shim logs a warning on first use and projects common web fields onto HAVI
+state:
+
+- `hash` maps to JSONqa fragment (`{#:...}`)
+- `search` maps to projected top-level JSONqa key/value pairs
+- `pathname` maps to `/<app>/<location>`
+- `origin` projects as `scheme://<group>` on `hppr*://`
+
+Compatibility input is strict.
+`window.location` does not accept raw JSONqa syntax.
+Pages that need exact HAVI semantics use `window.address`.
 
 `qa` and `fragment` exist on `URC` and are delegated through `Address`.
 See `075-JSONQA.md`.

@@ -73,6 +73,7 @@ enum HpprScheme {
     HpprSandbox,
     HpprBrowse,
     HpprEditor,
+    HpprJoin,
 }
 
 impl HpprScheme {
@@ -83,6 +84,7 @@ impl HpprScheme {
             HpprScheme::HpprSandbox => "hppr-sandbox",
             HpprScheme::HpprBrowse => "hppr-browse",
             HpprScheme::HpprEditor => "hppr-editor",
+            HpprScheme::HpprJoin => "hppr-join",
         }
     }
 
@@ -263,6 +265,8 @@ impl Address {
             (HpprScheme::HpprSandbox, r)
         } else if let Some(r) = url.strip_prefix("hppr-browse:") {
             (HpprScheme::HpprBrowse, r)
+        } else if let Some(r) = url.strip_prefix("hppr-join:") {
+            (HpprScheme::HpprJoin, r)
         } else if let Some(r) = url.strip_prefix("hppr:") {
             (HpprScheme::Hppr, r)
         } else {

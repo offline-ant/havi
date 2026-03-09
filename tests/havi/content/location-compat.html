@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Location Compatibility Test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script src="test-utils.js"></script>
+  <script>
+    async function suite_location_compat() {
+        const originalWarn = console.warn;
+        const warns = [];
+        console.warn = function() {
+            warns.push(Array.prototype.join.call(arguments, ' '));
+            return originalWarn.apply(this, arguments);
+        };
+
+        try {
+            log('--- first access warns once ---');
+            const firstHref = window.location.href;
+            void window.location.hash;
+            assertEqual(warns.length, 1, 'first compat use warns exactly once');
+            assertContains(warns[0], 'window.address', 'warning mentions window.address');
+            assertContains(warns[0], 'JSONqa', 'warning mentions JSONqa');
+
+            log('--- basic shape ---');
+            assert(window.location === document.location, 'window.location and document.location are same object');
+            assertContains(firstHref, 'hppr://~loccompat/', 'compat href uses hppr scheme and group host');
+            assert(!firstHref.includes('{'), 'compat href does not expose jsonqa');
+            assertEqual(window.location.origin, 'hppr://~loccompat', 'origin projects scheme and group');
+            assertEqual(window.location.pathname, '/testapp/location-compat.html', 'pathname projects app and location');
+            assertEqual(window.location.search, '', 'initial search empty');
+            assertEqual(window.location.hash, '', 'initial hash empty');
+            assert(!document.URL.includes('{'), 'initial canonical document.URL has no jsonqa');
+
+            log('--- hash setter maps to jsonqa ---');
+            window.location.hash = '#/2';
+            assertEqual(window.location.hash, '#/2', 'hash getter reflects compat fragment');
+            assertContains(document.URL, '#:/2', 'hash setter stores fragment in jsonqa');
+
+            log('--- search setter maps to jsonqa ---');
+            window.location.search = '?receiver=1&tag=a&tag=b';
+            assertEqual(window.location.search, '?receiver=1&tag=a&tag=b', 'search getter reflects compat projection');
+            assertEqual(window.location.hash, '#/2', 'search setter preserves fragment');
+            assertContains(document.URL, 'receiver:1', 'search setter stores scalar key in jsonqa');
+            assertContains(document.URL, 'tag:[a,b]', 'search setter stores repeated keys as array in jsonqa');
+
+            log('--- history.replaceState rewrite ---');
+            history.replaceState(null, '', '#/3');
+            assertEqual(window.location.hash, '#/3', 'replaceState rewrites compat hash');
+            assertContains(document.URL, '#:/3', 'replaceState stores compat hash in canonical URL');
+
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+            assertEqual(window.location.hash, '', 'pathname + search replaceState clears compat hash');
+            assertEqual(window.location.search, '?receiver=1&tag=a&tag=b', 'pathname + search replaceState keeps search');
+            assertContains(document.URL, 'receiver:1', 'pathname + search replaceState keeps jsonqa search');
+            assertContains(document.URL, 'tag:[a,b]', 'pathname + search replaceState keeps jsonqa array');
+
+            log('--- strict jsonqa rejection ---');
+            let err = null;
+            try { window.location.assign('hppr://~loccompat/testapp/location-compat.html{#:bad}'); }
+            catch (e) { err = e; }
+            assert(err instanceof TypeError, 'jsonqa input through location throws TypeError');
+            assertContains(err.message, 'window.address', 'jsonqa rejection mentions window.address');
+        } finally {
+            console.warn = originalWarn;
+        }
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_location_compat, 'location-compat');
+      window.testResults = summary;
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

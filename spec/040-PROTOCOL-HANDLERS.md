@@ -176,6 +176,7 @@ Local filesystem content rendered as an HPPR HTML page.
 - `document.packet` is `null` (no HPPR packet)
 - `<x>` elements work (child frames load via their own scheme)
 - disabled web APIs installed (same as `hppr://`)
+- `window.location` is a compatibility shim, not the native `Location` object
 - content type from file extension
 - directory paths render HTML listing
 

@@ -63,6 +63,11 @@ REMOTE_HPPRD_PID=""
 REMOTE_SECRET_KEY=""
 REMOTE_SIGNING_KEY=""
 
+FS_MNT=""
+FS_PID=""
+FS_PORT=""
+FS_BACKEND=""
+
 # Temp dir for key storage (cleaned up on exit)
 HPPR_CONFIG_DIR=""
 
@@ -91,6 +96,9 @@ stop_pid() {
 cleanup() {
     local exit_code=$?
     stop_pid "${SERVO_PID:-}"
+    if [[ -n "${FS_PID:-}" || -n "${FS_MNT:-}" ]]; then
+        fs_unmount || true
+    fi
     # Shut down pylon cleanly (stops satellites, exits immediately)
     if [[ -n "${HAVI_CONFIG:-}" && -f "$HAVI_CONFIG/repo/pylon.pid" ]]; then
         local pylon_port
@@ -245,7 +253,7 @@ fs_mount() {
         local i=0
         while ! mountpoint -q "$FS_MNT" 2>/dev/null; do
             sleep 0.1
-            ((i++))
+            ((i += 1))
             if ((i > 50)); then
                 kill "$FS_PID" 2>/dev/null || true
                 rm -rf "$FS_MNT"
@@ -273,7 +281,7 @@ fs_mount() {
     local i=0
     while ! nc -z 127.0.0.1 "$FS_PORT" 2>/dev/null; do
         sleep 0.1
-        ((i++))
+        ((i += 1))
         if ((i > 50)); then
             kill "$FS_PID" 2>/dev/null || true
             rm -rf "$FS_MNT"
@@ -288,15 +296,22 @@ fs_mount() {
 
 # Unmount and stop filesystem service started by fs_mount.
 fs_unmount() {
+    [[ -z "${FS_MNT:-}" ]] && return 0
+
+    log "Unmounting $FS_BACKEND mount at $FS_MNT"
     if [[ "${FS_BACKEND:-}" == "fuse" ]]; then
         fusermount3 -u "$FS_MNT" 2>/dev/null || umount "$FS_MNT" 2>/dev/null || true
     else
         sudo umount "$FS_MNT" 2>/dev/null || true
     fi
 
-    kill "$FS_PID" 2>/dev/null || true
-    wait "$FS_PID" 2>/dev/null || true
+    kill "${FS_PID:-}" 2>/dev/null || true
+    wait "${FS_PID:-}" 2>/dev/null || true
     rm -rf "$FS_MNT"
+    FS_MNT=""
+    FS_PID=""
+    FS_PORT=""
+    FS_BACKEND=""
 }
 
 # Pick an unused TCP port.
@@ -304,11 +319,39 @@ _pick_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
 }
 
+copy_into_mount() {
+    local source_dir="$1"
+    shift
+
+    local -a paths=()
+    if [[ $# -eq 0 ]]; then
+        shopt -s nullglob dotglob
+        paths=("$source_dir"/*)
+        shopt -u nullglob dotglob
+    else
+        for name in "$@"; do
+            paths+=("$source_dir/$name")
+        done
+    fi
+
+    log "Copying ${#paths[@]} path(s) into $FS_MNT"
+    cp -a "${paths[@]}" "$FS_MNT/"
+}
+
 # Import content directory as sealed packets via filesystem mount + cp.
 import_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "$HPPR_HOME" "ring1:ring0#init" "//$group/$app" --seal-with oldest
-    cp -a "$content_dir/." "$FS_MNT/"
+    copy_into_mount "$content_dir"
+    fs_unmount
+}
+
+# Import selected content paths as sealed packets via filesystem mount + cp.
+import_content_paths() {
+    local content_dir="$1" group="$2" app="$3"
+    shift 3
+    fs_mount "$HPPR_HOME" "ring1:ring0#init" "//$group/$app" --seal-with oldest
+    copy_into_mount "$content_dir" "$@"
     fs_unmount
 }
 
@@ -316,7 +359,7 @@ import_content() {
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
     fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0#init" "//$group/$app" --seal-with oldest
-    cp -a "$content_dir/." "$FS_MNT/"
+    copy_into_mount "$content_dir"
     fs_unmount
 }
 

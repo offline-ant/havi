@@ -626,6 +626,13 @@ impl MatchEvent for App {
 }
 
 impl AppMain for App {
+    fn script_mod(vm: &mut ScriptVm) -> ScriptValue {
+        crate::makepad_widgets::script_mod(vm);
+        havi_render::shaders::script_mod(vm);
+        crate::servo_web_view::script_mod(vm);
+        self::script_mod(vm)
+    }
+
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         // Lazy init servo on first event
         self.init_servo(cx);

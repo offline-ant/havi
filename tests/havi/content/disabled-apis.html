@@ -19,6 +19,13 @@
             }
         }
 
+        function assertAvailableGetter(obj, prop) {
+            let value;
+            try { value = obj[prop]; }
+            catch (e) { assert(false, prop + ' should not throw: ' + e); }
+            assert(value !== undefined, prop + ' is available');
+        }
+
         function assertDisabledCall(obj, method, hint) {
             try { obj[method](); assert(false, method + '() should throw'); }
             catch (e) {
@@ -27,11 +34,9 @@
             }
         }
 
-        // window.location -> use window.address
-        assertDisabledGetter(window, 'location', 'window.address');
-
-        // document.location -> use window.address
-        assertDisabledGetter(document, 'location', 'window.address');
+        // window.location/document.location should be available through the compat shim
+        assertAvailableGetter(window, 'location');
+        assertAvailableGetter(document, 'location');
 
         // document.write family
         assertDisabledCall(document, 'write', 'HAVI');

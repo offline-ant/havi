@@ -3646,14 +3646,21 @@ impl ScriptThread {
 
         document.set_navigation_start(incomplete.navigation_start);
 
-        // HAVI: install disabled-API stubs on hppr* schemes before parsing.
+        // HAVI: install the pre-parser compatibility and disabled-API shim.
         if final_url.scheme().starts_with("hppr") || final_url.scheme() == "file" {
             let mut realm = enter_auto_realm(cx, &*window);
             let cx = &mut realm.current_realm();
             rooted!(&in(cx) let mut rval = UndefinedValue());
+            let bootstrap = std::str::from_utf8(include_bytes!("dom/havi_disabled_apis.js"))
+                .expect("havi_disabled_apis.js must be valid UTF-8");
+            let compat = std::str::from_utf8(include_bytes!("dom/havi_location_compat.js"))
+                .expect("havi_location_compat.js must be valid UTF-8");
+            let compat = serde_json::to_string(compat)
+                .expect("havi_location_compat.js must be serializable as a JS string literal");
+            let script = format!("window.__haviLocationCompatSource = {};\n{}", compat, bootstrap);
             let _ = window.as_global_scope().evaluate_js_on_global(
                 cx,
-                include_str!("dom/havi_disabled_apis.js").into(),
+                script.into(),
                 "[havi:internal]",
                 None,
                 rval.handle_mut(),

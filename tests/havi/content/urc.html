@@ -158,12 +158,11 @@
         try { new Address('hppr-editor://chess/game/{via:127.0.0.1}'); } catch (e) { addrError3 = e; }
         assert(addrError3 !== null, 'hppr-editor forbids endpoint');
 
-        // --- window.location disabled ---
-        log('--- window.location disabled tests ---');
-        let locErr = null;
-        try { void window.location; } catch (e) { locErr = e; }
-        assert(locErr instanceof TypeError, 'window.location throws TypeError');
-        assertContains(locErr.message, 'window.address', 'window.location error mentions window.address');
+        // --- window.location compatibility shim ---
+        log('--- window.location compatibility tests ---');
+        assert(window.location !== null, 'window.location exists');
+        assert(window.location !== undefined, 'window.location is defined');
+        assertEqual(window.location.pathname, '/testapp/urc.html', 'window.location.pathname matches compat path');
 
         // --- window.address available ---
         log('--- window.address tests ---');
