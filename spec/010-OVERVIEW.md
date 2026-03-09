@@ -21,9 +21,9 @@ Supported input forms:
 Without `via`, HAVI resolves route config from the home repo.
 
 For `hppr://group/app/path`, HAVI resolves route config from the home repo.
-If no route exists and `group` does not start with `.`, HAVI queries the
+If no route exists and `group` does not start with `~`, HAVI queries the
 bootstrap index at `//u/index/<group>/<app>`.
-If no bootstrap entry exists (or `group` starts with `.`), HAVI uses the home
+If no bootstrap entry exists (or `group` starts with `~`), HAVI uses the home
 repo endpoint.
 
 ## JavaScript globals

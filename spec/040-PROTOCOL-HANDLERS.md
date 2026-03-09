@@ -42,7 +42,7 @@ For routed non-repo pages (`hppr://<group>/<app>/...`), HAVI resolves in this
 order:
 
 1. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
-2. if route is missing and `group` does not start with `.`, try bootstrap index
+2. if route is missing and `group` does not start with `~`, try bootstrap index
    lookup at `//u/index/<group>/<app>` and use/store returned route values
 3. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
 4. target from `Deploy-Root` + requested location

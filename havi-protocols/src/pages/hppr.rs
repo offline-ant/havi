@@ -354,25 +354,13 @@ async fn handle_get(
             },
         }
     } else {
-        let ct = packet
-            .header("Content-Type")
-            .unwrap_or("text/html")
-            .to_string();
+        let ct = packet.header("Content-Type").unwrap_or("").to_string();
         (ct, packet.data().to_vec())
     };
 
     // Determine MIME type
     let path = url.split("://").nth(1).unwrap_or("");
-    let location_hint = if content_type.is_empty() { path } else { "" };
-    let mime = if content_type.is_empty() {
-        mime_from_path(if location_hint.is_empty() {
-            path
-        } else {
-            location_hint
-        })
-    } else {
-        &content_type
-    };
+    let mime = response_mime(&content_type, path);
 
     // Resolve site credentials (window.home) and route credentials (window.route)
     let mut response = {
@@ -609,6 +597,14 @@ fn render_not_found_response(url: &str) -> PageResponse {
     PageResponse::html(crate::page_shell::render_page("Not Found", css, &body))
 }
 
+fn response_mime<'a>(content_type: &'a str, path: &'a str) -> &'a str {
+    if content_type.is_empty() {
+        mime_from_path(path)
+    } else {
+        content_type
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -665,5 +661,12 @@ mod tests {
 
         let url = HAVIAddress::parse("hppr://group/app/path").unwrap();
         assert!(!url.is_listing());
+    }
+
+    #[test]
+    fn test_response_mime_uses_path_when_content_type_missing() {
+        assert_eq!(response_mime("", "dev/hppr.forge/presentation/dist/reveal.css"), "text/css");
+        assert_eq!(response_mime("", "dev/hppr.forge/presentation/dist/reveal.js"), "application/javascript");
+        assert_eq!(response_mime("text/html", "dev/hppr.forge/presentation/index.html"), "text/html");
     }
 }

@@ -54,6 +54,19 @@ Host integration runtime policy:
 All runtime paths keep the same pylon TCP control protocol and service control
 line/event shapes.
 
+## Pylon Indicator
+
+The toolbar pylon indicator uses redundant shape and color cues.
+
+Health mapping:
+
+- Booting: orange diamond
+- hpprd running or external: green circle
+- hpprd starting: orange triangle
+- hpprd stopped or failed: red square
+
+The pylon dropdown uses matching shape glyphs for per-service state.
+
 ## History
 
 Top-level URL changes are persisted to SQLite table `history`.

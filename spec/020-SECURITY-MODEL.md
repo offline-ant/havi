@@ -85,7 +85,7 @@ Lookup target:
 
 Rules:
 
-- groups starting with `.` are local/private and skip bootstrap lookup
+- groups starting with `~` are local/private and skip bootstrap lookup
 - bootstrap lookup responses must be Seals signed by the configured bootstrap
   verification key
 - on success, HAVI uses the returned `Upstream` and

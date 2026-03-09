@@ -12,6 +12,14 @@ pub(super) enum PylonHealth {
     Red,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PylonIndicatorShape {
+    Circle,
+    Triangle,
+    Square,
+    Diamond,
+}
+
 /// Per-service snapshot.
 #[derive(Clone, Debug)]
 pub(super) struct PylonServiceInfo {
@@ -144,19 +152,49 @@ const DOT_ORANGE: [f32; 4] = [0.867, 0.533, 0.0, 1.0]; // #dd8800
 const DOT_RED: [f32; 4] = [0.867, 0.2, 0.2, 1.0]; // #dd3333
 const MENU_WIDTH: f64 = 200.0;
 
+fn indicator_for_health(health: PylonHealth) -> ([f32; 4], PylonIndicatorShape) {
+    match health {
+        PylonHealth::Booting => (DOT_ORANGE, PylonIndicatorShape::Diamond),
+        PylonHealth::Green => (DOT_GREEN, PylonIndicatorShape::Circle),
+        PylonHealth::Orange => (DOT_ORANGE, PylonIndicatorShape::Triangle),
+        PylonHealth::Red => (DOT_RED, PylonIndicatorShape::Square),
+    }
+}
+
+fn service_state_glyph(state: &str) -> &'static str {
+    match state {
+        "running" | "external" => "●",
+        "starting" => "▲",
+        _ => "■",
+    }
+}
+
 impl App {
-    /// Set the pylon dot color based on current health.
+    /// Set the pylon indicator color and shape based on current health.
     pub(super) fn update_pylon_dot(&self, cx: &mut Cx) {
-        let color = match self.pylon_status.health {
-            PylonHealth::Booting => DOT_ORANGE,
-            PylonHealth::Green => DOT_GREEN,
-            PylonHealth::Orange => DOT_ORANGE,
-            PylonHealth::Red => DOT_RED,
+        let (color, shape) = indicator_for_health(self.pylon_status.health);
+        let set_color = |view_id| {
+            let dot = self.ui.view(cx, view_id);
+            if let Some(mut v) = dot.borrow_mut() {
+                v.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &color);
+            };
         };
-        let dot = self.ui.view(cx, ids!(pylon_dot));
-        if let Some(mut v) = dot.borrow_mut() {
-            v.draw_bg.draw_vars.set_uniform(cx, live_id!(color), &color);
-        }
+        set_color(ids!(pylon_dot_circle));
+        set_color(ids!(pylon_dot_triangle));
+        set_color(ids!(pylon_dot_square));
+        set_color(ids!(pylon_dot_diamond));
+        self.ui
+            .view(cx, ids!(pylon_dot_circle))
+            .set_visible(cx, shape == PylonIndicatorShape::Circle);
+        self.ui
+            .view(cx, ids!(pylon_dot_triangle))
+            .set_visible(cx, shape == PylonIndicatorShape::Triangle);
+        self.ui
+            .view(cx, ids!(pylon_dot_square))
+            .set_visible(cx, shape == PylonIndicatorShape::Square);
+        self.ui
+            .view(cx, ids!(pylon_dot_diamond))
+            .set_visible(cx, shape == PylonIndicatorShape::Diamond);
         cx.redraw_all();
     }
 
@@ -173,11 +211,7 @@ impl App {
         // Build services text.
         let mut svc_lines = String::new();
         for svc in &self.pylon_status.services {
-            let dot_char = match svc.state.as_str() {
-                "running" | "external" => "\u{25CF}", // ●
-                "starting" => "\u{25D4}",             // ◔
-                _ => "\u{25CB}",                      // ○
-            };
+            let dot_char = service_state_glyph(&svc.state);
             svc_lines.push_str(&format!("  {} {}", dot_char, svc.name));
             if let Some(port) = svc.port {
                 svc_lines.push_str(&format!(" :{}", port));
@@ -293,5 +327,27 @@ impl App {
             let _ = client.command(cmd, service, args);
         }
         self.refresh_pylon_status(cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hpprd_health_uses_distinct_shapes() {
+        assert_eq!(indicator_for_health(PylonHealth::Green).1, PylonIndicatorShape::Circle);
+        assert_eq!(indicator_for_health(PylonHealth::Orange).1, PylonIndicatorShape::Triangle);
+        assert_eq!(indicator_for_health(PylonHealth::Red).1, PylonIndicatorShape::Square);
+        assert_eq!(indicator_for_health(PylonHealth::Booting).1, PylonIndicatorShape::Diamond);
+    }
+
+    #[test]
+    fn service_state_glyphs_match_toolbar_shapes() {
+        assert_eq!(service_state_glyph("running"), "●");
+        assert_eq!(service_state_glyph("external"), "●");
+        assert_eq!(service_state_glyph("starting"), "▲");
+        assert_eq!(service_state_glyph("stopped"), "■");
+        assert_eq!(service_state_glyph("failed"), "■");
     }
 }

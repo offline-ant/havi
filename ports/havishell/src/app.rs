@@ -369,15 +369,73 @@ script_mod! {
                             cursor: MouseCursor.Hand
                             width: 16 height: 16
                             margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
-                            show_bg: true
-                            draw_bg +: {
-                                color: uniform(#x888888)
-                                pixel: fn() {
-                                    let sdf = Sdf2d.viewport(self.pos * self.rect_size)
-                                    let r = min(self.rect_size.x, self.rect_size.y) * 0.4
-                                    sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, r)
-                                    sdf.fill(self.color)
-                                    return sdf.result
+                            flow: Overlay
+
+                            pylon_dot_circle := View{
+                                width: Fill height: Fill
+                                show_bg: true
+                                draw_bg +: {
+                                    color: uniform(#x888888)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        let r = min(self.rect_size.x, self.rect_size.y) * 0.4
+                                        sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, r)
+                                        sdf.fill(self.color)
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_dot_triangle := View{
+                                visible: false
+                                width: Fill height: Fill
+                                show_bg: true
+                                draw_bg +: {
+                                    color: uniform(#x888888)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.move_to(self.rect_size.x * 0.5, self.rect_size.y * 0.15)
+                                        sdf.line_to(self.rect_size.x * 0.85, self.rect_size.y * 0.82)
+                                        sdf.line_to(self.rect_size.x * 0.15, self.rect_size.y * 0.82)
+                                        sdf.close_path()
+                                        sdf.fill(self.color)
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_dot_square := View{
+                                visible: false
+                                width: Fill height: Fill
+                                show_bg: true
+                                draw_bg +: {
+                                    color: uniform(#x888888)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        let inset = min(self.rect_size.x, self.rect_size.y) * 0.18
+                                        sdf.rect(inset, inset, self.rect_size.x - inset * 2.0, self.rect_size.y - inset * 2.0)
+                                        sdf.fill(self.color)
+                                        return sdf.result
+                                    }
+                                }
+                            }
+
+                            pylon_dot_diamond := View{
+                                visible: false
+                                width: Fill height: Fill
+                                show_bg: true
+                                draw_bg +: {
+                                    color: uniform(#x888888)
+                                    pixel: fn() {
+                                        let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                                        sdf.move_to(self.rect_size.x * 0.5, self.rect_size.y * 0.12)
+                                        sdf.line_to(self.rect_size.x * 0.88, self.rect_size.y * 0.5)
+                                        sdf.line_to(self.rect_size.x * 0.5, self.rect_size.y * 0.88)
+                                        sdf.line_to(self.rect_size.x * 0.12, self.rect_size.y * 0.5)
+                                        sdf.close_path()
+                                        sdf.fill(self.color)
+                                        return sdf.result
+                                    }
                                 }
                             }
                         }
