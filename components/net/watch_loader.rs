@@ -174,8 +174,8 @@ async fn watch_stream_with_notify(
     use hppr_client::hppr_packet::create_null_with_headers;
 
     // Stream markers
-    const SUFFIX_OPEN: &str = "⋯🖧: B\n";
-    const SUFFIX_CLOSE_PREFIX: &str = "⋯🖧: B.";
+    const TRAILER_OPEN: &str = "⋯🖧: B\n";
+    const TRAILER_CLOSE_PREFIX: &str = "⋯🖧: B.";
 
     // Connect to server
     let stream = match TcpStream::connect(addr).await {
@@ -235,7 +235,7 @@ async fn watch_stream_with_notify(
         let _ = conn_tx.send(Err(format!("Failed to read stream marker: {}", e)));
         return Err(format!("Failed to read stream marker: {}", e));
     }
-    if line != SUFFIX_OPEN {
+    if line != TRAILER_OPEN {
         // Check for Null packet (error response per 030-BASIC-COMMANDS.md)
         // Null packet markline: 🖧: 0.H3
         if line.starts_with("🖧: 0.") {
@@ -265,12 +265,12 @@ async fn watch_stream_with_notify(
             Ok(0) => break, // EOF
             Ok(_) => {
                 // Check for closing marker
-                if line.starts_with(SUFFIX_CLOSE_PREFIX) {
+                if line.starts_with(TRAILER_CLOSE_PREFIX) {
                     // Check for new open marker (multi-blob continuation)
                     let mut next_line = String::new();
                     match reader.read_line(&mut next_line).await {
                         Ok(0) => break, // EOF after close - stream complete
-                        Ok(_) if next_line == SUFFIX_OPEN => {
+                        Ok(_) if next_line == TRAILER_OPEN => {
                             // New blob starting, continue reading
                             continue;
                         }
