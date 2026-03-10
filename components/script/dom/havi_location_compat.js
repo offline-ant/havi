@@ -1014,37 +1014,49 @@
         }
     }
 
-    if (isHpprPage() || isFilePage() || nativeLocation) {
-        compatLocation = isHpprPage() ? makeHpprCompatLocation() : makeFileCompatLocation();
+    function ensureCompatLocation() {
+        if (compatLocation) {
+            return compatLocation;
+        }
+        if (isHpprPage()) {
+            compatLocation = makeHpprCompatLocation();
+        } else if (isFilePage() || nativeLocation) {
+            compatLocation = makeFileCompatLocation();
+        } else {
+            throw new TypeError('window.location compatibility mode could not determine the current scheme');
+        }
         window.__haviCompatLocation = compatLocation;
-        try {
-            Object.defineProperty(window, 'location', {
-                get: function() {
-                    warnOnce();
-                    return compatLocation;
-                },
-                set: function(value) {
-                    warnOnce();
-                    compatLocation.href = String(value);
-                },
-                configurable: true
-            });
-        } catch (e) {}
-        try {
-            Object.defineProperty(document, 'location', {
-                get: function() {
-                    warnOnce();
-                    return compatLocation;
-                },
-                set: function(value) {
-                    warnOnce();
-                    compatLocation.href = String(value);
-                },
-                configurable: true
-            });
-        } catch (e) {}
         patchHistory();
+        return compatLocation;
     }
+    window.__haviEnsureCompatLocation = ensureCompatLocation;
+
+    try {
+        Object.defineProperty(window, 'location', {
+            get: function() {
+                warnOnce();
+                return ensureCompatLocation();
+            },
+            set: function(value) {
+                warnOnce();
+                ensureCompatLocation().href = String(value);
+            },
+            configurable: true
+        });
+    } catch (e) {}
+    try {
+        Object.defineProperty(document, 'location', {
+            get: function() {
+                warnOnce();
+                return ensureCompatLocation();
+            },
+            set: function(value) {
+                warnOnce();
+                ensureCompatLocation().href = String(value);
+            },
+            configurable: true
+        });
+    } catch (e) {}
 
     var net = ['WebSocket', 'XMLHttpRequest', 'EventSource'];
     for (var i = 0; i < net.length; i++) {

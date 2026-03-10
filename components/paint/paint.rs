@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use base::generic_channel::{GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use constellation_traits::{EmbedderToConstellationMessage, ScrollStateUpdate};
+use constellation_traits::{EmbedderToConstellationMessage, ScrollStateUpdate, WindowSizeType};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
 use embedder_traits::{
@@ -423,10 +423,33 @@ impl Paint {
 
     pub fn resize_rendering_context(
         &self,
-        _webview_id: WebViewId,
-        _new_size: PhysicalSize<u32>,
+        webview_id: WebViewId,
+        new_size: PhysicalSize<u32>,
     ) {
-        // TODO(havi-render): Resize handled by Makepad.
+        if self.shutdown_state() != ShutdownState::NotShuttingDown {
+            return;
+        }
+
+        let hidpi_scale_factor = self
+            .hidpi_scale_factors
+            .borrow()
+            .get(&webview_id)
+            .copied()
+            .unwrap_or_else(Scale::identity);
+        let scaled_viewport_size =
+            Size2D::<f32, DevicePixel>::new(new_size.width as f32, new_size.height as f32)
+                / hidpi_scale_factor;
+        let viewport_details = ViewportDetails {
+            size: scaled_viewport_size / Scale::new(1.0),
+            hidpi_scale_factor: Scale::new(hidpi_scale_factor.0),
+        };
+        let _ = self
+            .embedder_to_constellation_sender
+            .send(EmbedderToConstellationMessage::ChangeViewportDetails(
+                webview_id,
+                viewport_details,
+                WindowSizeType::Resize,
+            ));
     }
 
     pub fn set_page_zoom(&self, webview_id: WebViewId, new_zoom: f32) {

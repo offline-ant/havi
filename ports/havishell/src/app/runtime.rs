@@ -494,10 +494,24 @@ impl App {
         }
     }
 
-    /// Check if the web_view widget has been resized and update the rendering context
+    fn webview_host_rect(&mut self, cx: &mut Cx) -> Rect {
+        self.ui.view(cx, ids!(content_area)).area().rect(cx)
+    }
+
+    pub(super) fn sync_content_size_from_host_rect(&mut self, cx: &mut Cx) {
+        let rect = self.webview_host_rect(cx);
+        let new_width = ((rect.size.x * self.dpi_factor) as u32).max(1);
+        let new_height = ((rect.size.y * self.dpi_factor) as u32).max(1);
+        if new_width < 64 || new_height < 64 {
+            return;
+        }
+        self.content_size = (new_width as usize, new_height as usize);
+    }
+
+    /// Check if the web_view host widget has been resized and update the rendering context
     /// and texture accordingly.
     fn check_resize(&mut self, cx: &mut Cx) {
-        let rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+        let rect = self.webview_host_rect(cx);
         // Makepad's rect is in logical (DPI-independent) pixels.
         // Servo and GL textures need physical pixel dimensions.
         let new_width = ((rect.size.x * self.dpi_factor) as u32).max(1);
@@ -513,7 +527,7 @@ impl App {
             return;
         }
 
-        ::log::info!(
+        log!(
             "Resizing rendering context: {}x{} → {}x{}",
             cur_w,
             cur_h,
@@ -587,8 +601,8 @@ impl App {
         }
     }
 
-    pub(super) fn point_to_device(&self, cx: &mut Cx, pos: DVec2) -> servo::DevicePoint {
-        let rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+    pub(super) fn point_to_device(&mut self, cx: &mut Cx, pos: DVec2) -> servo::DevicePoint {
+        let rect = self.webview_host_rect(cx);
         // pos and rect are in Makepad logical pixels; Servo wants device pixels.
         let x = ((pos.x - rect.pos.x) * self.dpi_factor) as f32;
         let y = ((pos.y - rect.pos.y) * self.dpi_factor) as f32;

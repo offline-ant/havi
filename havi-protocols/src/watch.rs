@@ -11,9 +11,12 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 use crate::client::get_admin_credentials;
 use crate::url::HAVIAddress;
+
+const WATCH_RELOAD_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Per-tab watch mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -243,6 +246,7 @@ pub struct WatchHandle {
     active_urc: Option<String>,
     /// Whether a change has been detected (for Notify mode indicator).
     pub change_detected: bool,
+    pending_reload_deadline: Option<Instant>,
 }
 
 impl Default for WatchHandle {
@@ -254,6 +258,7 @@ impl Default for WatchHandle {
             active_group_app: None,
             active_urc: None,
             change_detected: false,
+            pending_reload_deadline: None,
         }
     }
 }
@@ -268,11 +273,13 @@ impl WatchHandle {
     pub fn set_mode(&mut self, mode: WatchMode) {
         self.mode = mode;
         self.change_detected = false;
+        self.pending_reload_deadline = None;
     }
 
     /// Clear the change_detected flag (on navigation).
     pub fn clear_change_detected(&mut self) {
         self.change_detected = false;
+        self.pending_reload_deadline = None;
     }
 
     /// Reconcile watch state with the tab's current URL.
@@ -310,6 +317,7 @@ impl WatchHandle {
         self.active_group_app = Some(group_app);
         self.active_urc = Some(urc);
         self.change_detected = false;
+        self.pending_reload_deadline = None;
     }
 
     /// Poll for watch events. Returns the highest-priority action.
@@ -319,6 +327,7 @@ impl WatchHandle {
             None => return WatchAction::None,
         };
 
+        let now = Instant::now();
         let mut action = WatchAction::None;
         while let Ok(line) = rx.try_recv() {
             let event = hppr_client::parse_watch_event(&line);
@@ -333,21 +342,34 @@ impl WatchHandle {
                     }
                 }
             };
-            if matches {
-                let new_action = match self.mode {
-                    WatchMode::Notify => WatchAction::ChangeDetected,
-                    WatchMode::Auto | WatchMode::Dev => WatchAction::Reload,
-                    WatchMode::Off => WatchAction::None,
-                };
-                // Escalate: Reload > ChangeDetected > None
-                if (new_action as u8) > (action as u8) {
-                    action = new_action;
+            if !matches {
+                continue;
+            }
+
+            match self.mode {
+                WatchMode::Notify => {
+                    action = WatchAction::ChangeDetected;
                 }
+                WatchMode::Auto | WatchMode::Dev => {
+                    self.change_detected = true;
+                    self.pending_reload_deadline = Some(now + WATCH_RELOAD_DEBOUNCE);
+                }
+                WatchMode::Off => {}
             }
         }
 
         if action == WatchAction::ChangeDetected {
             self.change_detected = true;
+        }
+
+        if matches!(self.mode, WatchMode::Auto | WatchMode::Dev)
+            && self
+                .pending_reload_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.pending_reload_deadline = None;
+            self.change_detected = false;
+            return WatchAction::Reload;
         }
 
         action
@@ -360,6 +382,7 @@ impl WatchHandle {
         self.active_group_app = None;
         self.active_urc = None;
         self.change_detected = false;
+        self.pending_reload_deadline = None;
     }
 }
 

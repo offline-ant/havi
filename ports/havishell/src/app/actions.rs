@@ -92,6 +92,7 @@ impl App {
 
         // Create the first webview if none exists yet (splash screen path).
         if self.tabs.is_empty() {
+            self.sync_content_size_from_host_rect(cx);
             if let Some(webview) = self.create_webview(&self.start_url) {
                 let webview_id = webview.id();
                 let shared = layout_api::shared_fragment_tree_for(webview_id);
@@ -813,7 +814,7 @@ impl AppMain for App {
             };
             match watch_action {
                 havi_protocols::watch::WatchAction::Reload => {
-                    self.reload();
+                    self.recreate_active_tab_webview(cx);
                     self.needs_paint = true;
                 },
                 havi_protocols::watch::WatchAction::ChangeDetected => {

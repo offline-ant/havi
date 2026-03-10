@@ -64,10 +64,19 @@
     try {
         Object.defineProperty(window, 'location', {
             get: function() {
-                return withLocationCompat(function() { return window.__haviCompatLocation; });
+                return withLocationCompat(function() {
+                    return typeof window.__haviEnsureCompatLocation === 'function'
+                        ? window.__haviEnsureCompatLocation()
+                        : window.__haviCompatLocation;
+                });
             },
             set: function(value) {
-                return withLocationCompat(function() { window.__haviCompatLocation.href = value; });
+                return withLocationCompat(function() {
+                    var location = typeof window.__haviEnsureCompatLocation === 'function'
+                        ? window.__haviEnsureCompatLocation()
+                        : window.__haviCompatLocation;
+                    location.href = value;
+                });
             },
             configurable: true
         });
@@ -76,10 +85,19 @@
     try {
         Object.defineProperty(document, 'location', {
             get: function() {
-                return withLocationCompat(function() { return window.__haviCompatLocation; });
+                return withLocationCompat(function() {
+                    return typeof window.__haviEnsureCompatLocation === 'function'
+                        ? window.__haviEnsureCompatLocation()
+                        : window.__haviCompatLocation;
+                });
             },
             set: function(value) {
-                return withLocationCompat(function() { window.__haviCompatLocation.href = value; });
+                return withLocationCompat(function() {
+                    var location = typeof window.__haviEnsureCompatLocation === 'function'
+                        ? window.__haviEnsureCompatLocation()
+                        : window.__haviCompatLocation;
+                    location.href = value;
+                });
             },
             configurable: true
         });
