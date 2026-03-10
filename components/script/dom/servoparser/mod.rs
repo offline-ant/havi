@@ -1826,7 +1826,12 @@ impl TreeSink for Sink {
         attach_declarative_shadow_inner(host, template, attributes)
     }
 
+    #[expect(unsafe_code)]
     fn maybe_clone_an_option_into_selectedcontent(&self, option: &Self::Handle) {
+        // TODO: https://github.com/servo/servo/issues/42839
+        let mut cx = unsafe { temp_cx() };
+        let cx = &mut cx;
+
         let Some(option) = option.downcast::<HTMLOptionElement>() else {
             if cfg!(debug_assertions) {
                 unreachable!();
@@ -1837,7 +1842,7 @@ impl TreeSink for Sink {
             return;
         };
 
-        option.maybe_clone_an_option_into_selectedcontent(CanGc::note())
+        option.maybe_clone_an_option_into_selectedcontent(cx)
     }
 }
 
