@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! HPPR StreamOut DOM binding.
+//! HPPR StreamSub DOM binding.
 //!
-//! Provides an EventTarget interface for HPPR STREAM_OUT subscriber streaming.
+//! Provides an EventTarget interface for HPPR STREAM_SUB subscriber streaming.
 //! The network layer parses trailer-format bytes internally.
 //! The ReadableStream delivers decoded payload bytes.
 //! Optional `onpacket` fires for each completed packet (diagnostics).
@@ -16,7 +16,7 @@ use stylo_atoms::Atom;
 use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{
-    CoreResourceMsg, HpprProtocolError, StreamOutDomAction, StreamOutNetworkEvent,
+    CoreResourceMsg, HpprProtocolError, StreamSubDomAction, StreamSubNetworkEvent,
 };
 use hppr_client::parse_via;
 use hppr_client::Signer;
@@ -24,7 +24,7 @@ use profile_traits::ipc as ProfiledIpc;
 
 use script_bindings::reflector::DomObject;
 
-use crate::dom::bindings::codegen::Bindings::StreamOutBinding::StreamOutMethods;
+use crate::dom::bindings::codegen::Bindings::StreamSubBinding::StreamSubMethods;
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::Trusted;
@@ -46,46 +46,46 @@ use crate::task::TaskOnce;
 use crate::task_source::SendableTaskSource;
 
 #[derive(Clone, Copy, Debug, JSTraceable, MallocSizeOf, PartialEq)]
-enum StreamOutState {
+enum StreamSubState {
     Connecting = 0,
     Open = 1,
     Closing = 2,
     Closed = 3,
 }
 
-/// HPPR STREAM_OUT subscriber.
+/// HPPR STREAM_SUB subscriber.
 ///
 /// The network layer parses trailer-format bytes and delivers decoded
 /// payload bytes through the ReadableStream. Optional `onpacket` fires
 /// for each completed packet.
 #[dom_struct]
-pub(crate) struct StreamOut {
+pub(crate) struct StreamSub {
     eventtarget: EventTarget,
-    ready_state: Cell<StreamOutState>,
+    ready_state: Cell<StreamSubState>,
     #[ignore_malloc_size_of = "IPC channels don't implement MallocSizeOf"]
     #[no_trace]
-    sender: IpcSender<StreamOutDomAction>,
+    sender: IpcSender<StreamSubDomAction>,
     prefix: NoTrace<String>,
     stream: Dom<ReadableStream>,
 }
 
-impl StreamOut {
+impl StreamSub {
     #[cfg_attr(crown, expect(crown::unrooted_must_root))]
     fn new_inherited(
-        sender: IpcSender<StreamOutDomAction>,
+        sender: IpcSender<StreamSubDomAction>,
         prefix: String,
         stream: &ReadableStream,
     ) -> Self {
         Self {
             eventtarget: EventTarget::new_inherited(),
-            ready_state: Cell::new(StreamOutState::Connecting),
+            ready_state: Cell::new(StreamSubState::Connecting),
             sender,
             prefix: NoTrace(prefix),
             stream: Dom::from_ref(stream),
         }
     }
 
-    /// Create a new StreamOut and initiate the STREAM_OUT connection.
+    /// Create a new StreamSub and initiate the STREAM_SUB connection.
     pub(crate) fn new(
         global: &GlobalScope,
         endpoint: &str,
@@ -95,12 +95,12 @@ impl StreamOut {
     ) -> DomRoot<Self> {
         // Create IPC channels
         let (dom_action_sender, resource_action_receiver): (
-            IpcSender<StreamOutDomAction>,
-            ipc::IpcReceiver<StreamOutDomAction>,
+            IpcSender<StreamSubDomAction>,
+            ipc::IpcReceiver<StreamSubDomAction>,
         ) = ipc::channel().unwrap();
         let (resource_event_sender, dom_event_receiver): (
-            IpcSender<StreamOutNetworkEvent>,
-            ProfiledIpc::IpcReceiver<StreamOutNetworkEvent>,
+            IpcSender<StreamSubNetworkEvent>,
+            ProfiledIpc::IpcReceiver<StreamSubNetworkEvent>,
         ) = ProfiledIpc::channel(global.time_profiler_chan().clone()).unwrap();
 
         // Create the ReadableStream
@@ -113,7 +113,7 @@ impl StreamOut {
 
         // Create the DOM object
         let so = reflect_dom_object(
-            Box::new(StreamOut::new_inherited(
+            Box::new(StreamSub::new_inherited(
                 dom_action_sender,
                 prefix.clone(),
                 &stream,
@@ -131,40 +131,40 @@ impl StreamOut {
         ROUTER.add_typed_route(
             dom_event_receiver.to_ipc_receiver(),
             Box::new(move |message| match message.unwrap() {
-                StreamOutNetworkEvent::Ready => {
-                    task_source.queue(StreamOutConnectionTask {
+                StreamSubNetworkEvent::Ready => {
+                    task_source.queue(StreamSubConnectionTask {
                         address: address.clone(),
                     });
                 },
-                StreamOutNetworkEvent::Data(data) => {
-                    task_source.queue(StreamOutDataTask {
-                        address: address.clone(),
-                        data,
-                    });
-                },
-                StreamOutNetworkEvent::Packet(data) => {
-                    task_source.queue(StreamOutPacketTask {
+                StreamSubNetworkEvent::Data(data) => {
+                    task_source.queue(StreamSubDataTask {
                         address: address.clone(),
                         data,
                     });
                 },
-                StreamOutNetworkEvent::Close => {
-                    close_stream_out(address.clone(), &task_source, None);
+                StreamSubNetworkEvent::Packet(data) => {
+                    task_source.queue(StreamSubPacketTask {
+                        address: address.clone(),
+                        data,
+                    });
                 },
-                StreamOutNetworkEvent::Fail(error) => {
-                    close_stream_out(address.clone(), &task_source, Some(error));
+                StreamSubNetworkEvent::Close => {
+                    close_stream_sub(address.clone(), &task_source, None);
+                },
+                StreamSubNetworkEvent::Fail(error) => {
+                    close_stream_sub(address.clone(), &task_source, Some(error));
                 },
             }),
         );
 
-        // Send STREAM_OUT request to network thread
+        // Send STREAM_SUB request to network thread
         let via = match parse_via(endpoint) {
             Ok(v) => v,
             Err(_) => return so,
         };
         let _ = global
             .core_resource_thread()
-            .send(CoreResourceMsg::HpprStreamOut {
+            .send(CoreResourceMsg::HpprStreamSub {
                 endpoint: via,
                 signer,
                 prefix,
@@ -175,7 +175,7 @@ impl StreamOut {
         so
     }
 
-    /// Create a StreamOut in pending state (not yet connected).
+    /// Create a StreamSub in pending state (not yet connected).
     pub(crate) fn new_pending(
         global: &GlobalScope,
         prefix: String,
@@ -189,7 +189,7 @@ impl StreamOut {
         )
         .unwrap();
         reflect_dom_object(
-            Box::new(StreamOut::new_inherited(dom_action_sender, prefix, &stream)),
+            Box::new(StreamSub::new_inherited(dom_action_sender, prefix, &stream)),
             global,
             can_gc,
         )
@@ -198,24 +198,24 @@ impl StreamOut {
     /// Close the stream connection.
     pub(crate) fn close(&self) {
         match self.ready_state.get() {
-            StreamOutState::Closing | StreamOutState::Closed => {},
-            StreamOutState::Connecting | StreamOutState::Open => {
-                self.ready_state.set(StreamOutState::Closing);
-                let _ = self.sender.send(StreamOutDomAction::Close);
+            StreamSubState::Closing | StreamSubState::Closed => {},
+            StreamSubState::Connecting | StreamSubState::Open => {
+                self.ready_state.set(StreamSubState::Closing);
+                let _ = self.sender.send(StreamSubDomAction::Close);
             },
         }
     }
 
     /// Fail the connection with an error.
     pub(crate) fn fail_with_error(&self, error: &str, can_gc: CanGc) {
-        self.ready_state.set(StreamOutState::Closed);
+        self.ready_state.set(StreamSubState::Closed);
 
         let protocol_error = HpprProtocolError {
             error_type: "FORBIDDEN".to_string(),
             detail: error.to_string(),
             fatal: true,
         };
-        fire_stream_out_error(self, &protocol_error, can_gc);
+        fire_stream_sub_error(self, &protocol_error, can_gc);
 
         self.stream
             .error_native(Error::Network(None), can_gc);
@@ -231,16 +231,16 @@ impl StreamOut {
     }
 }
 
-fn close_stream_out(
-    address: Trusted<StreamOut>,
+fn close_stream_sub(
+    address: Trusted<StreamSub>,
     task_source: &SendableTaskSource,
     error: Option<HpprProtocolError>,
 ) {
-    task_source.queue(StreamOutCloseTask { address, error });
+    task_source.queue(StreamSubCloseTask { address, error });
 }
 
-/// Fire an ErrorEvent on a StreamOut.
-fn fire_stream_out_error(so: &StreamOut, protocol_error: &HpprProtocolError, can_gc: CanGc) {
+/// Fire an ErrorEvent on a StreamSub.
+fn fire_stream_sub_error(so: &StreamSub, protocol_error: &HpprProtocolError, can_gc: CanGc) {
     let global = so.global();
     let hppr_error = HpprError::from_protocol_error(&global, protocol_error, can_gc);
     rooted!(in(*GlobalScope::get_cx()) let error_val =
@@ -260,7 +260,7 @@ fn fire_stream_out_error(so: &StreamOut, protocol_error: &HpprProtocolError, can
     event.upcast::<Event>().fire(so.upcast(), can_gc);
 }
 
-impl StreamOutMethods<crate::DomTypeHolder> for StreamOut {
+impl StreamSubMethods<crate::DomTypeHolder> for StreamSub {
     event_handler!(open, GetOnopen, SetOnopen);
     event_handler!(close, GetOnclose, SetOnclose);
     event_handler!(error, GetOnerror, SetOnerror);
@@ -283,50 +283,50 @@ impl StreamOutMethods<crate::DomTypeHolder> for StreamOut {
     }
 }
 
-/// Task: STREAM_OUT connection established.
-struct StreamOutConnectionTask {
-    address: Trusted<StreamOut>,
+/// Task: STREAM_SUB connection established.
+struct StreamSubConnectionTask {
+    address: Trusted<StreamSub>,
 }
 
-impl TaskOnce for StreamOutConnectionTask {
+impl TaskOnce for StreamSubConnectionTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let so = self.address.root();
-        if so.ready_state.get() != StreamOutState::Connecting {
+        if so.ready_state.get() != StreamSubState::Connecting {
             return;
         }
-        so.ready_state.set(StreamOutState::Open);
+        so.ready_state.set(StreamSubState::Open);
         so.upcast().fire_event(atom!("open"), CanGc::from_cx(cx));
     }
 }
 
-/// Task: data received from STREAM_OUT.
-struct StreamOutDataTask {
-    address: Trusted<StreamOut>,
+/// Task: data received from STREAM_SUB.
+struct StreamSubDataTask {
+    address: Trusted<StreamSub>,
     data: Vec<u8>,
 }
 
-impl TaskOnce for StreamOutDataTask {
+impl TaskOnce for StreamSubDataTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let so = self.address.root();
-        if so.ready_state.get() != StreamOutState::Open {
+        if so.ready_state.get() != StreamSubState::Open {
             return;
         }
         so.stream.enqueue_native(self.data, CanGc::from_cx(cx));
     }
 }
 
-/// Task: complete packet parsed from STREAM_OUT.
+/// Task: complete packet parsed from STREAM_SUB.
 ///
 /// Fires a `packet` event carrying an `HpprPacket` object.
-struct StreamOutPacketTask {
-    address: Trusted<StreamOut>,
+struct StreamSubPacketTask {
+    address: Trusted<StreamSub>,
     data: Vec<u8>,
 }
 
-impl TaskOnce for StreamOutPacketTask {
+impl TaskOnce for StreamSubPacketTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let so = self.address.root();
-        if so.ready_state.get() == StreamOutState::Connecting {
+        if so.ready_state.get() == StreamSubState::Connecting {
             return;
         }
         let global = so.global();
@@ -335,14 +335,14 @@ impl TaskOnce for StreamOutPacketTask {
         let packet = match hppr_packet::read_packet(self.data.into_boxed_slice()) {
             Ok(packet) => packet,
             Err(e) => {
-                log::warn!("stream_out: failed to parse packet event bytes: {}", e);
+                log::warn!("stream_sub: failed to parse packet event bytes: {}", e);
                 return;
             }
         };
         let packet_dom = match HpprPacket::new(&global, packet, can_gc) {
             Ok(packet_dom) => packet_dom,
             Err(e) => {
-                log::warn!("stream_out: failed to wrap packet event: {}", e);
+                log::warn!("stream_sub: failed to wrap packet event: {}", e);
                 return;
             }
         };
@@ -364,25 +364,25 @@ impl TaskOnce for StreamOutPacketTask {
     }
 }
 
-/// Task: STREAM_OUT connection closed.
-struct StreamOutCloseTask {
-    address: Trusted<StreamOut>,
+/// Task: STREAM_SUB connection closed.
+struct StreamSubCloseTask {
+    address: Trusted<StreamSub>,
     error: Option<HpprProtocolError>,
 }
 
-impl TaskOnce for StreamOutCloseTask {
+impl TaskOnce for StreamSubCloseTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let so = self.address.root();
         let can_gc = CanGc::from_cx(cx);
 
-        if so.ready_state.get() == StreamOutState::Closed {
+        if so.ready_state.get() == StreamSubState::Closed {
             return;
         }
 
-        so.ready_state.set(StreamOutState::Closed);
+        so.ready_state.set(StreamSubState::Closed);
 
         if let Some(ref protocol_error) = self.error {
-            fire_stream_out_error(&so, protocol_error, can_gc);
+            fire_stream_sub_error(&so, protocol_error, can_gc);
             so.stream.error_native(Error::Network(None), can_gc);
         } else {
             so.stream.controller_close_native(can_gc);

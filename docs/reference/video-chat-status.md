@@ -6,7 +6,7 @@ HAVI now ships:
 
 - `getUserMedia()` camera acquisition
 - `video.srcObject` local preview
-- `StreamIn` / `StreamOut` incremental byte transport
+- `StreamPub` / `StreamSub` incremental byte transport
 - `MediaRecorder` part-2 camera chunk path
 - `video-chat.html` explicit sender contract with remote playback path:
   recorder sender when supported, NYI receive-only fallback when not

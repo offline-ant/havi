@@ -43,9 +43,9 @@ interface EnvelopeHpprClient {
     // Returns WatchSocket with WebSocket-like event interface
     WatchSocket watch(USVString urc);
 
-    // STREAM_IN — payload-oriented publisher streaming
-    StreamIn streamIn(USVString prefix, optional StreamInOptions options = {});
+    // STREAM_PUB — payload-oriented publisher streaming
+    StreamPub streamPub(USVString prefix, optional StreamPubOptions options = {});
 
-    // STREAM_OUT — payload-oriented subscriber streaming
-    StreamOut streamOut(USVString prefix);
+    // STREAM_SUB — payload-oriented subscriber streaming
+    StreamSub streamSub(USVString prefix);
 };

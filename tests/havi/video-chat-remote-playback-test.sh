@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# video-chat-remote-playback-test.sh - Validate remote playback receive pipeline from StreamOut bytes
+# video-chat-remote-playback-test.sh - Validate remote playback receive pipeline from StreamSub bytes
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
@@ -92,13 +92,13 @@ start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat.html"
         'receiver mode is valid'
       );
 
-      const streamIn = window.home.streamIn(prefix);
-      await waitOpen(streamIn, 'streamIn');
-      assert(streamIn.readyState === 1, 'streamIn opened for receiver feed');
+      const streamPub = window.home.streamPub(prefix);
+      await waitOpen(streamPub, 'streamPub');
+      assert(streamPub.readyState === 1, 'streamPub opened for receiver feed');
 
       const fakeChunk = new TextEncoder().encode('fake-mp4-chunk-data-for-receiver-path');
-      await streamIn.write(frameChunk(fakeChunk));
-      streamIn.close();
+      await streamPub.write(frameChunk(fakeChunk));
+      streamPub.close();
 
       await waitFor(() => window.__videoChat.getState().remoteChunks >= 1, 10000, 'receiver got framed chunk');
       const afterChunk = window.__videoChat.getState();

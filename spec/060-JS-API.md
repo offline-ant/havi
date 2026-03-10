@@ -113,12 +113,12 @@ interface HpprClient {
     Promise<any> hello();
     WatchSocket watch(USVString urc);
 
-    StreamIn streamIn(
+    StreamPub streamPub(
         USVString prefix,
-        optional StreamInOptions options = {}
+        optional StreamPubOptions options = {}
     );
 
-    StreamOut streamOut(USVString prefix);
+    StreamSub streamSub(USVString prefix);
 
     readonly attribute HpprRepoInfo? repo;
 };
@@ -154,8 +154,8 @@ Common return types:
 - `list()/tips()/headers()/members()`: `string[]`
 - `store()/add()`: `string[]` of stored hashes
 - `watch()`: `WatchSocket`
-- `streamIn()`: `StreamIn`
-- `streamOut()`: `StreamOut`
+- `streamPub()`: `StreamPub`
+- `streamSub()`: `StreamSub`
 
 `add()` sends headers/data and the repo builds packet layers.
 `store()` sends full packet bytes unchanged.
@@ -234,11 +234,11 @@ Message payload format:
 `<x watch>` elements share WatchSocket connections through a per-document pool
 keyed by watch prefix. See `070-X-ELEMENT.md`.
 
-## StreamIn
+## StreamPub
 
 Live publisher API.
 
-`streamIn(prefix, options)` is payload-oriented.
+`streamPub(prefix, options)` is payload-oriented.
 Callers write payload bytes.
 The client signs and frames those bytes into trailer-format Seal packets
 internally before sending them to the repo.
@@ -263,18 +263,18 @@ Methods:
 
 ### Incremental byte-stream semantics
 
-StreamIn and StreamOut are transparent byte pipes for the primary media path.
+StreamPub and StreamSub are transparent byte pipes for the primary media path.
 Applications are expected to frame payloads at the application layer (for
-example, length-prefixed chunks) and parse incrementally from `streamOut()`.
+example, length-prefixed chunks) and parse incrementally from `streamSub()`.
 
 `onpacket` is optional and is not required for media playback.
 When used, packet events carry parsed `HpprPacket` objects.
 
-## StreamOut
+## StreamSub
 
 Live subscriber API.
 
-`streamOut(prefix)` is payload-oriented.
+`streamSub(prefix)` is payload-oriented.
 The repo still relays trailer-format bytes on the wire.
 The client parses them internally and:
 
@@ -324,7 +324,7 @@ pause/resume/requestData control paths.
 `MediaSource` remains not exposed in this part.
 
 For chunked recorder playback, pages can still use standard APIs by assigning
-`Blob` chunks to `<video>.srcObject` while consuming StreamOut incrementally.
+`Blob` chunks to `<video>.srcObject` while consuming StreamSub incrementally.
 
 ## Errors
 

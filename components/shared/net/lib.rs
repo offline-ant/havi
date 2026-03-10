@@ -611,35 +611,35 @@ pub enum WatchNetworkEvent {
     Fail(HpprProtocolError),  // Structured error
 }
 
-/// Actions from DOM to network for HPPR STREAM_IN
+/// Actions from DOM to network for HPPR STREAM_PUB
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StreamInDomAction {
+pub enum StreamPubDomAction {
     Write(Vec<u8>),     // Push payload bytes to repo via integrated publisher
     FinishSegment,      // Manually close current segment
     Close,              // End the stream
 }
 
-/// Events from network to DOM for HPPR STREAM_IN
+/// Events from network to DOM for HPPR STREAM_PUB
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StreamInNetworkEvent {
+pub enum StreamPubNetworkEvent {
     Ready,                       // Repo accepted, OK received
     Packet(Vec<u8>),             // Completed packet (standard-format bytes)
     Fail(HpprProtocolError),     // Connection or protocol error
     Close,                       // Repo closed connection
 }
 
-/// STREAM_IN publisher parameters.
+/// STREAM_PUB publisher parameters.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct StreamInPublisherParams {
+pub struct StreamPubParams {
     pub key: String,
     pub headers: Vec<(String, String)>,
     pub max_segment_size: Option<usize>,
     pub flush_seq: Option<Vec<u8>>,
 }
 
-/// Events from network to DOM for HPPR STREAM_OUT
+/// Events from network to DOM for HPPR STREAM_SUB
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StreamOutNetworkEvent {
+pub enum StreamSubNetworkEvent {
     Ready,                       // HELLO done, request sent
     Data(Vec<u8>),               // Decoded payload bytes from parsed packets
     Packet(Vec<u8>),             // Complete packet (standard-format bytes)
@@ -647,9 +647,9 @@ pub enum StreamOutNetworkEvent {
     Close,                       // Repo closed (publisher disconnect / EOF)
 }
 
-/// Actions from DOM to network for HPPR STREAM_OUT
+/// Actions from DOM to network for HPPR STREAM_SUB
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StreamOutDomAction {
+pub enum StreamSubDomAction {
     Close,
 }
 
@@ -751,12 +751,12 @@ pub enum CoreResourceMsg {
         /// Channel to receive actions from DOM (Close)
         action_receiver: IpcReceiver<WatchDomAction>,
     },
-    /// HPPR STREAM_IN — payload-oriented publisher streaming.
+    /// HPPR STREAM_PUB — payload-oriented publisher streaming.
     ///
     /// Opens a dedicated TCP connection for streaming trailer-format data to the repo.
     /// The DOM writes payload bytes. The network task frames them into Seal
     /// trailer packets using these publisher parameters.
-    HpprStreamIn {
+    HpprStreamPub {
         /// Repo endpoint as parsed ViaSpec.
         endpoint: HpprViaSpec,
         /// Signer for the request
@@ -764,16 +764,16 @@ pub enum CoreResourceMsg {
         /// Coordinate prefix for the stream
         prefix: String,
         /// Publisher params (key, headers, max_segment_size, flush_seq).
-        publisher_params: StreamInPublisherParams,
+        publisher_params: StreamPubParams,
         /// Channel to send events back to DOM
-        event_sender: IpcSender<StreamInNetworkEvent>,
+        event_sender: IpcSender<StreamPubNetworkEvent>,
         /// Channel to receive actions from DOM (Write, Close)
-        action_receiver: IpcReceiver<StreamInDomAction>,
+        action_receiver: IpcReceiver<StreamPubDomAction>,
     },
-    /// HPPR STREAM_OUT — subscriber streaming.
+    /// HPPR STREAM_SUB — subscriber streaming.
     ///
     /// Opens a dedicated TCP connection for receiving trailer-format data from the repo.
-    HpprStreamOut {
+    HpprStreamSub {
         /// Repo endpoint as parsed ViaSpec.
         endpoint: HpprViaSpec,
         /// Signer for the request
@@ -781,9 +781,9 @@ pub enum CoreResourceMsg {
         /// Coordinate prefix for the stream
         prefix: String,
         /// Channel to send events back to DOM
-        event_sender: IpcSender<StreamOutNetworkEvent>,
+        event_sender: IpcSender<StreamSubNetworkEvent>,
         /// Channel to receive actions from DOM (Close)
-        action_receiver: IpcReceiver<StreamOutDomAction>,
+        action_receiver: IpcReceiver<StreamSubDomAction>,
     },
 }
 

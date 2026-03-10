@@ -15,7 +15,7 @@ use js::jsval::UndefinedValue;
 use net_traits::HpprProtocolResponse;
 
 use crate::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods, HpprRepoOptions};
-use crate::dom::bindings::codegen::Bindings::StreamInBinding::StreamInOptions;
+use crate::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
@@ -30,8 +30,8 @@ use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresult::HpprResult;
 use crate::dom::hpprrepoinfo::HpprRepoInfo;
 use crate::dom::promise::Promise;
-use crate::dom::streamin::StreamIn;
-use crate::dom::streamout::StreamOut;
+use crate::dom::streampub::StreamPub;
+use crate::dom::streamsub::StreamSub;
 use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::realms::enter_realm;
@@ -234,12 +234,12 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         self.inner.do_watch(&urc.to_string(), CanGc::note())
     }
 
-    fn StreamIn(&self, prefix: USVString, options: &StreamInOptions) -> DomRoot<StreamIn> {
-        self.inner.do_stream_in(&prefix.to_string(), options, CanGc::note())
+    fn StreamPub(&self, prefix: USVString, options: &StreamPubOptions) -> DomRoot<StreamPub> {
+        self.inner.do_stream_pub(&prefix.to_string(), options, CanGc::note())
     }
 
-    fn StreamOut(&self, prefix: USVString) -> DomRoot<StreamOut> {
-        self.inner.do_stream_out(&prefix.to_string(), CanGc::note())
+    fn StreamSub(&self, prefix: USVString) -> DomRoot<StreamSub> {
+        self.inner.do_stream_sub(&prefix.to_string(), CanGc::note())
     }
 }
 

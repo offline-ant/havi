@@ -27,7 +27,7 @@ interface HpprGreeting {
   version?: string | null;
   backend?: string | null;
 }
-interface StreamInOptions {
+interface StreamPubOptions {
   key?: string;
   headers?: Record<string, string>;
   maxSegmentSize?: number;
@@ -63,8 +63,8 @@ interface HpprClient {
   hello(): Promise<HpprGreeting>;
   readonly repo: HpprRepoInfo | null;
   watch(urc: string): WatchSocket;
-  streamIn(prefix: string, options?: StreamInOptions): StreamIn;
-  streamOut(prefix: string): StreamOut;
+  streamPub(prefix: string, options?: StreamPubOptions): StreamPub;
+  streamSub(prefix: string): StreamSub;
 }
 declare var HpprClient: {
   prototype: HpprClient;
@@ -90,8 +90,8 @@ interface EnvelopeHpprClient {
   hello(): Promise<HpprResult>;
   readonly repo: HpprRepoInfo | null;
   watch(urc: string): WatchSocket;
-  streamIn(prefix: string, options?: StreamInOptions): StreamIn;
-  streamOut(prefix: string): StreamOut;
+  streamPub(prefix: string, options?: StreamPubOptions): StreamPub;
+  streamSub(prefix: string): StreamSub;
 }
 declare var EnvelopeHpprClient: {
   prototype: EnvelopeHpprClient;
@@ -132,7 +132,7 @@ interface WatchSocket extends EventTarget {
   onclose: any;
   close(): void;
 }
-interface StreamIn extends EventTarget {
+interface StreamPub extends EventTarget {
   readonly CONNECTING: number;
   readonly OPEN: number;
   readonly CLOSING: number;
@@ -147,7 +147,7 @@ interface StreamIn extends EventTarget {
   finishSegment(): void;
   close(): void;
 }
-interface StreamOut extends EventTarget {
+interface StreamSub extends EventTarget {
   readonly CONNECTING: number;
   readonly OPEN: number;
   readonly CLOSING: number;

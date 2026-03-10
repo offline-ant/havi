@@ -19,7 +19,7 @@ use net_traits::{HpprRequest, CoreResourceMsg, HpprProtocolResponse};
 use script_bindings::trace::RootedTraceableBox;
 use crate::dom::bindings::codegen::Bindings::EnvelopeHpprClientBinding::EnvelopeHpprClientMethods;
 use crate::dom::bindings::codegen::Bindings::HpprClientBinding::HpprAddOptions;
-use crate::dom::bindings::codegen::Bindings::StreamInBinding::StreamInOptions;
+use crate::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::codegen::UnionTypes::StringOrStringSequence;
@@ -35,8 +35,8 @@ use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresult::HpprResult;
 use crate::dom::hpprrepoinfo::HpprRepoInfo;
 use crate::dom::promise::Promise;
-use crate::dom::streamin::StreamIn;
-use crate::dom::streamout::StreamOut;
+use crate::dom::streampub::StreamPub;
+use crate::dom::streamsub::StreamSub;
 use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::routed_promise::{RoutedPromiseListener, callback_promise};
@@ -414,23 +414,23 @@ impl EnvelopeHpprClient {
         )
     }
 
-    /// Create a StreamIn for the given prefix.
-    pub(crate) fn do_stream_in(&self, prefix: &str, options: &StreamInOptions, can_gc: CanGc) -> DomRoot<StreamIn> {
+    /// Create a StreamPub for the given prefix.
+    pub(crate) fn do_stream_pub(&self, prefix: &str, options: &StreamPubOptions, can_gc: CanGc) -> DomRoot<StreamPub> {
         let global = self.global();
         if let Some(reason) = self.invalid_reason.0.as_deref() {
-            let si = StreamIn::new_pending(&global, prefix.to_string(), can_gc);
+            let si = StreamPub::new_pending(&global, prefix.to_string(), can_gc);
             si.fail_with_error(reason, can_gc);
             return si;
         }
-        let publisher_params = match StreamIn::publisher_params_from_options(options) {
+        let publisher_params = match StreamPub::publisher_params_from_options(options) {
             Ok(params) => params,
             Err(reason) => {
-                let si = StreamIn::new_pending(&global, prefix.to_string(), can_gc);
+                let si = StreamPub::new_pending(&global, prefix.to_string(), can_gc);
                 si.fail_with_error(reason, can_gc);
                 return si;
             }
         };
-        StreamIn::new(
+        StreamPub::new(
             &global,
             &self.endpoint.0,
             self.signer_clone(),
@@ -440,15 +440,15 @@ impl EnvelopeHpprClient {
         )
     }
 
-    /// Create a StreamOut for the given prefix.
-    pub(crate) fn do_stream_out(&self, prefix: &str, can_gc: CanGc) -> DomRoot<StreamOut> {
+    /// Create a StreamSub for the given prefix.
+    pub(crate) fn do_stream_sub(&self, prefix: &str, can_gc: CanGc) -> DomRoot<StreamSub> {
         let global = self.global();
         if let Some(reason) = self.invalid_reason.0.as_deref() {
-            let so = StreamOut::new_pending(&global, prefix.to_string(), can_gc);
+            let so = StreamSub::new_pending(&global, prefix.to_string(), can_gc);
             so.fail_with_error(reason, can_gc);
             return so;
         }
-        StreamOut::new(
+        StreamSub::new(
             &global,
             &self.endpoint.0,
             self.signer_clone(),
@@ -561,12 +561,12 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
         self.do_watch(&urc.to_string(), CanGc::note())
     }
 
-    fn StreamIn(&self, prefix: USVString, options: &StreamInOptions) -> DomRoot<StreamIn> {
-        self.do_stream_in(&prefix.to_string(), options, CanGc::note())
+    fn StreamPub(&self, prefix: USVString, options: &StreamPubOptions) -> DomRoot<StreamPub> {
+        self.do_stream_pub(&prefix.to_string(), options, CanGc::note())
     }
 
-    fn StreamOut(&self, prefix: USVString) -> DomRoot<StreamOut> {
-        self.do_stream_out(&prefix.to_string(), CanGc::note())
+    fn StreamSub(&self, prefix: USVString) -> DomRoot<StreamSub> {
+        self.do_stream_sub(&prefix.to_string(), CanGc::note())
     }
 }
 

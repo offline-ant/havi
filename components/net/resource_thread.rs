@@ -585,7 +585,7 @@ impl ResourceChannelManager {
                     ).await;
                 });
             },
-            CoreResourceMsg::HpprStreamIn {
+            CoreResourceMsg::HpprStreamPub {
                 endpoint,
                 signer,
                 prefix,
@@ -595,14 +595,14 @@ impl ResourceChannelManager {
             } => {
                 let hppr_state = self.resource_manager.hppr_state.clone();
                 spawn_task(async move {
-                    crate::stream_in_loader::start_stream_in(
+                    crate::stream_pub_loader::start_stream_pub(
                         &hppr_state, &endpoint, signer, &prefix,
                         publisher_params,
                         event_sender, action_receiver,
                     ).await;
                 });
             },
-            CoreResourceMsg::HpprStreamOut {
+            CoreResourceMsg::HpprStreamSub {
                 endpoint,
                 signer,
                 prefix,
@@ -611,7 +611,7 @@ impl ResourceChannelManager {
             } => {
                 let hppr_state = self.resource_manager.hppr_state.clone();
                 spawn_task(async move {
-                    crate::stream_out_loader::start_stream_out(
+                    crate::stream_sub_loader::start_stream_sub(
                         &hppr_state, &endpoint, signer, &prefix,
                         event_sender, action_receiver,
                     ).await;

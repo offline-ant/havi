@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! HPPR StreamIn DOM binding.
+//! HPPR StreamPub DOM binding.
 //!
-//! Provides an EventTarget interface for HPPR STREAM_IN publisher streaming.
-//! `streamIn()` is payload-oriented.
+//! Provides an EventTarget interface for HPPR STREAM_PUB publisher streaming.
+//! `streamPub()` is payload-oriented.
 //! Callers write payload bytes and HAVI frames them into signed trailer-format
 //! segments internally. `key` is required.
 
@@ -17,8 +17,8 @@ use stylo_atoms::Atom;
 use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{
-    CoreResourceMsg, HpprProtocolError, StreamInDomAction, StreamInNetworkEvent,
-    StreamInPublisherParams,
+    CoreResourceMsg, HpprProtocolError, StreamPubDomAction, StreamPubNetworkEvent,
+    StreamPubPublisherParams,
 };
 use hppr_client::parse_via;
 use hppr_client::Signer;
@@ -26,7 +26,7 @@ use profile_traits::ipc as ProfiledIpc;
 
 use script_bindings::reflector::DomObject;
 
-use crate::dom::bindings::codegen::Bindings::StreamInBinding::{StreamInMethods, StreamInOptions};
+use crate::dom::bindings::codegen::Bindings::StreamPubBinding::{StreamPubMethods, StreamPubOptions};
 use crate::dom::bindings::codegen::UnionTypes::ArrayBufferViewOrArrayBuffer;
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::inheritance::Castable;
@@ -48,59 +48,59 @@ use crate::task::TaskOnce;
 use crate::task_source::SendableTaskSource;
 
 #[derive(Clone, Copy, Debug, JSTraceable, MallocSizeOf, PartialEq)]
-enum StreamInState {
+enum StreamPubState {
     Connecting = 0,
     Open = 1,
     Closing = 2,
     Closed = 3,
 }
 
-/// HPPR STREAM_IN publisher.
+/// HPPR STREAM_PUB publisher.
 ///
 /// Pushes data to the repo via write(). In publisher mode, data is
 /// automatically wrapped into signed trailer-format segments.
 #[dom_struct]
-pub(crate) struct StreamIn {
+pub(crate) struct StreamPub {
     eventtarget: EventTarget,
-    ready_state: Cell<StreamInState>,
+    ready_state: Cell<StreamPubState>,
     #[ignore_malloc_size_of = "IPC channels don't implement MallocSizeOf"]
     #[no_trace]
-    sender: IpcSender<StreamInDomAction>,
+    sender: IpcSender<StreamPubDomAction>,
     prefix: NoTrace<String>,
 }
 
-impl StreamIn {
-    fn new_inherited(sender: IpcSender<StreamInDomAction>, prefix: String) -> Self {
+impl StreamPub {
+    fn new_inherited(sender: IpcSender<StreamPubDomAction>, prefix: String) -> Self {
         Self {
             eventtarget: EventTarget::new_inherited(),
-            ready_state: Cell::new(StreamInState::Connecting),
+            ready_state: Cell::new(StreamPubState::Connecting),
             sender,
             prefix: NoTrace(prefix),
         }
     }
 
-    /// Create a new StreamIn and initiate the STREAM_IN connection.
+    /// Create a new StreamPub and initiate the STREAM_PUB connection.
     pub(crate) fn new(
         global: &GlobalScope,
         endpoint: &str,
         signer: Signer,
         prefix: String,
-        publisher_params: StreamInPublisherParams,
+        publisher_params: StreamPubPublisherParams,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         // Create IPC channels
         let (dom_action_sender, resource_action_receiver): (
-            IpcSender<StreamInDomAction>,
-            ipc::IpcReceiver<StreamInDomAction>,
+            IpcSender<StreamPubDomAction>,
+            ipc::IpcReceiver<StreamPubDomAction>,
         ) = ipc::channel().unwrap();
         let (resource_event_sender, dom_event_receiver): (
-            IpcSender<StreamInNetworkEvent>,
-            ProfiledIpc::IpcReceiver<StreamInNetworkEvent>,
+            IpcSender<StreamPubNetworkEvent>,
+            ProfiledIpc::IpcReceiver<StreamPubNetworkEvent>,
         ) = ProfiledIpc::channel(global.time_profiler_chan().clone()).unwrap();
 
         // Create the DOM object
         let si = reflect_dom_object(
-            Box::new(StreamIn::new_inherited(dom_action_sender, prefix.clone())),
+            Box::new(StreamPub::new_inherited(dom_action_sender, prefix.clone())),
             global,
             can_gc,
         );
@@ -114,34 +114,34 @@ impl StreamIn {
         ROUTER.add_typed_route(
             dom_event_receiver.to_ipc_receiver(),
             Box::new(move |message| match message.unwrap() {
-                StreamInNetworkEvent::Ready => {
-                    task_source.queue(StreamInConnectionTask {
+                StreamPubNetworkEvent::Ready => {
+                    task_source.queue(StreamPubConnectionTask {
                         address: address.clone(),
                     });
                 },
-                StreamInNetworkEvent::Packet(data) => {
-                    task_source.queue(StreamInPacketTask {
+                StreamPubNetworkEvent::Packet(data) => {
+                    task_source.queue(StreamPubPacketTask {
                         address: address.clone(),
                         data,
                     });
                 },
-                StreamInNetworkEvent::Close => {
-                    close_stream_in(address.clone(), &task_source, None);
+                StreamPubNetworkEvent::Close => {
+                    close_stream_pub(address.clone(), &task_source, None);
                 },
-                StreamInNetworkEvent::Fail(error) => {
-                    close_stream_in(address.clone(), &task_source, Some(error));
+                StreamPubNetworkEvent::Fail(error) => {
+                    close_stream_pub(address.clone(), &task_source, Some(error));
                 },
             }),
         );
 
-        // Send STREAM_IN request to network thread
+        // Send STREAM_PUB request to network thread
         let via = match parse_via(endpoint) {
             Ok(v) => v,
             Err(_) => return si,
         };
         let _ = global
             .core_resource_thread()
-            .send(CoreResourceMsg::HpprStreamIn {
+            .send(CoreResourceMsg::HpprStreamPub {
                 endpoint: via,
                 signer,
                 prefix,
@@ -153,7 +153,7 @@ impl StreamIn {
         si
     }
 
-    /// Create a StreamIn in pending state (not yet connected).
+    /// Create a StreamPub in pending state (not yet connected).
     pub(crate) fn new_pending(
         global: &GlobalScope,
         prefix: String,
@@ -161,27 +161,27 @@ impl StreamIn {
     ) -> DomRoot<Self> {
         let (dom_action_sender, _) = ipc::channel().unwrap();
         reflect_dom_object(
-            Box::new(StreamIn::new_inherited(dom_action_sender, prefix)),
+            Box::new(StreamPub::new_inherited(dom_action_sender, prefix)),
             global,
             can_gc,
         )
     }
 
-    /// Build STREAM_IN publisher params from WebIDL options.
+    /// Build STREAM_PUB publisher params from WebIDL options.
     pub(crate) fn publisher_params_from_options(
-        options: &StreamInOptions,
-    ) -> Result<StreamInPublisherParams, &'static str> {
+        options: &StreamPubOptions,
+    ) -> Result<StreamPubPublisherParams, &'static str> {
         let key = options
             .key
             .as_ref()
-            .ok_or("streamIn requires options.key")?;
+            .ok_or("streamPub requires options.key")?;
         let headers = match &options.headers {
             Some(map) => map.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             None => Vec::new(),
         };
         let max_segment_size = options.maxSegmentSize.map(|v| v as usize);
         let flush_seq = options.flushSeq.as_ref().map(|s| s.to_vec());
-        Ok(StreamInPublisherParams {
+        Ok(StreamPubPublisherParams {
             key: key.to_string(),
             headers,
             max_segment_size,
@@ -192,24 +192,24 @@ impl StreamIn {
     /// Close the stream connection.
     pub(crate) fn close(&self) {
         match self.ready_state.get() {
-            StreamInState::Closing | StreamInState::Closed => {},
-            StreamInState::Connecting | StreamInState::Open => {
-                self.ready_state.set(StreamInState::Closing);
-                let _ = self.sender.send(StreamInDomAction::Close);
+            StreamPubState::Closing | StreamPubState::Closed => {},
+            StreamPubState::Connecting | StreamPubState::Open => {
+                self.ready_state.set(StreamPubState::Closing);
+                let _ = self.sender.send(StreamPubDomAction::Close);
             },
         }
     }
 
     /// Fail the connection with an error.
     pub(crate) fn fail_with_error(&self, error: &str, can_gc: CanGc) {
-        self.ready_state.set(StreamInState::Closed);
+        self.ready_state.set(StreamPubState::Closed);
 
         let protocol_error = HpprProtocolError {
             error_type: "FORBIDDEN".to_string(),
             detail: error.to_string(),
             fatal: true,
         };
-        fire_stream_in_error(self, &protocol_error, can_gc);
+        fire_stream_pub_error(self, &protocol_error, can_gc);
 
         let event = Event::new(
             &self.global(),
@@ -222,16 +222,16 @@ impl StreamIn {
     }
 }
 
-fn close_stream_in(
-    address: Trusted<StreamIn>,
+fn close_stream_pub(
+    address: Trusted<StreamPub>,
     task_source: &SendableTaskSource,
     error: Option<HpprProtocolError>,
 ) {
-    task_source.queue(StreamInCloseTask { address, error });
+    task_source.queue(StreamPubCloseTask { address, error });
 }
 
-/// Fire an ErrorEvent on a StreamIn.
-fn fire_stream_in_error(si: &StreamIn, protocol_error: &HpprProtocolError, can_gc: CanGc) {
+/// Fire an ErrorEvent on a StreamPub.
+fn fire_stream_pub_error(si: &StreamPub, protocol_error: &HpprProtocolError, can_gc: CanGc) {
     let global = si.global();
     let hppr_error = HpprError::from_protocol_error(&global, protocol_error, can_gc);
     rooted!(in(*GlobalScope::get_cx()) let error_val =
@@ -251,7 +251,7 @@ fn fire_stream_in_error(si: &StreamIn, protocol_error: &HpprProtocolError, can_g
     event.upcast::<Event>().fire(si.upcast(), can_gc);
 }
 
-impl StreamInMethods<crate::DomTypeHolder> for StreamIn {
+impl StreamPubMethods<crate::DomTypeHolder> for StreamPub {
     event_handler!(open, GetOnopen, SetOnopen);
     event_handler!(close, GetOnclose, SetOnclose);
     event_handler!(error, GetOnerror, SetOnerror);
@@ -271,7 +271,7 @@ impl StreamInMethods<crate::DomTypeHolder> for StreamIn {
         let global = self.global();
         let promise = Promise::new(&global, can_gc);
 
-        if self.ready_state.get() != StreamInState::Open {
+        if self.ready_state.get() != StreamPubState::Open {
             promise.reject_error(Error::InvalidState(None), can_gc);
             return promise;
         }
@@ -281,15 +281,15 @@ impl StreamInMethods<crate::DomTypeHolder> for StreamIn {
             ArrayBufferViewOrArrayBuffer::ArrayBuffer(buffer) => buffer.to_vec(),
         };
 
-        let _ = self.sender.send(StreamInDomAction::Write(bytes));
+        let _ = self.sender.send(StreamPubDomAction::Write(bytes));
         promise.resolve_native(&(), can_gc);
         promise
     }
 
     /// Manually close the current segment (publisher mode only).
     fn FinishSegment(&self) {
-        if self.ready_state.get() == StreamInState::Open {
-            let _ = self.sender.send(StreamInDomAction::FinishSegment);
+        if self.ready_state.get() == StreamPubState::Open {
+            let _ = self.sender.send(StreamPubDomAction::FinishSegment);
         }
     }
 
@@ -298,18 +298,18 @@ impl StreamInMethods<crate::DomTypeHolder> for StreamIn {
     }
 }
 
-/// Task: STREAM_IN connection established (repo accepted, OK received).
-struct StreamInConnectionTask {
-    address: Trusted<StreamIn>,
+/// Task: STREAM_PUB connection established (repo accepted, OK received).
+struct StreamPubConnectionTask {
+    address: Trusted<StreamPub>,
 }
 
-impl TaskOnce for StreamInConnectionTask {
+impl TaskOnce for StreamPubConnectionTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let si = self.address.root();
-        if si.ready_state.get() != StreamInState::Connecting {
+        if si.ready_state.get() != StreamPubState::Connecting {
             return;
         }
-        si.ready_state.set(StreamInState::Open);
+        si.ready_state.set(StreamPubState::Open);
         si.upcast().fire_event(atom!("open"), CanGc::from_cx(cx));
     }
 }
@@ -317,15 +317,15 @@ impl TaskOnce for StreamInConnectionTask {
 /// Task: complete packet from publisher mode segment.
 ///
 /// Fires a `packet` event carrying an `HpprPacket` object.
-struct StreamInPacketTask {
-    address: Trusted<StreamIn>,
+struct StreamPubPacketTask {
+    address: Trusted<StreamPub>,
     data: Vec<u8>,
 }
 
-impl TaskOnce for StreamInPacketTask {
+impl TaskOnce for StreamPubPacketTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let si = self.address.root();
-        if si.ready_state.get() == StreamInState::Connecting {
+        if si.ready_state.get() == StreamPubState::Connecting {
             return;
         }
         let global = si.global();
@@ -334,14 +334,14 @@ impl TaskOnce for StreamInPacketTask {
         let packet = match hppr_packet::read_packet(self.data.into_boxed_slice()) {
             Ok(packet) => packet,
             Err(e) => {
-                log::warn!("stream_in: failed to parse packet bytes: {}", e);
+                log::warn!("stream_pub: failed to parse packet bytes: {}", e);
                 return;
             }
         };
         let packet_dom = match HpprPacket::new(&global, packet, can_gc) {
             Ok(packet_dom) => packet_dom,
             Err(e) => {
-                log::warn!("stream_in: failed to create HpprPacket: {}", e);
+                log::warn!("stream_pub: failed to create HpprPacket: {}", e);
                 return;
             }
         };
@@ -363,25 +363,25 @@ impl TaskOnce for StreamInPacketTask {
     }
 }
 
-/// Task: STREAM_IN connection closed.
-struct StreamInCloseTask {
-    address: Trusted<StreamIn>,
+/// Task: STREAM_PUB connection closed.
+struct StreamPubCloseTask {
+    address: Trusted<StreamPub>,
     error: Option<HpprProtocolError>,
 }
 
-impl TaskOnce for StreamInCloseTask {
+impl TaskOnce for StreamPubCloseTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let si = self.address.root();
         let can_gc = CanGc::from_cx(cx);
 
-        if si.ready_state.get() == StreamInState::Closed {
+        if si.ready_state.get() == StreamPubState::Closed {
             return;
         }
 
-        si.ready_state.set(StreamInState::Closed);
+        si.ready_state.set(StreamPubState::Closed);
 
         if let Some(ref protocol_error) = self.error {
-            fire_stream_in_error(&si, protocol_error, can_gc);
+            fire_stream_pub_error(&si, protocol_error, can_gc);
         }
 
         let event = Event::new(

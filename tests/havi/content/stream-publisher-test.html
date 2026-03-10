@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>HAVI StreamIn Publisher Mode Test</title>
+  <title>HAVI StreamPub Publisher Mode Test</title>
   <style>
     body { font-family: monospace; margin: 20px; }
     .pass { color: green; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h1>HAVI StreamIn Publisher Mode Test</h1>
+  <h1>HAVI StreamPub Publisher Mode Test</h1>
   <div id="status">Loading...</div>
   <pre id="results"></pre>
 
@@ -28,28 +28,28 @@
         const key = keyPacket.text();
         assert(key.startsWith('&.'), 'Signing key loaded: ' + key.substring(0, 10) + '...');
 
-        // --- StreamIn publisher mode creation ---
-        log('--- StreamIn publisher mode ---');
+        // --- StreamPub publisher mode creation ---
+        log('--- StreamPub publisher mode ---');
         const prefix = '//' + group + '/' + app + '/user/pub/test';
-        const sin = homeRepo.streamIn(prefix, { key: key });
-        assert(sin !== null && sin !== undefined, 'streamIn with key returns object');
-        assertEqual(sin.prefix, prefix, 'StreamIn prefix matches');
-        assert(typeof sin.onpacket !== 'undefined', 'StreamIn has onpacket attribute');
-        assert(typeof sin.finishSegment === 'function', 'StreamIn has finishSegment method');
+        const sin = homeRepo.streamPub(prefix, { key: key });
+        assert(sin !== null && sin !== undefined, 'streamPub with key returns object');
+        assertEqual(sin.prefix, prefix, 'StreamPub prefix matches');
+        assert(typeof sin.onpacket !== 'undefined', 'StreamPub has onpacket attribute');
+        assert(typeof sin.finishSegment === 'function', 'StreamPub has finishSegment method');
 
         // --- Wait for open ---
         log('--- Wait for open ---');
         await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('StreamIn publisher onopen timeout')), 10000);
+            const timeout = setTimeout(() => reject(new Error('StreamPub publisher onopen timeout')), 10000);
             if (sin.readyState === 1) {
                 clearTimeout(timeout);
                 resolve();
             } else {
                 sin.onopen = () => { clearTimeout(timeout); resolve(); };
-                sin.onerror = () => { clearTimeout(timeout); reject(new Error('StreamIn publisher error')); };
+                sin.onerror = () => { clearTimeout(timeout); reject(new Error('StreamPub publisher error')); };
             }
         });
-        assertEqual(sin.readyState, 1, 'StreamIn publisher readyState is OPEN');
+        assertEqual(sin.readyState, 1, 'StreamPub publisher readyState is OPEN');
 
         // --- Write data and finish segment ---
         log('--- Write and finishSegment ---');
@@ -78,7 +78,7 @@
         sin.finishSegment();
         log('PASS: finishSegment called');
         sin.close();
-        log('PASS: StreamIn publisher close requested');
+        log('PASS: StreamPub publisher close requested');
 
         // --- Optional onpacket verification ---
         log('--- onpacket event ---');
@@ -91,7 +91,7 @@
             log('PASS: packet event not observed before close in this runtime path');
         }
 
-        log('PASS: StreamIn publisher closed');
+        log('PASS: StreamPub publisher closed');
     }
 
     (async function() {

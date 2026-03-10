@@ -102,23 +102,23 @@
       localVideo.srcObject = localStream;
       assert(localVideo.srcObject === localStream, 'video.srcObject stores MediaStream');
 
-      log('--- stream framing over StreamIn/StreamOut ---');
+      log('--- stream framing over StreamPub/StreamSub ---');
       const group = document.packet.group;
       const app = document.packet.app;
       const prefix = '//' + group + '/' + app + '/live/chat-path-' + Date.now();
 
-      // Fetch signing key stored by test harness for cooked StreamIn
+      // Fetch signing key stored by test harness for cooked StreamPub
       const keyPacket = await home.get('//' + group + '/' + app + '/testkey');
       const signingKey = keyPacket.text();
       assert(signingKey.startsWith('&.'), 'signing key loaded');
 
-      const streamOut = streamRepo.streamOut(prefix);
-      await waitOpen(streamOut, 'streamOut');
-      assertEqual(streamOut.readyState, 1, 'streamOut readyState OPEN');
+      const streamSub = streamRepo.streamSub(prefix);
+      await waitOpen(streamSub, 'streamSub');
+      assertEqual(streamSub.readyState, 1, 'streamSub readyState OPEN');
 
-      const streamIn = streamRepo.streamIn(prefix, { key: signingKey });
-      await waitOpen(streamIn, 'streamIn');
-      assertEqual(streamIn.readyState, 1, 'streamIn readyState OPEN');
+      const streamPub = streamRepo.streamPub(prefix, { key: signingKey });
+      await waitOpen(streamPub, 'streamPub');
+      assertEqual(streamPub.readyState, 1, 'streamPub readyState OPEN');
 
       const expected1 = new TextEncoder().encode('alpha');
       const expected2 = new TextEncoder().encode('beta-012345');
@@ -130,15 +130,15 @@
       for (const n of split) {
         if (sent >= wire.length) break;
         const end = Math.min(sent + n, wire.length);
-        await streamIn.write(wire.slice(sent, end));
+        await streamPub.write(wire.slice(sent, end));
         sent = end;
       }
       if (sent < wire.length) {
-        await streamIn.write(wire.slice(sent));
+        await streamPub.write(wire.slice(sent));
       }
-      streamIn.finishSegment();
-      streamIn.close();
-      log('PASS: framed bytes written to StreamIn, segment finished, and stream closed');
+      streamPub.finishSegment();
+      streamPub.close();
+      log('PASS: framed bytes written to StreamPub, segment finished, and stream closed');
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       const storedPacket = await home.get(prefix);
@@ -153,7 +153,7 @@
         assertEqual(dec.decode(received[1]), 'beta-012345', 'second payload matches');
       }
 
-      streamOut.close();
+      streamSub.close();
       for (const track of localStream.getTracks()) track.stop();
     }
 

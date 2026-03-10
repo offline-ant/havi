@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// HPPR STREAM_IN publisher interface — writes payload bytes, frames internally
+// HPPR STREAM_PUB publisher interface — writes payload bytes, frames internally
 
-dictionary StreamInOptions {
+dictionary StreamPubOptions {
     DOMString key;                        // Required signing key for cooked publisher mode
     record<DOMString, DOMString> headers; // Extra headers per segment
     unsigned long maxSegmentSize;         // Max data bytes per segment
@@ -12,7 +12,7 @@ dictionary StreamInOptions {
 };
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
-interface StreamIn : EventTarget {
+interface StreamPub : EventTarget {
     const unsigned short CONNECTING = 0;
     const unsigned short OPEN = 1;
     const unsigned short CLOSING = 2;

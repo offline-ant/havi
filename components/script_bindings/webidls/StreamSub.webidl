@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// HPPR STREAM_OUT subscriber interface — delivers decoded payload bytes via ReadableStream
+// HPPR STREAM_SUB subscriber interface — delivers decoded payload bytes via ReadableStream
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
-interface StreamOut : EventTarget {
+interface StreamSub : EventTarget {
     const unsigned short CONNECTING = 0;
     const unsigned short OPEN = 1;
     const unsigned short CLOSING = 2;

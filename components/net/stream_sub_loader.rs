@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! HPPR STREAM_OUT network loader.
+//! HPPR STREAM_SUB network loader.
 //!
-//! Handles the network side of STREAM_OUT connections, using tokio::select!
+//! Handles the network side of STREAM_SUB connections, using tokio::select!
 //! for efficient cancellation.
 //!
 //! The repo relays trailer-format bytes on the wire. This loader parses them
@@ -19,7 +19,7 @@ use hppr_client::Signer;
 use hppr_packet::writer::TrailerReader;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
-use net_traits::{HpprProtocolError, StreamOutDomAction, StreamOutNetworkEvent};
+use net_traits::{HpprProtocolError, StreamSubDomAction, StreamSubNetworkEvent};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::hppr_pool::{HpprAsyncState, resolve_via_to_addr};
@@ -43,14 +43,14 @@ enum DomMsg {
 }
 
 /// Set up a listener for DOM actions, converting IPC messages to tokio channel.
-fn setup_dom_listener(action_receiver: IpcReceiver<StreamOutDomAction>) -> UnboundedReceiver<DomMsg> {
+fn setup_dom_listener(action_receiver: IpcReceiver<StreamSubDomAction>) -> UnboundedReceiver<DomMsg> {
     let (tx, rx) = unbounded_channel();
     ROUTER.add_typed_route(
         action_receiver,
         Box::new(move |msg| {
             if let Ok(action) = msg {
                 match action {
-                    StreamOutDomAction::Close => {
+                    StreamSubDomAction::Close => {
                         let _ = tx.send(DomMsg::Close);
                     }
                 }
@@ -106,19 +106,19 @@ async fn read_greeting(
     }
 }
 
-/// Start the STREAM_OUT network task.
+/// Start the STREAM_SUB network task.
 ///
 /// 1. Establishes connection and sends HELLO
-/// 2. Sends STREAM_OUT request (no OK response from server)
+/// 2. Sends STREAM_SUB request (no OK response from server)
 /// 3. Sends Ready event to DOM
 /// 4. Enters select! loop reading bytes from TCP and forwarding Close from DOM
-pub async fn start_stream_out(
+pub async fn start_stream_sub(
     _hppr_state: &Arc<HpprAsyncState>,
     endpoint: &ViaSpec,
     mut signer: Signer,
     prefix: &str,
-    event_sender: IpcSender<StreamOutNetworkEvent>,
-    action_receiver: IpcReceiver<StreamOutDomAction>,
+    event_sender: IpcSender<StreamSubNetworkEvent>,
+    action_receiver: IpcReceiver<StreamSubDomAction>,
 ) {
     let mut dom_rx = setup_dom_listener(action_receiver);
 
@@ -126,7 +126,7 @@ pub async fn start_stream_out(
     let addr = match resolve_via_to_addr(endpoint).await {
         Ok(a) => a,
         Err(e) => {
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                 &format!("Failed to resolve endpoint: {}", e)
             )));
             return;
@@ -137,7 +137,7 @@ pub async fn start_stream_out(
     let stream = match tokio::net::TcpStream::connect(addr).await {
         Ok(s) => s,
         Err(e) => {
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                 &format!("Connection failed: {}", e)
             )));
             return;
@@ -151,7 +151,7 @@ pub async fn start_stream_out(
     let hello_packet = match hppr_client::hppr_packet::create_null_with_headers(&[("App", "🖧HELLO")], b"") {
         Ok(p) => p,
         Err(e) => {
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                 &format!("Failed to build HELLO: {}", e)
             )));
             return;
@@ -161,7 +161,7 @@ pub async fn start_stream_out(
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
     if let Err(e) = writer.write_all(hello_packet.as_bytes()).await {
-        let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+        let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
             &format!("Failed to send HELLO: {}", e)
         )));
         return;
@@ -170,40 +170,40 @@ pub async fn start_stream_out(
     let greeting = match read_greeting(&mut reader).await {
         Ok(g) => g,
         Err(e) => {
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(&e)));
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(&e)));
             return;
         }
     };
 
     // Resolve signer (derives key for Ring1Adhoc)
     if let Err(e) = signer.resolve(&greeting) {
-        let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+        let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
             &format!("Failed to resolve signer: {}", e)
         )));
         return;
     }
 
-    // Build and send STREAM_OUT request
-    let request_bytes = match signer.build_request("🖧STREAM_OUT", prefix.as_bytes(), &greeting, &[]) {
+    // Build and send STREAM_SUB request
+    let request_bytes = match signer.build_request("🖧STREAM_SUB", prefix.as_bytes(), &greeting, &[]) {
         Ok(b) => b,
         Err(e) => {
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
-                &format!("Failed to build STREAM_OUT: {}", e)
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
+                &format!("Failed to build STREAM_SUB: {}", e)
             )));
             return;
         }
     };
 
     if let Err(e) = writer.write_all(&request_bytes).await {
-        let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
-            &format!("Failed to send STREAM_OUT: {}", e)
+        let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
+            &format!("Failed to send STREAM_SUB: {}", e)
         )));
         return;
     }
 
-    // No OK response for STREAM_OUT — server immediately starts relaying.
+    // No OK response for STREAM_SUB — server immediately starts relaying.
     // Signal Ready after request is sent.
-    if event_sender.send(StreamOutNetworkEvent::Ready).is_err() {
+    if event_sender.send(StreamSubNetworkEvent::Ready).is_err() {
         return; // DOM dropped
     }
 
@@ -214,13 +214,13 @@ pub async fn start_stream_out(
         let mut first = String::new();
         match reader.read_line(&mut first).await {
             Ok(0) => {
-                let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                     "Connection closed before data",
                 )));
                 return;
             }
             Err(e) => {
-                let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                     &format!("Read failed: {}", e),
                 )));
                 return;
@@ -231,7 +231,7 @@ pub async fn start_stream_out(
         // Raw FATAL (repo sends this directly, not in trailer format)
         if let Some(rest) = first.strip_prefix("FATAL ") {
             let rest = rest.trim_end_matches('\n');
-            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+            let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                 &format!("FATAL {}", rest),
             )));
             return;
@@ -245,7 +245,7 @@ pub async fn start_stream_out(
                 Ok(_) => {
                     if let Some(rest) = second.strip_prefix("FATAL ") {
                         let rest = rest.trim_end_matches('\n');
-                        let _ = event_sender.send(StreamOutNetworkEvent::Fail(
+                        let _ = event_sender.send(StreamSubNetworkEvent::Fail(
                             parse_error_string(&format!("FATAL {}", rest)),
                         ));
                         return;
@@ -267,7 +267,7 @@ pub async fn start_stream_out(
     if !pending_raw.is_empty() &&
         forward_parsed(&trailer_reader.push_lossy(&pending_raw), &event_sender).is_err()
     {
-        log::debug!("stream_out: DOM dropped during initial parse");
+        log::debug!("stream_sub: DOM dropped during initial parse");
         return;
     }
 
@@ -276,7 +276,7 @@ pub async fn start_stream_out(
             dom_msg = dom_rx.recv() => {
                 match dom_msg {
                     Some(DomMsg::Close) | None => {
-                        let _ = event_sender.send(StreamOutNetworkEvent::Close);
+                        let _ = event_sender.send(StreamSubNetworkEvent::Close);
                         break;
                     }
                 }
@@ -285,7 +285,7 @@ pub async fn start_stream_out(
                 match result {
                     Ok(0) => {
                         // EOF — publisher disconnected
-                        let _ = event_sender.send(StreamOutNetworkEvent::Close);
+                        let _ = event_sender.send(StreamSubNetworkEvent::Close);
                         break;
                     }
                     Ok(n) => {
@@ -295,7 +295,7 @@ pub async fn start_stream_out(
                         }
                     }
                     Err(e) => {
-                        let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                        let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(
                             &format!("Read failed: {}", e)
                         )));
                         break;
@@ -310,17 +310,17 @@ pub async fn start_stream_out(
 /// to the DOM. Returns Err if the DOM dropped.
 fn forward_parsed(
     packets: &[hppr_packet::Packet],
-    event_sender: &IpcSender<StreamOutNetworkEvent>,
+    event_sender: &IpcSender<StreamSubNetworkEvent>,
 ) -> Result<(), ()> {
     for packet in packets {
         let payload = packet.data().to_vec();
         if !payload.is_empty() &&
-            event_sender.send(StreamOutNetworkEvent::Data(payload)).is_err()
+            event_sender.send(StreamSubNetworkEvent::Data(payload)).is_err()
         {
             return Err(());
         }
         if event_sender
-            .send(StreamOutNetworkEvent::Packet(packet.as_bytes().to_vec()))
+            .send(StreamSubNetworkEvent::Packet(packet.as_bytes().to_vec()))
             .is_err()
         {
             return Err(());

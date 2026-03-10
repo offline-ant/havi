@@ -202,14 +202,14 @@ Globals:
 - read: `get`, `headers`, `list`, `tips`, `members`
 - write: `add`, `store`, `detach`
 - session/status: `hello`
-- live: `watch`, `streamIn`, `streamOut`
+- live: `watch`, `streamPub`, `streamSub`
 - debug envelope: `envelope()` wrapper
 
 Live primitives:
 
 - `WatchSocket`: `+ <coord>` / `- <coord>` events
-- `StreamIn`: publish trailer-format segments
-- `StreamOut`: subscribe as `ReadableStream<Uint8Array>`
+- `StreamPub`: publish trailer-format segments
+- `StreamSub`: subscribe as `ReadableStream<Uint8Array>`
 
 Embedding primitive:
 

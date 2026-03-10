@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# stream-publisher-test.sh - Test StreamIn publisher mode (onpacket, finishSegment)
+# stream-publisher-test.sh - Test StreamPub publisher mode (onpacket, finishSegment)
 #
 # Tests:
-# 1. StreamIn with key creates publisher mode object
+# 1. StreamPub with key creates publisher mode object
 # 2. onpacket fires when finishSegment() is called
 # 3. Event data contains segment hash
 #
