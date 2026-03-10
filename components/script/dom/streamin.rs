@@ -120,7 +120,6 @@ impl StreamIn {
                     });
                 },
                 StreamInNetworkEvent::Packet(data) => {
-                    log::warn!("stream_in: DOM received packet event bytes");
                     task_source.queue(StreamInPacketTask {
                         address: address.clone(),
                         data,
@@ -335,18 +334,17 @@ impl TaskOnce for StreamInPacketTask {
         let packet = match hppr_packet::read_packet(self.data.into_boxed_slice()) {
             Ok(packet) => packet,
             Err(e) => {
-                log::warn!("stream_in: failed to parse packet event bytes: {}", e);
+                log::warn!("stream_in: failed to parse packet bytes: {}", e);
                 return;
             }
         };
         let packet_dom = match HpprPacket::new(&global, packet, can_gc) {
             Ok(packet_dom) => packet_dom,
             Err(e) => {
-                log::warn!("stream_in: failed to wrap packet event: {}", e);
+                log::warn!("stream_in: failed to create HpprPacket: {}", e);
                 return;
             }
         };
-        log::warn!("stream_in: dispatching packet event");
 
         rooted!(&in(cx) let js_val = js::jsval::ObjectValue(packet_dom.reflector().get_jsobject().get()));
         let event = MessageEvent::new(
