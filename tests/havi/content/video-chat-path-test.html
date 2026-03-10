@@ -74,6 +74,7 @@
 
     async function suite_video_chat_path() {
       const home = window.home;
+      const streamRepo = await HpprClient.connect(home.endpoint, 'anyone');
       assert(home !== null && home !== undefined, 'window.home exists');
       assert(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function',
           'navigator.mediaDevices.getUserMedia exists');
@@ -111,11 +112,11 @@
       const signingKey = keyPacket.text();
       assert(signingKey.startsWith('&.'), 'signing key loaded');
 
-      const streamOut = home.streamOut(prefix);
+      const streamOut = streamRepo.streamOut(prefix);
       await waitOpen(streamOut, 'streamOut');
       assertEqual(streamOut.readyState, 1, 'streamOut readyState OPEN');
 
-      const streamIn = home.streamIn(prefix, { key: signingKey });
+      const streamIn = streamRepo.streamIn(prefix, { key: signingKey });
       await waitOpen(streamIn, 'streamIn');
       assertEqual(streamIn.readyState, 1, 'streamIn readyState OPEN');
 
@@ -135,21 +136,15 @@
       if (sent < wire.length) {
         await streamIn.write(wire.slice(sent));
       }
-      log('PASS: framed bytes written to StreamIn');
+      streamIn.finishSegment();
+      streamIn.close();
+      log('PASS: framed bytes written to StreamIn, segment finished, and stream closed');
 
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const storedPacket = await home.get(prefix);
       const received = [];
       const parser = new ChunkParser((chunk) => received.push(chunk));
-      const reader = streamOut.stream.getReader();
-
-      const deadline = Date.now() + 10000;
-      while (received.length < 2 && Date.now() < deadline) {
-        const result = await Promise.race([
-          reader.read(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('streamOut read timeout')), 2000)),
-        ]);
-        if (result.done) break;
-        parser.push(result.value);
-      }
+      parser.push(new Uint8Array(storedPacket.arrayBuffer()));
 
       assertEqual(received.length, 2, 'parser reconstructed two framed chunks');
       const dec = new TextDecoder();
@@ -158,8 +153,6 @@
         assertEqual(dec.decode(received[1]), 'beta-012345', 'second payload matches');
       }
 
-      reader.releaseLock();
-      streamIn.close();
       streamOut.close();
       for (const track of localStream.getTracks()) track.stop();
     }

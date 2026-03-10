@@ -4,27 +4,26 @@
 
 //! HPPR STREAM_IN network loader.
 //!
-//! Handles the network side of STREAM_IN connections, using tokio::select!
-//! for efficient cancellation and data forwarding.
-//!
-//! STREAM_IN is payload-oriented here. The DOM writes payload bytes.
-//! This loader frames them through StreamPublisher into trailer-format Seal
-//! segments. Completed packets are sent back to the DOM as Packet events.
+//! Thin bridge between DOM IPC and `AsyncStreamInSession` from the hppr
+//! client library.  Connects via `connect_via` (supports TCP, QUIB,
+//! WebSocket, Unix), then forwards Write/FinishSegment/Close actions.
+//! Completed packets are delivered synchronously by the session's
+//! `on_packet` callback and forwarded to the DOM before close.
 
 use std::sync::Arc;
 
-use hppr_client::ViaSpec;
 use hppr_client::Signer;
-use hppr_packet::writer::TrailerReader;
+use hppr_client::ViaSpec;
+use hppr_client::tokio::connect_via;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{HpprProtocolError, StreamInDomAction, StreamInNetworkEvent, StreamInPublisherParams};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-use crate::hppr_pool::{HpprAsyncState, resolve_via_to_addr};
+use crate::hppr_pool::HpprAsyncState;
 
 /// Parse an error string into HpprProtocolError.
-fn parse_error_string(s: &str) -> HpprProtocolError {
+fn error_from(s: &str) -> HpprProtocolError {
     if let Some(rest) = s.strip_prefix("FATAL ") {
         let (code, detail) = rest.split_once(' ').unwrap_or((rest, ""));
         HpprProtocolError { error_type: code.to_string(), detail: detail.to_string(), fatal: true }
@@ -51,15 +50,9 @@ fn setup_dom_listener(action_receiver: IpcReceiver<StreamInDomAction>) -> Unboun
         Box::new(move |msg| {
             if let Ok(action) = msg {
                 match action {
-                    StreamInDomAction::Write(data) => {
-                        let _ = tx.send(DomMsg::Write(data));
-                    }
-                    StreamInDomAction::FinishSegment => {
-                        let _ = tx.send(DomMsg::FinishSegment);
-                    }
-                    StreamInDomAction::Close => {
-                        let _ = tx.send(DomMsg::Close);
-                    }
+                    StreamInDomAction::Write(data) => { let _ = tx.send(DomMsg::Write(data)); }
+                    StreamInDomAction::FinishSegment => { let _ = tx.send(DomMsg::FinishSegment); }
+                    StreamInDomAction::Close => { let _ = tx.send(DomMsg::Close); }
                 }
             }
         }),
@@ -67,333 +60,100 @@ fn setup_dom_listener(action_receiver: IpcReceiver<StreamInDomAction>) -> Unboun
     rx
 }
 
-/// Read HELLO greeting response from a TCP stream.
-async fn read_greeting(
-    reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<tokio::net::TcpStream>>,
-) -> Result<hppr_client::Greeting, String> {
-    use hppr_client::hppr_packet;
-    use tokio::io::AsyncReadExt;
-
-    let mark_bytes: [u8; 4] = [0xF0, 0x9F, 0x96, 0xA7]; // 🖧 in UTF-8
-    let mut first_bytes = [0u8; 4];
-
-    reader.read_exact(&mut first_bytes).await
-        .map_err(|e| format!("Failed to read packet mark: {}", e))?;
-
-    if first_bytes != mark_bytes {
-        return Err(format!("Expected packet mark, got: {:02x?}", first_bytes));
+/// Build `hppr_client::StreamInOptions` from DOM publisher params.
+fn stream_in_options(params: &StreamInPublisherParams) -> hppr_client::StreamInOptions {
+    let mut opts = hppr_client::StreamInOptions::new(&params.key);
+    if !params.headers.is_empty() {
+        opts = opts.headers(params.headers.clone());
     }
-
-    let mut buffer = first_bytes.to_vec();
-    loop {
-        match hppr_packet::take_packet_from_stream(&buffer) {
-            Ok((packet_ref, _rest)) => {
-                if packet_ref.packet_type() == hppr_packet::PacketType::Null {
-                    let data = packet_ref.data();
-                    if data.starts_with(b"ERROR ") || data.starts_with(b"FATAL ") {
-                        let msg = String::from_utf8(data.to_vec())
-                            .unwrap_or_else(|_| "invalid error response".to_string());
-                        return Err(msg.trim().to_string());
-                    }
-                }
-
-                return hppr_client::Greeting::from_packet(packet_ref)
-                    .map_err(|e| format!("Failed to parse greeting: {}", e));
-            }
-            Err(_) => {
-                let mut chunk = [0u8; 4096];
-                let n = reader.read(&mut chunk).await
-                    .map_err(|e| format!("Failed to read packet data: {}", e))?;
-                if n == 0 {
-                    return Err("Connection closed while reading packet".to_string());
-                }
-                buffer.extend_from_slice(&chunk[..n]);
-            }
-        }
+    if let Some(max) = params.max_segment_size {
+        opts = opts.max_segment_size(max);
     }
+    if let Some(ref seq) = params.flush_seq {
+        opts = opts.flush_sequence(seq.clone());
+    }
+    opts
 }
 
-/// Read a response packet from the server after sending STREAM_IN request.
-async fn read_response_packet(
-    reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<tokio::net::TcpStream>>,
-) -> Result<Vec<u8>, String> {
-    use hppr_client::hppr_packet;
-    use tokio::io::AsyncReadExt;
-
-    let mark_bytes: [u8; 4] = [0xF0, 0x9F, 0x96, 0xA7]; // 🖧 in UTF-8
-    let mut first_bytes = [0u8; 4];
-
-    reader.read_exact(&mut first_bytes).await
-        .map_err(|e| format!("Failed to read response mark: {}", e))?;
-
-    if first_bytes != mark_bytes {
-        return Err(format!("Expected packet mark, got: {:02x?}", first_bytes));
-    }
-
-    let mut buffer = first_bytes.to_vec();
-    loop {
-        match hppr_packet::take_packet_from_stream(&buffer) {
-            Ok((packet_ref, _rest)) => {
-                if packet_ref.packet_type() == hppr_packet::PacketType::Null {
-                    let data = packet_ref.data();
-                    if data.starts_with(b"ERROR ") || data.starts_with(b"FATAL ") {
-                        let msg = String::from_utf8(data.to_vec())
-                            .unwrap_or_else(|_| "invalid error response".to_string());
-                        return Err(msg.trim().to_string());
-                    }
-                }
-                return Ok(packet_ref.data().to_vec());
-            }
-            Err(_) => {
-                let mut chunk = [0u8; 4096];
-                let n = reader.read(&mut chunk).await
-                    .map_err(|e| format!("Failed to read response data: {}", e))?;
-                if n == 0 {
-                    return Err("Connection closed while reading response".to_string());
-                }
-                buffer.extend_from_slice(&chunk[..n]);
-            }
-        }
-    }
-}
-
-/// Send PublisherOutput trailer bytes to TCP and packet events to DOM.
-async fn send_publisher_output(
-    output: hppr_segment::stream_publisher::PublisherOutput,
-    writer: &mut tokio::io::WriteHalf<tokio::net::TcpStream>,
-    packet_reader: &mut TrailerReader,
-    event_sender: &IpcSender<StreamInNetworkEvent>,
-) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
-
-    if !output.bytes.is_empty() {
-        writer.write_all(&output.bytes).await
-            .map_err(|e| format!("Write failed: {}", e))?;
-    }
-
-    let packets = packet_reader
-        .push(&output.bytes)
-        .map_err(|e| format!("Failed to parse emitted segment bytes: {}", e))?;
-
-    if packets.len() != output.completed.len() {
-        return Err(format!(
-            "Publisher emitted {} completed segments but parser recovered {} packets",
-            output.completed.len(),
-            packets.len()
-        ));
-    }
-
-    for packet in packets {
-        if event_sender
-            .send(StreamInNetworkEvent::Packet(packet.as_bytes().to_vec()))
-            .is_err()
-        {
-            return Ok(());
-        }
-    }
-    Ok(())
-}
-
-/// Parse the coordinate prefix into (group, app, location) components.
+/// Send completed packets to the DOM via IPC.
 ///
-/// Expected format: `//group/app/location` or `//group/app/location/sub`.
-fn parse_coordinate(prefix: &str) -> Result<(String, String, String), String> {
-    let path = prefix.strip_prefix("//").unwrap_or(prefix);
-    let parts: Vec<&str> = path.splitn(3, '/').collect();
-    if parts.len() < 3 {
-        return Err(format!("Invalid coordinate prefix: {}", prefix));
-    }
-    Ok((parts[0].to_string(), parts[1].to_string(), parts[2].to_string()))
+/// Returns false if the DOM dropped the channel.
+fn send_packet(event_sender: &IpcSender<StreamInNetworkEvent>, packet: &hppr_packet::Packet) -> bool {
+    event_sender
+        .send(StreamInNetworkEvent::Packet(packet.as_bytes().to_vec()))
+        .is_ok()
 }
 
 /// Start the STREAM_IN network task.
 ///
-/// 1. Establishes connection and sends HELLO
-/// 2. Sends STREAM_IN request, reads OK response
-/// 3. Creates the integrated StreamPublisher
-/// 4. Sends Ready event to DOM
-/// 5. Enters select! loop forwarding Write/FinishSegment/Close actions
+/// 1. Connects via `connect_via` (TCP, QUIB, WS, Unix)
+/// 2. Opens `AsyncStreamInSession` (handles HELLO + STREAM_IN internally)
+/// 3. Sends Ready event to DOM
+/// 4. Forwards Write/FinishSegment/Close actions from DOM
+/// 5. Delivers completed packets via `on_packet` callback before close
 pub async fn start_stream_in(
     _hppr_state: &Arc<HpprAsyncState>,
     endpoint: &ViaSpec,
-    mut signer: Signer,
+    signer: Signer,
     prefix: &str,
     publisher_params: StreamInPublisherParams,
     event_sender: IpcSender<StreamInNetworkEvent>,
     action_receiver: IpcReceiver<StreamInDomAction>,
 ) {
     let mut dom_rx = setup_dom_listener(action_receiver);
+    let options = stream_in_options(&publisher_params);
 
-    // Resolve endpoint
-    let addr = match resolve_via_to_addr(endpoint).await {
-        Ok(a) => a,
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                &format!("Failed to resolve endpoint: {}", e)
-            )));
-            return;
-        }
-    };
-
-    // Connect
-    let stream = match tokio::net::TcpStream::connect(addr).await {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                &format!("Connection failed: {}", e)
-            )));
-            return;
-        }
-    };
-
-    let (reader, mut writer) = tokio::io::split(stream);
-    let mut reader = tokio::io::BufReader::new(reader);
-
-    // HELLO
-    let hello_packet = match hppr_client::hppr_packet::create_null_with_headers(&[("App", "🖧HELLO")], b"") {
-        Ok(p) => p,
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                &format!("Failed to build HELLO: {}", e)
-            )));
-            return;
-        }
-    };
-
-    use tokio::io::AsyncWriteExt;
-
-    if let Err(e) = writer.write_all(hello_packet.as_bytes()).await {
-        let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-            &format!("Failed to send HELLO: {}", e)
-        )));
-        return;
-    }
-
-    let greeting = match read_greeting(&mut reader).await {
-        Ok(g) => g,
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-            return;
-        }
-    };
-
-    // Resolve signer (derives key for Ring1Adhoc)
-    if let Err(e) = signer.resolve(&greeting) {
-        let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-            &format!("Failed to resolve signer: {}", e)
-        )));
-        return;
-    }
-
-    // Build and send STREAM_IN request
-    let request_bytes = match signer.build_request("🖧STREAM_IN", prefix.as_bytes(), &greeting, &[]) {
-        Ok(b) => b,
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                &format!("Failed to build STREAM_IN: {}", e)
-            )));
-            return;
-        }
-    };
-
-    if let Err(e) = writer.write_all(&request_bytes).await {
-        let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-            &format!("Failed to send STREAM_IN: {}", e)
-        )));
-        return;
-    }
-
-    // Read OK response
-    match read_response_packet(&mut reader).await {
-        Ok(_data) => {}
-        Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-            return;
-        }
-    }
-
-    // Create integrated publisher
-    let (group, app, location) = match parse_coordinate(prefix) {
+    // Connect and open session (HELLO + STREAM_IN handled by client lib)
+    let connection = match connect_via(endpoint, signer).await {
         Ok(c) => c,
         Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
+            let _ = event_sender.send(StreamInNetworkEvent::Fail(error_from(&e.to_string())));
             return;
         }
     };
-    let mut publisher = match hppr_segment::stream_publisher::StreamPublisher::new(
-        &publisher_params.key,
-        &group,
-        &app,
-        &location,
-        publisher_params.headers.clone(),
-        publisher_params.max_segment_size,
-        publisher_params.flush_seq.clone(),
-    ) {
-        Ok(p) => p,
+
+    let mut session = match connection.stream_in(prefix, options).await {
+        Ok(s) => s,
         Err(e) => {
-            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                &format!("Failed to create publisher: {}", e)
-            )));
+            let _ = event_sender.send(StreamInNetworkEvent::Fail(error_from(&e.to_string())));
             return;
         }
     };
-    let mut packet_reader = TrailerReader::new();
 
     // Notify DOM that server accepted
     if event_sender.send(StreamInNetworkEvent::Ready).is_err() {
         return;
     }
 
-    // Main loop: forward Write/FinishSegment/Close actions from DOM
+    // Packet callback: forward completed packets to DOM via IPC
+    let es = event_sender.clone();
+    let mut on_packet = move |packet: hppr_packet::Packet| {
+        send_packet(&es, &packet);
+    };
+
+    // Main loop: forward DOM actions to session
     loop {
-        tokio::select! {
-            dom_msg = dom_rx.recv() => {
-                match dom_msg {
-                    Some(DomMsg::Write(data)) => {
-                        match publisher.write(&data) {
-                            Ok(output) => {
-                                if let Err(e) = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await {
-                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                                    &format!("Publisher write failed: {}", e)
-                                )));
-                                break;
-                            }
-                        }
-                    }
-                    Some(DomMsg::FinishSegment) => {
-                        match publisher.finish_segment() {
-                            Ok(output) => {
-                                if let Err(e) = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await {
-                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                                    &format!("Publisher finish_segment failed: {}", e)
-                                )));
-                                break;
-                            }
-                        }
-                    }
-                    Some(DomMsg::Close) | None => {
-                        match publisher.close() {
-                            Ok(output) => {
-                                let _ = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await;
-                            }
-                            Err(e) => {
-                                log::warn!("stream_in: publisher close failed: {}", e);
-                            }
-                        }
-                        let _ = event_sender.send(StreamInNetworkEvent::Close);
-                        break;
-                    }
+        match dom_rx.recv().await {
+            Some(DomMsg::Write(data)) => {
+                if let Err(e) = session.write(&data, &mut on_packet).await {
+                    let _ = event_sender.send(StreamInNetworkEvent::Fail(error_from(&e.to_string())));
+                    break;
                 }
+            }
+            Some(DomMsg::FinishSegment) => {
+                if let Err(e) = session.flush(&mut on_packet).await {
+                    let _ = event_sender.send(StreamInNetworkEvent::Fail(error_from(&e.to_string())));
+                    break;
+                }
+            }
+            Some(DomMsg::Close) | None => {
+                // close() consumes session — packets delivered via on_packet
+                // before the session shuts down.
+                if let Err(e) = session.close(&mut on_packet).await {
+                    log::warn!("stream_in: close failed: {}", e);
+                }
+                let _ = event_sender.send(StreamInNetworkEvent::Close);
+                break;
             }
         }
     }

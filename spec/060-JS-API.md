@@ -118,10 +118,7 @@ interface HpprClient {
         optional StreamInOptions options = {}
     );
 
-    StreamOut streamOut(
-        USVString prefix,
-        optional StreamOutOptions options = {}
-    );
+    StreamOut streamOut(USVString prefix);
 
     readonly attribute HpprRepoInfo? repo;
 };
@@ -277,12 +274,11 @@ When used, packet events carry parsed `HpprPacket` objects.
 
 Live subscriber API.
 
-`streamOut(prefix, { onpacket })` is payload-oriented.
+`streamOut(prefix)` is payload-oriented.
 The repo still relays trailer-format bytes on the wire.
 The client parses them internally and:
 
-- `read()` returns payload bytes
-- async iteration yields payload bytes
+- `stream` yields payload bytes
 - optional `onpacket` receives parsed completed `HpprPacket` objects from the
   same parser state that produced those payload bytes
 

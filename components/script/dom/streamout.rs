@@ -326,7 +326,7 @@ struct StreamOutPacketTask {
 impl TaskOnce for StreamOutPacketTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let so = self.address.root();
-        if so.ready_state.get() != StreamOutState::Open {
+        if so.ready_state.get() == StreamOutState::Connecting {
             return;
         }
         let global = so.global();

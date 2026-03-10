@@ -77,9 +77,9 @@ interface HpprClient {
     // WATCH streaming - monitors coordinate prefix for changes
     WatchSocket watch(USVString urc);
 
-    // STREAM_IN — publisher streaming (push trailer-format data to repo)
+    // STREAM_IN — payload-oriented publisher streaming
     StreamIn streamIn(USVString prefix, optional StreamInOptions options = {});
 
-    // STREAM_OUT — subscriber streaming (receive trailer-format data as ReadableStream)
+    // STREAM_OUT — payload-oriented subscriber streaming
     StreamOut streamOut(USVString prefix);
 };

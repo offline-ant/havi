@@ -120,6 +120,7 @@ impl StreamIn {
                     });
                 },
                 StreamInNetworkEvent::Packet(data) => {
+                    log::warn!("stream_in: DOM received packet event bytes");
                     task_source.queue(StreamInPacketTask {
                         address: address.clone(),
                         data,
@@ -325,7 +326,7 @@ struct StreamInPacketTask {
 impl TaskOnce for StreamInPacketTask {
     fn run_once(self, cx: &mut js::context::JSContext) {
         let si = self.address.root();
-        if si.ready_state.get() != StreamInState::Open {
+        if si.ready_state.get() == StreamInState::Connecting {
             return;
         }
         let global = si.global();
@@ -345,6 +346,7 @@ impl TaskOnce for StreamInPacketTask {
                 return;
             }
         };
+        log::warn!("stream_in: dispatching packet event");
 
         rooted!(&in(cx) let js_val = js::jsval::ObjectValue(packet_dom.reflector().get_jsobject().get()));
         let event = MessageEvent::new(

@@ -20,12 +20,13 @@
   <script>
     async function suite_stream() {
         const homeRepo = window.home;
+        const streamRepo = await HpprClient.connect(homeRepo.endpoint, 'anyone');
         const group = document.packet.group;
         const app = document.packet.app;
 
         // --- StreamOut creation ---
         log('--- StreamOut creation ---');
-        const sout = homeRepo.streamOut('//' + group + '/' + app + '/live');
+        const sout = streamRepo.streamOut('//' + group + '/' + app + '/live');
         assert(sout !== null && sout !== undefined, 'streamOut() returns object');
         assert(typeof sout.readyState === 'number', 'StreamOut has readyState');
         assert(typeof sout.prefix === 'string', 'StreamOut has prefix');
@@ -72,7 +73,7 @@
 
         // --- StreamIn creation ---
         log('--- StreamIn creation ---');
-        const sin = homeRepo.streamIn('//' + group + '/' + app + '/live2', { key });
+        const sin = streamRepo.streamIn('//' + group + '/' + app + '/live2', { key });
         assert(sin !== null && sin !== undefined, 'streamIn() returns object');
         assert(typeof sin.readyState === 'number', 'StreamIn has readyState');
         assert(typeof sin.prefix === 'string', 'StreamIn has prefix');
