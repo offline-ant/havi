@@ -7,14 +7,15 @@
 //! Handles the network side of STREAM_IN connections, using tokio::select!
 //! for efficient cancellation and data forwarding.
 //!
-//! When publisher_params is provided, wraps data through StreamPublisher
-//! to produce trailer-format segments. Completed segments are sent back
-//! to the DOM as Packet events.
+//! STREAM_IN is payload-oriented here. The DOM writes payload bytes.
+//! This loader frames them through StreamPublisher into trailer-format Seal
+//! segments. Completed packets are sent back to the DOM as Packet events.
 
 use std::sync::Arc;
 
 use hppr_client::ViaSpec;
 use hppr_client::Signer;
+use hppr_packet::writer::TrailerReader;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{HpprProtocolError, StreamInDomAction, StreamInNetworkEvent, StreamInPublisherParams};
@@ -160,6 +161,7 @@ async fn read_response_packet(
 async fn send_publisher_output(
     output: hppr_segment::stream_publisher::PublisherOutput,
     writer: &mut tokio::io::WriteHalf<tokio::net::TcpStream>,
+    packet_reader: &mut TrailerReader,
     event_sender: &IpcSender<StreamInNetworkEvent>,
 ) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
@@ -168,12 +170,26 @@ async fn send_publisher_output(
         writer.write_all(&output.bytes).await
             .map_err(|e| format!("Write failed: {}", e))?;
     }
-    for seg in &output.completed {
-        // Reconstruct standard-format packet bytes from the hash.
-        // PublisherOutput.completed contains hashes; we need bytes for the DOM.
-        // The trailer bytes were already sent to TCP. For the Packet event,
-        // send the hash string as UTF-8 bytes (DOM will receive it).
-        let _ = event_sender.send(StreamInNetworkEvent::Packet(seg.hash.as_bytes().to_vec()));
+
+    let packets = packet_reader
+        .push(&output.bytes)
+        .map_err(|e| format!("Failed to parse emitted segment bytes: {}", e))?;
+
+    if packets.len() != output.completed.len() {
+        return Err(format!(
+            "Publisher emitted {} completed segments but parser recovered {} packets",
+            output.completed.len(),
+            packets.len()
+        ));
+    }
+
+    for packet in packets {
+        if event_sender
+            .send(StreamInNetworkEvent::Packet(packet.as_bytes().to_vec()))
+            .is_err()
+        {
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -194,17 +210,15 @@ fn parse_coordinate(prefix: &str) -> Result<(String, String, String), String> {
 ///
 /// 1. Establishes connection and sends HELLO
 /// 2. Sends STREAM_IN request, reads OK response
-/// 3. Sends Ready event to DOM
-/// 4. Enters select! loop forwarding Write/Close actions
-///
-/// In publisher mode (publisher_params provided), data goes through
-/// StreamPublisher which produces trailer-format segments automatically.
+/// 3. Creates the integrated StreamPublisher
+/// 4. Sends Ready event to DOM
+/// 5. Enters select! loop forwarding Write/FinishSegment/Close actions
 pub async fn start_stream_in(
     _hppr_state: &Arc<HpprAsyncState>,
     endpoint: &ViaSpec,
     mut signer: Signer,
     prefix: &str,
-    publisher_params: Option<StreamInPublisherParams>,
+    publisher_params: StreamInPublisherParams,
     event_sender: IpcSender<StreamInNetworkEvent>,
     action_receiver: IpcReceiver<StreamInDomAction>,
 ) {
@@ -298,33 +312,32 @@ pub async fn start_stream_in(
         }
     }
 
-    // Create publisher if in publisher mode
-    let mut publisher = match &publisher_params {
-        Some(params) => {
-            let (group, app, location) = match parse_coordinate(prefix) {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-                    return;
-                }
-            };
-            match hppr_segment::stream_publisher::StreamPublisher::new(
-                &params.key, &group, &app, &location,
-                params.headers.clone(),
-                params.max_segment_size,
-                params.flush_seq.clone(),
-            ) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                        &format!("Failed to create publisher: {}", e)
-                    )));
-                    return;
-                }
-            }
+    // Create integrated publisher
+    let (group, app, location) = match parse_coordinate(prefix) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
+            return;
         }
-        None => None,
     };
+    let mut publisher = match hppr_segment::stream_publisher::StreamPublisher::new(
+        &publisher_params.key,
+        &group,
+        &app,
+        &location,
+        publisher_params.headers.clone(),
+        publisher_params.max_segment_size,
+        publisher_params.flush_seq.clone(),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
+                &format!("Failed to create publisher: {}", e)
+            )));
+            return;
+        }
+    };
+    let mut packet_reader = TrailerReader::new();
 
     // Notify DOM that server accepted
     if event_sender.send(StreamInNetworkEvent::Ready).is_err() {
@@ -337,60 +350,44 @@ pub async fn start_stream_in(
             dom_msg = dom_rx.recv() => {
                 match dom_msg {
                     Some(DomMsg::Write(data)) => {
-                        if let Some(ref mut pub_) = publisher {
-                            match pub_.write(&data) {
-                                Ok(output) => {
-                                    if let Err(e) = send_publisher_output(output, &mut writer, &event_sender).await {
-                                        let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-                                        break;
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                                        &format!("Publisher write failed: {}", e)
-                                    )));
+                        match publisher.write(&data) {
+                            Ok(output) => {
+                                if let Err(e) = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await {
+                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
                                     break;
                                 }
                             }
-                        } else {
-                            // Raw pipe mode
-                            if let Err(e) = writer.write_all(&data).await {
+                            Err(e) => {
                                 let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                                    &format!("Write failed: {}", e)
+                                    &format!("Publisher write failed: {}", e)
                                 )));
                                 break;
                             }
                         }
                     }
                     Some(DomMsg::FinishSegment) => {
-                        if let Some(ref mut pub_) = publisher {
-                            match pub_.finish_segment() {
-                                Ok(output) => {
-                                    if let Err(e) = send_publisher_output(output, &mut writer, &event_sender).await {
-                                        let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
-                                        break;
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
-                                        &format!("Publisher finish_segment failed: {}", e)
-                                    )));
+                        match publisher.finish_segment() {
+                            Ok(output) => {
+                                if let Err(e) = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await {
+                                    let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(&e)));
                                     break;
                                 }
                             }
+                            Err(e) => {
+                                let _ = event_sender.send(StreamInNetworkEvent::Fail(parse_error_string(
+                                    &format!("Publisher finish_segment failed: {}", e)
+                                )));
+                                break;
+                            }
                         }
-                        // In raw mode, finishSegment is a no-op
                     }
                     Some(DomMsg::Close) | None => {
-                        // Close publisher (finishes any in-progress segment)
-                        if let Some(ref mut pub_) = publisher {
-                            match pub_.close() {
-                                Ok(output) => {
-                                    let _ = send_publisher_output(output, &mut writer, &event_sender).await;
-                                }
-                                Err(e) => {
-                                    log::warn!("stream_in: publisher close failed: {}", e);
-                                }
+                        match publisher.close() {
+                            Ok(output) => {
+                                let _ = send_publisher_output(output, &mut writer, &mut packet_reader, &event_sender).await;
+                            }
+                            Err(e) => {
+                                log::warn!("stream_in: publisher close failed: {}", e);
                             }
                         }
                         let _ = event_sender.send(StreamInNetworkEvent::Close);

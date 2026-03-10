@@ -614,8 +614,8 @@ pub enum WatchNetworkEvent {
 /// Actions from DOM to network for HPPR STREAM_IN
 #[derive(Debug, Deserialize, Serialize)]
 pub enum StreamInDomAction {
-    Write(Vec<u8>),     // Push data to repo (raw or via publisher)
-    FinishSegment,      // Manually close current segment (publisher mode)
+    Write(Vec<u8>),     // Push payload bytes to repo via integrated publisher
+    FinishSegment,      // Manually close current segment
     Close,              // End the stream
 }
 
@@ -623,12 +623,12 @@ pub enum StreamInDomAction {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum StreamInNetworkEvent {
     Ready,                       // Repo accepted, OK received
-    Packet(Vec<u8>),             // Completed segment (standard-format bytes)
+    Packet(Vec<u8>),             // Completed packet (standard-format bytes)
     Fail(HpprProtocolError),     // Connection or protocol error
     Close,                       // Repo closed connection
 }
 
-/// Publisher mode parameters for STREAM_IN packet construction.
+/// STREAM_IN publisher parameters.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StreamInPublisherParams {
     pub key: String,
@@ -641,8 +641,8 @@ pub struct StreamInPublisherParams {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum StreamOutNetworkEvent {
     Ready,                       // HELLO done, request sent
-    Data(Vec<u8>),               // Raw bytes from repo
-    Packet(Vec<u8>),             // Complete packet (normal-format bytes)
+    Data(Vec<u8>),               // Decoded payload bytes from parsed packets
+    Packet(Vec<u8>),             // Complete packet (standard-format bytes)
     Fail(HpprProtocolError),     // Connection or protocol error
     Close,                       // Repo closed (publisher disconnect / EOF)
 }
@@ -751,9 +751,11 @@ pub enum CoreResourceMsg {
         /// Channel to receive actions from DOM (Close)
         action_receiver: IpcReceiver<WatchDomAction>,
     },
-    /// HPPR STREAM_IN — publisher streaming.
+    /// HPPR STREAM_IN — payload-oriented publisher streaming.
     ///
     /// Opens a dedicated TCP connection for streaming trailer-format data to the repo.
+    /// The DOM writes payload bytes. The network task frames them into Seal
+    /// trailer packets using these publisher parameters.
     HpprStreamIn {
         /// Repo endpoint as parsed ViaSpec.
         endpoint: HpprViaSpec,
@@ -761,8 +763,8 @@ pub enum CoreResourceMsg {
         signer: HpprSigner,
         /// Coordinate prefix for the stream
         prefix: String,
-        /// Publisher mode params (key, headers, max_segment_size). None = raw pipe.
-        publisher_params: Option<StreamInPublisherParams>,
+        /// Publisher params (key, headers, max_segment_size, flush_seq).
+        publisher_params: StreamInPublisherParams,
         /// Channel to send events back to DOM
         event_sender: IpcSender<StreamInNetworkEvent>,
         /// Channel to receive actions from DOM (Write, Close)

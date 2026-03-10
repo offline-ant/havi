@@ -5,16 +5,17 @@
 //! HPPR StreamIn DOM binding.
 //!
 //! Provides an EventTarget interface for HPPR STREAM_IN publisher streaming.
-//! Pushes data to the repo via write(). In publisher mode (key provided),
-//! data is wrapped into signed trailer-format segments automatically.
+//! `streamIn()` is payload-oriented.
+//! Callers write payload bytes and HAVI frames them into signed trailer-format
+//! segments internally. `key` is required.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use dom_struct::dom_struct;
+use stylo_atoms::Atom;
 use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
-use js::typedarray::ArrayBufferU8;
 use net_traits::{
     CoreResourceMsg, HpprProtocolError, StreamInDomAction, StreamInNetworkEvent,
     StreamInPublisherParams,
@@ -25,7 +26,6 @@ use profile_traits::ipc as ProfiledIpc;
 
 use script_bindings::reflector::DomObject;
 
-use crate::dom::bindings::buffer_source::create_buffer_source;
 use crate::dom::bindings::codegen::Bindings::StreamInBinding::{StreamInMethods, StreamInOptions};
 use crate::dom::bindings::codegen::UnionTypes::ArrayBufferViewOrArrayBuffer;
 use crate::dom::bindings::error::Error;
@@ -40,6 +40,7 @@ use crate::dom::event::{Event, EventBubbles, EventCancelable};
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hpprerror::HpprError;
+use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::messageevent::MessageEvent;
 use crate::dom::promise::Promise;
 use crate::script_runtime::CanGc;
@@ -84,7 +85,7 @@ impl StreamIn {
         endpoint: &str,
         signer: Signer,
         prefix: String,
-        publisher_params: Option<StreamInPublisherParams>,
+        publisher_params: StreamInPublisherParams,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         // Create IPC channels
@@ -166,18 +167,21 @@ impl StreamIn {
         )
     }
 
-    /// Build StreamInPublisherParams from WebIDL options.
+    /// Build STREAM_IN publisher params from WebIDL options.
     pub(crate) fn publisher_params_from_options(
         options: &StreamInOptions,
-    ) -> Option<StreamInPublisherParams> {
-        let key = options.key.as_ref()?;
+    ) -> Result<StreamInPublisherParams, &'static str> {
+        let key = options
+            .key
+            .as_ref()
+            .ok_or("streamIn requires options.key")?;
         let headers = match &options.headers {
             Some(map) => map.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             None => Vec::new(),
         };
         let max_segment_size = options.maxSegmentSize.map(|v| v as usize);
         let flush_seq = options.flushSeq.as_ref().map(|s| s.to_vec());
-        Some(StreamInPublisherParams {
+        Ok(StreamInPublisherParams {
             key: key.to_string(),
             headers,
             max_segment_size,
@@ -311,6 +315,8 @@ impl TaskOnce for StreamInConnectionTask {
 }
 
 /// Task: complete packet from publisher mode segment.
+///
+/// Fires a `packet` event carrying an `HpprPacket` object.
 struct StreamInPacketTask {
     address: Trusted<StreamIn>,
     data: Vec<u8>,
@@ -325,20 +331,35 @@ impl TaskOnce for StreamInPacketTask {
         let global = si.global();
         let can_gc = CanGc::from_cx(cx);
 
-        rooted!(&in(cx) let mut array_buffer_ptr = std::ptr::null_mut::<js::jsapi::JSObject>());
-        create_buffer_source::<ArrayBufferU8>(cx.into(), &self.data, array_buffer_ptr.handle_mut(), can_gc)
-            .expect("Failed to create ArrayBuffer for packet data");
-        rooted!(&in(cx) let js_val = js::jsval::ObjectValue(*array_buffer_ptr));
+        let packet = match hppr_packet::read_packet(self.data.into_boxed_slice()) {
+            Ok(packet) => packet,
+            Err(e) => {
+                log::warn!("stream_in: failed to parse packet event bytes: {}", e);
+                return;
+            }
+        };
+        let packet_dom = match HpprPacket::new(&global, packet, can_gc) {
+            Ok(packet_dom) => packet_dom,
+            Err(e) => {
+                log::warn!("stream_in: failed to wrap packet event: {}", e);
+                return;
+            }
+        };
 
-        MessageEvent::dispatch_jsval(
-            si.upcast(),
+        rooted!(&in(cx) let js_val = js::jsval::ObjectValue(packet_dom.reflector().get_jsobject().get()));
+        let event = MessageEvent::new(
             &global,
+            Atom::from("packet"),
+            false,
+            false,
             js_val.handle(),
+            DOMString::new(),
             None,
-            None,
+            DOMString::new(),
             vec![],
             can_gc,
         );
+        event.upcast::<Event>().fire(si.upcast(), can_gc);
     }
 }
 

@@ -22,5 +22,8 @@ create_key
 HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/test-utils.js" < "$SCRIPT_DIR/content/test-utils.js"
 HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/video-chat-path-test.html" < "$SCRIPT_DIR/content/video-chat-path-test.html"
 
+# Store signing key so JS test page can create a cooked StreamIn
+echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+
 start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat-path-test.html"
 run_js_tests 30

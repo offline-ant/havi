@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// HPPR STREAM_IN publisher interface — pushes trailer-format data to the server
+// HPPR STREAM_IN publisher interface — writes payload bytes, frames internally
 
 dictionary StreamInOptions {
-    DOMString key;                        // Signing key — enables publisher mode
+    DOMString key;                        // Required signing key for cooked publisher mode
     record<DOMString, DOMString> headers; // Extra headers per segment
     unsigned long maxSegmentSize;         // Max data bytes per segment
     ByteString flushSeq;                  // Flush sequence (raw bytes)

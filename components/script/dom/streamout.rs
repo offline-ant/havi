@@ -5,14 +5,16 @@
 //! HPPR StreamOut DOM binding.
 //!
 //! Provides an EventTarget interface for HPPR STREAM_OUT subscriber streaming.
-//! Receives trailer-format data from the repo as a ReadableStream.
+//! The network layer parses trailer-format bytes internally.
+//! The ReadableStream delivers decoded payload bytes.
+//! Optional `onpacket` fires for each completed packet (diagnostics).
 
 use std::cell::Cell;
 
 use dom_struct::dom_struct;
+use stylo_atoms::Atom;
 use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
-use js::typedarray::ArrayBufferU8;
 use net_traits::{
     CoreResourceMsg, HpprProtocolError, StreamOutDomAction, StreamOutNetworkEvent,
 };
@@ -22,7 +24,6 @@ use profile_traits::ipc as ProfiledIpc;
 
 use script_bindings::reflector::DomObject;
 
-use crate::dom::bindings::buffer_source::create_buffer_source;
 use crate::dom::bindings::codegen::Bindings::StreamOutBinding::StreamOutMethods;
 use crate::dom::bindings::error::Error;
 use crate::dom::bindings::inheritance::Castable;
@@ -36,6 +37,7 @@ use crate::dom::event::{Event, EventBubbles, EventCancelable};
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hpprerror::HpprError;
+use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::messageevent::MessageEvent;
 use crate::dom::readablestream::ReadableStream;
 use crate::dom::underlyingsourcecontainer::UnderlyingSourceType;
@@ -53,7 +55,9 @@ enum StreamOutState {
 
 /// HPPR STREAM_OUT subscriber.
 ///
-/// Receives trailer-format data from the repo as a ReadableStream.
+/// The network layer parses trailer-format bytes and delivers decoded
+/// payload bytes through the ReadableStream. Optional `onpacket` fires
+/// for each completed packet.
 #[dom_struct]
 pub(crate) struct StreamOut {
     eventtarget: EventTarget,
@@ -311,7 +315,9 @@ impl TaskOnce for StreamOutDataTask {
     }
 }
 
-/// Task: complete packet parsed from STREAM_OUT segment.
+/// Task: complete packet parsed from STREAM_OUT.
+///
+/// Fires a `packet` event carrying an `HpprPacket` object.
 struct StreamOutPacketTask {
     address: Trusted<StreamOut>,
     data: Vec<u8>,
@@ -326,20 +332,35 @@ impl TaskOnce for StreamOutPacketTask {
         let global = so.global();
         let can_gc = CanGc::from_cx(cx);
 
-        rooted!(&in(cx) let mut array_buffer_ptr = std::ptr::null_mut::<js::jsapi::JSObject>());
-        create_buffer_source::<ArrayBufferU8>(cx.into(), &self.data, array_buffer_ptr.handle_mut(), can_gc)
-            .expect("Failed to create ArrayBuffer for packet data");
-        rooted!(&in(cx) let js_val = js::jsval::ObjectValue(*array_buffer_ptr));
+        let packet = match hppr_packet::read_packet(self.data.into_boxed_slice()) {
+            Ok(packet) => packet,
+            Err(e) => {
+                log::warn!("stream_out: failed to parse packet event bytes: {}", e);
+                return;
+            }
+        };
+        let packet_dom = match HpprPacket::new(&global, packet, can_gc) {
+            Ok(packet_dom) => packet_dom,
+            Err(e) => {
+                log::warn!("stream_out: failed to wrap packet event: {}", e);
+                return;
+            }
+        };
 
-        MessageEvent::dispatch_jsval(
-            so.upcast(),
+        rooted!(&in(cx) let js_val = js::jsval::ObjectValue(packet_dom.reflector().get_jsobject().get()));
+        let event = MessageEvent::new(
             &global,
+            Atom::from("packet"),
+            false,
+            false,
             js_val.handle(),
+            DOMString::new(),
             None,
-            None,
+            DOMString::new(),
             vec![],
             can_gc,
         );
+        event.upcast::<Event>().fire(so.upcast(), can_gc);
     }
 }
 

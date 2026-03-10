@@ -106,11 +106,16 @@
       const app = document.packet.app;
       const prefix = '//' + group + '/' + app + '/live/chat-path-' + Date.now();
 
+      // Fetch signing key stored by test harness for cooked StreamIn
+      const keyPacket = await home.get('//' + group + '/' + app + '/testkey');
+      const signingKey = keyPacket.text();
+      assert(signingKey.startsWith('&.'), 'signing key loaded');
+
       const streamOut = home.streamOut(prefix);
       await waitOpen(streamOut, 'streamOut');
       assertEqual(streamOut.readyState, 1, 'streamOut readyState OPEN');
 
-      const streamIn = home.streamIn(prefix);
+      const streamIn = home.streamIn(prefix, { key: signingKey });
       await waitOpen(streamIn, 'streamIn');
       assertEqual(streamIn.readyState, 1, 'streamIn readyState OPEN');
 

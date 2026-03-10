@@ -118,7 +118,10 @@ interface HpprClient {
         optional StreamInOptions options = {}
     );
 
-    StreamOut streamOut(USVString prefix);
+    StreamOut streamOut(
+        USVString prefix,
+        optional StreamOutOptions options = {}
+    );
 
     readonly attribute HpprRepoInfo? repo;
 };
@@ -238,41 +241,50 @@ keyed by watch prefix. See `070-X-ELEMENT.md`.
 
 Live publisher API.
 
-Modes:
-
-- raw mode: write bytes directly
-- publisher mode: provide signing key and auto-segment output
+`streamIn(prefix, options)` is payload-oriented.
+Callers write payload bytes.
+The client signs and frames those bytes into trailer-format Seal packets
+internally before sending them to the repo.
 
 Key options:
 
-- `key`
+- `key` (required)
 - `headers`
 - `maxSegmentSize`
 - `flushSeq`
 
-Events:
+Calls without `key` are invalid.
+HAVI does not expose raw trailer passthrough as part of the normal JS stream API.
 
-- `onopen`
-- `onerror`
-- `onclose`
-- `onpacket` (optional diagnostics)
+Methods:
 
-`write()` resolves when queued, not when TCP flush completes.
+- `write(bytes)`
+- `flush()`
+- `close()`
+
+`write()` resolves when bytes are queued, not when TCP flush completes.
 
 ### Incremental byte-stream semantics
 
 StreamIn and StreamOut are transparent byte pipes for the primary media path.
 Applications are expected to frame payloads at the application layer (for
-example, length-prefixed chunks) and parse incrementally
-from `streamOut.stream`.
+example, length-prefixed chunks) and parse incrementally from `streamOut()`.
 
 `onpacket` is optional and is not required for media playback.
+When used, packet events carry parsed `HpprPacket` objects.
 
 ## StreamOut
 
 Live subscriber API.
 
-Exposes `ReadableStream<Uint8Array>` through `stream`.
+`streamOut(prefix, { onpacket })` is payload-oriented.
+The repo still relays trailer-format bytes on the wire.
+The client parses them internally and:
+
+- `read()` returns payload bytes
+- async iteration yields payload bytes
+- optional `onpacket` receives parsed completed `HpprPacket` objects from the
+  same parser state that produced those payload bytes
 
 Lifecycle events:
 
@@ -280,7 +292,8 @@ Lifecycle events:
 - `onerror`
 - `onclose`
 
-Byte delivery is incremental and order-preserving for the received stream.
+Byte delivery is incremental and order-preserving for the received payload
+stream.
 
 ## MediaRecorder and MediaSource status
 

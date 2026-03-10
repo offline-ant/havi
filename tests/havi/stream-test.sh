@@ -17,41 +17,16 @@ TEST_NAME="stream"
 TEST_GROUP="streamtest"
 TEST_APP="testapp"
 
-HPPR_ROOT_ABS="$(cd "$HPPR_ROOT" && pwd)"
-PY="$HPPR_ROOT_ABS/py/.venv/bin/python3"
-
 start_server
 setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-# --- Generate trailer segment for the publisher ---
-STREAM_TEMP=$(mktemp -d)
+echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
 
-make_trailer_segment() {
-    local coord="$1" data="$2" outfile="$3"
-    local group app location
-    group=$(echo "$coord" | cut -d/ -f3)
-    app=$(echo "$coord" | cut -d/ -f4)
-    location=$(echo "$coord" | cut -d/ -f5-)
-
-    $PY -c "
-import sys, os, time
-sys.path.insert(0, '$HPPR_ROOT_ABS/py')
-from hppr.hsb3 import generate_key
-from hppr.packets.trailer import create_seal_trailer
-sk = generate_key()
-tai = str(int(time.time())) + ':000000000'
-segment = create_seal_trailer(sk, '$group', '$app', '$location', tai, None, b'$data')
-sys.stdout.buffer.write(segment)
-" > "$outfile"
-}
-
-make_trailer_segment "//$TEST_GROUP/$TEST_APP/live/seg/0001" "hello-havi" "$STREAM_TEMP/seg.bin"
-log "Trailer segment size: $(wc -c < "$STREAM_TEMP/seg.bin") bytes"
-
-# Start publisher: delayed data feed keeps stream open until data arrives
-{ sleep 4; cat "$STREAM_TEMP/seg.bin"; } | HPPR_SIGNER='ring1:ring0#init' $HPPR stream-in "//$TEST_GROUP/$TEST_APP/live" &
+# Start cooked publisher: delayed payload feed keeps stream open until data arrives.
+# Uses --key for the cooked stream-in API (payload bytes in, trailer framing internal).
+{ sleep 4; echo -n "hello-havi"; sleep 2; } | HPPR_SIGNER='ring1:ring0#init' $HPPR stream-in --key "$SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
 PUB_PID=$!
 log "Publisher started (PID: $PUB_PID)"
 
@@ -64,4 +39,3 @@ run_js_tests 30
 # Cleanup publisher
 stop_pid "$PUB_PID"
 PUB_PID=""
-rm -rf "$STREAM_TEMP"

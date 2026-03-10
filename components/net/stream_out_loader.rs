@@ -5,15 +5,18 @@
 //! HPPR STREAM_OUT network loader.
 //!
 //! Handles the network side of STREAM_OUT connections, using tokio::select!
-//! for efficient cancellation and byte-oriented data forwarding.
+//! for efficient cancellation.
 //!
-//! Raw bytes are always forwarded to DOM immediately. Packet finalization events
-//! are optional diagnostics and are not part of the primary streaming path.
+//! The repo relays trailer-format bytes on the wire. This loader parses them
+//! internally with a TrailerReader and forwards:
+//! - payload bytes via Data events (primary ReadableStream path)
+//! - complete parsed packets via Packet events (optional onpacket diagnostics)
 
 use std::sync::Arc;
 
 use hppr_client::ViaSpec;
 use hppr_client::Signer;
+use hppr_packet::writer::TrailerReader;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{HpprProtocolError, StreamOutDomAction, StreamOutNetworkEvent};
@@ -155,7 +158,7 @@ pub async fn start_stream_out(
         }
     };
 
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
     if let Err(e) = writer.write_all(hello_packet.as_bytes()).await {
         let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
@@ -204,8 +207,70 @@ pub async fn start_stream_out(
         return; // DOM dropped
     }
 
-    // Main loop: read bytes from TCP, forward Close from DOM
+    // Check the first line for FATAL before entering the main loop.
+    // The repo may reject the subscription or the wait may time out.
+    let mut pending_raw: Vec<u8> = Vec::new();
+    {
+        let mut first = String::new();
+        match reader.read_line(&mut first).await {
+            Ok(0) => {
+                let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                    "Connection closed before data",
+                )));
+                return;
+            }
+            Err(e) => {
+                let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                    &format!("Read failed: {}", e),
+                )));
+                return;
+            }
+            Ok(_) => {}
+        }
+
+        // Raw FATAL (repo sends this directly, not in trailer format)
+        if let Some(rest) = first.strip_prefix("FATAL ") {
+            let rest = rest.trim_end_matches('\n');
+            let _ = event_sender.send(StreamOutNetworkEvent::Fail(parse_error_string(
+                &format!("FATAL {}", rest),
+            )));
+            return;
+        }
+
+        // Blob trailer open wrapping a FATAL
+        if first == "\u{22EF}\u{1F5A7}: B\n" {
+            let mut second = String::new();
+            match reader.read_line(&mut second).await {
+                Ok(0) | Err(_) => {}
+                Ok(_) => {
+                    if let Some(rest) = second.strip_prefix("FATAL ") {
+                        let rest = rest.trim_end_matches('\n');
+                        let _ = event_sender.send(StreamOutNetworkEvent::Fail(
+                            parse_error_string(&format!("FATAL {}", rest)),
+                        ));
+                        return;
+                    }
+                    pending_raw.extend_from_slice(second.as_bytes());
+                }
+            }
+        }
+
+        // Buffer initial bytes for trailer parsing
+        pending_raw.splice(0..0, first.as_bytes().iter().copied());
+    }
+
+    // Main loop: read trailer bytes from TCP, parse into payload + packets
+    let mut trailer_reader = TrailerReader::new();
     let mut buf = [0u8; 32768];
+
+    // Feed any initial buffered bytes into the trailer reader
+    if !pending_raw.is_empty() &&
+        forward_parsed(&trailer_reader.push_lossy(&pending_raw), &event_sender).is_err()
+    {
+        log::debug!("stream_out: DOM dropped during initial parse");
+        return;
+    }
+
     loop {
         tokio::select! {
             dom_msg = dom_rx.recv() => {
@@ -224,9 +289,8 @@ pub async fn start_stream_out(
                         break;
                     }
                     Ok(n) => {
-                        let chunk = &buf[..n];
-                        // Primary path: push incremental bytes to ReadableStream.
-                        if event_sender.send(StreamOutNetworkEvent::Data(chunk.to_vec())).is_err() {
+                        let packets = trailer_reader.push_lossy(&buf[..n]);
+                        if forward_parsed(&packets, &event_sender).is_err() {
                             break; // DOM dropped
                         }
                     }
@@ -240,4 +304,27 @@ pub async fn start_stream_out(
             }
         }
     }
+}
+
+/// Send parsed packet payload bytes (Data) and complete packet bytes (Packet)
+/// to the DOM. Returns Err if the DOM dropped.
+fn forward_parsed(
+    packets: &[hppr_packet::Packet],
+    event_sender: &IpcSender<StreamOutNetworkEvent>,
+) -> Result<(), ()> {
+    for packet in packets {
+        let payload = packet.data().to_vec();
+        if !payload.is_empty() &&
+            event_sender.send(StreamOutNetworkEvent::Data(payload)).is_err()
+        {
+            return Err(());
+        }
+        if event_sender
+            .send(StreamOutNetworkEvent::Packet(packet.as_bytes().to_vec()))
+            .is_err()
+        {
+            return Err(());
+        }
+    }
+    Ok(())
 }

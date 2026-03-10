@@ -422,7 +422,14 @@ impl EnvelopeHpprClient {
             si.fail_with_error(reason, can_gc);
             return si;
         }
-        let publisher_params = StreamIn::publisher_params_from_options(options);
+        let publisher_params = match StreamIn::publisher_params_from_options(options) {
+            Ok(params) => params,
+            Err(reason) => {
+                let si = StreamIn::new_pending(&global, prefix.to_string(), can_gc);
+                si.fail_with_error(reason, can_gc);
+                return si;
+            }
+        };
         StreamIn::new(
             &global,
             &self.endpoint.0,

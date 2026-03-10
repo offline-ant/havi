@@ -58,17 +58,21 @@
         assert(readResult.value instanceof Uint8Array, 'StreamOut read value is Uint8Array');
         assert(readResult.value.length > 0, 'StreamOut received non-empty data (' + readResult.value.length + ' bytes)');
 
-        // The received data is a trailer-format segment. Check it starts with the stream mark.
+        // The ReadableStream delivers decoded payload bytes (not raw trailer format).
         const decoder = new TextDecoder();
-        const text = decoder.decode(readResult.value.slice(0, 100));
-        assertContains(text, 'S //', 'received data contains trailer seal opening');
+        const text = decoder.decode(readResult.value);
+        assertContains(text, 'hello-havi', 'received payload bytes match published content');
 
         reader.releaseLock();
         sout.close();
 
+        const keyPacket = await homeRepo.get('//' + group + '/' + app + '/testkey');
+        const key = keyPacket.text();
+        assert(key.startsWith('&.'), 'Signing key loaded for streamIn');
+
         // --- StreamIn creation ---
         log('--- StreamIn creation ---');
-        const sin = homeRepo.streamIn('//' + group + '/' + app + '/live2');
+        const sin = homeRepo.streamIn('//' + group + '/' + app + '/live2', { key });
         assert(sin !== null && sin !== undefined, 'streamIn() returns object');
         assert(typeof sin.readyState === 'number', 'StreamIn has readyState');
         assert(typeof sin.prefix === 'string', 'StreamIn has prefix');
