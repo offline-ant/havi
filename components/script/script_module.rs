@@ -488,7 +488,7 @@ impl ModuleTree {
                     ExceptionStackBehavior::Capture,
                 );
             }
-            report_pending_exception(GlobalScope::get_cx(), true, InRealm::Entered(&ar), can_gc);
+            report_pending_exception(GlobalScope::get_cx(), InRealm::Entered(&ar), can_gc);
         }
     }
 
