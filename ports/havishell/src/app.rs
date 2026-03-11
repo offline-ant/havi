@@ -972,25 +972,27 @@ impl App {
                     if let Some(player) = self.mse_players.get_mut(&video_id) {
                         match player.append_data(&data) {
                             Ok(result) => {
-                                if result.init_segment_parsed {
+                                if let Some(init) = &result.init {
+                                    let width = init.video_tracks.first().map(|track| track.width).unwrap_or(0);
+                                    let height = init.video_tracks.first().map(|track| track.height).unwrap_or(0);
                                     log!(
                                         "[mse] init parsed id={} {}x{} dur={}ms",
-                                        video_id, result.width, result.height, result.duration_ms
+                                        video_id, width, height, init.duration_ms
                                     );
                                     media_controller::dispatch_media_event(
                                         video_id,
                                         ThreadMediaEvent::MseInitSegmentParsed {
-                                            width: result.width,
-                                            height: result.height,
-                                            duration_ms: result.duration_ms,
+                                            width,
+                                            height,
+                                            duration_ms: init.duration_ms,
                                         },
                                     );
                                 }
                                 // TODO: upload decoded YUV frames to GPU textures
                                 // once platform texture-from-data path is wired.
-                                let has_frames = !result.new_frames.is_empty();
+                                let has_frames = !result.video_frames.is_empty();
                                 if has_frames {
-                                    log!("[mse] decoded {} frames for id={}", result.new_frames.len(), video_id);
+                                    log!("[mse] decoded {} frames for id={}", result.video_frames.len(), video_id);
                                     self.needs_paint = true;
                                     self.idle_frames = 0;
                                     self.next_frame = cx.new_next_frame();
