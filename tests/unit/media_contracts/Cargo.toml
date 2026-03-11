@@ -1,0 +1,18 @@
+[package]
+name = "media_contracts_tests"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "media_contracts_tests"
+path = "lib.rs"
+
+[dependencies]
+hppr-client = { workspace = true }
+hppr-packet = { workspace = true }
+net = { path = "../../../components/net" }
+media = { path = "../../../components/media/media-thread" }

@@ -5824,6 +5824,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "media_contracts_tests"
+version = "0.0.1"
+dependencies = [
+ "hppr-client",
+ "hppr-packet",
+ "media",
+ "net",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.6"
 
@@ -6254,6 +6264,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "malloc_size_of_derive",
+ "media",
  "mime",
  "mime_guess",
  "net",

@@ -28,8 +28,12 @@ pub fn next_video_id() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// MediaOrigin (mirrors makepad_platform::VideoSource without the dep)
+// MediaOrigin (legacy direct-source boundary for native delegated playback)
 // ---------------------------------------------------------------------------
+//
+// Browser-owned transport should move through `asset::ResolvedMediaAsset` +
+// `asset::MediaByteSource`. This enum remains for the current delegated native
+// path and existing platform URL/file session setup.
 
 #[derive(Clone, Debug)]
 pub enum MediaOrigin {

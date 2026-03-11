@@ -13,6 +13,7 @@ pub mod embedder;
 pub mod filemanager_thread;
 mod hosts;
 pub mod hppr_chunks;
+pub mod hppr_media;
 pub mod hppr_pool;
 pub mod hsts;
 pub mod http_cache;

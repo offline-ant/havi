@@ -2,6 +2,37 @@
 
 HAVI media support policy.
 
+## Architecture split
+
+HAVI keeps browser transport and playback core responsibilities separate.
+
+Browser-owned transport stays in HAVI code:
+
+- URL resolution
+- HPPR route and auth policy
+- chunk-manifest detection and traversal
+- media asset resolution into a byte source
+
+Shared playback contracts live at the HAVI/media boundary:
+
+- baked media is handed to the media layer as a resolved asset with metadata
+  and a blocking random-access `MediaByteSource`
+- `MediaByteSource` is a byte-range contract, not a URL contract
+- reads happen off the script thread on playback/session workers
+
+Playback code stays below that boundary:
+
+- demux
+- decode
+- PCM playout
+- clocking
+- scheduling
+- media-session policy
+
+Platform-native delegated playback remains a separate path for ordinary native
+URL/file sources. HPPR-specific concerns do not cross into platform backends.
+No HTTP loopback relay is part of the final architecture.
+
 ## Video
 
 HAVI supports two video codecs in MP4 containers: AV1 and H.264.
