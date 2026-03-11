@@ -122,22 +122,6 @@ impl MediaSession {
         ));
     }
 
-    pub(crate) fn update_title(&self, title: String) {
-        let mut metadata = self.metadata.borrow_mut();
-        if let Some(ref mut metadata) = *metadata {
-            // We only update the title with the data provided by the media
-            // player and iff the user did not provide a title.
-            if !metadata.title.is_empty() {
-                return;
-            }
-            metadata.title = title;
-        } else {
-            *metadata = Some(EmbedderMediaMetadata::new(title));
-        }
-        self.send_event(MediaSessionEvent::SetMetadata(
-            metadata.as_ref().unwrap().clone(),
-        ));
-    }
 }
 
 impl MediaSessionMethods<crate::DomTypeHolder> for MediaSession {

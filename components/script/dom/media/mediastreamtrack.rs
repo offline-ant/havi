@@ -148,10 +148,6 @@ impl MediaStreamTrack {
         self.ready_state_live.get()
     }
 
-    pub(crate) fn is_enabled(&self) -> bool {
-        self.enabled.get()
-    }
-
     /// Stop the track: release the backing source, set state to ended.
     pub(crate) fn stop_track(&self) {
         if !self.ready_state_live.get() {

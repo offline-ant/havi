@@ -86,7 +86,7 @@ pub(crate) fn resolve_home_credentials(
 ///
 /// Returns (endpoint, signer) on success, or rejects the promise and returns None.
 pub(crate) fn resolve_connect_params(
-    window: &Window,
+    _window: &Window,
     endpoint: &DOMString,
     identity: Option<&DOMString>,
     promise: &Rc<Promise>,

@@ -18,7 +18,7 @@ use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use net_traits::{
     CoreResourceMsg, HpprProtocolError, StreamPubDomAction, StreamPubNetworkEvent,
-    StreamPubPublisherParams,
+    StreamPubParams,
 };
 use hppr_client::parse_via;
 use hppr_client::Signer;
@@ -85,7 +85,7 @@ impl StreamPub {
         endpoint: &str,
         signer: Signer,
         prefix: String,
-        publisher_params: StreamPubPublisherParams,
+        publisher_params: StreamPubParams,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         // Create IPC channels
@@ -170,7 +170,7 @@ impl StreamPub {
     /// Build STREAM_PUB publisher params from WebIDL options.
     pub(crate) fn publisher_params_from_options(
         options: &StreamPubOptions,
-    ) -> Result<StreamPubPublisherParams, &'static str> {
+    ) -> Result<StreamPubParams, &'static str> {
         let key = options
             .key
             .as_ref()
@@ -181,7 +181,7 @@ impl StreamPub {
         };
         let max_segment_size = options.maxSegmentSize.map(|v| v as usize);
         let flush_seq = options.flushSeq.as_ref().map(|s| s.to_vec());
-        Ok(StreamPubPublisherParams {
+        Ok(StreamPubParams {
             key: key.to_string(),
             headers,
             max_segment_size,

@@ -78,14 +78,6 @@ impl<'dom> ServoLayoutElement<'dom> {
         ServoLayoutElement { element: el }
     }
 
-    /// Returns the interior of this element as a `LayoutDom`.
-    ///
-    /// This method must never be exposed to layout as it returns
-    /// a `LayoutDom`.
-    pub(crate) fn to_layout_js(self) -> LayoutDom<'dom, Element> {
-        self.element
-    }
-
     pub(super) fn is_html_element(&self) -> bool {
         self.element.is_html_element()
     }

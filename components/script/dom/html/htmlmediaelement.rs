@@ -17,7 +17,6 @@ use headers::{ContentLength, ContentRange, HeaderMapExt};
 use html5ever::{LocalName, Prefix, QualName, local_name, ns};
 use http::StatusCode;
 use http::header::{self, HeaderMap, HeaderValue};
-use ipc_channel::ipc::{self};
 use js::realm::{AutoRealm, CurrentRealm};
 use layout_api::MediaFrame;
 use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
@@ -38,7 +37,6 @@ use uuid::Uuid;
 
 use crate::document_loader::{LoadBlocker, LoadType};
 use crate::dom::attr::Attr;
-use crate::dom::audio::audiotrack::AudioTrack;
 use crate::dom::audio::audiotracklist::AudioTrackList;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::HTMLMediaElementBinding::{
@@ -68,7 +66,6 @@ use crate::dom::element::{
     AttributeMutation, AttributeMutationReason, CustomElementCreationMode, Element, ElementCreator,
     cors_setting_for_element, reflect_cross_origin_attribute, set_cross_origin_attribute,
 };
-use crate::dom::event::Event;
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::html::htmlelement::HTMLElement;
@@ -84,9 +81,7 @@ use crate::dom::promise::Promise;
 use crate::dom::texttrack::TextTrack;
 use crate::dom::texttracklist::TextTrackList;
 use crate::dom::timeranges::{TimeRanges, TimeRangesContainer};
-use crate::dom::trackevent::TrackEvent;
 use crate::dom::url::URL;
-use crate::dom::videotrack::VideoTrack;
 use crate::dom::videotracklist::VideoTrackList;
 use crate::dom::virtualmethods::VirtualMethods;
 use crate::fetch::{FetchCanceller, RequestWithGlobalScope, create_a_potential_cors_request};
@@ -95,7 +90,6 @@ use crate::network_listener::{self, FetchResponseListener, ResourceTimingListene
 use crate::realms::enter_auto_realm;
 use crate::script_runtime::CanGc;
 use crate::script_thread::ScriptThread;
-use crate::task_source::SendableTaskSource;
 
 /// A CSS file to style the media controls.
 static MEDIA_CONTROL_CSS: &str = include_str!("../../resources/media-controls.css");
@@ -1752,30 +1746,6 @@ impl HTMLMediaElement {
         // otherwise satisfies seek completion and signals a position change.
     }
 
-    /// <https://html.spec.whatwg.org/multipage/#dom-media-seek>
-    fn seek_end(&self) {
-        // Any time the user agent provides a stable state, the official playback position must be
-        // set to the current playback position.
-        self.official_playback_position
-            .set(self.current_playback_position.get());
-
-        // Step 14. Set the seeking IDL attribute to false.
-        self.seeking.set(false);
-
-        self.current_seek_position.set(f64::NAN);
-
-        // Step 15. Run the time marches on steps.
-        self.time_marches_on();
-
-        // Step 16. Queue a media element task given the media element to fire an event named
-        // timeupdate at the element.
-        self.queue_media_element_task_to_fire_event(atom!("timeupdate"));
-
-        // Step 17. Queue a media element task given the media element to fire an event named seeked
-        // at the element.
-        self.queue_media_element_task_to_fire_event(atom!("seeked"));
-    }
-
     /// <https://html.spec.whatwg.org/multipage/#poster-frame>
     pub(crate) fn set_poster_frame(&self, image: Option<Arc<RasterImage>>) {
         if pref!(media_testing_enabled) && image.is_some() {
@@ -1788,13 +1758,6 @@ impl HTMLMediaElement {
             .set_poster_frame(image);
 
         self.upcast::<Node>().dirty(NodeDamage::Other);
-    }
-
-    fn video_id(&self) -> Option<u64> {
-        self.media_controller
-            .borrow()
-            .as_ref()
-            .map(|mc| mc.video_id)
     }
 
     fn create_media_player(&self, resource: &Resource) -> Result<(), ()> {
@@ -2027,6 +1990,17 @@ impl HTMLMediaElement {
                 can_gc,
             );
             audio_track_list.add(&audio_track);
+            if let Some(servo_url) = self.resource_url.borrow().as_ref() {
+                let fragment = MediaFragmentParser::from(servo_url);
+                if let Some(id) = fragment.id() {
+                    if audio_track.id() == id {
+                        audio_track_list.set_enabled(audio_track_list.len() - 1, true);
+                    }
+                }
+                if fragment.tracks().contains(&audio_track.kind().into()) {
+                    audio_track_list.set_enabled(audio_track_list.len() - 1, true);
+                }
+            }
             if audio_track_list.enabled_index().is_none() {
                 audio_track_list.set_enabled(audio_track_list.len() - 1, true);
             }
@@ -2061,6 +2035,18 @@ impl HTMLMediaElement {
                 can_gc,
             );
             video_track_list.add(&video_track);
+            if let Some(track) = video_track_list.item(0) {
+                if let Some(servo_url) = self.resource_url.borrow().as_ref() {
+                    let fragment = MediaFragmentParser::from(servo_url);
+                    if let Some(id) = fragment.id() {
+                        if track.id() == id {
+                            video_track_list.set_selected(0, true);
+                        }
+                    } else if fragment.tracks().contains(&track.kind().into()) {
+                        video_track_list.set_selected(0, true);
+                    }
+                }
+            }
             if video_track_list.selected_index().is_none() {
                 video_track_list.set_selected(video_track_list.len() - 1, true);
             }
@@ -2115,6 +2101,16 @@ impl HTMLMediaElement {
         }
 
         self.change_ready_state(ReadyState::HaveMetadata);
+
+        if let Some(servo_url) = self.resource_url.borrow().as_ref() {
+            let fragment = MediaFragmentParser::from(servo_url);
+            if let Some(initial_playback_position) = fragment.start() {
+                if initial_playback_position > 0.0 && initial_playback_position < self.duration.get() {
+                    self.seek(initial_playback_position, /* approximate_for_speed */ false);
+                }
+            }
+        }
+
         self.change_ready_state(ReadyState::HaveEnoughData);
 
         // Keep platform playback state in sync with HTMLMediaElement paused state.
@@ -2272,277 +2268,6 @@ impl HTMLMediaElement {
         } else {
             // => "If the media data is corrupted"
             self.media_data_processing_fatal_steps(MEDIA_ERR_DECODE, cx);
-        }
-    }
-
-    fn playback_metadata_updated(
-        &self,
-        metadata: &servo_media::player::metadata::Metadata,
-        can_gc: CanGc,
-    ) {
-        // The following steps should be run once on the initial `metadata` signal from the media
-        // engine.
-        if self.ready_state.get() != ReadyState::HaveNothing {
-            return;
-        }
-
-        // https://html.spec.whatwg.org/multipage/#media-data-processing-steps-list
-        // => "If the media resource is found to have an audio track"
-        for (i, _track) in metadata.audio_tracks.iter().enumerate() {
-            let audio_track_list = self.AudioTracks(can_gc);
-
-            // Step 1. Create an AudioTrack object to represent the audio track.
-            let kind = match i {
-                0 => DOMString::from("main"),
-                _ => DOMString::new(),
-            };
-
-            let audio_track = AudioTrack::new(
-                self.global().as_window(),
-                DOMString::new(),
-                kind,
-                DOMString::new(),
-                DOMString::new(),
-                Some(&*audio_track_list),
-                can_gc,
-            );
-
-            // Steps 2. Update the media element's audioTracks attribute's AudioTrackList object
-            // with the new AudioTrack object.
-            audio_track_list.add(&audio_track);
-
-            // Step 3. Let enable be unknown.
-            // Step 4. If either the media resource or the URL of the current media resource
-            // indicate a particular set of audio tracks to enable, or if the user agent has
-            // information that would facilitate the selection of specific audio tracks to
-            // improve the user's experience, then: if this audio track is one of the ones to
-            // enable, then set enable to true, otherwise, set enable to false.
-            if let Some(servo_url) = self.resource_url.borrow().as_ref() {
-                let fragment = MediaFragmentParser::from(servo_url);
-                if let Some(id) = fragment.id() {
-                    if audio_track.id() == id {
-                        audio_track_list.set_enabled(audio_track_list.len() - 1, true);
-                    }
-                }
-
-                if fragment.tracks().contains(&audio_track.kind().into()) {
-                    audio_track_list.set_enabled(audio_track_list.len() - 1, true);
-                }
-            }
-
-            // Step 5. If enable is still unknown, then, if the media element does not yet have an
-            // enabled audio track, then set enable to true, otherwise, set enable to false.
-            // Step 6. If enable is true, then enable this audio track, otherwise, do not enable
-            // this audio track.
-            if audio_track_list.enabled_index().is_none() {
-                audio_track_list.set_enabled(audio_track_list.len() - 1, true);
-            }
-
-            // Step 7. Fire an event named addtrack at this AudioTrackList object, using TrackEvent,
-            // with the track attribute initialized to the new AudioTrack object.
-            let event = TrackEvent::new(
-                self.global().as_window(),
-                atom!("addtrack"),
-                false,
-                false,
-                &Some(VideoTrackOrAudioTrackOrTextTrack::AudioTrack(audio_track)),
-                can_gc,
-            );
-
-            event
-                .upcast::<Event>()
-                .fire(audio_track_list.upcast::<EventTarget>(), can_gc);
-        }
-
-        // => "If the media resource is found to have a video track"
-        for (i, _track) in metadata.video_tracks.iter().enumerate() {
-            let video_track_list = self.VideoTracks(can_gc);
-
-            // Step 1. Create a VideoTrack object to represent the video track.
-            let kind = match i {
-                0 => DOMString::from("main"),
-                _ => DOMString::new(),
-            };
-
-            let video_track = VideoTrack::new(
-                self.global().as_window(),
-                DOMString::new(),
-                kind,
-                DOMString::new(),
-                DOMString::new(),
-                Some(&*video_track_list),
-                can_gc,
-            );
-
-            // Steps 2. Update the media element's videoTracks attribute's VideoTrackList object
-            // with the new VideoTrack object.
-            video_track_list.add(&video_track);
-
-            // Step 3. Let enable be unknown.
-            // Step 4. If either the media resource or the URL of the current media resource
-            // indicate a particular set of video tracks to enable, or if the user agent has
-            // information that would facilitate the selection of specific video tracks to
-            // improve the user's experience, then: if this video track is the first such video
-            // track, then set enable to true, otherwise, set enable to false.
-            if let Some(track) = video_track_list.item(0) {
-                if let Some(servo_url) = self.resource_url.borrow().as_ref() {
-                    let fragment = MediaFragmentParser::from(servo_url);
-                    if let Some(id) = fragment.id() {
-                        if track.id() == id {
-                            video_track_list.set_selected(0, true);
-                        }
-                    } else if fragment.tracks().contains(&track.kind().into()) {
-                        video_track_list.set_selected(0, true);
-                    }
-                }
-            }
-
-            // Step 5. If enable is still unknown, then, if the media element does not yet have a
-            // selected video track, then set enable to true, otherwise, set enable to false.
-            // Step 6. If enable is true, then select this track and unselect any previously
-            // selected video tracks, otherwise, do not select this video track. If other tracks are
-            // unselected, then a change event will be fired.
-            if video_track_list.selected_index().is_none() {
-                video_track_list.set_selected(video_track_list.len() - 1, true);
-            }
-
-            // Step 7. Fire an event named addtrack at this VideoTrackList object, using TrackEvent,
-            // with the track attribute initialized to the new VideoTrack object.
-            let event = TrackEvent::new(
-                self.global().as_window(),
-                atom!("addtrack"),
-                false,
-                false,
-                &Some(VideoTrackOrAudioTrackOrTextTrack::VideoTrack(video_track)),
-                can_gc,
-            );
-
-            event
-                .upcast::<Event>()
-                .fire(video_track_list.upcast::<EventTarget>(), can_gc);
-        }
-
-        // => "Once enough of the media data has been fetched to determine the duration..."
-
-        // TODO Step 1. Establish the media timeline for the purposes of the current playback
-        // position and the earliest possible position, based on the media data.
-
-        // TODO Step 2. Update the timeline offset to the date and time that corresponds to the zero
-        // time in the media timeline established in the previous step, if any. If no explicit time
-        // and date is given by the media resource, the timeline offset must be set to Not-a-Number
-        // (NaN).
-
-        // Step 3. Set the current playback position and the official playback position to the
-        // earliest possible position.
-        let earliest_possible_position = self.earliest_possible_position();
-        self.current_playback_position
-            .set(earliest_possible_position);
-        self.official_playback_position
-            .set(earliest_possible_position);
-
-        // Step 4. Update the duration attribute with the time of the last frame of the resource, if
-        // known, on the media timeline established above. If it is not known (e.g. a stream that is
-        // in principle infinite), update the duration attribute to the value positive Infinity.
-        // Note: The user agent will queue a media element task given the media element to fire an
-        // event named durationchange at the element at this point.
-        self.duration.set(
-            metadata
-                .duration
-                .map_or(f64::INFINITY, |duration| duration.as_secs_f64()),
-        );
-        self.queue_media_element_task_to_fire_event(atom!("durationchange"));
-
-        // Step 5. For video elements, set the videoWidth and videoHeight attributes, and queue a
-        // media element task given the media element to fire an event named resize at the media
-        // element.
-        if let Some(video_element) = self.downcast::<HTMLVideoElement>() {
-            video_element.set_natural_dimensions(Some(metadata.width), Some(metadata.height));
-            self.queue_media_element_task_to_fire_event(atom!("resize"));
-        }
-
-        // Step 6. Set the readyState attribute to HAVE_METADATA.
-        self.change_ready_state(ReadyState::HaveMetadata);
-
-        // Step 7. Let jumped be false.
-        let mut jumped = false;
-
-        // Step 8. If the media element's default playback start position is greater than zero, then
-        // seek to that time, and let jumped be true.
-        if self.default_playback_start_position.get() > 0. {
-            self.seek(
-                self.default_playback_start_position.get(),
-                /* approximate_for_speed */ false,
-            );
-            jumped = true;
-        }
-
-        // Step 9. Set the media element's default playback start position to zero.
-        self.default_playback_start_position.set(0.);
-
-        // Step 10. Let the initial playback position be 0.
-        // Step 11. If either the media resource or the URL of the current media resource indicate a
-        // particular start time, then set the initial playback position to that time and, if jumped
-        // is still false, seek to that time.
-        if let Some(servo_url) = self.resource_url.borrow().as_ref() {
-            let fragment = MediaFragmentParser::from(servo_url);
-            if let Some(initial_playback_position) = fragment.start() {
-                if initial_playback_position > 0.
-                    && initial_playback_position < self.duration.get()
-                    && !jumped
-                {
-                    self.seek(
-                        initial_playback_position,
-                        /* approximate_for_speed */ false,
-                    )
-                }
-            }
-        }
-
-        // Step 12. If there is no enabled audio track, then enable an audio track. This will cause
-        // a change event to be fired.
-        // Step 13. If there is no selected video track, then select a video track. This will cause
-        // a change event to be fired.
-        // Note that these steps are already handled by the earlier media track processing.
-
-        let global = self.global();
-        let window = global.as_window();
-
-        // Update the media session metadata title with the obtained metadata.
-        window.Navigator().MediaSession().update_title(
-            metadata
-                .title
-                .clone()
-                .unwrap_or(window.get_url().into_string()),
-        );
-    }
-
-    fn playback_video_frame_updated(&self) {
-        let Some(video_element) = self.downcast::<HTMLVideoElement>() else {
-            return;
-        };
-
-        // Whenever the natural width or natural height of the video changes (including, for
-        // example, because the selected video track was changed), if the element's readyState
-        // attribute is not HAVE_NOTHING, the user agent must queue a media element task given
-        // the media element to fire an event named resize at the media element.
-        // <https://html.spec.whatwg.org/multipage/#concept-video-intrinsic-width>
-
-        // The event for the prerolled frame from media engine could reached us before the media
-        // element HAVE_METADATA ready state so subsequent steps will be cancelled.
-        if self.ready_state.get() == ReadyState::HaveNothing {
-            return;
-        }
-
-        if let Some(frame) = self.video_frame_state.lock().unwrap().current_frame {
-            if video_element
-                .set_natural_dimensions(Some(frame.width as u32), Some(frame.height as u32))
-            {
-                self.queue_media_element_task_to_fire_event(atom!("resize"));
-            } else {
-                // If the natural dimensions have not been changed, the node should be marked as
-                // damaged to force a repaint with the new frame contents.
-                self.upcast::<Node>().dirty(NodeDamage::Other);
-            }
         }
     }
 
@@ -3217,10 +2942,6 @@ pub(crate) enum MediaElementMicrotask {
     PauseIfNotInDocument {
         elem: DomRoot<HTMLMediaElement>,
     },
-    Seeked {
-        elem: DomRoot<HTMLMediaElement>,
-        generation_id: u32,
-    },
     SelectNextSourceChild {
         elem: DomRoot<HTMLMediaElement>,
         generation_id: u32,
@@ -3248,14 +2969,6 @@ impl MicrotaskRunnable for MediaElementMicrotask {
                     elem.internal_pause_steps();
                 }
             },
-            &MediaElementMicrotask::Seeked {
-                ref elem,
-                generation_id,
-            } => {
-                if generation_id == elem.generation_id.get() {
-                    elem.seek_end();
-                }
-            },
             &MediaElementMicrotask::SelectNextSourceChild {
                 ref elem,
                 generation_id,
@@ -3279,7 +2992,6 @@ impl MicrotaskRunnable for MediaElementMicrotask {
         match self {
             &MediaElementMicrotask::ResourceSelection { ref elem, .. }
             | &MediaElementMicrotask::PauseIfNotInDocument { ref elem }
-            | &MediaElementMicrotask::Seeked { ref elem, .. }
             | &MediaElementMicrotask::SelectNextSourceChild { ref elem, .. }
             | &MediaElementMicrotask::SelectNextSourceChildAfterWait { ref elem, .. } => {
                 enter_auto_realm(cx, &**elem)
@@ -3296,8 +3008,6 @@ enum Resource {
 /// Indicates the reason why a fetch request was cancelled.
 #[derive(Debug, MallocSizeOf, PartialEq)]
 enum CancelReason {
-    /// We were asked to stop pushing data to the player.
-    Backoff,
     /// An error ocurred while fetching the media data.
     Error,
     /// The fetching process is aborted by the user.
@@ -3335,10 +3045,6 @@ impl HTMLMediaElementFetchContext {
 
     fn request_id(&self) -> RequestId {
         self.request_id
-    }
-
-    fn is_seekable(&self) -> bool {
-        self.is_seekable
     }
 
     fn set_seekable(&mut self, seekable: bool) {
@@ -3381,10 +3087,6 @@ struct HTMLMediaElementFetchListener {
     expected_content_length: Option<u64>,
     /// Actual content length of the media asset was fetched.
     fetched_content_length: u64,
-    /// Discarded content length from the network for the ongoing
-    /// request if range requests are not supported. Seek requests set it
-    /// to the required position (in bytes).
-    content_length_to_discard: u64,
 }
 
 impl FetchResponseListener for HTMLMediaElementFetchListener {
@@ -3463,13 +3165,6 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
         let element = self.element.root();
 
         self.fetched_content_length += chunk.len() as u64;
-
-        // If an error was received previously, we skip processing the payload.
-        if let Some(ref current_fetch_context) = *element.current_fetch_context.borrow() {
-            if let Some(CancelReason::Backoff) = current_fetch_context.cancel_reason() {
-                return;
-            }
-        }
 
         // <https://html.spec.whatwg.org/multipage/#concept-media-load-resource>
         // While the load is not suspended (see below), every 350ms (±200ms) or for every byte
@@ -3575,7 +3270,7 @@ impl HTMLMediaElementFetchListener {
         element: &HTMLMediaElement,
         request_id: RequestId,
         url: BrowserUrl,
-        offset: u64,
+        _offset: u64,
     ) -> Self {
         Self {
             element: Trusted::new(element),
@@ -3585,7 +3280,6 @@ impl HTMLMediaElementFetchListener {
             url,
             expected_content_length: None,
             fetched_content_length: 0,
-            content_length_to_discard: offset,
         }
     }
 }

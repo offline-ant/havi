@@ -6,7 +6,6 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use dom_struct::dom_struct;
-use euclid::default::Size2D;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
 use layout_api::{HTMLMediaData, MediaMetadata};
