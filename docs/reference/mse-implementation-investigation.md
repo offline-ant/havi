@@ -35,7 +35,7 @@ HTMLMediaElement                  MediaController          App::drain_video_ops(
 | Software AV1 | `makepad-media/makepad-media/src/software_av1.rs` | dav1d-based MP4 demux → AV1 decode (read-all-at-once) |
 | MP4 demux | `makepad-media/makepad-media/src/demux.rs` | Minimal ISOBMFF parser; requires seekable `Read+Seek` |
 | GStreamer FFI | `makepad/platform/src/os/linux/gstreamer_sys.rs` | Dynamic dlopen of libgstreamer, libgstapp; `appsink` only — no `appsrc` |
-| Media plugin | `makepad/platform/src/media_plugin.rs` | `MediaPlugin` trait, `MediaSoftwareVideoPlayer` trait |
+| Media plugin | `makepad/platform/src/media_plugin.rs` | `MediaPlugin` trait, `MediaPlaybackSession` trait, `MsePlaybackEngine` trait |
 | Video events | `makepad/platform/src/event/video_playback.rs` | `VideoSource`, `VideoPlaybackPreparedEvent`, etc. |
 
 ### 1.3 Current Media Source Resolution

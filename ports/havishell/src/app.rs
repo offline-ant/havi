@@ -954,7 +954,7 @@ impl App {
 
                     match makepad_widgets::makepad_platform::media_plugin()
                         .ok_or_else(|| "no media plugin".to_string())
-                        .and_then(|p| p.create_mse_player(&mime))
+                        .and_then(|p| p.create_mse_playback_engine(&mime))
                     {
                         Ok(player) => {
                             self.mse_players.insert(video_id, player);
@@ -1339,7 +1339,7 @@ pub struct App {
 
     /// MSE players keyed by video_id.
     #[rust]
-    mse_players: HashMap<u64, Box<dyn makepad_widgets::makepad_platform::MsePlayer>>,
+    mse_players: HashMap<u64, Box<dyn makepad_widgets::makepad_platform::MsePlaybackEngine>>,
 
     /// Camera subsystem state.
     #[rust]
