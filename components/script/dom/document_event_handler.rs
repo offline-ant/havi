@@ -2394,7 +2394,7 @@ impl DocumentEventHandler {
         self.access_key_handlers
             .borrow()
             .values()
-            .any(|value| &**value != element)
+            .any(|value| &**value == element)
     }
 
     pub(crate) fn unassign_access_key(&self, element: &HTMLElement) {
