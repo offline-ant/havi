@@ -79,19 +79,28 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-media-srcobject>
-    fn GetSrcObject(&self) -> Option<MediaStreamOrBlob> {
+    fn GetSrcObject(&self) -> Option<MediaStreamOrMediaSourceOrBlob> {
         (*self.src_object.borrow())
             .as_ref()
             .map(|src_object| match src_object {
-                SrcObject::Blob(blob) => MediaStreamOrBlob::Blob(DomRoot::from_ref(blob)),
+                SrcObject::Blob(blob) => {
+                    MediaStreamOrMediaSourceOrBlob::Blob(DomRoot::from_ref(&**blob))
+                },
+                SrcObject::MediaSource(media_source) => {
+                    MediaStreamOrMediaSourceOrBlob::MediaSource(DomRoot::from_ref(&**media_source))
+                },
                 SrcObject::MediaStream(stream) => {
-                    MediaStreamOrBlob::MediaStream(DomRoot::from_ref(stream))
+                    MediaStreamOrMediaSourceOrBlob::MediaStream(DomRoot::from_ref(&**stream))
                 },
             })
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-media-srcobject>
-    fn SetSrcObject(&self, cx: &mut js::context::JSContext, value: Option<MediaStreamOrBlob>) {
+    fn SetSrcObject(
+        &self,
+        cx: &mut js::context::JSContext,
+        value: Option<MediaStreamOrMediaSourceOrBlob>,
+    ) {
         *self.src_object.borrow_mut() = value.map(|value| value.into());
         self.media_element_load_algorithm(cx);
     }

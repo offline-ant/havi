@@ -673,6 +673,17 @@ impl HTMLMediaElement {
                                 Some(BrowserUrl::parse(&blob_url.str()).expect("infallible"));
                             self.fetch_request(None);
                         },
+                        SrcObject::MediaSource(media_source) => {
+                            self.attached_media_source
+                                .borrow_mut()
+                                .replace(Dom::from_ref(&**media_source));
+                            if media_source
+                                .attach_to_element_via_media_provider_object(self, CanGc::note())
+                                .is_err()
+                            {
+                                self.resource_selection_algorithm_failure_steps();
+                            }
+                        },
                         SrcObject::MediaStream(stream) => {
                             self.setup_media_stream(stream);
                         },
@@ -892,7 +903,7 @@ impl HTMLMediaElement {
                         info!("media: resolved blob source bytes={}", bytes.len());
                         Ok(MediaOrigin::InMemory(std::sync::Arc::new(bytes)))
                     },
-                    SrcObject::MediaStream(_) => Err(()),
+                    SrcObject::MediaSource(_) | SrcObject::MediaStream(_) => Err(()),
                 }
             },
         }

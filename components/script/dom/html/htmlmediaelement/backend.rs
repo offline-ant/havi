@@ -123,10 +123,12 @@ impl HTMLMediaElement {
             .ok();
     }
     pub(super) fn create_media_player(&self, resource: &Resource) -> Result<(), ()> {
-        // MediaStream sources use the camera texture path, not a media player.
         if let Resource::Object = resource {
-            if let Some(SrcObject::MediaStream(_)) = self.src_object.borrow().as_ref() {
-                return Err(());
+            if matches!(
+                self.src_object.borrow().as_ref(),
+                Some(SrcObject::MediaStream(_)) | Some(SrcObject::MediaSource(_))
+            ) {
+                return Ok(());
             }
         }
 

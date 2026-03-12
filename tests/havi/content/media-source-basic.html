@@ -179,6 +179,53 @@
         'reattach preserves SourceBuffer ownership');
       URL.revokeObjectURL(detachedUrl);
 
+      log('--- srcObject supports MediaSource with the same attach state machine ---');
+      const srcObjectSource = new MediaSource();
+      const srcObjectVideo = document.createElement('video');
+      srcObjectVideo.muted = true;
+      srcObjectVideo.playsInline = true;
+      document.body.appendChild(srcObjectVideo);
+      assertEqual(srcObjectVideo.srcObject, null, 'video.srcObject starts null');
+      const srcObjectOpen = waitEvent(srcObjectSource, 'sourceopen');
+      srcObjectVideo.srcObject = srcObjectSource;
+      await srcObjectOpen;
+      assert(srcObjectVideo.srcObject === srcObjectSource,
+        'video.srcObject stores MediaSource identity');
+      assertEqual(srcObjectSource.readyState, 'open',
+        'srcObject MediaSource opens when attached');
+      assertEqual(srcObjectVideo.currentSrc, '',
+        'srcObject MediaSource keeps currentSrc empty');
+      const srcObjectBuffer = srcObjectSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
+      assertEqual(srcObjectSource.sourceBuffers.length, 1,
+        'srcObject MediaSource exposes added SourceBuffer');
+      assertEqual(srcObjectSource.activeSourceBuffers.length, 1,
+        'srcObject MediaSource exposes active SourceBuffer while attached');
+      const srcObjectClose = waitEvent(srcObjectSource, 'sourceclose');
+      srcObjectVideo.srcObject = null;
+      await srcObjectClose;
+      assertEqual(srcObjectVideo.srcObject, null, 'video.srcObject clears to null');
+      assertEqual(srcObjectSource.readyState, 'closed',
+        'clearing srcObject detaches and closes MediaSource');
+      assertEqual(srcObjectSource.sourceBuffers.length, 1,
+        'srcObject detach keeps SourceBuffer registered');
+      assertEqual(srcObjectSource.activeSourceBuffers.length, 0,
+        'srcObject detach clears activeSourceBuffers');
+      expectThrows(
+        () => srcObjectBuffer.appendBuffer(new Uint8Array([4, 3, 2, 1])),
+        'detached srcObject SourceBuffer appendBuffer rejects');
+      const srcObjectReopen = waitEvent(srcObjectSource, 'sourceopen');
+      srcObjectVideo.srcObject = srcObjectSource;
+      await srcObjectReopen;
+      assertEqual(srcObjectSource.readyState, 'open',
+        'reattaching same MediaSource through srcObject reopens it');
+      assert(srcObjectVideo.srcObject === srcObjectSource,
+        'reattached srcObject preserves MediaSource identity');
+      assertEqual(srcObjectSource.activeSourceBuffers.length, 1,
+        'srcObject reattach restores activeSourceBuffers');
+      assert(srcObjectSource.activeSourceBuffers[0] === srcObjectBuffer,
+        'srcObject reattach preserves SourceBuffer ownership');
+      srcObjectVideo.srcObject = null;
+
       log('--- removeSourceBuffer updates lists and removed-state checks ---');
       mediaSource.removeSourceBuffer(sourceBuffer);
       assertEqual(mediaSource.sourceBuffers.length, 1, 'removeSourceBuffer keeps other SourceBuffers registered');

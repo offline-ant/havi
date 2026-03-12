@@ -334,7 +334,6 @@ impl MediaSource {
         self.attach_to_element_with_kind(element, ATTACHMENT_OBJECT_URL, can_gc)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn attach_to_element_via_media_provider_object(
         &self,
         element: &HTMLMediaElement,

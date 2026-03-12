@@ -123,6 +123,31 @@
       video.pause();
       URL.revokeObjectURL(url);
       assert(true, 'valid fragmented MP4 playback completed');
+
+      log('--- srcObject MediaSource uses the same append-backed playback path ---');
+      const srcObjectSource = new MediaSource();
+      const srcObjectVideo = document.createElement('video');
+      srcObjectVideo.muted = true;
+      srcObjectVideo.autoplay = false;
+      srcObjectVideo.playsInline = true;
+      document.body.appendChild(srcObjectVideo);
+      const srcObjectOpen = waitEvent(srcObjectSource, 'sourceopen');
+      srcObjectVideo.srcObject = srcObjectSource;
+      await srcObjectOpen;
+      const srcObjectBuffer = srcObjectSource.addSourceBuffer('video/mp4; codecs="avc1"');
+      const srcObjectMetadata = waitEvent(srcObjectVideo, 'loadedmetadata', 10000);
+      const srcObjectAppendEnd = waitEvent(srcObjectBuffer, 'updateend', 10000);
+      srcObjectBuffer.appendBuffer(mp4Bytes);
+      await srcObjectAppendEnd;
+      srcObjectSource.endOfStream();
+      await srcObjectMetadata;
+      assert(srcObjectBuffer.buffered.length >= 1,
+        'srcObject append produces buffered range');
+      assert(srcObjectVideo.duration > 0,
+        'srcObject MediaSource updates media element duration');
+      assert(srcObjectVideo.videoWidth > 0,
+        'srcObject MediaSource decodes metadata');
+      srcObjectVideo.srcObject = null;
     }
 
     (async function() {

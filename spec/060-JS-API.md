@@ -362,10 +362,9 @@ Available API surface:
 
 Current attach/state model:
 
-- supported attach path today is `video.src = URL.createObjectURL(mediaSource)`
-- object-URL attach/detach is explicit in `MediaSource` ownership
-- the code keeps the same `MediaSource` attach/detach state machine ready for a
-  future `srcObject = mediaSource` path, but that surface is not exposed yet
+- `video.src = URL.createObjectURL(mediaSource)` is supported
+- `video.srcObject = mediaSource` is supported
+- both attach paths share the same `MediaSource` attach/detach state machine
 - detached `SourceBuffer`s stay registered in `sourceBuffers` and leave
   `activeSourceBuffers` until reattached
 - removed `SourceBuffer`s are explicitly invalid and reject further operations

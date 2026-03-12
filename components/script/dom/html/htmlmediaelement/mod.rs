@@ -54,7 +54,7 @@ use crate::dom::bindings::codegen::Bindings::TextTrackBinding::{TextTrackKind, T
 use crate::dom::bindings::codegen::Bindings::URLBinding::URLMethods;
 use crate::dom::bindings::codegen::Bindings::WindowBinding::Window_Binding::WindowMethods;
 use crate::dom::bindings::codegen::UnionTypes::{
-    MediaStreamOrBlob, VideoTrackOrAudioTrackOrTextTrack,
+    MediaStreamOrMediaSourceOrBlob, VideoTrackOrAudioTrackOrTextTrack,
 };
 use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
@@ -141,15 +141,19 @@ impl VideoFrameState {
 #[derive(JSTraceable, MallocSizeOf)]
 enum SrcObject {
     MediaStream(Dom<MediaStream>),
+    MediaSource(Dom<MediaSource>),
     Blob(Dom<Blob>),
 }
 
-impl From<MediaStreamOrBlob> for SrcObject {
+impl From<MediaStreamOrMediaSourceOrBlob> for SrcObject {
     #[cfg_attr(crown, expect(crown::unrooted_must_root))]
-    fn from(src_object: MediaStreamOrBlob) -> SrcObject {
+    fn from(src_object: MediaStreamOrMediaSourceOrBlob) -> SrcObject {
         match src_object {
-            MediaStreamOrBlob::Blob(blob) => SrcObject::Blob(Dom::from_ref(&*blob)),
-            MediaStreamOrBlob::MediaStream(stream) => {
+            MediaStreamOrMediaSourceOrBlob::Blob(blob) => SrcObject::Blob(Dom::from_ref(&*blob)),
+            MediaStreamOrMediaSourceOrBlob::MediaSource(media_source) => {
+                SrcObject::MediaSource(Dom::from_ref(&*media_source))
+            },
+            MediaStreamOrMediaSourceOrBlob::MediaStream(stream) => {
                 SrcObject::MediaStream(Dom::from_ref(&*stream))
             },
         }
@@ -231,7 +235,7 @@ pub(crate) struct HTMLMediaElement {
     #[ignore_malloc_size_of = "media controller"]
     #[no_trace]
     media_controller: DomRefCell<Option<MediaController>>,
-    /// Attached MediaSource object for object-URL backed MSE playback.
+    /// Attached MediaSource object for current MSE playback.
     attached_media_source: DomRefCell<Option<Dom<MediaSource>>>,
     /// Current and poster video frame state for layout queries.
     #[conditional_malloc_size_of]

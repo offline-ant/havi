@@ -118,6 +118,7 @@ Current MSE scope:
 
 - `new MediaSource()`
 - `URL.createObjectURL(mediaSource)`
+- `HTMLMediaElement.srcObject = mediaSource`
 - `readyState`
 - `duration`
 - `sourceBuffers` / `activeSourceBuffers`
@@ -131,11 +132,8 @@ Current MSE scope:
 
 Current attach/state model:
 
-- the supported attach surface today is object-URL attachment
-- `MediaSource` owns attach/detach state for that path
-- the same internal ownership split is kept ready for future
-  `srcObject = mediaSource` support without mixing that work into direct
-  playback
+- object-URL attachment and `srcObject = mediaSource` attachment are supported
+- `MediaSource` owns attach/detach state for both attach paths
 - removed `SourceBuffer`s become invalid immediately
 - detached-but-still-registered `SourceBuffer`s remain in `sourceBuffers` and
   drop out of `activeSourceBuffers` until reattachment
