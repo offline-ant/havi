@@ -35,6 +35,10 @@ const READY_STATE_CLOSED: u8 = 0;
 const READY_STATE_OPEN: u8 = 1;
 const READY_STATE_ENDED: u8 = 2;
 
+const ATTACHMENT_NONE: u8 = 0;
+const ATTACHMENT_OBJECT_URL: u8 = 1;
+const ATTACHMENT_MEDIA_PROVIDER_OBJECT: u8 = 2;
+
 fn ready_state_name(state: u8) -> &'static str {
     match state {
         READY_STATE_OPEN => "open",
@@ -53,6 +57,7 @@ pub(crate) struct MediaSource {
     source_buffers_list: MutNullableDom<SourceBufferList>,
     active_source_buffers_list: MutNullableDom<SourceBufferList>,
     attached_element: MutNullableDom<HTMLMediaElement>,
+    attachment_kind: Cell<u8>,
     attached_video_id: Cell<Option<u64>>,
 }
 
@@ -67,6 +72,7 @@ impl MediaSource {
             source_buffers_list: Default::default(),
             active_source_buffers_list: Default::default(),
             attached_element: Default::default(),
+            attachment_kind: Cell::new(ATTACHMENT_NONE),
             attached_video_id: Cell::new(None),
         }
     }
@@ -104,18 +110,69 @@ impl MediaSource {
             .or_init(|| SourceBufferList::new(window, &[], can_gc))
     }
 
+    fn live_source_buffers(&self) -> Vec<Dom<SourceBuffer>> {
+        self.source_buffers.borrow().iter().cloned().collect()
+    }
+
     fn sync_source_buffer_lists(&self, can_gc: CanGc) {
-        let source_buffers: Vec<Dom<SourceBuffer>> = self.source_buffers.borrow().iter().cloned().collect();
+        let source_buffers = self.live_source_buffers();
         self.source_buffers_list(can_gc)
             .replace_all(source_buffers.clone());
 
-        let active_source_buffers = if self.ready_state.get() == READY_STATE_CLOSED {
-            Vec::new()
-        } else {
+        let active_source_buffers = if self.is_open() || self.is_ended() {
             source_buffers
+        } else {
+            Vec::new()
         };
         self.active_source_buffers_list(can_gc)
             .replace_all(active_source_buffers);
+    }
+
+    fn set_ready_state(&self, ready_state: u8, can_gc: CanGc) {
+        if self.ready_state.replace(ready_state) != ready_state {
+            self.sync_source_buffer_lists(can_gc);
+        }
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.ready_state.get() == READY_STATE_OPEN
+    }
+
+    fn is_ended(&self) -> bool {
+        self.ready_state.get() == READY_STATE_ENDED
+    }
+
+    fn require_open(&self, context: &str) -> ErrorResult {
+        if self.is_open() {
+            Ok(())
+        } else {
+            Err(Error::InvalidState(Some(format!("MediaSource is not open during {context}"))))
+        }
+    }
+
+    fn require_no_updating_source_buffers(&self, context: &str) -> ErrorResult {
+        if self
+            .source_buffers
+            .borrow()
+            .iter()
+            .any(|source_buffer| source_buffer.is_updating())
+        {
+            return Err(Error::InvalidState(Some(format!(
+                "SourceBuffer is updating during {context}"
+            ))));
+        }
+        Ok(())
+    }
+
+    fn single_playback_source_buffer(&self) -> Fallible<Option<DomRoot<SourceBuffer>>> {
+        let source_buffers = self.source_buffers.borrow();
+        match source_buffers.len() {
+            0 => Ok(None),
+            1 => Ok(Some(DomRoot::from_ref(&*source_buffers[0]))),
+            _ => Err(Error::NotSupported(Some(
+                "multiple SourceBuffers are not implemented yet".into(),
+            ))),
+        }
     }
 
     fn set_duration_value(&self, duration: f64, explicit: bool) {
@@ -175,14 +232,23 @@ impl MediaSource {
             .map(|trusted| trusted.root())
     }
 
-    pub(crate) fn attach_to_element(
+    fn attach_to_element_with_kind(
         &self,
         element: &HTMLMediaElement,
+        attachment_kind: u8,
         can_gc: CanGc,
     ) -> Result<(), ()> {
+        if let Some(attached_element) = self.attached_element.get() {
+            if !std::ptr::eq(&*attached_element, element) || self.attachment_kind.get() != attachment_kind {
+                return Err(());
+            }
+            self.ensure_playback_controller(can_gc).map_err(|_| ())?;
+            return Ok(());
+        }
+
         self.attached_element.set(Some(element));
-        self.ready_state.set(READY_STATE_OPEN);
-        self.sync_source_buffer_lists(can_gc);
+        self.attachment_kind.set(attachment_kind);
+        self.set_ready_state(READY_STATE_OPEN, can_gc);
         if !self.duration.get().is_nan() {
             element.apply_media_source_duration(self.duration.get());
         }
@@ -190,16 +256,45 @@ impl MediaSource {
         self.ensure_playback_controller(can_gc).map_err(|_| ())
     }
 
+    pub(crate) fn attach_to_element_via_object_url(
+        &self,
+        element: &HTMLMediaElement,
+        can_gc: CanGc,
+    ) -> Result<(), ()> {
+        self.attach_to_element_with_kind(element, ATTACHMENT_OBJECT_URL, can_gc)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn attach_to_element_via_media_provider_object(
+        &self,
+        element: &HTMLMediaElement,
+        can_gc: CanGc,
+    ) -> Result<(), ()> {
+        self.attach_to_element_with_kind(element, ATTACHMENT_MEDIA_PROVIDER_OBJECT, can_gc)
+    }
+
     pub(crate) fn detach_from_element(&self, can_gc: CanGc) {
+        for source_buffer in self.source_buffers.borrow().iter() {
+            source_buffer.clear_for_detach();
+        }
+
         self.attached_element.set(None);
+        self.attachment_kind.set(ATTACHMENT_NONE);
         self.attached_video_id.set(None);
+
         if self.ready_state.get() != READY_STATE_CLOSED {
-            self.ready_state.set(READY_STATE_CLOSED);
-            self.sync_source_buffer_lists(can_gc);
+            self.set_ready_state(READY_STATE_CLOSED, can_gc);
             self.fire_simple_event("sourceclose", can_gc);
         } else {
             self.sync_source_buffer_lists(can_gc);
         }
+    }
+
+    pub(crate) fn has_source_buffer(&self, source_buffer: &SourceBuffer) -> bool {
+        self.source_buffers
+            .borrow()
+            .iter()
+            .any(|existing| std::ptr::eq(&**existing, source_buffer))
     }
 
     pub(crate) fn attached_video_id(&self) -> Option<u64> {
@@ -213,31 +308,20 @@ impl MediaSource {
         let Some(element) = self.attached_element.get() else {
             return Ok(());
         };
-        let Some(source_buffer) = self
-            .source_buffers
-            .borrow()
-            .first()
-            .map(|source_buffer| DomRoot::from_ref(&**source_buffer))
-        else {
+        let Some(source_buffer) = self.single_playback_source_buffer()? else {
             return Ok(());
         };
         let mime = source_buffer.mime_type().str().to_string();
         let video_id = element.create_mse_media_player(self, mime)?;
         self.attached_video_id.set(Some(video_id));
-        if self.ready_state.get() == READY_STATE_ENDED {
-            self.ready_state.set(READY_STATE_OPEN);
-            self.sync_source_buffer_lists(can_gc);
+        if self.is_ended() {
+            self.set_ready_state(READY_STATE_OPEN, can_gc);
         }
         Ok(())
     }
 
     pub(crate) fn handle_media_event(&self, event: &MediaEvent, can_gc: CanGc) {
-        let Some(source_buffer) = self
-            .source_buffers
-            .borrow()
-            .first()
-            .map(|source_buffer| DomRoot::from_ref(&**source_buffer))
-        else {
+        let Ok(Some(source_buffer)) = self.single_playback_source_buffer() else {
             return;
         };
         match event {
@@ -286,36 +370,19 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
     }
 
     fn SetDuration(&self, duration: f64) -> ErrorResult {
-        if self.ready_state.get() != READY_STATE_OPEN {
-            return Err(Error::InvalidState(Some(
-                "MediaSource is not open".into(),
-            )));
-        }
+        self.require_open("duration update")?;
         if duration.is_nan() || duration < 0.0 {
             return Err(Error::InvalidAccess(Some(
                 "MediaSource duration must be non-negative".into(),
             )));
         }
-        if self
-            .source_buffers
-            .borrow()
-            .iter()
-            .any(|source_buffer| source_buffer.is_updating())
-        {
-            return Err(Error::InvalidState(Some(
-                "SourceBuffer is updating".into(),
-            )));
-        }
+        self.require_no_updating_source_buffers("duration update")?;
         self.set_duration_value(duration, true);
         Ok(())
     }
 
     fn AddSourceBuffer(&self, type_: DOMString) -> Fallible<DomRoot<SourceBuffer>> {
-        if self.ready_state.get() != READY_STATE_OPEN {
-            return Err(Error::InvalidState(Some(
-                "MediaSource is not open".into(),
-            )));
-        }
+        self.require_open("addSourceBuffer")?;
         if !Self::is_type_supported_impl(&type_.str()) {
             return Err(Error::NotSupported(Some(
                 "unsupported MediaSource MIME type".into(),
@@ -342,16 +409,7 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
     }
 
     fn RemoveSourceBuffer(&self, source_buffer: &SourceBuffer) -> ErrorResult {
-        if self
-            .source_buffers
-            .borrow()
-            .iter()
-            .any(|existing| existing.is_updating())
-        {
-            return Err(Error::InvalidState(Some(
-                "SourceBuffer is updating".into(),
-            )));
-        }
+        self.require_no_updating_source_buffers("removeSourceBuffer")?;
 
         let removed = {
             let mut source_buffers = self.source_buffers.borrow_mut();
@@ -365,7 +423,9 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
             return Err(Error::NotFound(None));
         };
 
-        DomRoot::from_ref(&*removed).clear_for_detach();
+        let removed = DomRoot::from_ref(&*removed);
+        removed.mark_removed();
+        removed.clear_for_detach();
         if self.source_buffers.borrow().is_empty() {
             if let Some(element) = self.attached_element.get() {
                 element.reset_media_player();
@@ -377,26 +437,12 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
     }
 
     fn EndOfStream(&self) -> ErrorResult {
-        if self.ready_state.get() != READY_STATE_OPEN {
-            return Err(Error::InvalidState(Some(
-                "MediaSource is not open".into(),
-            )));
-        }
-        if self
-            .source_buffers
-            .borrow()
-            .iter()
-            .any(|source_buffer| source_buffer.is_updating())
-        {
-            return Err(Error::InvalidState(Some(
-                "SourceBuffer is updating".into(),
-            )));
-        }
+        self.require_open("endOfStream")?;
+        self.require_no_updating_source_buffers("endOfStream")?;
         if let Some(video_id) = self.attached_video_id.get() {
             controller::end_mse_stream(video_id);
         }
-        self.ready_state.set(READY_STATE_ENDED);
-        self.sync_source_buffer_lists(CanGc::note());
+        self.set_ready_state(READY_STATE_ENDED, CanGc::note());
         self.fire_simple_event("sourceended", CanGc::note());
         Ok(())
     }

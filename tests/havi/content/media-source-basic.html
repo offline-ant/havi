@@ -106,7 +106,49 @@
       assertEqual(mediaSource.activeSourceBuffers.length, 1,
         'activeSourceBuffers stays populated while MediaSource is ended');
 
-      log('--- removeSourceBuffer updates lists and detaches MSE buffer state ---');
+      log('--- detach keeps ownership explicit and rejects detached buffer operations ---');
+      const detachedSource = new MediaSource();
+      const detachedUrl = URL.createObjectURL(detachedSource);
+      const detachedVideo = document.createElement('video');
+      detachedVideo.muted = true;
+      detachedVideo.playsInline = true;
+      document.body.appendChild(detachedVideo);
+      const detachedOpen = waitEvent(detachedSource, 'sourceopen');
+      detachedVideo.src = detachedUrl;
+      await detachedOpen;
+      const detachedBuffer = detachedSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
+      assertEqual(detachedSource.sourceBuffers.length, 1,
+        'detachedSource starts with one attached SourceBuffer');
+      const detachedClose = waitEvent(detachedSource, 'sourceclose');
+      detachedVideo.removeAttribute('src');
+      detachedVideo.load();
+      await detachedClose;
+      assertEqual(detachedSource.readyState, 'closed', 'detaching media element closes MediaSource with live buffers');
+      assertEqual(detachedSource.sourceBuffers.length, 1,
+        'sourceBuffers keeps registered buffers across detach');
+      assertEqual(detachedSource.activeSourceBuffers.length, 0,
+        'activeSourceBuffers clears when MediaSource is detached');
+      expectThrows(
+        () => detachedBuffer.appendBuffer(new Uint8Array([9, 8, 7])),
+        'detached SourceBuffer appendBuffer rejects while MediaSource is closed');
+      expectThrows(
+        () => detachedBuffer.remove(0, 1),
+        'detached SourceBuffer remove rejects while MediaSource is closed');
+      expectThrows(
+        () => detachedSource.endOfStream(),
+        'detached MediaSource endOfStream rejects while closed');
+
+      const reattachedOpen = waitEvent(detachedSource, 'sourceopen');
+      detachedVideo.src = detachedUrl;
+      await reattachedOpen;
+      assertEqual(detachedSource.readyState, 'open', 'MediaSource reopens when reattached');
+      assertEqual(detachedSource.activeSourceBuffers.length, 1,
+        'activeSourceBuffers restores registered buffers on reattach');
+      assert(detachedSource.activeSourceBuffers[0] === detachedBuffer,
+        'reattach preserves SourceBuffer ownership');
+      URL.revokeObjectURL(detachedUrl);
+
+      log('--- removeSourceBuffer updates lists and removed-state checks ---');
       mediaSource.removeSourceBuffer(sourceBuffer);
       assertEqual(mediaSource.sourceBuffers.length, 0, 'removeSourceBuffer clears sourceBuffers');
       assertEqual(mediaSource.activeSourceBuffers.length, 0,
@@ -116,7 +158,12 @@
       expectThrows(
         () => mediaSource.removeSourceBuffer(sourceBuffer),
         'removeSourceBuffer rejects a missing buffer');
-
+      expectThrows(
+        () => sourceBuffer.appendBuffer(new Uint8Array([1, 2, 3])),
+        'removed SourceBuffer appendBuffer rejects');
+      expectThrows(
+        () => sourceBuffer.remove(0, 1),
+        'removed SourceBuffer remove rejects');
       log('--- detach closes MediaSource after buffer removal ---');
       const closed = waitEvent(mediaSource, 'sourceclose');
       video.removeAttribute('src');

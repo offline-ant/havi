@@ -576,7 +576,10 @@ impl HTMLMediaElement {
                 self.attached_media_source
                     .borrow_mut()
                     .replace(Dom::from_ref(&*media_source));
-                if media_source.attach_to_element(self, CanGc::note()).is_err() {
+                if media_source
+                    .attach_to_element_via_object_url(self, CanGc::note())
+                    .is_err()
+                {
                     self.resource_selection_algorithm_failure_steps();
                 }
                 return;

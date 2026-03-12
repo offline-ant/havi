@@ -110,8 +110,9 @@ Not implemented in part 2:
 Not-yet-implemented paths throw NotSupportedError or InvalidStateError with
 `NotYetImplemented` in the error message.
 
-`MediaSource` and `SourceBuffer` are exposed on the shared custom playback
-session core.
+`MediaSource` and `SourceBuffer` are exposed on the append-backed MSE path.
+This stays separate from native delegated playback and from direct
+source-backed playback.
 
 Current MSE scope:
 
@@ -128,16 +129,28 @@ Current MSE scope:
 - `sourceopen` / `sourceended` / `sourceclose`
 - `updatestart` / `update` / `updateend` / `error`
 
+Current attach/state model:
+
+- the supported attach surface today is object-URL attachment
+- `MediaSource` owns attach/detach state for that path
+- the same internal ownership split is kept ready for future
+  `srcObject = mediaSource` support without mixing that work into direct
+  playback
+- removed `SourceBuffer`s become invalid immediately
+- detached-but-still-registered `SourceBuffer`s remain in `sourceBuffers` and
+  drop out of `activeSourceBuffers` until reattachment
+
 Current limits:
 
 - one attached `SourceBuffer`
-- one active-buffer model; no multi-track / multi-buffer coordination
 - valid single-buffer MP4/fMP4 append can drive metadata, buffered ranges,
-  and decode/present on the shared custom playback session path
+  and decode/present on the MSE playback session path
+- `activeSourceBuffers` is still an attached-buffer view, not final track-based
+  multi-buffer coordination
 - append/remove stay limited to MP4/fMP4 custom playback
 
 Remote playback for stream-delivered recorder chunks can use `MediaSource`
-through the custom session path. The older Blob handoff remains a fallback
+through the MSE append path. The older Blob handoff remains a fallback
 page-level strategy, not the browser media architecture.
 
 ## Audio

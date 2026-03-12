@@ -342,7 +342,7 @@ Not-yet-implemented execution paths throw DOMException with messages containing
 audio-only streams, mixed audio/video streams, and explicit
 pause/resume/requestData control paths.
 
-`MediaSource` is now exposed with the first custom-playback path.
+`MediaSource` is now exposed on the append-backed MSE playback path.
 
 Available API surface:
 
@@ -360,16 +360,28 @@ Available API surface:
 - methods: `appendBuffer(data)`, `remove(start, end)`, `abort()`
 - events: `updatestart`, `update`, `updateend`, `error`
 
+Current attach/state model:
+
+- supported attach path today is `video.src = URL.createObjectURL(mediaSource)`
+- object-URL attach/detach is explicit in `MediaSource` ownership
+- the code keeps the same `MediaSource` attach/detach state machine ready for a
+  future `srcObject = mediaSource` path, but that surface is not exposed yet
+- detached `SourceBuffer`s stay registered in `sourceBuffers` and leave
+  `activeSourceBuffers` until reattached
+- removed `SourceBuffer`s are explicitly invalid and reject further operations
+
 Current limits:
 
 - one attached `SourceBuffer` per `MediaSource`
-- one active-buffer model; no multi-`SourceBuffer` coordination yet
 - valid single-buffer MP4/fMP4 append can reach metadata, buffered ranges,
-  and decode/present through HAVI's shared custom playback session path
+  and decode/present through HAVI's MSE playback session path
+- `activeSourceBuffers` is still a temporary attached-buffer view, not final
+  track-driven multi-buffer selection
 - append/remove stay limited to MP4/fMP4 custom playback
 
-For chunked recorder playback, pages can use `MediaSource` through that custom
-session path. Blob handoff remains available as a page-level fallback.
+Direct source-backed playback remains separate from MSE. For chunked recorder
+playback, pages can use `MediaSource` through the append-backed path. Blob
+handoff remains a page-level fallback.
 
 ## Errors
 
