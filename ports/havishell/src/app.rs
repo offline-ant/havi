@@ -267,7 +267,7 @@ script_mod! {
                                         "auto"
                                     }
                                     else if text == "⚡" {
-                                        "dev"
+                                        "tree"
                                     }
                                     else {
                                         "off"
@@ -303,7 +303,7 @@ script_mod! {
                                             self.watch_btn.on_click()
                                         }
                                     }
-                                    else if arg == "dev" {
+                                    else if arg == "tree" || arg == "dev" {
                                         if text == "👁️" {
                                             self.watch_btn.on_click()
                                             self.watch_btn.on_click()
@@ -332,6 +332,34 @@ script_mod! {
                             }
 
                             watch_btn := Button{ text: "👁️" }
+                        }
+                        shadow_control := View{
+                            width: Fit height: Fit
+                            show_child_controls: false
+                            on_control: {
+                                get: |arg| {
+                                    if self.shadow_btn.text() == "S:On" { "on" } else { "off" }
+                                }
+                                enter: |arg| {
+                                    if self.shadow_btn.text() != "S:On" { self.shadow_btn.on_click() }
+                                    "on"
+                                }
+                                exit: |arg| {
+                                    if self.shadow_btn.text() == "S:On" { self.shadow_btn.on_click() }
+                                    "off"
+                                }
+                                set: |arg| {
+                                    if (arg == "on" || arg == "enter") && self.shadow_btn.text() != "S:On" {
+                                        self.shadow_btn.on_click()
+                                    }
+                                    else if (arg == "off" || arg == "exit") && self.shadow_btn.text() == "S:On" {
+                                        self.shadow_btn.on_click()
+                                    }
+                                    arg
+                                }
+                            }
+
+                            shadow_btn := Button{ text: "S:Off" }
                         }
                         share_btn := Button{ text: "🔗" }
                         home_btn := Button{ text: "🏠" }
@@ -657,7 +685,7 @@ fn mode_from_wire(mode: &str) -> Option<havi_protocols::watch::WatchMode> {
         "off" => Some(havi_protocols::watch::WatchMode::Off),
         "notify" => Some(havi_protocols::watch::WatchMode::Notify),
         "auto" => Some(havi_protocols::watch::WatchMode::Auto),
-        "dev" => Some(havi_protocols::watch::WatchMode::Dev),
+        "tree" | "dev" => Some(havi_protocols::watch::WatchMode::Tree),
         _ => None,
     }
 }
@@ -667,7 +695,7 @@ fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
         havi_protocols::watch::WatchMode::Off => "off",
         havi_protocols::watch::WatchMode::Notify => "notify",
         havi_protocols::watch::WatchMode::Auto => "auto",
-        havi_protocols::watch::WatchMode::Dev => "dev",
+        havi_protocols::watch::WatchMode::Tree => "tree",
     }
     .to_string()
 }
@@ -677,8 +705,12 @@ fn watch_button_text(mode: havi_protocols::watch::WatchMode) -> &'static str {
         havi_protocols::watch::WatchMode::Off => "👁️",
         havi_protocols::watch::WatchMode::Notify => "🔔",
         havi_protocols::watch::WatchMode::Auto => "🔁",
-        havi_protocols::watch::WatchMode::Dev => "⚡",
+        havi_protocols::watch::WatchMode::Tree => "⚡",
     }
+}
+
+fn shadow_button_text(enabled: bool) -> &'static str {
+    if enabled { "S:On" } else { "S:Off" }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

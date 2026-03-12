@@ -392,6 +392,7 @@ impl App {
             self.ui
                 .text_input(cx, ids!(url_input))
                 .set_text(cx, &self.start_url);
+            self.sync_toolbar_state(cx);
         } else {
             // Pylon booting — show splash screen, start 3s timeout.
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);

@@ -54,6 +54,7 @@ The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
   - HAVI semantic controls:
     - `nav_control get|set|focus|go|edit`
     - `watch_control get|set|next`
+    - `shadow_control get|set|enter|exit`
     - `dock_control get|set|toggle`
 - `send <json>`
   - Send a raw JSON StudioToApp message.
@@ -87,6 +88,7 @@ havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET query id:nav_control
 # Semantic chrome controls
 havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control nav_control go hppr://u/web/index.html
 havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control watch_control set auto
+havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control shadow_control enter
 havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control dock_control set bottom
 
 # Pipe mode

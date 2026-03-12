@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use crate::client::get_admin_credentials;
+use crate::state_db::global_state_db;
 use crate::url::HAVIAddress;
+use crate::util::{append_location, shadow_root};
 
 const WATCH_RELOAD_DEBOUNCE: Duration = Duration::from_millis(500);
 
@@ -25,7 +27,7 @@ pub enum WatchMode {
     Off,
     Notify,
     Auto,
-    Dev,
+    Tree,
 }
 
 impl WatchMode {
@@ -34,8 +36,8 @@ impl WatchMode {
         match self {
             Self::Off => Self::Notify,
             Self::Notify => Self::Auto,
-            Self::Auto => Self::Dev,
-            Self::Dev => Self::Off,
+            Self::Auto => Self::Tree,
+            Self::Tree => Self::Off,
         }
     }
 
@@ -45,7 +47,7 @@ impl WatchMode {
             Self::Off => "W:Off",
             Self::Notify => "W:Note",
             Self::Auto => "W:Auto",
-            Self::Dev => "W:Dev",
+            Self::Tree => "W:Tree",
         }
     }
 }
@@ -240,9 +242,9 @@ pub struct WatchHandle {
     mode: WatchMode,
     conn: Option<Arc<WatchConn>>,
     rx: Option<std::sync::mpsc::Receiver<String>>,
-    /// The `//group/app/` prefix this handle is watching.
+    /// The backing root prefix this handle is watching.
     active_group_app: Option<String>,
-    /// Full coordinate of the tab's current page (e.g. `//g/a/path`).
+    /// Full backing coordinate of the tab's current page.
     active_urc: Option<String>,
     /// Whether a change has been detected (for Notify mode indicator).
     pub change_detected: bool,
@@ -333,7 +335,7 @@ impl WatchHandle {
             let event = hppr_client::parse_watch_event(&line);
             let matches = match self.mode {
                 WatchMode::Off => false,
-                WatchMode::Dev => event.is_some(), // any parsed event under //group/app/
+                WatchMode::Tree => event.is_some(), // any parsed event under backing root
                 WatchMode::Auto | WatchMode::Notify => {
                     // Match if the event path contains the tab's exact coordinate.
                     match (&self.active_urc, event.as_ref()) {
@@ -350,7 +352,7 @@ impl WatchHandle {
                 WatchMode::Notify => {
                     action = WatchAction::ChangeDetected;
                 }
-                WatchMode::Auto | WatchMode::Dev => {
+                WatchMode::Auto | WatchMode::Tree => {
                     self.change_detected = true;
                     self.pending_reload_deadline = Some(now + WATCH_RELOAD_DEBOUNCE);
                 }
@@ -362,7 +364,7 @@ impl WatchHandle {
             self.change_detected = true;
         }
 
-        if matches!(self.mode, WatchMode::Auto | WatchMode::Dev)
+        if matches!(self.mode, WatchMode::Auto | WatchMode::Tree)
             && self
                 .pending_reload_deadline
                 .is_some_and(|deadline| Instant::now() >= deadline)
@@ -386,13 +388,24 @@ impl WatchHandle {
     }
 }
 
-/// Extract `//group/app` prefix and full URC from a URL string.
+/// Extract backing `//group/app` prefix and backing URC from a URL string.
 fn extract_group_app_and_urc(url: &str) -> Option<(String, String)> {
     let addr = HAVIAddress::parse(url).ok()?;
     let parts = addr.parts();
     if parts.group.is_empty() || parts.app.is_empty() {
         return None;
     }
+
+    if !parts.group.starts_with('~')
+        && global_state_db()
+            .shadow_override_enabled(&parts.group, &parts.app)
+            .ok()?
+    {
+        let root = shadow_root(&parts.group, &parts.app);
+        let urc = append_location(&root, &addr.location_with_slash());
+        return Some((root, urc));
+    }
+
     let group_app = format!("//{}/{}", parts.group, parts.app);
     let urc = addr.urc_string();
     Some((group_app, urc))

@@ -294,7 +294,38 @@ check "get_shell_actor extracts shellActor" "shell7" "$SHELL_FIRST"
 check "get_shell_actor returns None when absent" "None" "$SHELL_SECOND"
 
 # ============================================================================
-# Test 6: tabs respects protocol selected field
+# Test 6: havi-cli shadow helpers
+# ============================================================================
+
+log "--- havi-cli shadow helpers ---"
+
+HAVI_CLI_HELPERS=$(python3 -c "
+import importlib.util, importlib.machinery, sqlite3, sys, tempfile, os
+loader = importlib.machinery.SourceFileLoader('havi_cli', '$HAVI_ROOT/havi-cli')
+spec = importlib.util.spec_from_loader('havi_cli', loader, origin='$HAVI_ROOT/havi-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['havi_cli'] = mod
+spec.loader.exec_module(mod)
+
+print(mod._shadow_root('//dev/hppr.forge/presentation/index.html'))
+
+tmp = tempfile.mkdtemp(prefix='havi-cli-shadow-')
+os.environ['HAVI_CONFIG'] = tmp
+conn = sqlite3.connect(os.path.join(tmp, 'havi.sqlite'))
+conn.execute('CREATE TABLE shadow_keys (group_name TEXT NOT NULL, app_name TEXT NOT NULL, signing_key TEXT NOT NULL, verification_key TEXT NOT NULL, PRIMARY KEY (group_name, app_name))')
+conn.execute('INSERT INTO shadow_keys(group_name, app_name, signing_key, verification_key) VALUES (?, ?, ?, ?)', ('dev', 'hppr.forge', '&.shadow.H3', 'V.shadow.H3'))
+conn.commit()
+conn.close()
+print(mod._shadow_signing_key('//dev/hppr.forge/presentation/index.html'))
+")
+
+SHADOW_ROOT_LINE="$(echo "$HAVI_CLI_HELPERS" | sed -n '1p')"
+SHADOW_KEY_LINE="$(echo "$HAVI_CLI_HELPERS" | sed -n '2p')"
+check "havi-cli shadow root convention" "//~dev/hppr.forge" "$SHADOW_ROOT_LINE"
+check "havi-cli reads persisted shadow signing key" "&.shadow.H3" "$SHADOW_KEY_LINE"
+
+# ============================================================================
+# Test 7: tabs respects protocol selected field
 # ============================================================================
 
 log "--- tabs selection ---"

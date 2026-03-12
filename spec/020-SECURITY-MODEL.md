@@ -13,6 +13,10 @@ through local route and remote deployment pointers.
 
 Origin format: `//<group>/<app>/`.
 
+When local shadow mode is enabled for an origin, HAVI resolves that origin
+through the local shadow root `//~<group>/<app>/...` before normal route and
+deployment lookup.
+
 For routed non-repo pages (`hppr://<group>/<app>/...`):
 
 1. Read local route packet from home repo:

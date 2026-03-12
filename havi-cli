@@ -15,6 +15,9 @@ Built-in commands:
     deploy      Write deployment pointer for group/app
     navigate    Navigate HAVI to a URL
 
+Direct open:
+    //<group>/<app>[/location] [--shadow] [--mount PATH]
+
 The makepad and devtools groups delegate to havi-makepad-cli and
 havi-devtools-cli respectively. Those tools can also be used directly.
 
@@ -26,7 +29,7 @@ Examples:
     havi-cli publish //u/web/index.html page.html
 """
 
-import mimetypes, os, subprocess, sys
+import mimetypes, os, sqlite3, subprocess, sys
 
 
 def _run(cmd, **kwargs):
@@ -48,6 +51,53 @@ def _parse_coordinate(coord):
     return parts[0], parts[1], parts[2] if len(parts) > 2 else ""
 
 
+def _shadow_root(coord):
+    group, app, _ = _parse_coordinate(coord)
+    return f"//~{group}/{app}"
+
+
+def _config_dir():
+    return os.environ.get("HAVI_CONFIG") or os.path.expanduser("~/.config/HAVI")
+
+
+def _state_db_path():
+    return os.path.join(_config_dir(), "havi.sqlite")
+
+
+def _shadow_signing_key(coord):
+    import time
+
+    group, app, _ = _parse_coordinate(coord)
+    deadline = time.time() + 5.0
+    while True:
+        conn = sqlite3.connect(_state_db_path())
+        try:
+            row = conn.execute(
+                "SELECT signing_key FROM shadow_keys WHERE group_name = ? AND app_name = ?",
+                (group, app),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
+            return row[0]
+        if time.time() >= deadline:
+            sys.exit(f"error: no shadow key stored for //{group}/{app}")
+        time.sleep(0.1)
+
+
+def _admin_signer():
+    conn = sqlite3.connect(_state_db_path())
+    try:
+        row = conn.execute(
+            "SELECT ring1_name, token FROM credentials ORDER BY repo_vkey LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    if row:
+        return f"ring1:{row[0]}#{row[1]}"
+    return "ring1:ring0#init"
+
+
 def _debug_port():
     """Resolve debug port from environment."""
     port = os.environ.get("HAVI_DEVTOOLS")
@@ -61,6 +111,60 @@ def _debug_port():
 def cmd_navigate(args):
     port = _debug_port()
     _run(["havi-devtools-cli", "-p", port, "navigate", args[0]])
+
+
+def cmd_open_target(args):
+    if not args:
+        sys.exit("usage: havi-cli //<group>/<app>[/location] [--shadow] [--mount PATH]")
+
+    coord = args[0]
+    shadow = False
+    mountpoint = None
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg == "--shadow":
+            shadow = True
+        elif arg == "--mount":
+            i += 1
+            if i >= len(args):
+                sys.exit("error: --mount requires a path")
+            mountpoint = args[i]
+        else:
+            sys.exit(f"error: unknown argument: {arg}")
+        i += 1
+
+    group, app, location = _parse_coordinate(coord)
+    url = f"hppr://{group}/{app}"
+    if location:
+        url += f"/{location}"
+    elif not url.endswith("/"):
+        url += "/"
+
+    cmd_navigate([url])
+
+    if not shadow:
+        return
+
+    if not os.environ.get("HAVI_MAKEPAD_SOCKET"):
+        sys.exit("error: --shadow requires HAVI_MAKEPAD_SOCKET")
+
+    _run(["havi-makepad-cli", "control", "shadow_control", "enter"])
+
+    if mountpoint:
+        os.makedirs(mountpoint, exist_ok=True)
+        _run([
+            "pylon",
+            "mount",
+            mountpoint,
+            "--root",
+            _shadow_root(coord),
+            "--signer",
+            _admin_signer(),
+            "--rw",
+            "--seal_with",
+            _shadow_signing_key(coord),
+        ])
 
 
 def cmd_deploy(args):
@@ -112,6 +216,7 @@ BUILTIN = {
 
 USAGE = """\
 usage: havi-cli <command> [args...]
+       havi-cli //<group>/<app>[/location] [--shadow] [--mount PATH]
 
 Subcommand groups (delegate to standalone tools):
     makepad <cmd> ...    Makepad UI control (havi-makepad-cli)
@@ -123,12 +228,16 @@ Built-in commands:
     publish <coordinate> <file>                            Store signed file, navigate
     publish-dir <coordinate> <dir>                         Store directory tree, navigate
 
+Direct open:
+    //<group>/<app>[/location] [--shadow] [--mount PATH]   Open routed app, optionally enter shadow mode
+
 Examples:
     havi-cli makepad screenshot /tmp/out.png
     havi-cli makepad click 300 400
     havi-cli devtools eval 'document.title'
     havi-cli deploy u web //u/web V.EXAMPLE.H3
     havi-cli publish //u/web/index.html page.html
+    havi-cli //dev/hppr.forge/presentation/index.html --shadow --mount /mnt/presentation
 """
 
 
@@ -147,7 +256,9 @@ def main():
     if cmd == "devtools":
         os.execvp("havi-devtools-cli", ["havi-devtools-cli"] + rest)
 
-    if cmd in BUILTIN:
+    if cmd.startswith("//"):
+        cmd_open_target(args)
+    elif cmd in BUILTIN:
         BUILTIN[cmd](rest)
     else:
         print(f"error: unknown command: {cmd}", file=sys.stderr)

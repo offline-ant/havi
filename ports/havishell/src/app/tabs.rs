@@ -4,7 +4,7 @@ use makepad_widgets::*;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::rc::Rc;
 
-use super::{App, HaviWebViewDelegate, watch_button_text};
+use super::{App, HaviWebViewDelegate, shadow_button_text, watch_button_text};
 use crate::servo_web_view::ServoWebViewWidgetRefExt;
 
 const TAB_MIN_WIDTH: f64 = 120.0;
@@ -42,6 +42,36 @@ pub(super) struct TabInfo {
 }
 
 impl App {
+    pub(super) fn active_shadow_enabled(&self) -> bool {
+        let Some(tab) = self.tabs.get(self.active_tab_idx) else {
+            return false;
+        };
+        let Ok(addr) = havi_protocols::url::HAVIAddress::parse(&tab.url) else {
+            return false;
+        };
+        let parts = addr.parts();
+        if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+            return false;
+        }
+        havi_protocols::state_db::global_state_db()
+            .shadow_override_enabled(&parts.group, &parts.app)
+            .unwrap_or(false)
+    }
+
+    pub(super) fn sync_toolbar_state(&self, cx: &mut Cx) {
+        let watch_mode = self
+            .tabs
+            .get(self.active_tab_idx)
+            .map(|tab| tab.watch.mode())
+            .unwrap_or_default();
+        self.ui
+            .button(cx, ids!(watch_btn))
+            .set_text(cx, &watch_button_text(watch_mode));
+        self.ui
+            .button(cx, ids!(shadow_btn))
+            .set_text(cx, shadow_button_text(self.active_shadow_enabled()));
+    }
+
     /// Synchronize the tab bar UI: rebuild children from tab state.
     ///
     /// Tab widgets are created from a live DSL template via `script_from_value`.
@@ -294,6 +324,7 @@ impl App {
             .servo_web_view(cx, ids!(web_view))
             .set_shared_fragments(shared, scroll, selection, images);
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }
@@ -333,6 +364,7 @@ impl App {
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, HOME_URL);
+        self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }
@@ -365,6 +397,7 @@ impl App {
         }
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }
@@ -394,9 +427,7 @@ impl App {
             .set_shared_fragments(shared, scroll, selection, images);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
-        self.ui
-            .button(cx, ids!(watch_btn))
-            .set_text(cx, &watch_button_text(self.tabs[idx].watch.mode()));
+        self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
     }

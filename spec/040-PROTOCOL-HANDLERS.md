@@ -41,11 +41,13 @@ Primary browsing scheme.
 For routed non-repo pages (`hppr://<group>/<app>/...`), HAVI resolves in this
 order:
 
-1. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
-2. if route is missing and `group` does not start with `~`, try bootstrap index
+1. if local shadow mode is enabled, resolve directly to local shadow root
+   `//~<group>/<app>/...`
+2. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
+3. if route is missing and `group` does not start with `~`, try bootstrap index
    lookup at `//u/index/<group>/<app>` and use/store returned route values
-3. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-4. target from `Deploy-Root` + requested location
+4. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
+5. target from `Deploy-Root` + requested location
 
 Fetch behavior:
 

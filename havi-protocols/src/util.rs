@@ -69,6 +69,14 @@ pub fn append_location(root: &str, requested_location: &str) -> String {
     }
 }
 
+pub fn shadow_group(group: &str) -> String {
+    format!("~{}", group)
+}
+
+pub fn shadow_root(group: &str, app: &str) -> String {
+    format!("//{}/{}", shadow_group(group), app)
+}
+
 /// Derive a verifying key from a signing key.
 pub fn signing_to_verifying_key(signing_key: &str) -> Result<String, String> {
     let (tc, sk_bytes) = hppr_packet::crypto::t_b64a_h3_decode(signing_key)

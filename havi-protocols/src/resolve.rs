@@ -20,7 +20,8 @@ use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chun
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
 use crate::url::HAVIAddress;
-use crate::util::{RouteEndpointSource, append_location, resolve_route_endpoint};
+use crate::state_db::global_state_db;
+use crate::util::{RouteEndpointSource, append_location, resolve_route_endpoint, shadow_root};
 
 #[derive(Clone, Debug)]
 pub struct ResolvedSourceRef {
@@ -179,8 +180,27 @@ async fn resolve_access(
     credential_store: &CredentialStoreHandle,
     is_listing: bool,
 ) -> Result<ResolvedAccess, String> {
-    let target = resolve_target(address, repo_client, credential_store, None).await?;
     let parts = address.parts();
+    if !parts.group.starts_with('~')
+        && global_state_db().shadow_override_enabled(&parts.group, &parts.app)?
+    {
+        let requested_location = address.location_with_slash();
+        let target = append_location(&shadow_root(&parts.group, &parts.app), &requested_location);
+        let urc = if is_listing {
+            format!("{}/", target.trim_end_matches('/'))
+        } else {
+            target
+        };
+        return Ok(ResolvedAccess {
+            endpoint: repo_client.target(),
+            signer: None,
+            is_repo: true,
+            client: repo_client.clone(),
+            urc,
+        });
+    }
+
+    let target = resolve_target(address, repo_client, credential_store, None).await?;
     let is_repo = matches!(target.source, RouteEndpointSource::HomeFallback);
     let signer = if is_repo {
         None

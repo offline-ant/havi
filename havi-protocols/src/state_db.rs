@@ -14,6 +14,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShadowKeyEntry {
+    pub group: String,
+    pub app: String,
+    pub signing_key: String,
+    pub verification_key: String,
+}
+
 use crate::config;
 
 /// Shared state DB handle.
@@ -66,9 +74,22 @@ impl StateDb {
                  url TEXT NOT NULL,
                  title TEXT NOT NULL DEFAULT ''
              );
+             CREATE TABLE IF NOT EXISTS shadow_keys (
+                 group_name TEXT NOT NULL,
+                 app_name TEXT NOT NULL,
+                 signing_key TEXT NOT NULL,
+                 verification_key TEXT NOT NULL,
+                 PRIMARY KEY (group_name, app_name)
+             );
+             CREATE TABLE IF NOT EXISTS shadow_overrides (
+                 group_name TEXT NOT NULL,
+                 app_name TEXT NOT NULL,
+                 enabled INTEGER NOT NULL,
+                 PRIMARY KEY (group_name, app_name)
+             );
              CREATE INDEX IF NOT EXISTS idx_history_ts ON history(ts_unix DESC);
              INSERT INTO meta(key, value)
-                 VALUES ('schema_version', '1')
+                 VALUES ('schema_version', '2')
                  ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
         )
         .map_err(|e| format!("failed to initialize sqlite schema: {}", e))?;
@@ -144,6 +165,74 @@ impl StateDb {
             params![ts_unix, url, title],
         )
         .map_err(|e| format!("failed to write history row: {}", e))?;
+        Ok(())
+    }
+
+    pub fn get_shadow_key(&self, group: &str, app: &str) -> Result<Option<ShadowKeyEntry>, String> {
+        let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
+        conn.query_row(
+            "SELECT signing_key, verification_key
+             FROM shadow_keys
+             WHERE group_name = ?1 AND app_name = ?2",
+            params![group, app],
+            |row| {
+                Ok(ShadowKeyEntry {
+                    group: group.to_string(),
+                    app: app.to_string(),
+                    signing_key: row.get(0)?,
+                    verification_key: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("failed to read shadow key for {}/{}: {}", group, app, e))
+    }
+
+    pub fn set_shadow_key(
+        &self,
+        group: &str,
+        app: &str,
+        signing_key: &str,
+        verification_key: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
+        conn.execute(
+            "INSERT INTO shadow_keys(group_name, app_name, signing_key, verification_key)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(group_name, app_name) DO UPDATE
+             SET signing_key = excluded.signing_key,
+                 verification_key = excluded.verification_key",
+            params![group, app, signing_key, verification_key],
+        )
+        .map_err(|e| format!("failed to write shadow key for {}/{}: {}", group, app, e))?;
+        Ok(())
+    }
+
+    pub fn shadow_override_enabled(&self, group: &str, app: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
+        let enabled = conn
+            .query_row(
+                "SELECT enabled
+                 FROM shadow_overrides
+                 WHERE group_name = ?1 AND app_name = ?2",
+                params![group, app],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|e| format!("failed to read shadow override for {}/{}: {}", group, app, e))?;
+        Ok(enabled.unwrap_or(0) != 0)
+    }
+
+    pub fn set_shadow_override(&self, group: &str, app: &str, enabled: bool) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
+        conn.execute(
+            "INSERT INTO shadow_overrides(group_name, app_name, enabled)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(group_name, app_name) DO UPDATE
+             SET enabled = excluded.enabled",
+            params![group, app, if enabled { 1 } else { 0 }],
+        )
+        .map_err(|e| format!("failed to write shadow override for {}/{}: {}", group, app, e))?;
         Ok(())
     }
 
@@ -225,6 +314,38 @@ mod tests {
         let rows = db.list_history(10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].url, "hppr://u/web/index.html");
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn shadow_key_roundtrip() {
+        let db_path = std::env::temp_dir().join("havi_state_db_shadow_key_roundtrip.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+        let db = StateDb::open(db_path.clone()).unwrap();
+
+        db.set_shadow_key("dev", "hppr.forge", "&.shadow.H3", "V.shadow.H3")
+            .unwrap();
+        let row = db.get_shadow_key("dev", "hppr.forge").unwrap().unwrap();
+        assert_eq!(row.group, "dev");
+        assert_eq!(row.app, "hppr.forge");
+        assert_eq!(row.signing_key, "&.shadow.H3");
+        assert_eq!(row.verification_key, "V.shadow.H3");
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn shadow_override_roundtrip() {
+        let db_path = std::env::temp_dir().join("havi_state_db_shadow_override_roundtrip.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+        let db = StateDb::open(db_path.clone()).unwrap();
+
+        assert!(!db.shadow_override_enabled("dev", "hppr.forge").unwrap());
+        db.set_shadow_override("dev", "hppr.forge", true).unwrap();
+        assert!(db.shadow_override_enabled("dev", "hppr.forge").unwrap());
+        db.set_shadow_override("dev", "hppr.forge", false).unwrap();
+        assert!(!db.shadow_override_enabled("dev", "hppr.forge").unwrap());
 
         let _ = std::fs::remove_file(db_path);
     }

@@ -108,7 +108,7 @@ HAVI supports per-tab watch modes through DevTools:
 - `off`
 - `notify`
 - `auto`
-- `dev`
+- `tree`
 
 ```bash
 ./havi/havi-devtools-cli watch --tab 0 auto
@@ -119,7 +119,7 @@ Use:
 
 - `notify` for editorial review (see changes, no forced reload)
 - `auto` for exact-page live reload
-- `dev` for app-wide reload during active development
+- `tree` for backing-root reload during active development
 
 ## Route setup patterns
 

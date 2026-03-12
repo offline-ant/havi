@@ -79,6 +79,12 @@ pub enum MakepadServoAction {
     },
     /// Camera request from script.
     CameraRequest(Arc<Mutex<Option<CameraRequest>>>),
+    /// Shadow mode transition completed for a tab.
+    ShadowModeSet {
+        webview_id: WebViewId,
+        enabled: bool,
+        error: Option<String>,
+    },
 }
 
 impl std::fmt::Debug for MakepadServoAction {
@@ -148,6 +154,16 @@ impl std::fmt::Debug for MakepadServoAction {
                 .field("webview_id", webview_id)
                 .finish(),
             Self::CameraRequest(_) => write!(f, "CameraRequest"),
+            Self::ShadowModeSet {
+                webview_id,
+                enabled,
+                error,
+            } => f
+                .debug_struct("ShadowModeSet")
+                .field("webview_id", webview_id)
+                .field("enabled", enabled)
+                .field("error", error)
+                .finish(),
         }
     }
 }

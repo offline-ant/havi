@@ -42,7 +42,7 @@ impl WatchActor {
     }
 
     fn is_valid_mode(mode: &str) -> bool {
-        matches!(mode, "off" | "notify" | "auto" | "dev")
+        matches!(mode, "off" | "notify" | "auto" | "tree" | "dev")
     }
 
     fn resolve_webview_id(&self, msg: &Map<String, Value>) -> Result<WebViewId, ActorError> {

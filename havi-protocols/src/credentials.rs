@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::client::HpprdClientAsync;
-use crate::state_db::{StateDbHandle, global_state_db};
+use crate::state_db::{ShadowKeyEntry, StateDbHandle, global_state_db};
 
 /// Default ring0 account name per spec 090 bootstrap.
 pub const DEFAULT_RING0_NAME: &str = "ring0";
@@ -84,6 +84,39 @@ impl RouteCredential {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ShadowCredential {
+    pub name: String,
+    signing_key: String,
+    pub verification_key: String,
+}
+
+impl ShadowCredential {
+    pub fn new(name: String, signing_key: String, verification_key: String) -> Self {
+        Self {
+            name,
+            signing_key,
+            verification_key,
+        }
+    }
+
+    pub fn signing_key(&self) -> &str {
+        &self.signing_key
+    }
+}
+
+fn shadow_signer_name(group: &str, app: &str) -> String {
+    format!("shadow:{}#{}", group, app)
+}
+
+fn shadow_credential_from_row(row: ShadowKeyEntry) -> ShadowCredential {
+    ShadowCredential::new(
+        shadow_signer_name(&row.group, &row.app),
+        row.signing_key,
+        row.verification_key,
+    )
+}
+
 /// Central credential store with SQLite persistence.
 pub struct CredentialStore {
     /// Admin credential currently active in process memory.
@@ -92,6 +125,8 @@ pub struct CredentialStore {
     site_credentials: RwLock<HashMap<(String, String), SiteCredential>>,
     /// Cached route credentials with keypairs by group.
     route_credentials: RwLock<HashMap<String, RouteCredential>>,
+    /// Cached persistent shadow credentials with keypairs by (group, app).
+    shadow_credentials: RwLock<HashMap<(String, String), ShadowCredential>>,
     /// Shared state database.
     db: StateDbHandle,
 }
@@ -103,6 +138,7 @@ impl CredentialStore {
             admin: RwLock::new(None),
             site_credentials: RwLock::new(HashMap::new()),
             route_credentials: RwLock::new(HashMap::new()),
+            shadow_credentials: RwLock::new(HashMap::new()),
             db,
         }
     }
@@ -234,6 +270,44 @@ impl CredentialStore {
 
         Ok(cred)
     }
+
+    pub fn get_or_create_shadow_credential(
+        &self,
+        group: &str,
+        app: &str,
+    ) -> Result<ShadowCredential, String> {
+        let key = (group.to_string(), app.to_string());
+
+        if let Ok(cache) = self.shadow_credentials.read() {
+            if let Some(cred) = cache.get(&key) {
+                return Ok(cred.clone());
+            }
+        }
+
+        let cred = if let Some(row) = self.db.get_shadow_key(group, app)? {
+            shadow_credential_from_row(row)
+        } else {
+            let (signing_key, verification_key) = hppr_packet::crypto::generate_signing_verifying_pair();
+            let cred = ShadowCredential::new(
+                shadow_signer_name(group, app),
+                signing_key,
+                verification_key,
+            );
+            self.db.set_shadow_key(
+                group,
+                app,
+                cred.signing_key(),
+                &cred.verification_key,
+            )?;
+            cred
+        };
+
+        if let Ok(mut cache) = self.shadow_credentials.write() {
+            cache.insert(key, cred.clone());
+        }
+
+        Ok(cred)
+    }
 }
 
 /// Handle for sharing credential store across components.
@@ -350,5 +424,20 @@ mod tests {
         assert_eq!(cred.ring1_name, "site:chess#games");
         assert_eq!(cred.signing_key(), "&.signingkey.H3");
         assert_eq!(cred.verification_key, "V.verifykey.H3");
+    }
+
+    #[test]
+    fn test_shadow_credential_persistent_per_origin() {
+        let db_path = std::env::temp_dir().join("havi_test_shadow_key.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+
+        let store = CredentialStore::new_test(&db_path);
+        let first = store.get_or_create_shadow_credential("dev", "hppr.forge").unwrap();
+        let second = store.get_or_create_shadow_credential("dev", "hppr.forge").unwrap();
+        assert_eq!(first.name, "shadow:dev#hppr.forge");
+        assert_eq!(first.signing_key(), second.signing_key());
+        assert_eq!(first.verification_key, second.verification_key);
+
+        let _ = std::fs::remove_file(db_path);
     }
 }

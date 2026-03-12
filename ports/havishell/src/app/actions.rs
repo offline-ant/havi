@@ -1,6 +1,10 @@
 use super::*;
 use super::navigation::parse_navigation_url;
 
+use havi_protocols::credentials::global_credential_store;
+use havi_protocols::resolve;
+use havi_protocols::util::mime_from_path;
+
 fn servo_cursor_to_makepad(cursor: servo::Cursor) -> MouseCursor {
     match cursor {
         servo::Cursor::None => MouseCursor::Hidden,
@@ -83,7 +87,165 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
     set_jsonqa_via(current_url, via)
 }
 
+fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
+    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    if address.is_listing() {
+        return Ok(());
+    }
+    let parts = address.parts();
+    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+        return Ok(());
+    }
+    let location = parts.location.clone();
+    if location.is_empty() {
+        return Ok(());
+    }
+
+    let target = hppr_client::parse_via(endpoint).map_err(|e| e.to_string())?;
+    let client = std::sync::Arc::new(havi_protocols::client::HpprdClientAsync::new(target)?);
+    let creds = global_credential_store();
+    let shadow = creds.get_or_create_shadow_credential(&parts.group, &parts.app)?;
+    let shadow_group = format!("~{}", parts.group);
+    let seed_dir = location.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("").to_string();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("shadow runtime: {}", e))?;
+
+    let copy_file = |runtime: &tokio::runtime::Runtime, path: &str| -> Result<(), String> {
+        let file_url = if path.is_empty() {
+            format!("hppr://{}/{}/", parts.group, parts.app)
+        } else {
+            format!("hppr://{}/{}/{}", parts.group, parts.app, path)
+        };
+        let resolved = runtime.block_on(async { resolve::resolve_document(&file_url, &client, &creds).await })?;
+        let content_type = resolved
+            .packet
+            .header("Content-Type")
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| mime_from_path(path).to_string());
+        let headers = format!(
+            "Seal-By: {} {}\nGroup: {}\nApp: {}\nLocation: {}\nContent-Type: {}\n",
+            shadow.verification_key,
+            shadow.signing_key(),
+            shadow_group,
+            parts.app,
+            path,
+            content_type,
+        );
+        let add_args = hppr_client::build_add_args(headers.as_bytes(), Some(resolved.packet.data()));
+        runtime.block_on(async { client.add(&add_args).await })?;
+        Ok(())
+    };
+
+    let mut copied_any = false;
+    let mut dirs = vec![seed_dir.clone()];
+    while let Some(dir) = dirs.pop() {
+        let list_url = if dir.is_empty() {
+            format!("hppr://{}/{}/", parts.group, parts.app)
+        } else {
+            format!("hppr://{}/{}/{}/", parts.group, parts.app, dir)
+        };
+        let listing = match runtime.block_on(async { resolve::resolve_listing(&list_url, &client, &creds).await }) {
+            Ok(listing) => listing,
+            Err(_) if dir == seed_dir => {
+                copy_file(&runtime, &location)?;
+                copied_any = true;
+                break;
+            }
+            Err(_) => continue,
+        };
+
+        for child in listing.children {
+            if child == "|/" {
+                continue;
+            }
+            if child.ends_with('/') {
+                let child_dir = if dir.is_empty() {
+                    child.trim_end_matches('/').to_string()
+                } else {
+                    format!("{}/{}", dir.trim_end_matches('/'), child.trim_end_matches('/'))
+                };
+                dirs.push(child_dir);
+                continue;
+            }
+            let path = if dir.is_empty() {
+                child
+            } else {
+                format!("{}/{}", dir.trim_end_matches('/'), child)
+            };
+            copy_file(&runtime, &path)?;
+            copied_any = true;
+        }
+    }
+
+    if !copied_any {
+        copy_file(&runtime, &location)?;
+    }
+    Ok(())
+}
+
+fn enable_shadow_mode(endpoint: &str, url: &str) -> Result<(), String> {
+    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let parts = address.parts();
+    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+        return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
+    }
+    let _ = seed_shadow_copy(endpoint, url);
+    havi_protocols::state_db::global_state_db()
+        .set_shadow_override(&parts.group, &parts.app, true)
+}
+
+fn disable_shadow_mode(url: &str) -> Result<(), String> {
+    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let parts = address.parts();
+    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+        return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
+    }
+    havi_protocols::state_db::global_state_db()
+        .set_shadow_override(&parts.group, &parts.app, false)
+}
+
 impl App {
+    fn toggle_shadow_for_active_tab(&mut self) {
+        let Some(tab) = self.tabs.get(self.active_tab_idx) else {
+            return;
+        };
+        let Ok(addr) = havi_protocols::url::HAVIAddress::parse(&tab.url) else {
+            return;
+        };
+        let parts = addr.parts();
+        if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+            return;
+        }
+
+        let enable = !havi_protocols::state_db::global_state_db()
+            .shadow_override_enabled(&parts.group, &parts.app)
+            .unwrap_or(false);
+        let url = tab.url.clone();
+        let webview_id = tab.webview_id;
+        let endpoint = self.watch_fallback_endpoint.clone();
+
+        std::thread::Builder::new()
+            .name("havi-shadow".to_string())
+            .spawn(move || {
+                let result = if enable {
+                    enable_shadow_mode(&endpoint, &url)
+                } else {
+                    disable_shadow_mode(&url)
+                };
+                let error = result.err();
+                Cx::post_action(MakepadServoAction::ShadowModeSet {
+                    webview_id,
+                    enabled: enable && error.is_none(),
+                    error,
+                });
+                SignalToUI::set_ui_signal();
+            })
+            .ok();
+    }
+
     fn complete_startup_navigation(&mut self, cx: &mut Cx) {
         if self.start_navigation_done {
             return;
@@ -133,6 +295,7 @@ impl App {
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, &self.start_url);
+        self.sync_toolbar_state(cx);
         self.sync_tab_bar(cx);
     }
 
@@ -204,6 +367,9 @@ impl MatchEvent for App {
                     .button(cx, ids!(watch_btn))
                     .set_text(cx, &watch_button_text(next));
             }
+        }
+        if self.ui.button(cx, ids!(shadow_btn)).clicked(actions) {
+            self.toggle_shadow_for_active_tab();
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
             let input_url = self.ui.text_input(cx, ids!(url_input)).text();
@@ -407,6 +573,7 @@ impl MatchEvent for App {
                         self.tabs[idx].watch.clear_change_detected();
                         if idx == self.active_tab_idx {
                             self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                            self.sync_toolbar_state(cx);
                         }
 
                         let title = self.tabs[idx].title.clone();
@@ -595,6 +762,32 @@ impl MatchEvent for App {
                 Some(MakepadServoAction::CameraRequest(request)) => {
                     if let Some(request) = request.lock().unwrap().take() {
                         self.camera.handle_request(cx, request);
+                    }
+                },
+                Some(MakepadServoAction::ShadowModeSet {
+                    webview_id,
+                    enabled,
+                    error,
+                }) => {
+                    if let Some(err) = error.as_ref() {
+                        log!("[havi] shadow mode error for {:?}: {}", webview_id, err);
+                    }
+                    if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        if *enabled {
+                            if let Some(tab) = self.tabs.get_mut(idx) {
+                                tab.watch.set_mode(havi_protocols::watch::WatchMode::Tree);
+                            }
+                            self.ensure_watch_pool();
+                        }
+                        if self
+                            .tabs
+                            .get(self.active_tab_idx)
+                            .map(|tab| tab.webview_id == *webview_id)
+                            .unwrap_or(false)
+                        {
+                            self.sync_toolbar_state(cx);
+                            self.recreate_active_tab_webview(cx);
+                        }
                     }
                 },
                 _ => {},

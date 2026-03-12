@@ -18,7 +18,8 @@ For webview-level interaction (JS eval, DOM), use havi-devtools-cli.
 import os, sys
 
 # Import the generic Makepad UI CLI and client library.
-_tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "makepad", "tools")
+_self_path = globals().get("__file__") or getattr(globals().get("__spec__"), "origin", None) or sys.argv[0]
+_tools_dir = os.path.join(os.path.dirname(os.path.abspath(_self_path)), "..", "makepad", "tools")
 sys.path.insert(0, _tools_dir)
 import makepad_control as mc  # type: ignore[import-not-found]
 
@@ -30,6 +31,13 @@ _loader = importlib.machinery.SourceFileLoader("makepad_ui_cli", _cli_path)
 _spec = importlib.util.spec_from_file_location("makepad_ui_cli", _cli_path, loader=_loader)
 _cli_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_cli_mod)
+
+# Re-export selected helpers for tests and thin-wrapper compatibility.
+for _name in ["keycode_index", "KEYCODE_VARIANTS", "KEY_MAP", "MODS", "mkv"]:
+    if hasattr(mc, _name):
+        globals()[_name] = getattr(mc, _name)
+if hasattr(_cli_mod, "build_parser"):
+    globals()["build_parser"] = getattr(_cli_mod, "build_parser")
 
 
 def main():

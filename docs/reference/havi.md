@@ -38,7 +38,8 @@ Environment variables:
 
 ## Local State
 
-HAVI stores local configuration, credentials, and history in:
+HAVI stores local configuration, credentials, history, and persistent shadow
+signing keys in:
 
 `<config-dir>/havi.sqlite`
 
@@ -117,3 +118,7 @@ havi --path /data/havi-config
 # Enable DevTools
 HAVI_DEVTOOLS=6080 havi
 ```
+
+Shadow mode is entered from HAVI shell chrome or through `havi-cli //<group>/<app>
+--shadow`. Shadow resolution is local and uses a persistent per-origin shadow
+signing key stored in `havi.sqlite`.

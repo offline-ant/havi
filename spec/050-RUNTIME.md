@@ -87,18 +87,19 @@ Per-tab watch mode controls live-reload behavior. Modes:
 | Off    | No watching. Default. |
 | Notify | Flag change on exact coordinate match. No reload. |
 | Auto   | Reload on exact coordinate match. |
-| Dev    | Reload on any event under `//group/app/`. |
+| Tree   | Reload on any event under the backing app root. |
 
-Mode labels: `W:Off`, `W:Note`, `W:Auto`, `W:Dev`.
+Mode labels: `W:Off`, `W:Note`, `W:Auto`, `W:Tree`.
 
-Cycling order: Off → Notify → Auto → Dev → Off.
+Cycling order: Off → Notify → Auto → Tree → Off.
 
 ### Event matching
 
 Notify and Auto match when the WATCH event line contains the tab's exact
 coordinate (e.g. `//group/app/path`).
 
-Dev matches any event received on the `//group/app/` connection.
+Tree matches any event received on the current backing-root connection.
+When shadow mode is active, this is the local shadow root `//~<group>/<app>/`.
 
 ### Watch actions
 
@@ -106,20 +107,39 @@ Event matching produces one of:
 
 - `None`: no matching event
 - `ChangeDetected`: Notify mode sets an indicator flag
-- `Reload`: Auto and Dev modes trigger page reload
+- `Reload`: Auto and Tree modes trigger page reload
 
 When multiple events arrive in one poll, the highest-priority action wins
 (Reload > ChangeDetected > None).
 
+## Shadow Mode
+
+Shadow mode is separate from watch mode.
+
+When enabled for `//<group>/<app>/`, HAVI resolves routed `hppr://<group>/<app>/...`
+page loads against the local shadow root:
+
+- `//~<group>/<app>/...`
+
+Shadow mode state is persisted in local HAVI SQLite state.
+
+Entering shadow mode creates or reuses a persistent local shadow signing key for
+that origin, seeds the current page into the shadow tree when resolution
+succeeds, enables the local shadow override, and switches the tab watch mode to
+`Tree`.
+
+The shadow signing key is local draft identity. Publishing may re-seal content
+with a different target signer.
+
 ## Watch Pool
 
-Connections are shared per `//group/app/` prefix. Each connection runs HPPR
+Connections are shared per backing-root prefix. Each connection runs HPPR
 `🖧WATCH` ([050-RING1](../../hppr/spec/050-RING1.md)) on the prefix with a
 trailing slash.
 
 Pool behavior:
 
-- keyed by `//group/app/` string
+- keyed by backing-root string such as `//group/app/` or `//~group/app/`
 - created lazily on first non-Off watch mode use
 - connections are reference-counted; dropped when no tabs use them
 - dead entries are cleaned on next access
@@ -127,7 +147,7 @@ Pool behavior:
 
 A tab acquires a connection when its mode is not Off and its URL has a valid
 group and app. Changing URL releases the old connection and acquires a new one
-if the `//group/app/` prefix differs.
+if the resolved backing-root prefix differs.
 
 ## DevTools Watch Actor
 
@@ -160,7 +180,7 @@ Request:
 {"to": "watch", "type": "setMode", "mode": "auto"}
 ```
 
-Valid mode values: `off`, `notify`, `auto`, `dev`.
+Valid mode values: `off`, `notify`, `auto`, `tree`.
 
 Optional `browserId` field targets a specific tab. When omitted, targets the
 active tab.
