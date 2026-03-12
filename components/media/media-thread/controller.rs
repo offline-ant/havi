@@ -137,6 +137,16 @@ pub enum VideoOp {
         start: f64,
         end: f64,
     },
+    MseSetAudioTrack {
+        video_id: u64,
+        index: usize,
+        enabled: bool,
+    },
+    MseSetVideoTrack {
+        video_id: u64,
+        index: usize,
+        selected: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +189,8 @@ pub enum MediaEvent {
         width: u32,
         height: u32,
         duration_ms: u128,
+        video_tracks: Vec<String>,
+        audio_tracks: Vec<String>,
     },
     /// MSE append or decode error for one SourceBuffer input.
     MseError {
@@ -265,6 +277,22 @@ pub fn remove_mse_data(video_id: u64, input_id: MseSourceBufferInputId, start: f
         input_id,
         start,
         end,
+    });
+}
+
+pub fn set_mse_audio_track(video_id: u64, index: usize, enabled: bool) {
+    send_op(VideoOp::MseSetAudioTrack {
+        video_id,
+        index,
+        enabled,
+    });
+}
+
+pub fn set_mse_video_track(video_id: u64, index: usize, selected: bool) {
+    send_op(VideoOp::MseSetVideoTrack {
+        video_id,
+        index,
+        selected,
     });
 }
 
@@ -629,6 +657,22 @@ impl MediaController {
         });
     }
 
+    pub fn set_audio_track(&self, index: usize, enabled: bool) {
+        send_op(VideoOp::MseSetAudioTrack {
+            video_id: self.video_id,
+            index,
+            enabled,
+        });
+    }
+
+    pub fn set_video_track(&self, index: usize, selected: bool) {
+        send_op(VideoOp::MseSetVideoTrack {
+            video_id: self.video_id,
+            index,
+            selected,
+        });
+    }
+
     pub fn cleanup(&self) {
         send_op(VideoOp::Cleanup(self.video_id));
         deregister_event_sender(self.video_id);
@@ -671,11 +715,28 @@ impl MediaController {
             MediaEvent::MseAppendDone { buffered_ranges, .. } => {
                 self.buffered_ranges = buffered_ranges.clone();
             },
-            MediaEvent::MseInitSegmentParsed { width, height, duration_ms, .. } => {
+            MediaEvent::MseInitSegmentParsed {
+                width,
+                height,
+                duration_ms,
+                video_tracks,
+                audio_tracks,
+                ..
+            } => {
                 self.prepared = true;
                 self.width = *width;
                 self.height = *height;
                 self.duration_ms = *duration_ms;
+                for track in video_tracks {
+                    if !self.video_tracks.contains(track) {
+                        self.video_tracks.push(track.clone());
+                    }
+                }
+                for track in audio_tracks {
+                    if !self.audio_tracks.contains(track) {
+                        self.audio_tracks.push(track.clone());
+                    }
+                }
             },
             MediaEvent::MseError { .. } => {},
         }

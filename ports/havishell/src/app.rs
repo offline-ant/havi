@@ -1115,6 +1115,8 @@ impl App {
                                             width: prepared.width,
                                             height: prepared.height,
                                             duration_ms: prepared.duration_ms,
+                                            video_tracks: prepared.video_tracks.clone(),
+                                            audio_tracks: prepared.audio_tracks.clone(),
                                         },
                                     );
                                 }
@@ -1184,6 +1186,20 @@ impl App {
                                 );
                             }
                         }
+                    }
+                },
+                VideoOp::MseSetAudioTrack { video_id, index, enabled } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        let _ = player.set_audio_track(index, enabled);
+                    }
+                },
+                VideoOp::MseSetVideoTrack {
+                    video_id,
+                    index,
+                    selected,
+                } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        let _ = player.set_video_track(index, selected);
                     }
                 },
             }

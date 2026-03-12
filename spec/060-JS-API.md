@@ -380,10 +380,12 @@ Current limits:
   `InvalidStateError`
 - incomplete fMP4 append tails may be completed by a later append on the same
   buffer; this is distinct from invalid-state rejection at the DOM surface
+- `HTMLMediaElement` audio/video track selection now feeds MSE session and
+  active-buffer coordination for parsed MSE track metadata
 - the concrete decode/present path supported today remains one muxed MP4/fMP4
   append input; split audio/video playout is not complete yet
-- `activeSourceBuffers` is still a temporary attached-buffer view, not final
-  track-driven multi-buffer selection
+- `activeSourceBuffers` now begins to follow parsed track metadata and current
+  DOM track selection, but final multi-track coordination is not complete yet
 - append/remove stay limited to MP4/fMP4 custom playback
 
 Direct source-backed playback remains separate from MSE. For chunked recorder

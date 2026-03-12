@@ -149,10 +149,12 @@ Current limits:
   a time; same-buffer overlap is rejected at the DOM surface
 - incomplete fMP4 append tails may be completed by later append data on the
   same input
+- `HTMLMediaElement` audio/video track selection now feeds MSE session and
+  active-buffer coordination for parsed MSE track metadata
 - the concrete decode/present path supported today remains one muxed MP4/fMP4
   append input; split audio/video playout is not complete yet
-- `activeSourceBuffers` is still an attached-buffer view, not final track-based
-  multi-buffer coordination
+- `activeSourceBuffers` now begins to follow parsed track metadata and current
+  DOM track selection, but final multi-track coordination is not complete yet
 - append/remove stay limited to MP4/fMP4 custom playback
 
 Remote playback for stream-delivered recorder chunks can use `MediaSource`

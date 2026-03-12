@@ -356,10 +356,80 @@ impl HTMLMediaElement {
                     .map(|media_source| media_source.as_rooted());
                 if let Some(media_source) = attached_media_source {
                     media_source.handle_media_event(&event, can_gc);
+                    if matches!(event, MediaEvent::MseInitSegmentParsed { .. }) {
+                        self.sync_mse_track_lists(can_gc);
+                    }
                 }
             },
         }
     }
+    fn sync_mse_track_lists(&self, can_gc: CanGc) {
+        let media_controller = self.media_controller.borrow();
+        let Some(mc) = media_controller.as_ref() else {
+            return;
+        };
+
+        let audio_track_list = self.AudioTracks(can_gc);
+        while audio_track_list.len() < mc.audio_tracks.len() {
+            let idx = audio_track_list.len();
+            let audio_track = crate::dom::audio::audiotrack::AudioTrack::new(
+                self.global().as_window(),
+                DOMString::from(format!("mse-audio-{idx}")),
+                if idx == 0 { DOMString::from("main") } else { DOMString::new() },
+                DOMString::new(),
+                DOMString::new(),
+                Some(&*audio_track_list),
+                can_gc,
+            );
+            audio_track_list.add(&audio_track);
+            if audio_track_list.enabled_index().is_none() {
+                audio_track_list.set_enabled(idx, true);
+            }
+            let event = crate::dom::trackevent::TrackEvent::new(
+                self.global().as_window(),
+                atom!("addtrack"),
+                false,
+                false,
+                &Some(VideoTrackOrAudioTrackOrTextTrack::AudioTrack(audio_track)),
+                can_gc,
+            );
+            event.upcast::<crate::dom::event::Event>().fire(
+                audio_track_list.upcast::<crate::dom::eventtarget::EventTarget>(),
+                can_gc,
+            );
+        }
+
+        let video_track_list = self.VideoTracks(can_gc);
+        while video_track_list.len() < mc.video_tracks.len() {
+            let idx = video_track_list.len();
+            let video_track = crate::dom::videotrack::VideoTrack::new(
+                self.global().as_window(),
+                DOMString::from(format!("mse-video-{idx}")),
+                if idx == 0 { DOMString::from("main") } else { DOMString::new() },
+                DOMString::new(),
+                DOMString::new(),
+                Some(&*video_track_list),
+                can_gc,
+            );
+            video_track_list.add(&video_track);
+            if video_track_list.selected_index().is_none() {
+                video_track_list.set_selected(idx, true);
+            }
+            let event = crate::dom::trackevent::TrackEvent::new(
+                self.global().as_window(),
+                atom!("addtrack"),
+                false,
+                false,
+                &Some(VideoTrackOrAudioTrackOrTextTrack::VideoTrack(video_track)),
+                can_gc,
+            );
+            event.upcast::<crate::dom::event::Event>().fire(
+                video_track_list.upcast::<crate::dom::eventtarget::EventTarget>(),
+                can_gc,
+            );
+        }
+    }
+
     /// Process a Prepared event: set up tracks, dimensions, duration, readyState.
     pub(super) fn handle_prepared(
         &self,
@@ -531,11 +601,31 @@ impl HTMLMediaElement {
             }
         }
     }
-    pub(crate) fn set_audio_track(&self, _idx: usize, _enabled: bool) {
-        // Track selection not yet supported via Makepad.
+    pub(crate) fn set_audio_track(&self, idx: usize, enabled: bool) {
+        let attached_media_source = self
+            .attached_media_source
+            .borrow()
+            .as_ref()
+            .map(|media_source| media_source.as_rooted());
+        if let Some(media_source) = attached_media_source {
+            media_source.media_track_selection_changed(CanGc::note());
+            if let Some(mc) = self.media_controller.borrow().as_ref() {
+                mc.set_audio_track(idx, enabled);
+            }
+        }
     }
-    pub(crate) fn set_video_track(&self, _idx: usize, _enabled: bool) {
-        // Track selection not yet supported via Makepad.
+    pub(crate) fn set_video_track(&self, idx: usize, enabled: bool) {
+        let attached_media_source = self
+            .attached_media_source
+            .borrow()
+            .as_ref()
+            .map(|media_source| media_source.as_rooted());
+        if let Some(media_source) = attached_media_source {
+            media_source.media_track_selection_changed(CanGc::note());
+            if let Some(mc) = self.media_controller.borrow().as_ref() {
+                mc.set_video_track(idx, enabled);
+            }
+        }
     }
     pub(super) fn render_controls(&self, can_gc: CanGc) {
         if self.upcast::<Element>().is_shadow_host() {

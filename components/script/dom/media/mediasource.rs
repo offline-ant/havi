@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 
 use dom_struct::dom_struct;
@@ -12,6 +12,7 @@ use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 
 use crate::dom::bindings::cell::DomRefCell;
+use crate::dom::bindings::codegen::Bindings::HTMLMediaElementBinding::HTMLMediaElementMethods;
 use crate::dom::bindings::codegen::Bindings::MediaSourceBinding::MediaSourceMethods;
 use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::inheritance::Castable;
@@ -39,6 +40,12 @@ const ATTACHMENT_NONE: u8 = 0;
 const ATTACHMENT_OBJECT_URL: u8 = 1;
 const ATTACHMENT_MEDIA_PROVIDER_OBJECT: u8 = 2;
 
+#[derive(Clone, Copy, Default)]
+struct SourceBufferTrackMetadata {
+    has_video: bool,
+    has_audio: bool,
+}
+
 fn ready_state_name(state: u8) -> &'static str {
     match state {
         READY_STATE_OPEN => "open",
@@ -56,6 +63,9 @@ pub(crate) struct MediaSource {
     source_buffers: DomRefCell<Vec<Dom<SourceBuffer>>>,
     source_buffers_list: MutNullableDom<SourceBufferList>,
     active_source_buffers_list: MutNullableDom<SourceBufferList>,
+    #[no_trace]
+    #[ignore_malloc_size_of = "MSE track metadata"]
+    track_metadata_by_input: DomRefCell<HashMap<MseSourceBufferInputId, SourceBufferTrackMetadata>>,
     attached_element: MutNullableDom<HTMLMediaElement>,
     attachment_kind: Cell<u8>,
     next_input_id: Cell<MseSourceBufferInputId>,
@@ -72,6 +82,7 @@ impl MediaSource {
             source_buffers: DomRefCell::new(Vec::new()),
             source_buffers_list: Default::default(),
             active_source_buffers_list: Default::default(),
+            track_metadata_by_input: DomRefCell::new(HashMap::new()),
             attached_element: Default::default(),
             attachment_kind: Cell::new(ATTACHMENT_NONE),
             next_input_id: Cell::new(1),
@@ -122,12 +133,44 @@ impl MediaSource {
             .replace_all(source_buffers.clone());
 
         let active_source_buffers = if self.is_open() || self.is_ended() {
-            source_buffers
+            self.compute_active_source_buffers(source_buffers, can_gc)
         } else {
             Vec::new()
         };
         self.active_source_buffers_list(can_gc)
             .replace_all(active_source_buffers);
+    }
+
+    fn compute_active_source_buffers(
+        &self,
+        source_buffers: Vec<Dom<SourceBuffer>>,
+        can_gc: CanGc,
+    ) -> Vec<Dom<SourceBuffer>> {
+        let track_metadata = self.track_metadata_by_input.borrow();
+        if track_metadata.is_empty() {
+            return source_buffers;
+        }
+
+        let Some(element) = self.attached_element.get() else {
+            return source_buffers;
+        };
+        let selected_video = element.VideoTracks(can_gc).selected_index().is_some();
+        let enabled_audio = element.AudioTracks(can_gc).enabled_index().is_some();
+
+        let mut active_input_ids = HashSet::new();
+        for (&input_id, metadata) in track_metadata.iter() {
+            if (metadata.has_video && selected_video) || (metadata.has_audio && enabled_audio) {
+                active_input_ids.insert(input_id);
+            }
+        }
+        if active_input_ids.is_empty() {
+            return source_buffers;
+        }
+
+        source_buffers
+            .into_iter()
+            .filter(|source_buffer| active_input_ids.contains(&source_buffer.input_id()))
+            .collect()
     }
 
     fn set_ready_state(&self, ready_state: u8, can_gc: CanGc) {
@@ -179,6 +222,27 @@ impl MediaSource {
         self.source_buffers.borrow().iter().find_map(|source_buffer| {
             (source_buffer.input_id() == input_id).then(|| DomRoot::from_ref(&**source_buffer))
         })
+    }
+
+    fn update_source_buffer_track_metadata(
+        &self,
+        input_id: MseSourceBufferInputId,
+        video_tracks: &[String],
+        audio_tracks: &[String],
+        can_gc: CanGc,
+    ) {
+        self.track_metadata_by_input.borrow_mut().insert(
+            input_id,
+            SourceBufferTrackMetadata {
+                has_video: !video_tracks.is_empty(),
+                has_audio: !audio_tracks.is_empty(),
+            },
+        );
+        self.sync_source_buffer_lists(can_gc);
+    }
+
+    pub(crate) fn media_track_selection_changed(&self, can_gc: CanGc) {
+        self.sync_source_buffer_lists(can_gc);
     }
 
     fn set_duration_value(&self, duration: f64, explicit: bool) {
@@ -287,6 +351,7 @@ impl MediaSource {
         self.attached_element.set(None);
         self.attachment_kind.set(ATTACHMENT_NONE);
         self.attached_video_id.set(None);
+        self.track_metadata_by_input.borrow_mut().clear();
 
         if self.ready_state.get() != READY_STATE_CLOSED {
             self.set_ready_state(READY_STATE_CLOSED, can_gc);
@@ -344,7 +409,14 @@ impl MediaSource {
                 }
                 self.update_duration_from_buffered_ranges(buffered_ranges);
             }
-            MediaEvent::MseInitSegmentParsed { duration_ms, .. } => {
+            MediaEvent::MseInitSegmentParsed {
+                input_id,
+                duration_ms,
+                video_tracks,
+                audio_tracks,
+                ..
+            } => {
+                self.update_source_buffer_track_metadata(*input_id, video_tracks, audio_tracks, can_gc);
                 if !self.explicit_duration.get() && *duration_ms != 0 {
                     self.set_duration_value(*duration_ms as f64 / 1000.0, false);
                 }
@@ -437,6 +509,9 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
         };
 
         let removed = DomRoot::from_ref(&*removed);
+        self.track_metadata_by_input
+            .borrow_mut()
+            .remove(&removed.input_id());
         if let Some(video_id) = self.attached_video_id.get() {
             removed.unregister_playback_input(video_id);
         }
