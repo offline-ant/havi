@@ -451,7 +451,7 @@ impl HTMLMediaElement {
         rx.recv().map_err(|error| error.to_string())?
     }
 
-    fn handle_baked_hppr_asset_response(&self, url: BrowserUrl, response: HpprControlResponse) {
+    fn handle_resolved_hppr_asset_response(&self, url: BrowserUrl, response: HpprControlResponse) {
         let resolved = match response {
             HpprControlResponse::Resolve(embedder_traits::HpprResolveResponse::Media(resolved)) => {
                 resolved
@@ -507,11 +507,11 @@ impl HTMLMediaElement {
             self.media_data_processing_failure_steps();
             return;
         };
-        let Some(mime) = self.infer_baked_custom_mime(&url, asset.asset().content_type()) else {
+        let Some(mime) = self.infer_resolved_custom_mime(&url, asset.asset().content_type()) else {
             self.media_data_processing_failure_steps();
             return;
         };
-        if self.create_baked_media_player(asset.into_asset(), mime).is_err() {
+        if self.create_resolved_media_player(asset.into_asset(), mime).is_err() {
             self.media_data_processing_failure_steps();
             return;
         }
@@ -523,7 +523,7 @@ impl HTMLMediaElement {
             .fire_event(atom!("suspend"), CanGc::note());
     }
 
-    fn resolve_baked_hppr_asset(&self, url: BrowserUrl) {
+    fn resolve_hppr_media_asset(&self, url: BrowserUrl) {
         let mut current_fetch_context = self.current_fetch_context.borrow_mut();
         if let Some(ref mut current_fetch_context) = *current_fetch_context {
             current_fetch_context.cancel(CancelReason::Abort);
@@ -542,7 +542,7 @@ impl HTMLMediaElement {
         let callback = GenericCallback::new(move |message| {
             let trusted = trusted.clone();
             let url = expected_url.clone();
-            task_source.queue(task!(resolve_baked_hppr_asset: move || {
+            task_source.queue(task!(resolve_hppr_media_asset: move || {
                 let element = trusted.root();
                 if element.generation_id.get() != generation_id {
                     return;
@@ -551,7 +551,7 @@ impl HTMLMediaElement {
                     return;
                 }
                 match message {
-                    Ok(response) => element.handle_baked_hppr_asset_response(url, response),
+                    Ok(response) => element.handle_resolved_hppr_asset_response(url, response),
                     Err(_) => element.media_data_processing_failure_steps(),
                 }
             }));
@@ -583,12 +583,12 @@ impl HTMLMediaElement {
             }
         }
 
-        let uses_custom_baked_playback = matches!(
+        let uses_custom_resolved_playback = matches!(
             &resource,
-            Resource::Url(url) if Self::should_use_custom_baked_hppr_playback(url)
+            Resource::Url(url) if Self::should_use_custom_resolved_hppr_playback(url)
         );
 
-        if !uses_custom_baked_playback {
+        if !uses_custom_resolved_playback {
             if let Err(e) = self.create_media_player(&resource) {
                 error!("Create media player error {:?}", e);
                 self.resource_selection_algorithm_failure_steps();
@@ -647,13 +647,13 @@ impl HTMLMediaElement {
                     return;
                 }
 
-                let uses_custom_baked_playback =
-                    Self::should_use_custom_baked_hppr_playback(&url);
+                let uses_custom_resolved_playback =
+                    Self::should_use_custom_resolved_hppr_playback(&url);
                 *self.resource_url.borrow_mut() = Some(url.clone());
 
                 // Steps 5.remote.2-5.remote.8
-                if uses_custom_baked_playback {
-                    self.resolve_baked_hppr_asset(url);
+                if uses_custom_resolved_playback {
+                    self.resolve_hppr_media_asset(url);
                 } else {
                     self.fetch_request(None);
                 }
@@ -822,10 +822,10 @@ impl HTMLMediaElement {
                 this.delay_load_event(false, cx);
             }));
     }
-    pub(super) fn should_use_custom_baked_hppr_playback(url: &BrowserUrl) -> bool {
+    pub(super) fn should_use_custom_resolved_hppr_playback(url: &BrowserUrl) -> bool {
         matches!(url.scheme(), "hppr" | "hppr-browse")
     }
-    pub(super) fn infer_baked_custom_mime(&self, url: &BrowserUrl, content_type: Option<&str>) -> Option<String> {
+    pub(super) fn infer_resolved_custom_mime(&self, url: &BrowserUrl, content_type: Option<&str>) -> Option<String> {
         let base = content_type
             .and_then(|value| value.split(';').next())
             .map(str::trim)

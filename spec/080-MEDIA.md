@@ -17,7 +17,7 @@ Browser-owned transport stays in HAVI code:
 Shared playback contracts live at the HAVI/media boundary:
 
 - page loading and media loading use the same browser resolver module
-- baked media is handed to the media layer as a resolved asset with metadata
+- resolved media is handed to the media layer as a resolved asset with metadata
   and a blocking random-access `MediaByteSource`
 - `MediaByteSource` is a byte-range contract, not a URL contract
 - reads happen off the script thread on playback/session workers through the
@@ -111,8 +111,11 @@ Current MSE scope:
 - `new MediaSource()`
 - `URL.createObjectURL(mediaSource)`
 - `readyState`
+- `duration`
+- `sourceBuffers` / `activeSourceBuffers`
 - `MediaSource.isTypeSupported()` for HAVI MP4 policy
 - one `addSourceBuffer()` per `MediaSource`
+- `removeSourceBuffer()`
 - `SourceBuffer.appendBuffer()` / `remove()` / `abort()`
 - `endOfStream()`
 - `sourceopen` / `sourceended` / `sourceclose`
@@ -121,9 +124,7 @@ Current MSE scope:
 Current limits:
 
 - one attached `SourceBuffer`
-- no `MediaSource.duration`
-- no `sourceBuffers` / `activeSourceBuffers` lists
-- no multi-track `SourceBuffer` coordination
+- one active-buffer model; no multi-track / multi-buffer coordination
 - valid single-buffer MP4/fMP4 append can drive metadata, buffered ranges,
   and decode/present on the shared custom playback session path
 - append/remove stay limited to MP4/fMP4 custom playback

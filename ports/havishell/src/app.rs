@@ -871,7 +871,7 @@ impl App {
         cx: &mut Cx,
         video_id: u64,
         image_key: Option<(u32, u32)>,
-        handle: makepad_media::SharedMsePlaybackHandle,
+        session_id: makepad_widgets::makepad_platform::MediaPlaybackSessionId,
         autoplay: bool,
         should_loop: bool,
     ) {
@@ -884,8 +884,6 @@ impl App {
         self.video_logged_first_frame.remove(&video_id);
         self.video_texture_update_count.remove(&video_id);
 
-        let session_id = handle.register_session();
-        self.mse_players.insert(video_id, handle);
         cx.prepare_video_playback(
             LiveId(video_id),
             PlatformVideoSource::PlaybackSession(session_id),
@@ -897,46 +895,26 @@ impl App {
         );
     }
 
-    fn create_baked_playback_handle(
+    fn create_resolved_playback_session(
         &self,
         mime: &str,
         asset: ResolvedMediaAsset,
-    ) -> Result<makepad_media::SharedMsePlaybackHandle, String> {
-        const BAKED_READ_CHUNK: usize = 256 * 1024;
-
-        let engine = makepad_widgets::makepad_platform::media_plugin()
-            .ok_or_else(|| "no media plugin".to_string())?
-            .create_mse_playback_engine(mime)?;
-        let handle = makepad_media::SharedMsePlaybackHandle::new(engine);
-        let mut loader_handle = handle.clone();
-        std::thread::Builder::new()
-            .name("baked-media-loader".to_string())
-            .spawn(move || {
-                let mut offset = 0u64;
-                while offset < asset.content_length() {
-                    let chunk = match asset.read_range(offset, BAKED_READ_CHUNK) {
-                        Ok(chunk) => chunk,
-                        Err(err) => {
-                            log!("[video] baked asset read error at {}: {}", offset, err);
-                            return;
-                        },
-                    };
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    let chunk_len = chunk.len() as u64;
-                    if let Err(err) = loader_handle.append_data(&chunk) {
-                        log!("[video] baked asset append error at {}: {}", offset, err);
-                        return;
-                    }
-                    offset = offset.saturating_add(chunk_len);
-                }
-                if let Err(err) = loader_handle.end_of_stream() {
-                    log!("[video] baked asset end-of-stream error: {}", err);
-                }
-            })
-            .map_err(|err| err.to_string())?;
-        Ok(handle)
+    ) -> Result<makepad_widgets::makepad_platform::MediaPlaybackSessionId, String> {
+        let mime = mime.to_string();
+        let content_length = asset.content_length();
+        let byte_source = asset.byte_source();
+        let reader: makepad_media::PullByteSourceReader = std::sync::Arc::new(move |offset, len| {
+            byte_source.read_range(offset, len)
+        });
+        makepad_media::register_pull_mse_playback_session(
+            move || {
+                makepad_widgets::makepad_platform::media_plugin()
+                    .ok_or_else(|| "no media plugin".to_string())?
+                    .create_mse_playback_engine(&mime)
+            },
+            makepad_media::PullMsePlaybackConfig::new(content_length),
+            reader,
+        )
     }
 
     pub(super) fn drain_video_ops(&mut self, cx: &mut Cx) {
@@ -996,17 +974,17 @@ impl App {
                         should_loop,
                     );
                 },
-                VideoOp::PrepareBakedPlayback {
+                VideoOp::PrepareResolvedPlayback {
                     video_id,
                     asset,
                     mime,
                     image_key,
                     autoplay,
                     should_loop,
-                } => match self.create_baked_playback_handle(&mime, asset) {
-                    Ok(handle) => {
+                } => match self.create_resolved_playback_session(&mime, asset) {
+                    Ok(session_id) => {
                         log!(
-                            "[video] prepare-baked id={} mime={} image_key={:?} autoplay={} loop={}",
+                            "[video] prepare-resolved id={} mime={} image_key={:?} autoplay={} loop={}",
                             video_id,
                             mime,
                             image_key,
@@ -1017,13 +995,13 @@ impl App {
                             cx,
                             video_id,
                             image_key,
-                            handle,
+                            session_id,
                             autoplay,
                             should_loop,
                         );
                     }
                     Err(e) => {
-                        log!("[video] baked prepare error id={}: {}", video_id, e);
+                        log!("[video] resolved prepare error id={}: {}", video_id, e);
                         media_controller::dispatch_media_event(
                             video_id,
                             ThreadMediaEvent::Error(e),
@@ -1065,11 +1043,13 @@ impl App {
                     {
                         Ok(engine) => {
                             let handle = makepad_media::SharedMsePlaybackHandle::new(engine);
+                            let session_id = handle.register_session();
+                            self.mse_players.insert(video_id, handle);
                             self.attach_custom_playback_session(
                                 cx,
                                 video_id,
                                 image_key,
-                                handle,
+                                session_id,
                                 false,
                                 false,
                             );

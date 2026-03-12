@@ -68,9 +68,9 @@ pub enum VideoOp {
         autoplay: bool,
         should_loop: bool,
     },
-    /// Set up a browser-owned baked MP4/fMP4 asset on the shared custom
+    /// Set up a browser-owned resolved MP4/fMP4 asset on the shared custom
     /// playback-session path.
-    PrepareBakedPlayback {
+    PrepareResolvedPlayback {
         video_id: u64,
         asset: ResolvedMediaAsset,
         mime: String,
@@ -509,9 +509,9 @@ impl MediaController {
         Self::new_common(video_id, (0, 0), true, !autoplay)
     }
 
-    /// Create a baked custom-playback controller from browser-owned MP4/fMP4
-    /// bytes. This stays on the shared playback-session path used by MSE.
-    pub fn new_baked_playback(
+    /// Create a resolved custom-playback controller from browser-owned MP4/fMP4
+    /// source bytes. This stays on the shared playback-session path used by MSE.
+    pub fn new_resolved_playback(
         asset: ResolvedMediaAsset,
         mime: String,
         image_key: Option<(u32, u32)>,
@@ -520,10 +520,10 @@ impl MediaController {
     ) -> Self {
         let video_id = next_video_id();
         info!(
-            "media: queue PrepareBakedPlayback id={} mime={} image_key={:?} autoplay={} loop={}",
+            "media: queue PrepareResolvedPlayback id={} mime={} image_key={:?} autoplay={} loop={}",
             video_id, mime, image_key, autoplay, should_loop
         );
-        send_op(VideoOp::PrepareBakedPlayback {
+        send_op(VideoOp::PrepareResolvedPlayback {
             video_id,
             asset,
             mime,

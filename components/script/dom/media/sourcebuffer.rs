@@ -95,6 +95,11 @@ impl SourceBuffer {
         }
     }
 
+    pub(crate) fn clear_for_detach(&self) {
+        self.updating.set(false);
+        *self.buffered.borrow_mut() = TimeRangesContainer::default();
+    }
+
     fn begin_update(&self, can_gc: CanGc) {
         self.updating.set(true);
         self.fire_simple_event("updatestart", can_gc);

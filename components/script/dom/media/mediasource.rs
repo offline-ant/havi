@@ -341,6 +341,41 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
         Ok(source_buffer)
     }
 
+    fn RemoveSourceBuffer(&self, source_buffer: &SourceBuffer) -> ErrorResult {
+        if self
+            .source_buffers
+            .borrow()
+            .iter()
+            .any(|existing| existing.is_updating())
+        {
+            return Err(Error::InvalidState(Some(
+                "SourceBuffer is updating".into(),
+            )));
+        }
+
+        let removed = {
+            let mut source_buffers = self.source_buffers.borrow_mut();
+            source_buffers
+                .iter()
+                .position(|existing| std::ptr::eq(&**existing, source_buffer))
+                .map(|index| source_buffers.remove(index))
+        };
+
+        let Some(removed) = removed else {
+            return Err(Error::NotFound(None));
+        };
+
+        DomRoot::from_ref(&*removed).clear_for_detach();
+        if self.source_buffers.borrow().is_empty() {
+            if let Some(element) = self.attached_element.get() {
+                element.reset_media_player();
+            }
+            self.attached_video_id.set(None);
+        }
+        self.sync_source_buffer_lists(CanGc::note());
+        Ok(())
+    }
+
     fn EndOfStream(&self) -> ErrorResult {
         if self.ready_state.get() != READY_STATE_OPEN {
             return Err(Error::InvalidState(Some(

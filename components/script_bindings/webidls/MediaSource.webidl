@@ -14,6 +14,7 @@ interface MediaSource : EventTarget {
   [Throws] attribute unrestricted double duration;
 
   [Throws] SourceBuffer addSourceBuffer(DOMString type);
+  [Throws] undefined removeSourceBuffer(SourceBuffer sourceBuffer);
   [Throws] undefined endOfStream();
 
   attribute EventHandler onsourceopen;

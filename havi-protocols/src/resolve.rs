@@ -11,7 +11,8 @@
 //! - document/media packet resolution
 //! - source-based byte reads
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use hppr_client::{Packet, Signer, ViaSpec, parse_via};
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
@@ -69,6 +70,9 @@ struct ResolvedAccess {
     client: Arc<HpprdClientAsync>,
     urc: String,
 }
+
+static PACKET_CACHE: LazyLock<Mutex<HashMap<String, Arc<Vec<u8>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub async fn route_configured_for_direct_endpoint(
     group: &str,
@@ -306,9 +310,7 @@ async fn read_packet_bytes(
         return Ok(Vec::new());
     }
 
-    let packet = client
-        .get_packet_authenticated(&format!("////{packet_hash}"))
-        .await?;
+    let packet = get_cached_packet(client, packet_hash).await?;
     let headers = packet_headers(&packet);
 
     if is_chunk_manifest(&headers) {
@@ -364,10 +366,27 @@ async fn read_blob_chunk_bytes(
     offset: u64,
     length: usize,
 ) -> Result<Vec<u8>, String> {
-    let packet = client
-        .get_packet_authenticated(&format!("////{hash}"))
-        .await?;
+    let packet = get_cached_packet(client, hash).await?;
     Ok(slice_bytes(packet.data(), offset, length).to_vec())
+}
+
+async fn get_cached_packet(
+    client: &Arc<HpprdClientAsync>,
+    packet_hash: &str,
+) -> Result<Packet, String> {
+    if let Some(bytes) = PACKET_CACHE.lock().unwrap().get(packet_hash).cloned() {
+        return Packet::parse(bytes.as_slice().to_vec().into_boxed_slice())
+            .map_err(|error| format!("cached packet parse failed for {packet_hash}: {error}"));
+    }
+
+    let packet = client
+        .get_packet_authenticated(&format!("////{packet_hash}"))
+        .await?;
+    PACKET_CACHE
+        .lock()
+        .unwrap()
+        .insert(packet_hash.to_string(), Arc::new(packet.as_bytes().to_vec()));
+    Ok(packet)
 }
 
 fn packet_headers(packet: &Packet) -> Vec<(String, String)> {

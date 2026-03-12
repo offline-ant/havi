@@ -348,8 +348,9 @@ Available API surface:
 
 - constructor: `new MediaSource()`
 - static: `MediaSource.isTypeSupported(mimeType)`
-- attributes: `readyState`
-- methods: `addSourceBuffer(mimeType)`, `endOfStream()`
+- attributes: `readyState`, `duration`, `sourceBuffers`, `activeSourceBuffers`
+- methods: `addSourceBuffer(mimeType)`, `removeSourceBuffer(sourceBuffer)`,
+  `endOfStream()`
 - object URLs: `URL.createObjectURL(mediaSource)`, `URL.revokeObjectURL(url)`
 - events: `sourceopen`, `sourceended`, `sourceclose`
 
@@ -362,7 +363,7 @@ Available API surface:
 Current limits:
 
 - one attached `SourceBuffer` per `MediaSource`
-- no `duration`, `sourceBuffers`, or `activeSourceBuffers` DOM lists yet
+- one active-buffer model; no multi-`SourceBuffer` coordination yet
 - valid single-buffer MP4/fMP4 append can reach metadata, buffered ranges,
   and decode/present through HAVI's shared custom playback session path
 - append/remove stay limited to MP4/fMP4 custom playback

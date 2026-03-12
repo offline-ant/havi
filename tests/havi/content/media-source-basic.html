@@ -106,15 +106,26 @@
       assertEqual(mediaSource.activeSourceBuffers.length, 1,
         'activeSourceBuffers stays populated while MediaSource is ended');
 
-      log('--- detach closes MediaSource and clears activeSourceBuffers ---');
+      log('--- removeSourceBuffer updates lists and detaches MSE buffer state ---');
+      mediaSource.removeSourceBuffer(sourceBuffer);
+      assertEqual(mediaSource.sourceBuffers.length, 0, 'removeSourceBuffer clears sourceBuffers');
+      assertEqual(mediaSource.activeSourceBuffers.length, 0,
+        'removeSourceBuffer clears activeSourceBuffers');
+      assertEqual(sourceBuffer.buffered.length, 0,
+        'removed SourceBuffer clears buffered ranges');
+      expectThrows(
+        () => mediaSource.removeSourceBuffer(sourceBuffer),
+        'removeSourceBuffer rejects a missing buffer');
+
+      log('--- detach closes MediaSource after buffer removal ---');
       const closed = waitEvent(mediaSource, 'sourceclose');
       video.removeAttribute('src');
       video.load();
       await closed;
       assertEqual(mediaSource.readyState, 'closed', 'detaching media element closes MediaSource');
-      assertEqual(mediaSource.sourceBuffers.length, 1, 'sourceBuffers stays stable across detach');
+      assertEqual(mediaSource.sourceBuffers.length, 0, 'sourceBuffers stays empty across detach');
       assertEqual(mediaSource.activeSourceBuffers.length, 0,
-        'activeSourceBuffers clears on detach');
+        'activeSourceBuffers stays empty on detach');
 
       URL.revokeObjectURL(url);
       assert(true, 'revokeObjectURL(MediaSource) completed');

@@ -233,9 +233,9 @@ pub(super) struct HTMLMediaElementFetchListener {
     fetched_content_length: u64,
     /// Whether this fetch should hand browser-owned bytes into custom playback.
     buffer_response_body: bool,
-    /// Buffered response bytes for custom baked playback.
+    /// Buffered response bytes for custom resolved playback.
     response_body: Vec<u8>,
-    /// Response content type used to select the baked playback ingress path.
+    /// Response content type used to select the resolved playback ingress path.
     content_type: Option<String>,
 }
 
@@ -341,16 +341,16 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
         // <https://html.spec.whatwg.org/multipage/#media-data-processing-steps-list>
         if status.is_ok() && self.fetched_content_length != 0 {
             if self.buffer_response_body {
-                let Some(mime) = element.infer_baked_custom_mime(&self.url, self.content_type.as_deref()) else {
-                    info!("media: baked fetch mime inference failed url={}", self.url);
+                let Some(mime) = element.infer_resolved_custom_mime(&self.url, self.content_type.as_deref()) else {
+                    info!("media: resolved fetch mime inference failed url={}", self.url);
                     element.media_data_processing_failure_steps();
                     network_listener::submit_timing(&self, &status, &timing, CanGc::from_cx(cx));
                     return;
                 };
                 let bytes = std::mem::take(&mut self.response_body);
-                let asset = element.create_in_memory_baked_asset(bytes, Some(mime.clone()));
-                if element.create_baked_media_player(asset, mime).is_err() {
-                    info!("media: baked fetch create_baked_media_player failed url={}", self.url);
+                let asset = element.create_in_memory_resolved_asset(bytes, Some(mime.clone()));
+                if element.create_resolved_media_player(asset, mime).is_err() {
+                    info!("media: resolved fetch create_resolved_media_player failed url={}", self.url);
                     element.media_data_processing_failure_steps();
                     network_listener::submit_timing(&self, &status, &timing, CanGc::from_cx(cx));
                     return;
@@ -440,7 +440,7 @@ impl HTMLMediaElementFetchListener {
             generation_id: element.generation_id.get(),
             request_id,
             next_progress_event: Instant::now() + Duration::from_millis(350),
-            buffer_response_body: HTMLMediaElement::should_use_custom_baked_hppr_playback(&url),
+            buffer_response_body: HTMLMediaElement::should_use_custom_resolved_hppr_playback(&url),
             response_body: Vec::new(),
             content_type: None,
             url,

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! HPPR-backed baked media assets.
+//! HPPR-backed resolved media assets.
 //!
 //! This layer stays in HAVI/browser code. It resolves HPPR packet content into
 //! a browser-owned media asset plus a blocking byte source that the media crate
@@ -21,7 +21,7 @@ pub enum HpprResolvedMediaKind {
     ChunkManifest,
 }
 
-/// HPPR-specific baked media asset metadata retained above the shared
+/// HPPR-specific resolved media asset metadata retained above the shared
 /// `MediaByteSource` boundary.
 #[derive(Clone)]
 pub struct ResolvedHpprMediaAsset {
@@ -33,7 +33,7 @@ pub struct ResolvedHpprMediaAsset {
 }
 
 impl ResolvedHpprMediaAsset {
-    /// Resolve a fetched HPPR packet into a browser-owned baked media asset.
+    /// Resolve a fetched HPPR packet into a browser-owned resolved media asset.
     pub fn from_packet(
         endpoint: String,
         is_repo: bool,

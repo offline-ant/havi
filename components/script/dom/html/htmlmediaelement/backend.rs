@@ -4,17 +4,17 @@ use media::{MediaAssetMetadata, MediaByteSource, ResolvedMediaAsset, clamp_byte_
 
 use super::*;
 
-struct InMemoryBakedByteSource {
+struct InMemoryResolvedByteSource {
     bytes: Vec<u8>,
 }
 
-impl InMemoryBakedByteSource {
+impl InMemoryResolvedByteSource {
     fn new(bytes: Vec<u8>) -> Self {
         Self { bytes }
     }
 }
 
-impl MediaByteSource for InMemoryBakedByteSource {
+impl MediaByteSource for InMemoryResolvedByteSource {
     fn read_range(&self, start: u64, len: usize) -> Result<Vec<u8>, String> {
         let Some((start, end)) = clamp_byte_range(self.bytes.len() as u64, start, len) else {
             return Ok(Vec::new());
@@ -175,7 +175,7 @@ impl HTMLMediaElement {
         self.install_media_controller(controller);
         Ok(())
     }
-    pub(super) fn create_in_memory_baked_asset(
+    pub(super) fn create_in_memory_resolved_asset(
         &self,
         bytes: Vec<u8>,
         content_type: Option<String>,
@@ -183,7 +183,7 @@ impl HTMLMediaElement {
         let content_length = bytes.len() as u64;
         ResolvedMediaAsset::new(
             MediaAssetMetadata::new(content_length, content_type),
-            Arc::new(InMemoryBakedByteSource::new(bytes)),
+            Arc::new(InMemoryResolvedByteSource::new(bytes)),
         )
     }
 
@@ -238,7 +238,7 @@ impl HTMLMediaElement {
         self.install_media_controller(controller);
         Ok(video_id)
     }
-    pub(super) fn create_baked_media_player(
+    pub(super) fn create_resolved_media_player(
         &self,
         asset: ResolvedMediaAsset,
         mime: String,
@@ -257,14 +257,14 @@ impl HTMLMediaElement {
                 .generate_image_key_blocking(webview_id)
                 .map(|k| (k.0.0, k.1))
                 .unwrap_or((0, 0));
-            info!("media: baked video image_key={:?}", image_key);
+            info!("media: resolved video image_key={:?}", image_key);
             Some(image_key)
         } else {
             None
         };
 
         info!(
-            "media: create baked player kind={} mime={} bytes={} autoplay={} loop={} muted={}",
+            "media: create resolved player kind={} mime={} bytes={} autoplay={} loop={} muted={}",
             if image_key.is_some() { "video" } else { "audio" },
             mime,
             asset.content_length(),
@@ -273,7 +273,7 @@ impl HTMLMediaElement {
             muted,
         );
 
-        let controller = MediaController::new_baked_playback(
+        let controller = MediaController::new_resolved_playback(
             asset,
             mime,
             image_key,
@@ -295,7 +295,7 @@ impl HTMLMediaElement {
         self.duration.set(duration);
         self.queue_media_element_task_to_fire_event(atom!("durationchange"));
     }
-    pub(super) fn reset_media_player(&self) {
+    pub(crate) fn reset_media_player(&self) {
         if self.media_controller.borrow().is_none() {
             return;
         }

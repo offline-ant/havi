@@ -29,7 +29,7 @@ impl MediaAssetMetadata {
     }
 }
 
-/// Blocking byte source for resolved baked media assets.
+/// Blocking byte source for resolved media assets.
 ///
 /// Implementations must clamp reads to the asset length and return an empty
 /// buffer when `start` is at or past end-of-stream.
@@ -37,7 +37,7 @@ pub trait MediaByteSource: Send + Sync {
     fn read_range(&self, start: u64, len: usize) -> Result<Vec<u8>, String>;
 }
 
-/// A browser-resolved baked media asset handed to the media playback layer.
+/// A browser-resolved media asset handed to the media playback layer.
 #[derive(Clone)]
 pub struct ResolvedMediaAsset {
     metadata: MediaAssetMetadata,
