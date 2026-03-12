@@ -2,19 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use hppr_client::{ViaSpec, parse_via};
 use hppr_packet::Packet;
 use hppr_packet::crypto::calculate_hash;
 use hppr_packet::writer::PacketWriter;
 use media::{MediaAssetMetadata, ResolvedMediaAsset, clamp_byte_range};
 use net::hppr_media::{HpprResolvedMediaKind, ResolvedHpprMediaAsset};
 
-fn endpoint() -> ViaSpec {
-    parse_via("127.0.0.1:4777").unwrap()
+fn endpoint() -> String {
+    "127.0.0.1:4777".to_string()
 }
 
 fn build_blob_packet(data: &[u8], content_type: Option<&str>) -> Packet {
@@ -67,17 +64,15 @@ fn build_manifest_packet(
     Packet::parse(bytes.into_boxed_slice()).unwrap()
 }
 
-fn manifest_packet_bytes(
-    chunks: &[(u64, u64, &str)],
-    total_length: u64,
-    content_type: Option<&str>,
-) -> Vec<u8> {
-    let packet = build_manifest_packet(chunks, total_length, content_type);
-    packet.as_bytes().to_vec()
-}
-
 fn blob_hash(data: &[u8]) -> String {
     calculate_hash('B', [data])
+}
+
+fn slice_bytes(bytes: &[u8], start: u64, len: usize) -> Vec<u8> {
+    let Some((start, end)) = clamp_byte_range(bytes.len() as u64, start, len) else {
+        return Vec::new();
+    };
+    bytes[start as usize..end as usize].to_vec()
 }
 
 #[test]
@@ -85,7 +80,10 @@ fn media_contract_clamp_helper_is_explicit() {
     assert_eq!(clamp_byte_range(12, 3, 20), Some((3, 12)));
     assert_eq!(clamp_byte_range(12, 12, 1), None);
 
-    let asset = ResolvedMediaAsset::new(MediaAssetMetadata::new(12, Some("video/mp4".into())), Arc::new(TestByteSource));
+    let asset = ResolvedMediaAsset::new(
+        MediaAssetMetadata::new(12, Some("video/mp4".into())),
+        Arc::new(TestByteSource),
+    );
     assert_eq!(asset.content_type(), Some("video/mp4"));
     assert_eq!(asset.read_range(2, 4).unwrap(), b"2345");
 }
@@ -93,9 +91,13 @@ fn media_contract_clamp_helper_is_explicit() {
 #[test]
 fn hppr_blob_asset_reads_clamped_ranges() {
     let packet = build_blob_packet(b"abcdefghij", Some("video/mp4"));
-    let asset = ResolvedHpprMediaAsset::from_packet(endpoint(), true, &packet, Arc::new(|_| {
-        Err("unused".into())
-    }))
+    let full = b"abcdefghij".to_vec();
+    let asset = ResolvedHpprMediaAsset::from_packet(
+        endpoint(),
+        true,
+        &packet,
+        Arc::new(move |start, len| Ok(slice_bytes(&full, start, len))),
+    )
     .unwrap();
 
     assert_eq!(asset.kind(), &HpprResolvedMediaKind::Blob);
@@ -121,24 +123,12 @@ fn hppr_chunk_manifest_asset_reads_random_ranges() {
         Some("video/mp4"),
     );
 
-    let blobs = HashMap::from([
-        (h1.clone(), c1.to_vec()),
-        (h2.clone(), c2.to_vec()),
-        (h3.clone(), c3.to_vec()),
-    ]);
-    let fetches = Arc::new(AtomicUsize::new(0));
-    let fetches_clone = fetches.clone();
+    let full = b"abcdefghijkl".to_vec();
     let asset = ResolvedHpprMediaAsset::from_packet(
         endpoint(),
         false,
         &packet,
-        Arc::new(move |hash| {
-            fetches_clone.fetch_add(1, Ordering::Relaxed);
-            blobs
-                .get(hash)
-                .cloned()
-                .ok_or_else(|| format!("missing chunk {hash}"))
-        }),
+        Arc::new(move |start, len| Ok(slice_bytes(&full, start, len))),
     )
     .unwrap();
 
@@ -149,45 +139,31 @@ fn hppr_chunk_manifest_asset_reads_random_ranges() {
     assert_eq!(asset.read_range(1, 7).unwrap(), b"bcdefgh");
     assert_eq!(asset.read_range(6, 4).unwrap(), b"ghij");
     assert_eq!(asset.read_range(0, 12).unwrap(), b"abcdefghijkl");
-    assert!(fetches.load(Ordering::Relaxed) >= 3);
 }
 
 #[test]
-fn hppr_chunk_manifest_asset_resolves_nested_manifests() {
+fn hppr_chunk_manifest_asset_uses_resolved_source_reads() {
     let inner_chunk = b"nested-content";
     let inner_hash = blob_hash(inner_chunk);
-    let nested_manifest_bytes = manifest_packet_bytes(
-        &[(0, inner_chunk.len() as u64, &inner_hash)],
-        inner_chunk.len() as u64,
-        None,
-    );
-    let nested_manifest_hash = calculate_hash('P', [nested_manifest_bytes.as_slice()]);
     let packet = build_manifest_packet(
-        &[(0, inner_chunk.len() as u64, &nested_manifest_hash)],
+        &[(0, inner_chunk.len() as u64, &inner_hash)],
         inner_chunk.len() as u64,
         Some("audio/mp4"),
     );
 
-    let blobs = HashMap::from([
-        (inner_hash.clone(), inner_chunk.to_vec()),
-        (nested_manifest_hash.clone(), nested_manifest_bytes),
-    ]);
+    let full = inner_chunk.to_vec();
     let asset = ResolvedHpprMediaAsset::from_packet(
         endpoint(),
         false,
         &packet,
-        Arc::new(move |hash| {
-            blobs
-                .get(hash)
-                .cloned()
-                .ok_or_else(|| format!("missing chunk {hash}"))
-        }),
+        Arc::new(move |start, len| Ok(slice_bytes(&full, start, len))),
     )
     .unwrap();
 
     assert_eq!(asset.asset().content_type(), Some("audio/mp4"));
     assert_eq!(asset.read_range(0, inner_chunk.len()).unwrap(), inner_chunk);
     assert_eq!(asset.read_range(7, 7).unwrap(), b"content");
+    assert!(!inner_hash.is_empty());
 }
 
 struct TestByteSource;

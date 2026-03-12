@@ -15,7 +15,6 @@ use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use dom_struct::dom_struct;
 use embedder_traits::{EmbedderMsg, HpprControlRequest, HpprControlResponse, MediaPositionState, MediaSessionEvent};
 use headers::{ContentLength, ContentRange, HeaderMapExt};
-use hppr_client::{ResponseKind as HpprResponseKind, Signer, parse_via};
 use hppr_packet::Packet;
 use html5ever::{LocalName, Prefix, QualName, local_name, ns};
 use http::StatusCode;
@@ -26,8 +25,7 @@ use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event
 use net::hppr_media::ResolvedHpprMediaAsset;
 use net_traits::request::{Destination, RequestId};
 use net_traits::{
-    CoreResourceMsg, CoreResourceThread, FetchMetadata, FilteredMetadata, HpprRequest,
-    NetworkError, ResourceFetchTiming,
+    CoreResourceThread, FetchMetadata, FilteredMetadata, NetworkError, ResourceFetchTiming,
 };
 use pixels::RasterImage;
 use script_bindings::codegen::GenericUnionTypes::BlobOrMediaSource;

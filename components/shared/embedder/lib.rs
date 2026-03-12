@@ -460,10 +460,58 @@ impl HpprProtocolError {
 
 pub type HpprProtocolResponse = Result<HpprResponse, HpprProtocolError>;
 
-/// Control operations - local filesystem or embedder-managed state.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum HpprResolveRequest {
+    Document {
+        url: String,
+    },
+    Media {
+        url: String,
+    },
+    ReadBytes {
+        source: HpprResolvedSourceRef,
+        offset: u64,
+        length: usize,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HpprResolvedSourceRef {
+    pub endpoint: String,
+    pub signer: Option<String>,
+    pub packet_hash: String,
+    pub is_repo: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HpprResolvedDocument {
+    pub packet: Vec<u8>,
+    pub endpoint: String,
+    pub signer: Option<String>,
+    pub is_repo: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HpprResolvedMediaSource {
+    pub packet: Vec<u8>,
+    pub endpoint: String,
+    pub signer: Option<String>,
+    pub is_repo: bool,
+    pub source: HpprResolvedSourceRef,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum HpprResolveResponse {
+    Document(HpprResolvedDocument),
+    Media(HpprResolvedMediaSource),
+    Bytes(Vec<u8>),
+    Error(String),
+}
+
+/// Control operations handled by the embedder.
 ///
-/// These operations are handled by the embedder layer without network I/O.
-/// Only available to admin contexts (havi://).
+/// Repo-info requests are local embedder state. Shared HPPR resolve requests may
+/// perform browser-owned source resolution on the embedder side.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum HpprControlRequest {
     /// Get the hpprd home repo daemon port
@@ -474,8 +522,8 @@ pub enum HpprControlRequest {
     RepoStatus,
     /// Get admin ring0 credentials from embedder store
     AdminCredential,
-    /// Resolve an HPPR media URL into the source packet plus routing metadata.
-    ResolveMediaPacket { url: String },
+    /// Shared HPPR source resolution.
+    Resolve(HpprResolveRequest),
 }
 
 /// Control operation responses - returned from local/embedder operations.
@@ -491,13 +539,8 @@ pub enum HpprControlResponse {
     RepoStatus(String),
     /// Admin credential (ring1 name + token)
     AdminCredential { ring1_name: String, token: String },
-    /// Resolved HPPR media packet plus routing metadata.
-    ResolvedMediaPacket {
-        packet: Vec<u8>,
-        endpoint: String,
-        signer: Option<String>,
-        is_repo: bool,
-    },
+    /// Shared HPPR source resolution response.
+    Resolve(HpprResolveResponse),
     /// Error message
     Error(String),
 }

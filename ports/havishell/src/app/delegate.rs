@@ -1,8 +1,13 @@
 use super::*;
 use havi_protocols::client::HpprdClientAsync;
 use havi_protocols::credentials::global_credential_store;
-use hppr_client::parse_via;
-use servo::{CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse};
+use havi_protocols::resolve;
+use hppr_client::{Signer, parse_via};
+use servo::{
+    CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse,
+    HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument, HpprResolvedMediaSource,
+    HpprResolvedSourceRef,
+};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -167,11 +172,73 @@ fn home_repo_target() -> hppr_client::ViaSpec {
         .unwrap_or_else(havi_protocols::repo_target::get)
 }
 
-fn resolve_media_packet_response(url: String) -> HpprControlResponse {
+fn signer_identity_string(signer: &Signer) -> Option<String> {
+    match signer {
+        Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}#{}", group, signing_key)),
+        Signer::Ring1 {
+            ring1_name,
+            signing_key,
+        } => Some(format!("ring1:{}#{}", ring1_name, signing_key)),
+        Signer::Ring1Adhoc { token, ring1_name } => {
+            Some(format!("ring1:{}#{}", ring1_name, token))
+        },
+        Signer::Ring2Adhoc {
+            credential_input, ..
+        } => Some(format!("ring2:{}", credential_input)),
+        Signer::Ring2Contextual { username, password } => {
+            Some(format!("ring2:/{}#{}", username, password))
+        },
+        Signer::Anyone { .. } => None,
+    }
+}
+
+fn map_document(result: resolve::ResolvedDocument) -> HpprResolveResponse {
+    HpprResolveResponse::Document(HpprResolvedDocument {
+        packet: result.packet.as_bytes().to_vec(),
+        endpoint: result.endpoint.to_string(),
+        signer: result.signer.as_ref().and_then(signer_identity_string),
+        is_repo: result.is_repo,
+    })
+}
+
+fn map_media(result: resolve::ResolvedMediaSource) -> HpprResolveResponse {
+    HpprResolveResponse::Media(HpprResolvedMediaSource {
+        packet: result.packet.as_bytes().to_vec(),
+        endpoint: result.endpoint.to_string(),
+        signer: result.signer.as_ref().and_then(signer_identity_string),
+        is_repo: result.is_repo,
+        source: HpprResolvedSourceRef {
+            endpoint: result.source.endpoint.to_string(),
+            signer: result.source.signer.as_ref().and_then(signer_identity_string),
+            packet_hash: result.source.packet_hash,
+            is_repo: result.source.is_repo,
+        },
+    })
+}
+
+fn parse_source_ref(source: HpprResolvedSourceRef) -> Result<resolve::ResolvedSourceRef, String> {
+    let endpoint = parse_via(&source.endpoint).map_err(|error| error.to_string())?;
+    let signer = source
+        .signer
+        .as_deref()
+        .map(Signer::parse)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    Ok(resolve::ResolvedSourceRef {
+        endpoint,
+        signer,
+        packet_hash: source.packet_hash,
+        is_repo: source.is_repo,
+    })
+}
+
+fn resolve_response(request: HpprResolveRequest) -> HpprControlResponse {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(err) => {
-            return HpprControlResponse::Error(format!("media resolve runtime: {err}"));
+            return HpprControlResponse::Resolve(HpprResolveResponse::Error(format!(
+                "resolve runtime: {err}"
+            )));
         },
     };
 
@@ -180,28 +247,40 @@ fn resolve_media_packet_response(url: String) -> HpprControlResponse {
         let client = match HpprdClientAsync::new(target) {
             Ok(client) => Arc::new(client),
             Err(err) => {
-                return HpprControlResponse::Error(format!("media resolve client: {err}"));
+                return HpprControlResponse::Resolve(HpprResolveResponse::Error(format!(
+                    "resolve client: {err}"
+                )));
             },
         };
         let creds = global_credential_store();
-        let page = havi_protocols::pages::hppr::handle_request(&url, &client, &creds).await;
-        let Some(packet) = page.hppr_packet else {
-            return HpprControlResponse::Error(format!(
-                "media resolve returned no packet for {url}"
-            ));
+
+        let response = match request {
+            HpprResolveRequest::Document { url } => {
+                match resolve::resolve_document(&url, &client, &creds).await {
+                    Ok(result) => map_document(result),
+                    Err(error) => HpprResolveResponse::Error(error),
+                }
+            },
+            HpprResolveRequest::Media { url } => {
+                match resolve::resolve_media(&url, &client, &creds).await {
+                    Ok(result) => map_media(result),
+                    Err(error) => HpprResolveResponse::Error(error),
+                }
+            },
+            HpprResolveRequest::ReadBytes {
+                source,
+                offset,
+                length,
+            } => match parse_source_ref(source) {
+                Ok(source) => match resolve::read_resolved_bytes(&source, &client, offset, length).await {
+                    Ok(bytes) => HpprResolveResponse::Bytes(bytes),
+                    Err(error) => HpprResolveResponse::Error(error),
+                },
+                Err(error) => HpprResolveResponse::Error(error),
+            },
         };
-        let Some(endpoint) = page.hppr_endpoint else {
-            return HpprControlResponse::Error(format!(
-                "media resolve returned no endpoint for {url}"
-            ));
-        };
-        let signer = page.hppr_signer;
-        HpprControlResponse::ResolvedMediaPacket {
-            packet: packet.as_bytes().to_vec(),
-            endpoint,
-            is_repo: signer.is_none(),
-            signer,
-        }
+
+        HpprControlResponse::Resolve(response)
     })
 }
 
@@ -258,11 +337,11 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         request: servo::ControlOperationRequest,
     ) {
         match request.request.clone() {
-            HpprControlRequest::ResolveMediaPacket { url } => {
+            HpprControlRequest::Resolve(resolve_request) => {
                 std::thread::Builder::new()
-                    .name("havi-media-resolve".to_string())
+                    .name("havi-resolve".to_string())
                     .spawn(move || {
-                        request.respond(resolve_media_packet_response(url));
+                        request.respond(resolve_response(resolve_request));
                     })
                     .ok();
             },

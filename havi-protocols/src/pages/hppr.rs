@@ -4,73 +4,21 @@
 
 //! HPPR page handler.
 //!
-//! Handles hppr:// URLs by fetching content from an HPPR daemon.
-//! URL format: hppr://group/app/location
-//! LIST mode: hppr://group/app/location/ (trailing slash)
+//! This module keeps only page-facing rendering behavior.
+//! Shared HPPR source resolution lives in `crate::resolve`.
 
 use std::sync::Arc;
 
-use hppr_client::{ViaSpec, parse_via};
-use hppr_packet::chunk::{ChunkKind, is_chunk_manifest, parse_chunk_manifest};
+use hppr_client::Signer;
+
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
-use crate::url::{HAVIAddress, via_url};
-use crate::util::{
-    RouteEndpointSource, append_location, html_escape, markdown_to_html, mime_from_path,
-    resolve_route_endpoint,
+use crate::resolve::{
+    resolve_document, resolve_listing, route_configured_for_direct_endpoint,
 };
-
-/// Resolve a HAVIAddress to endpoint and route metadata.
-async fn resolve_target(
-    url: &HAVIAddress,
-    repo_client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
-    page_endpoint: Option<&ViaSpec>,
-) -> Result<(ViaSpec, Option<String>, RouteEndpointSource), String> {
-    let repo_target = repo_client.target();
-
-    let parts = url.parts();
-    let (endpoint, upstream_key, source) = if let Some(endpoint) = url.endpoint_string() {
-        if endpoint == "repo" {
-            (repo_target, None, RouteEndpointSource::HomeFallback)
-        } else {
-            let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
-            (via, None, RouteEndpointSource::Routed)
-        }
-    } else if let Some(endpoint) = page_endpoint {
-        (endpoint.clone(), None, RouteEndpointSource::Routed)
-    } else {
-        resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await
-    };
-
-    Ok((endpoint, upstream_key, source))
-}
-
-async fn resolve_deployment_target(
-    route_client: &Arc<HpprdClientAsync>,
-    group: &str,
-    app: &str,
-    requested_location: &str,
-    upstream_key: Option<&str>,
-    is_listing: bool,
-) -> Result<String, String> {
-    let repo_vkey = match upstream_key {
-        Some(key) => key.to_string(),
-        None => route_client.get_admin_identity().await?,
-    };
-
-    let deploy = route_client
-        .get_deploy(group, app, &repo_vkey)
-        .await?;
-
-    let target = append_location(&deploy.root, requested_location);
-    Ok(if is_listing {
-        format!("{}/", target.trim_end_matches('/'))
-    } else {
-        format!("{}/|/seal/{}", target, deploy.signer)
-    })
-}
+use crate::url::{HAVIAddress, via_url};
+use crate::util::{html_escape, markdown_to_html, mime_from_path};
 
 /// Handle an hppr:// URL request.
 pub async fn handle_request(
@@ -82,29 +30,21 @@ pub async fn handle_request(
 
     let address = match HAVIAddress::parse(url) {
         Ok(u) => u,
-        Err(e) => {
-            return PageResponse::error("Invalid URL", &e.to_string(), None);
-        },
+        Err(e) => return PageResponse::error("Invalid URL", &e.to_string(), None),
     };
 
     let parts = address.parts();
     let location = address.location_with_slash();
 
-    // Direct endpoint redirect: when navigating to hppr://...{via:...} for the first time,
-    // redirect to hppr-setup://...{via:...} if no route exists.
     if let Some(host) = address.endpoint_string() {
-        if !parts.group.is_empty() && !parts.app.is_empty() {
-            let route_exists = match credential_store.get_admin() {
-                Some(_) => match client.get_admin_identity().await {
-                    Ok(key) => client
-                        .get_route(&parts.group, &parts.app, &key)
-                        .await
-                        .is_ok(),
-                    Err(_) => false,
-                },
-                None => false,
-            };
-
+        if host != "repo" && !parts.group.is_empty() && !parts.app.is_empty() {
+            let route_exists = route_configured_for_direct_endpoint(
+                &parts.group,
+                &parts.app,
+                client,
+                credential_store,
+            )
+            .await;
             if !route_exists {
                 let setup_coord = if location.is_empty() || location == "/" {
                     format!("hppr-setup://{}/{}/", parts.group, parts.app)
@@ -112,157 +52,30 @@ pub async fn handle_request(
                     format!("hppr-setup://{}/{}/{}", parts.group, parts.app, location)
                 };
                 let setup_url = via_url(&setup_coord, &host);
-                let redirect_html =
-                    render_setup_redirect(&setup_url, &host, &parts.group, &parts.app);
-                return PageResponse::html(redirect_html);
+                return PageResponse::html(render_setup_redirect(
+                    &setup_url,
+                    &host,
+                    &parts.group,
+                    &parts.app,
+                ));
             }
         }
     }
 
-    let (endpoint, upstream_key, source) = match resolve_target(&address, client, credential_store, None).await {
-        Ok(r) => r,
-        Err(e) => {
-            return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
-        },
-    };
-
-    let urc = HAVIAddress::build_urc_string(&parts.group, &parts.app, &location);
-    log::info!(
-        "hppr::handle_request resolved endpoint={} urc={}",
-        endpoint,
-        urc
-    );
-    let is_repo = matches!(source, RouteEndpointSource::HomeFallback);
-    let is_listing = address.is_listing();
-
-    if is_listing {
-        handle_list(
-            client,
-            &address,
-            &endpoint,
-            url,
-            &urc,
-            &parts.group,
-            &parts.app,
-            is_repo,
-            upstream_key.as_deref(),
-            credential_store,
-        )
-        .await
+    if address.is_listing() {
+        handle_list(url, &parts.group, &parts.app, client, credential_store).await
     } else {
-        handle_get(
-            &address,
-            &endpoint,
-            url,
-            &urc,
-            &parts.group,
-            &parts.app,
-            is_repo,
-            upstream_key.as_deref(),
-            client,
-            credential_store,
-        )
-        .await
+        handle_get(url, &parts.group, &parts.app, client, credential_store).await
     }
 }
 
-/// Reassemble chunk data from a chunk manifest by fetching each chunk blob by hash.
-async fn reassemble_chunks(
-    client: &Arc<HpprdClientAsync>,
-    manifest: &hppr_packet::chunk::ChunkManifest,
-) -> Result<Vec<u8>, String> {
-    let mut result = Vec::with_capacity(manifest.total_length as usize);
-
-    for chunk in &manifest.chunks {
-        let hash_urc = format!("////{}", chunk.hash);
-        let blob_packet = client
-            .get_packet_authenticated(&hash_urc)
-            .await
-            .map_err(|e| format!("failed to fetch chunk {}: {}", chunk.hash, e))?;
-
-        let chunk_data = match chunk.kind {
-            ChunkKind::Blob => blob_packet.data().to_vec(),
-            ChunkKind::Manifest => {
-                // Nested manifest: parse sub-manifest and recurse
-                let sub_headers: Vec<(String, String)> = blob_packet
-                    .headers()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-                    .collect();
-                let sub_manifest = parse_chunk_manifest(&sub_headers)
-                    .map_err(|e| format!("invalid sub-manifest: {e}"))?;
-                Box::pin(reassemble_chunks(client, &sub_manifest)).await?
-            },
-        };
-
-        let expected = (chunk.end - chunk.start) as usize;
-        if chunk_data.len() != expected {
-            return Err(format!(
-                "chunk {} has {} bytes, expected {}",
-                chunk.hash,
-                chunk_data.len(),
-                expected,
-            ));
-        }
-        result.extend_from_slice(&chunk_data);
-    }
-
-    Ok(result)
-}
-
-/// Build a route client for non-repo endpoints (Ring2 signer).
-async fn build_route_client(
-    endpoint: &ViaSpec,
-    group: &str,
-    url: &str,
-    client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
-) -> Result<Arc<HpprdClientAsync>, PageResponse> {
-    match credential_store
-        .get_or_create_route_credential_async(group, client)
-        .await
-    {
-        Ok(route_cred) => {
-            let signer = hppr_client::Signer::ring2(group, route_cred.signing_key());
-            Ok(Arc::new(HpprdClientAsync::new_with_signer(
-                endpoint.clone(),
-                signer,
-            )))
-        },
-        Err(e) => Err(PageResponse::error(
-            "HPPR Error",
-            &format!("No route credential for {}: {}", group, e),
-            Some(&format!("URL: {}", url)),
-        )),
-    }
-}
-
-/// Redirect to hppr-join:// for unauthorized Ring2 access.
-fn unauthorized_join_redirect(group: &str, app: &str) -> PageResponse {
-    let join_url = format!("hppr-join://{}/{}/", group, app);
-    let html = render_join_redirect(&join_url, group, app);
-    PageResponse::html(html)
-}
-
-/// Handle GET requests.
 async fn handle_get(
-    address: &HAVIAddress,
-    endpoint: &ViaSpec,
     url: &str,
-    urc: &str,
     group: &str,
     app: &str,
-    is_repo: bool,
-    upstream_key: Option<&str>,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> PageResponse {
-    log::info!(
-        "handle_get: urc={} endpoint={} is_repo={}",
-        urc,
-        endpoint,
-        is_repo
-    );
-
     if group.is_empty() || app.is_empty() {
         return PageResponse::error(
             "HPPR Error",
@@ -271,115 +84,107 @@ async fn handle_get(
         );
     }
 
-    // Build the appropriate client for the target endpoint.
-    // For routed (non-repo) content, connect to the remote with Ring2 signer.
-    let route_client: Option<Arc<HpprdClientAsync>> = if !is_repo {
-        match build_route_client(endpoint, group, url, client, credential_store).await {
-            Ok(c) => Some(c),
-            Err(resp) => return resp,
-        }
-    } else {
-        None
-    };
-    let fetch_client = route_client.as_ref().unwrap_or(client);
-
-    let requested_location = address.location_with_slash();
-    let fetch_urc = if is_repo {
-        urc.to_string()
-    } else {
-        match resolve_deployment_target(
-            route_client.as_ref().expect("route_client exists for non-repo"),
-            group,
-            app,
-            &requested_location,
-            upstream_key,
-            false,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
-            },
-        }
-    };
-
-    // Fetch packet via GET
-    let fetch_result = fetch_client.get_packet_authenticated(&fetch_urc).await;
-
-    let packet = match fetch_result {
-        Ok(p) => p,
-        Err(e) => {
-            if e.contains("UNAUTHORIZED") && !is_repo {
-                return unauthorized_join_redirect(group, app);
+    let resolved = match resolve_document(url, client, credential_store).await {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            if error.contains("UNAUTHORIZED") {
+                if let Ok(address) = HAVIAddress::parse(url) {
+                    if address.has_direct_endpoint() || address.is_routed() {
+                        return unauthorized_join_redirect(group, app);
+                    }
+                }
             }
-            if e.contains("NOT_FOUND") {
+            if error.contains("NOT_FOUND") {
                 return render_not_found_response(url);
             }
-            return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
+            return PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)));
         },
     };
 
-    // Chunk manifest detection and reassembly
-    let headers_vec: Vec<(String, String)> = packet
-        .headers()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-
-    let (content_type, body) = if is_chunk_manifest(&headers_vec) {
-        let manifest = match parse_chunk_manifest(&headers_vec) {
-            Ok(m) => m,
-            Err(e) => {
-                return PageResponse::error(
-                    "Chunk Error",
-                    &format!("invalid chunk manifest: {e}"),
-                    Some(&format!("URL: {}", url)),
-                );
-            },
-        };
-
-        let ct = manifest
-            .content_type
-            .clone()
-            .unwrap_or_else(|| "text/html".to_string());
-
-        match reassemble_chunks(client, &manifest).await {
-            Ok(data) => (ct, data),
-            Err(e) => {
-                return PageResponse::error(
-                    "Chunk Error",
-                    &format!("chunk reassembly failed: {e}"),
-                    Some(&format!("URL: {}", url)),
-                );
-            },
-        }
-    } else {
-        let ct = packet.header("Content-Type").unwrap_or("").to_string();
-        (ct, packet.data().to_vec())
-    };
-
-    // Determine MIME type
+    let content_type = resolved
+        .packet
+        .header("Content-Type")
+        .unwrap_or("")
+        .to_string();
     let path = url.split("://").nth(1).unwrap_or("");
     let mime = response_mime(&content_type, path);
 
-    // Resolve site credentials (window.home) and route credentials (window.route)
-    let mut response = {
-        // Transform markdown to HTML
-        if mime == "text/markdown" || path.ends_with(".md") {
-            let title = path.rsplit('/').next().unwrap_or("Document");
-            match markdown_to_html(&body, title) {
-                Ok(html_bytes) => PageResponse::new("text/html", html_bytes).with_packet(packet),
-                Err(e) => return PageResponse::error("Markdown Error", &e, None),
-            }
-        } else {
-            PageResponse::new(mime.to_string(), body).with_packet(packet)
+    let mut response = if mime == "text/markdown" || path.ends_with(".md") {
+        let title = path.rsplit('/').next().unwrap_or("Document");
+        match markdown_to_html(resolved.packet.data(), title) {
+            Ok(html_bytes) => PageResponse::new("text/html", html_bytes).with_packet(resolved.packet),
+            Err(error) => return PageResponse::error("Markdown Error", &error, None),
         }
+    } else {
+        PageResponse::new(mime.to_string(), resolved.packet.data().to_vec()).with_packet(resolved.packet)
     };
 
-    // Set endpoint for window.route
+    apply_page_context(
+        &mut response,
+        &resolved.endpoint.to_string(),
+        resolved.signer.as_ref(),
+        group,
+        app,
+        client,
+        credential_store,
+    )
+    .await;
+
+    response
+}
+
+async fn handle_list(
+    url: &str,
+    group: &str,
+    app: &str,
+    client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) -> PageResponse {
+    match resolve_listing(url, client, credential_store).await {
+        Ok(resolved) => {
+            let path = url.split("://").nth(1).unwrap_or("");
+            let entries: Vec<(String, bool)> = resolved
+                .children
+                .iter()
+                .map(|child| (child.clone(), child.ends_with('/')))
+                .collect();
+            let mut response = PageResponse::html(crate::util::render_directory_listing(path, &entries));
+            apply_page_context(
+                &mut response,
+                &resolved.endpoint.to_string(),
+                resolved.signer.as_ref(),
+                group,
+                app,
+                client,
+                credential_store,
+            )
+            .await;
+            response
+        },
+        Err(error) => {
+            if error.contains("UNAUTHORIZED") {
+                if let Ok(address) = HAVIAddress::parse(url) {
+                    if address.has_direct_endpoint() || address.is_routed() {
+                        return unauthorized_join_redirect(group, app);
+                    }
+                }
+            }
+            PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)))
+        },
+    }
+}
+
+async fn apply_page_context(
+    response: &mut PageResponse,
+    endpoint: &str,
+    signer: Option<&Signer>,
+    group: &str,
+    app: &str,
+    client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) {
     response.hppr_endpoint = Some(endpoint.to_string());
 
-    // Ensure site credentials for window.home
     if !group.is_empty() && !app.is_empty() {
         if let Ok(site_cred) = credential_store
             .get_or_create_site_credential_async(group, app, client)
@@ -392,79 +197,32 @@ async fn handle_get(
         }
     }
 
-    // Set route signer for window.route (Ring2 identity on remote repos)
-    if !is_repo && !group.is_empty() {
-        if let Ok(route_cred) = credential_store
-            .get_or_create_route_credential_async(group, client)
-            .await
-        {
-            response.hppr_signer = Some(format!("ring2:{}#{}", group, route_cred.signing_key()));
-        }
-    }
-
-    response
+    response.hppr_signer = signer.and_then(signer_identity_string);
 }
 
-/// Handle LIST requests.
-async fn handle_list(
-    client: &Arc<HpprdClientAsync>,
-    address: &HAVIAddress,
-    endpoint: &ViaSpec,
-    url: &str,
-    urc: &str,
-    group: &str,
-    app: &str,
-    is_repo: bool,
-    upstream_key: Option<&str>,
-    credential_store: &CredentialStoreHandle,
-) -> PageResponse {
-    let route_client: Option<Arc<HpprdClientAsync>> = if !is_repo {
-        match build_route_client(endpoint, group, url, client, credential_store).await {
-            Ok(c) => Some(c),
-            Err(resp) => return resp,
-        }
-    } else {
-        None
-    };
-
-    let list_client = route_client.as_ref().unwrap_or(client);
-    let requested_location = address.location_with_slash();
-    let list_urc = if is_repo {
-        urc.to_string()
-    } else {
-        match resolve_deployment_target(
-            route_client.as_ref().expect("route_client exists for non-repo"),
-            group,
-            app,
-            &requested_location,
-            upstream_key,
-            true,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                return PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)));
-            },
-        }
-    };
-
-    match list_client.list(&list_urc).await {
-        Ok(children) => {
-            let path = url.split("://").nth(1).unwrap_or("");
-            let entries: Vec<(String, bool)> = children
-                .iter()
-                .map(|c| (c.clone(), c.ends_with('/')))
-                .collect();
-            PageResponse::html(crate::util::render_directory_listing(path, &entries))
+fn signer_identity_string(signer: &Signer) -> Option<String> {
+    match signer {
+        Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}#{}", group, signing_key)),
+        Signer::Ring1 {
+            ring1_name,
+            signing_key,
+        } => Some(format!("ring1:{}#{}", ring1_name, signing_key)),
+        Signer::Ring1Adhoc { token, ring1_name } => {
+            Some(format!("ring1:{}#{}", ring1_name, token))
         },
-        Err(e) => {
-            if e.contains("UNAUTHORIZED") && !is_repo {
-                return unauthorized_join_redirect(group, app);
-            }
-            PageResponse::error("HPPR Error", &e, Some(&format!("URL: {}", url)))
+        Signer::Ring2Adhoc {
+            credential_input, ..
+        } => Some(format!("ring2:{}", credential_input)),
+        Signer::Ring2Contextual { username, password } => {
+            Some(format!("ring2:/{}#{}", username, password))
         },
+        Signer::Anyone { .. } => None,
     }
+}
+
+fn unauthorized_join_redirect(group: &str, app: &str) -> PageResponse {
+    let join_url = format!("hppr-join://{}/{}/", group, app);
+    PageResponse::html(render_join_redirect(&join_url, group, app))
 }
 
 /// Render redirect page to hppr-setup for direct connections without existing route.

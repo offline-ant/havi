@@ -817,10 +817,10 @@ impl CreateNewWebViewRequest {
     }
 }
 
-/// Request for a control operation (local filesystem only, no network).
+/// Request for an embedder-handled control operation.
 ///
-/// Control operations (identities, repo info) are handled directly by the embedder
-/// without going through the network layer.
+/// Some operations are local embedder state. HPPR resolve operations may perform
+/// browser-owned routing and source reads in the embedder.
 pub struct ControlOperationRequest {
     /// The origin URL of the requesting page
     pub origin_url: String,
@@ -855,7 +855,7 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoPathQuery => "REPO_PATH",
             HpprControlRequest::RepoStatus => "REPO_STATUS",
             HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
-            HpprControlRequest::ResolveMediaPacket { .. } => "RESOLVE_MEDIA_PACKET",
+            HpprControlRequest::Resolve(_) => "RESOLVE",
         }
     }
 
@@ -866,7 +866,7 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoPort |
                 HpprControlRequest::RepoPathQuery |
                 HpprControlRequest::RepoStatus |
-                HpprControlRequest::ResolveMediaPacket { .. }
+                HpprControlRequest::Resolve(_)
         )
     }
 
@@ -1059,10 +1059,10 @@ pub trait WebViewDelegate {
     ) {
     }
 
-    /// Handle a control operation (local filesystem only, no network).
+    /// Handle an embedder control operation.
     ///
-    /// Control operations (identities, repo info) are handled directly by the embedder.
-    /// The embedder should execute the operation and respond via request.respond().
+    /// Repo-info operations are local embedder state. Shared HPPR resolve operations
+    /// are also handled here and may perform browser-owned source resolution.
     fn handle_control_operation(&self, _webview: WebView, request: ControlOperationRequest) {
         request.respond(HpprControlResponse::Error(
             "Control operations not supported by this embedder".to_string(),

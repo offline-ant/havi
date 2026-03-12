@@ -8,17 +8,20 @@ HAVI keeps browser transport and playback core responsibilities separate.
 
 Browser-owned transport stays in HAVI code:
 
-- URL resolution
+- shared source resolution through `havi-protocols::resolve`
 - HPPR route and auth policy
 - chunk-manifest detection and traversal
+- source-reference-based byte reads
 - media asset resolution into a byte source
 
 Shared playback contracts live at the HAVI/media boundary:
 
+- page loading and media loading use the same browser resolver module
 - baked media is handed to the media layer as a resolved asset with metadata
   and a blocking random-access `MediaByteSource`
 - `MediaByteSource` is a byte-range contract, not a URL contract
-- reads happen off the script thread on playback/session workers
+- reads happen off the script thread on playback/session workers through the
+  shared resolve `ReadBytes` path
 
 Playback code stays below that boundary:
 

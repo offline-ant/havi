@@ -2,13 +2,15 @@
 
 HAVI exposes HPPR APIs on `window`.
 
-These APIs replace HTTP-style fetch patterns with signed packet operations.
+`window.home` and `window.route` are explicit low-level repo clients.
+`window.resolve(input)` is the browser-owned high-level source resolver.
 
 ## Window globals
 
 - `window.address`: current HPPR address object
 - `window.home`: home repo client (always available)
 - `window.route`: route repo client (nullable)
+- `window.resolve(input)`: browser-owned document source resolver
 - `window.ring0`: admin client (privileged schemes only)
 - `window.H3`: crypto namespace (always available)
 
@@ -164,6 +166,25 @@ Common return types:
 
 `get()` auto-reassembles chunk manifests and returns rendered content.
 Use `envelope()` for manifest-level response inspection.
+
+## `window.resolve(input)`
+
+`window.resolve(input)` applies HAVI's built-in browser resolution policy and
+returns a dedicated resolve result.
+
+It is the high-level source API for browser-owned document resolution.
+It is not a Fetch response and it does not expose fetch-style options.
+It resolves relative input against the current document URL.
+
+Result fields:
+
+- `packet`: resolved `HpprPacket`
+- `endpoint`: selected endpoint string
+- `signer`: signer identity string when routed access is used
+- `isRepo`: whether the resolved source came from the home repo path
+
+`window.resolve()` is document resolve only in this pass.
+Listing stays on `window.home.list()` or `window.route.list()`.
 
 ## Relative resolution
 

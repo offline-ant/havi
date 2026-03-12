@@ -196,4 +196,5 @@ partial interface Window {
   [Pref="dom_hppr_enabled"] readonly attribute HpprClient? route;
   [Pref="dom_hppr_enabled"] readonly attribute HpprPacket? packet;
   [Pref="dom_hppr_enabled"] readonly attribute HpprClient? ring0;
+  [Pref="dom_hppr_enabled", NewObject] Promise<HpprResolveResult> resolve(USVString input);
 };

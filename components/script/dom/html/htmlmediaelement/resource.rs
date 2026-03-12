@@ -419,74 +419,50 @@ impl HTMLMediaElement {
         self.owner_document().fetch_background(request, listener);
     }
 
-    fn send_hppr_request_blocking(
-        core_resource_thread: Arc<std::sync::Mutex<CoreResourceThread>>,
-        endpoint: hppr_client::ViaSpec,
-        signer: Signer,
-        request: HpprRequest,
-    ) -> Result<hppr_client::HpprResponse, String> {
+    fn send_resolve_request_blocking(
+        embedder_chan: embedder_traits::ScriptToEmbedderChan,
+        webview_id: base::id::WebViewId,
+        origin_url: String,
+        request: embedder_traits::HpprResolveRequest,
+    ) -> Result<embedder_traits::HpprResolveResponse, String> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let callback = GenericCallback::new(move |message: Result<net_traits::HpprProtocolResponse, ipc_channel::IpcError>| {
+        let callback = GenericCallback::new(move |message| {
             let result = match message {
-                Ok(response) => response.map_err(|error| {
-                    format!("{} {}", error.error_type, error.detail)
-                }),
+                Ok(HpprControlResponse::Resolve(response)) => Ok(response),
+                Ok(HpprControlResponse::Error(error)) => {
+                    Ok(embedder_traits::HpprResolveResponse::Error(error))
+                },
+                Ok(_) => Err("unexpected control response for resolve request".to_string()),
                 Err(error) => Err(error.to_string()),
             };
             let _ = tx.send(result);
         })
         .map_err(|error| error.to_string())?;
 
-        core_resource_thread
-            .lock()
-            .map_err(|_| "HPPR media resource thread lock poisoned".to_string())?
-            .send(CoreResourceMsg::HpprOperation {
-                endpoint,
-                signer,
-                request,
+        embedder_chan
+            .send(EmbedderMsg::HpprControlOperation(
+                webview_id,
+                origin_url,
+                HpprControlRequest::Resolve(request),
                 callback,
-            })
+            ))
             .map_err(|error| error.to_string())?;
 
         rx.recv().map_err(|error| error.to_string())?
     }
 
-    fn fetch_hppr_chunk_bytes_blocking(
-        core_resource_thread: Arc<std::sync::Mutex<CoreResourceThread>>,
-        endpoint: hppr_client::ViaSpec,
-        signer: Signer,
-        hash: &str,
-    ) -> Result<Vec<u8>, String> {
-        let response = Self::send_hppr_request_blocking(
-            core_resource_thread,
-            endpoint,
-            signer,
-            HpprRequest::Get {
-                urc: format!("////{hash}"),
-            },
-        )?;
-        match response.kind {
-            HpprResponseKind::Packet(packet) => {
-                if hash.starts_with("B.") {
-                    Ok(packet.data().to_vec())
-                } else {
-                    Ok(packet.as_bytes().to_vec())
-                }
-            },
-            _ => Err(format!("HPPR media chunk fetch returned non-packet for {hash}")),
-        }
-    }
-
     fn handle_baked_hppr_asset_response(&self, url: BrowserUrl, response: HpprControlResponse) {
-        let (packet_bytes, endpoint, signer, is_repo) = match response {
-            HpprControlResponse::ResolvedMediaPacket {
-                packet,
-                endpoint,
-                signer,
-                is_repo,
-            } => (packet, endpoint, signer, is_repo),
+        let resolved = match response {
+            HpprControlResponse::Resolve(embedder_traits::HpprResolveResponse::Media(resolved)) => {
+                resolved
+            },
+            HpprControlResponse::Resolve(embedder_traits::HpprResolveResponse::Error(error)) => {
+                info!("media: HPPR resolve failed url={} error={}", url, error);
+                self.media_data_processing_failure_steps();
+                return;
+            },
             HpprControlResponse::Error(error) => {
-                info!("media: baked HPPR resolve failed url={} error={}", url, error);
+                info!("media: HPPR resolve failed url={} error={}", url, error);
                 self.media_data_processing_failure_steps();
                 return;
             },
@@ -496,41 +472,37 @@ impl HTMLMediaElement {
             },
         };
 
-        let Ok(endpoint) = parse_via(&endpoint) else {
-            self.media_data_processing_failure_steps();
-            return;
-        };
-        let signer = match signer {
-            Some(signer) => match Signer::parse(&signer) {
-                Ok(signer) => signer,
-                Err(_) => {
-                    self.media_data_processing_failure_steps();
-                    return;
-                },
-            },
-            None => Signer::anyone(),
-        };
-        let Ok(packet) = Packet::parse(packet_bytes.into_boxed_slice()) else {
+        let Ok(packet) = Packet::parse(resolved.packet.into_boxed_slice()) else {
             self.media_data_processing_failure_steps();
             return;
         };
 
-        let core_resource_thread = Arc::new(std::sync::Mutex::new(self.global().core_resource_thread()));
-        let fetch_endpoint = endpoint.clone();
-        let fetch_signer = signer.clone();
-        let chunk_fetcher = Arc::new(move |hash: &str| {
-            Self::fetch_hppr_chunk_bytes_blocking(
-                core_resource_thread.clone(),
-                fetch_endpoint.clone(),
-                fetch_signer.clone(),
-                hash,
-            )
+        let embedder_chan = self.owner_global().script_to_embedder_chan().clone();
+        let webview_id = self.owner_window().webview_id();
+        let origin_url = self.owner_global().get_url().to_string();
+        let source = resolved.source.clone();
+        let read_range = Arc::new(move |offset: u64, length: usize| {
+            match Self::send_resolve_request_blocking(
+                embedder_chan.clone(),
+                webview_id,
+                origin_url.clone(),
+                embedder_traits::HpprResolveRequest::ReadBytes {
+                    source: source.clone(),
+                    offset,
+                    length,
+                },
+            ) {
+                Ok(embedder_traits::HpprResolveResponse::Bytes(bytes)) => Ok(bytes),
+                Ok(embedder_traits::HpprResolveResponse::Error(error)) => Err(error),
+                Ok(_) => Err("unexpected resolve response for byte read".to_string()),
+                Err(error) => Err(error),
+            }
         });
         let Ok(asset) = ResolvedHpprMediaAsset::from_packet(
-            endpoint,
-            is_repo,
+            resolved.endpoint,
+            resolved.is_repo,
             &packet,
-            chunk_fetcher,
+            read_range,
         ) else {
             self.media_data_processing_failure_steps();
             return;
@@ -591,9 +563,9 @@ impl HTMLMediaElement {
         window.send_to_embedder(EmbedderMsg::HpprControlOperation(
             window.webview_id(),
             origin_url,
-            HpprControlRequest::ResolveMediaPacket {
+            HpprControlRequest::Resolve(embedder_traits::HpprResolveRequest::Media {
                 url: url.to_string(),
-            },
+            }),
             callback,
         ));
     }

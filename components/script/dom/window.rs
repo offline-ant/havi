@@ -35,7 +35,8 @@ use devtools_traits::{ScriptToDevtoolsControlMsg, TimelineMarker, TimelineMarker
 use dom_struct::dom_struct;
 use embedder_traits::user_contents::UserScript;
 use embedder_traits::{
-    AlertResponse, ConfirmResponse, EmbedderMsg, JavaScriptEvaluationError, PromptResponse,
+    AlertResponse, ConfirmResponse, EmbedderMsg, HpprControlRequest, HpprControlResponse,
+    HpprResolveRequest, HpprResolveResponse, JavaScriptEvaluationError, PromptResponse,
     ScriptToEmbedderChan, SimpleDialogRequest, Theme, UntrustedNodeAddress, ViewportDetails,
     WebDriverJSResult, WebDriverLoadStatus,
 };
@@ -77,6 +78,7 @@ use profile_traits::time::ProfilerChan as TimeProfilerChan;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use script_bindings::codegen::GenericBindings::WindowBinding::ScrollToOptions;
 use script_bindings::conversions::SafeToJSValConvertible;
+use script_bindings::cformat;
 use script_bindings::interfaces::WindowHelpers;
 use script_bindings::root::Root;
 use script_traits::{ConstellationInputEvent, ScriptThreadMessage};
@@ -128,7 +130,7 @@ use crate::dom::bindings::error::{
 };
 use crate::dom::bindings::inheritance::{Castable, ElementTypeId, HTMLElementTypeId, NodeTypeId};
 use crate::dom::bindings::num::Finite;
-use crate::dom::bindings::refcounted::Trusted;
+use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
 use crate::dom::bindings::reflector::{DomGlobal, DomObject};
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
@@ -157,6 +159,7 @@ use crate::dom::address::Address;
 use crate::dom::history::History;
 use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprpacket::HpprPacket;
+use crate::dom::hpprresolveresult::HpprResolveResult;
 use crate::dom::html::htmlcollection::{CollectionFilter, HTMLCollection};
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
 use crate::dom::idbfactory::IDBFactory;
@@ -1531,6 +1534,95 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
                 },
             }
         }))
+    }
+
+    fn Resolve(&self, input: USVString) -> Rc<Promise> {
+        let can_gc = CanGc::note();
+        let global = self.as_global_scope();
+        let promise = Promise::new(global, can_gc);
+        let resolved_url = match self
+            .Document()
+            .base_url()
+            .join(&input.0)
+            .or_else(|_| BrowserUrl::parse(&input.0))
+        {
+            Ok(url) => url,
+            Err(error) => {
+                promise.reject_error(
+                    Error::Syntax(Some(format!("Invalid URL: {}", error))),
+                    can_gc,
+                );
+                return promise;
+            },
+        };
+
+        let task_source = global.task_manager().dom_manipulation_task_source().to_sendable();
+        let mut trusted_promise = Some(TrustedPromise::new(promise.clone()));
+        let trusted_window = Trusted::new(self);
+        let callback = GenericCallback::new(move |message| {
+            let Some(trusted_promise) = trusted_promise.take() else {
+                error!("window.resolve callback called twice");
+                return;
+            };
+            let trusted_window = trusted_window.clone();
+            task_source.queue(task!(window_resolve: move || {
+                let promise = trusted_promise.root();
+                let window = trusted_window.root();
+                let global = window.as_global_scope();
+                match message {
+                    Ok(HpprControlResponse::Resolve(HpprResolveResponse::Document(resolved))) => {
+                        let packet = match hppr_packet::Packet::parse(resolved.packet.into_boxed_slice()) {
+                            Ok(packet) => packet,
+                            Err(error) => {
+                                promise.reject_error(Error::Type(cformat!("{}", error)), CanGc::note());
+                                return;
+                            },
+                        };
+                        let packet = match HpprPacket::new(global, packet, CanGc::note()) {
+                            Ok(packet) => packet,
+                            Err(error) => {
+                                promise.reject_error(Error::Type(cformat!("{}", error)), CanGc::note());
+                                return;
+                            },
+                        };
+                        let result = HpprResolveResult::new(
+                            global,
+                            &packet,
+                            resolved.endpoint,
+                            resolved.signer,
+                            resolved.is_repo,
+                            CanGc::note(),
+                        );
+                        promise.resolve_native(&*result, CanGc::note());
+                    },
+                    Ok(HpprControlResponse::Resolve(HpprResolveResponse::Error(error))) |
+                    Ok(HpprControlResponse::Error(error)) => {
+                        promise.reject_error(Error::Type(cformat!("{}", error)), CanGc::note());
+                    },
+                    Ok(_) => {
+                        promise.reject_error(
+                            Error::Type(c"Unexpected resolve response".to_owned()),
+                            CanGc::note(),
+                        );
+                    },
+                    Err(error) => {
+                        promise.reject_error(Error::Type(cformat!("{}", error)), CanGc::note());
+                    },
+                }
+            }));
+        })
+        .expect("Could not create window.resolve callback");
+
+        self.send_to_embedder(EmbedderMsg::HpprControlOperation(
+            self.webview_id(),
+            global.get_url().to_string(),
+            HpprControlRequest::Resolve(HpprResolveRequest::Document {
+                url: resolved_url.to_string(),
+            }),
+            callback,
+        ));
+
+        promise
     }
 
     /// <https://cookiestore.spec.whatwg.org/#Window>

@@ -320,6 +320,7 @@ pub(crate) mod h3;
 pub(crate) mod hpprclient;
 pub(crate) mod hpprerror;
 pub(crate) mod hpprpacket;
+pub(crate) mod hpprresolveresult;
 pub(crate) mod hpprresult;
 pub(crate) mod hpprrepoinfo;
 pub(crate) mod html;
