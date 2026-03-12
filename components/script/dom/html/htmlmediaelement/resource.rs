@@ -511,7 +511,7 @@ impl HTMLMediaElement {
             self.media_data_processing_failure_steps();
             return;
         };
-        if self.create_resolved_media_player(asset.into_asset(), mime).is_err() {
+        if self.create_direct_media_player(asset.into_asset(), mime).is_err() {
             self.media_data_processing_failure_steps();
             return;
         }

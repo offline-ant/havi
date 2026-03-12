@@ -895,25 +895,20 @@ impl App {
         );
     }
 
-    fn create_resolved_playback_session(
+    fn create_direct_playback_session(
         &self,
         mime: &str,
         asset: ResolvedMediaAsset,
     ) -> Result<makepad_widgets::makepad_platform::MediaPlaybackSessionId, String> {
-        let mime = mime.to_string();
         let content_length = asset.content_length();
         let byte_source = asset.byte_source();
-        let reader: makepad_media::PullByteSourceReader = std::sync::Arc::new(move |offset, len| {
+        let reader: makepad_media::DirectByteSourceReader = std::sync::Arc::new(move |offset, len| {
             byte_source.read_range(offset, len)
         });
-        makepad_media::register_pull_mse_playback_session(
-            move || {
-                makepad_widgets::makepad_platform::media_plugin()
-                    .ok_or_else(|| "no media plugin".to_string())?
-                    .create_mse_playback_engine(&mime)
-            },
-            makepad_media::PullMsePlaybackConfig::new(content_length),
+        makepad_media::register_direct_media_playback_session(
             reader,
+            makepad_media::DirectMediaPlaybackConfig::new(content_length),
+            mime,
         )
     }
 
@@ -974,17 +969,17 @@ impl App {
                         should_loop,
                     );
                 },
-                VideoOp::PrepareResolvedPlayback {
+                VideoOp::PrepareDirectPlayback {
                     video_id,
                     asset,
                     mime,
                     image_key,
                     autoplay,
                     should_loop,
-                } => match self.create_resolved_playback_session(&mime, asset) {
+                } => match self.create_direct_playback_session(&mime, asset) {
                     Ok(session_id) => {
                         log!(
-                            "[video] prepare-resolved id={} mime={} image_key={:?} autoplay={} loop={}",
+                            "[video] prepare-direct id={} mime={} image_key={:?} autoplay={} loop={}",
                             video_id,
                             mime,
                             image_key,

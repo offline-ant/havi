@@ -23,14 +23,21 @@ Shared playback contracts live at the HAVI/media boundary:
 - reads happen off the script thread on playback/session workers through the
   shared resolve `ReadBytes` path
 
-Playback code stays below that boundary:
+Playback code stays below that boundary and is split into two ingress models:
 
-- demux
-- decode
-- PCM playout
-- clocking
-- scheduling
-- media-session policy
+- direct source-backed playback over `ResolvedMediaAsset`
+  - container probing
+  - indexing and seek mapping
+  - byte-region caching
+  - demux/decode progression
+- MSE append playback over `MediaSource` / `SourceBuffer`
+  - append/remove/eos handling
+  - append-time demux/decode progression
+- shared lower playback responsibilities
+  - PCM playout
+  - clocking
+  - scheduling
+  - media-session policy
 
 Platform-native delegated playback remains a separate path for ordinary native
 URL/file sources. HPPR-specific concerns do not cross into platform backends.

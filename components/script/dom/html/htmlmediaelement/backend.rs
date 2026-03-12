@@ -238,7 +238,7 @@ impl HTMLMediaElement {
         self.install_media_controller(controller);
         Ok(video_id)
     }
-    pub(super) fn create_resolved_media_player(
+    pub(super) fn create_direct_media_player(
         &self,
         asset: ResolvedMediaAsset,
         mime: String,
@@ -264,7 +264,7 @@ impl HTMLMediaElement {
         };
 
         info!(
-            "media: create resolved player kind={} mime={} bytes={} autoplay={} loop={} muted={}",
+            "media: create direct player kind={} mime={} bytes={} autoplay={} loop={} muted={}",
             if image_key.is_some() { "video" } else { "audio" },
             mime,
             asset.content_length(),
@@ -273,7 +273,7 @@ impl HTMLMediaElement {
             muted,
         );
 
-        let controller = MediaController::new_resolved_playback(
+        let controller = MediaController::new_direct_playback(
             asset,
             mime,
             image_key,

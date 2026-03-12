@@ -231,11 +231,11 @@ pub(super) struct HTMLMediaElementFetchListener {
     expected_content_length: Option<u64>,
     /// Actual content length of the media asset was fetched.
     fetched_content_length: u64,
-    /// Whether this fetch should hand browser-owned bytes into custom playback.
+    /// Whether this fetch should hand browser-owned bytes into direct playback.
     buffer_response_body: bool,
-    /// Buffered response bytes for custom resolved playback.
+    /// Buffered response bytes for browser-owned direct playback.
     response_body: Vec<u8>,
-    /// Response content type used to select the resolved playback ingress path.
+    /// Response content type used to select the direct playback ingress path.
     content_type: Option<String>,
 }
 
@@ -349,8 +349,8 @@ impl FetchResponseListener for HTMLMediaElementFetchListener {
                 };
                 let bytes = std::mem::take(&mut self.response_body);
                 let asset = element.create_in_memory_resolved_asset(bytes, Some(mime.clone()));
-                if element.create_resolved_media_player(asset, mime).is_err() {
-                    info!("media: resolved fetch create_resolved_media_player failed url={}", self.url);
+                if element.create_direct_media_player(asset, mime).is_err() {
+                    info!("media: resolved fetch create_direct_media_player failed url={}", self.url);
                     element.media_data_processing_failure_steps();
                     network_listener::submit_timing(&self, &status, &timing, CanGc::from_cx(cx));
                     return;
