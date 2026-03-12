@@ -27,6 +27,10 @@ use media::controller::{self, MseSourceBufferInputId};
 const STATE_ATTACHED: u8 = 0;
 const STATE_REMOVED: u8 = 1;
 
+const OPERATION_NONE: u8 = 0;
+const OPERATION_APPEND: u8 = 1;
+const OPERATION_REMOVE: u8 = 2;
+
 #[dom_struct]
 pub(crate) struct SourceBuffer {
     eventtarget: EventTarget,
@@ -34,6 +38,7 @@ pub(crate) struct SourceBuffer {
     mime_type: DomRefCell<DOMString>,
     input_id: MseSourceBufferInputId,
     state: Cell<u8>,
+    pending_operation: Cell<u8>,
     updating: Cell<bool>,
     buffered: DomRefCell<TimeRangesContainer>,
 }
@@ -50,6 +55,7 @@ impl SourceBuffer {
             mime_type: DomRefCell::new(mime_type),
             input_id,
             state: Cell::new(STATE_ATTACHED),
+            pending_operation: Cell::new(OPERATION_NONE),
             updating: Cell::new(false),
             buffered: DomRefCell::new(TimeRangesContainer::default()),
         }
@@ -107,6 +113,7 @@ impl SourceBuffer {
     pub(crate) fn notify_update_success(&self, buffered_ranges: &[(f64, f64)], can_gc: CanGc) {
         self.set_buffered_ranges(buffered_ranges);
         if self.updating.replace(false) {
+            self.pending_operation.set(OPERATION_NONE);
             self.fire_simple_event("update", can_gc);
             self.fire_simple_event("updateend", can_gc);
         }
@@ -114,6 +121,7 @@ impl SourceBuffer {
 
     pub(crate) fn notify_update_error(&self, can_gc: CanGc) {
         if self.updating.replace(false) {
+            self.pending_operation.set(OPERATION_NONE);
             self.fire_simple_event("error", can_gc);
             self.fire_simple_event("updateend", can_gc);
         }
@@ -121,10 +129,12 @@ impl SourceBuffer {
 
     pub(crate) fn clear_for_detach(&self) {
         self.updating.set(false);
+        self.pending_operation.set(OPERATION_NONE);
         *self.buffered.borrow_mut() = TimeRangesContainer::default();
     }
 
-    fn begin_update(&self, can_gc: CanGc) {
+    fn begin_update(&self, operation: u8, can_gc: CanGc) {
+        self.pending_operation.set(operation);
         self.updating.set(true);
         self.fire_simple_event("updatestart", can_gc);
     }
@@ -143,6 +153,15 @@ impl SourceBuffer {
             return Err(Error::InvalidState(Some(format!(
                 "SourceBuffer is already updating during {operation}"
             ))));
+        }
+        Ok(())
+    }
+
+    fn require_valid_remove_range(&self, start: f64, end: f64) -> ErrorResult {
+        if start < 0.0 || end <= start {
+            return Err(Error::InvalidAccess(Some(
+                "SourceBuffer remove range must satisfy 0 <= start < end".into(),
+            )));
         }
         Ok(())
     }
@@ -182,15 +201,16 @@ impl SourceBufferMethods<crate::DomTypeHolder> for SourceBuffer {
             ArrayBufferViewOrArrayBuffer::ArrayBufferView(view) => view.to_vec(),
             ArrayBufferViewOrArrayBuffer::ArrayBuffer(buffer) => buffer.to_vec(),
         };
-        self.begin_update(CanGc::note());
+        self.begin_update(OPERATION_APPEND, CanGc::note());
         controller::append_mse_data(video_id, self.input_id, bytes);
         Ok(())
     }
 
     fn Remove(&self, start: Finite<f64>, end: Finite<f64>) -> ErrorResult {
         self.require_not_updating("remove")?;
+        self.require_valid_remove_range(*start, *end)?;
         let video_id = self.require_active_video_id(CanGc::note(), "remove")?;
-        self.begin_update(CanGc::note());
+        self.begin_update(OPERATION_REMOVE, CanGc::note());
         controller::remove_mse_data(video_id, self.input_id, *start, *end);
         Ok(())
     }
@@ -198,6 +218,7 @@ impl SourceBufferMethods<crate::DomTypeHolder> for SourceBuffer {
     fn Abort(&self) -> ErrorResult {
         self.require_attached("abort")?;
         self.updating.set(false);
+        self.pending_operation.set(OPERATION_NONE);
         Ok(())
     }
 

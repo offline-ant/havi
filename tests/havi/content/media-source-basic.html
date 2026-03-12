@@ -95,6 +95,12 @@
       assert(sourceBuffer.updating, 'first appendBuffer sets first SourceBuffer updating');
       assertEqual(secondSourceBuffer.updating, false,
         'first append does not mark second SourceBuffer updating');
+      expectThrows(
+        () => sourceBuffer.appendBuffer(new Uint8Array([9, 9, 9])),
+        'appendBuffer rejects same SourceBuffer while updating');
+      expectThrows(
+        () => sourceBuffer.remove(0, 1),
+        'remove rejects same SourceBuffer while append is updating');
       await firstAppendEnd;
       assertEqual(sourceBuffer.updating, false, 'first append completion clears updating');
       assertEqual(sourceBuffer.buffered.length, 0, 'first truncated append leaves buffered empty');
@@ -117,6 +123,9 @@
       const removeEnd = waitEvent(secondSourceBuffer, 'updateend');
       secondSourceBuffer.remove(0, 1);
       await removeStart;
+      expectThrows(
+        () => secondSourceBuffer.remove(0, 1),
+        'remove rejects same SourceBuffer while remove is updating');
       await removeEnd;
       assertEqual(secondSourceBuffer.updating, false, 'second SourceBuffer remove clears updating');
       assertEqual(sourceBuffer.updating, false, 'second SourceBuffer remove leaves first SourceBuffer idle');

@@ -68,12 +68,23 @@
       const loadedMetadata = waitEvent(video, 'loadedmetadata', 10000);
       const loadedData = waitEvent(video, 'loadeddata', 10000);
       const canPlay = waitEvent(video, 'canplay', 10000);
-      const appendEnd = waitEvent(sourceBuffer, 'updateend', 10000);
-      sourceBuffer.appendBuffer(mp4Bytes);
-      await appendEnd;
+      const splitIndex = Math.max(8, Math.floor(mp4Bytes.length / 2));
+      const firstChunk = mp4Bytes.slice(0, splitIndex);
+      const secondChunk = mp4Bytes.slice(splitIndex);
 
-      assertEqual(sourceBuffer.updating, false, 'appendBuffer completes for valid fMP4');
-      assert(sourceBuffer.buffered.length >= 1, 'valid append produces buffered range');
+      const firstAppendEnd = waitEvent(sourceBuffer, 'updateend', 10000);
+      sourceBuffer.appendBuffer(firstChunk);
+      await firstAppendEnd;
+      assertEqual(sourceBuffer.updating, false, 'first appendBuffer chunk completes');
+      assertEqual(sourceBuffer.buffered.length, 0,
+        'incomplete first append keeps buffered empty until completion chunk arrives');
+
+      const secondAppendEnd = waitEvent(sourceBuffer, 'updateend', 10000);
+      sourceBuffer.appendBuffer(secondChunk);
+      await secondAppendEnd;
+
+      assertEqual(sourceBuffer.updating, false, 'second appendBuffer chunk completes for valid fMP4');
+      assert(sourceBuffer.buffered.length >= 1, 'completed append produces buffered range');
       if (sourceBuffer.buffered.length >= 1) {
         assert(sourceBuffer.buffered.end(0) > 0.5, 'buffered range has playable duration');
       }

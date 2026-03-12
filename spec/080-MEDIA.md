@@ -145,6 +145,10 @@ Current limits:
 - one `MediaSource` now owns one playback session with multiple logical
   `SourceBuffer` append inputs beneath it
 - append/remove completion and error routing are per input
+- each `SourceBuffer` currently allows one in-flight append/remove operation at
+  a time; same-buffer overlap is rejected at the DOM surface
+- incomplete fMP4 append tails may be completed by later append data on the
+  same input
 - the concrete decode/present path supported today remains one muxed MP4/fMP4
   append input; split audio/video playout is not complete yet
 - `activeSourceBuffers` is still an attached-buffer view, not final track-based
