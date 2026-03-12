@@ -72,38 +72,60 @@
       assertEqual(video.duration, 2.5, 'MediaSource duration setter updates attached media element');
 
       const sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
-      assert(sourceBuffer instanceof SourceBuffer, 'addSourceBuffer returns SourceBuffer');
-      assertEqual(sourceBuffer.updating, false, 'SourceBuffer starts idle');
-      assertEqual(mediaSource.sourceBuffers.length, 1, 'sourceBuffers length updates after add');
-      assertEqual(mediaSource.activeSourceBuffers.length, 1,
-        'activeSourceBuffers length updates after add');
-      assert(mediaSource.sourceBuffers[0] === sourceBuffer, 'sourceBuffers[0] exposes added SourceBuffer');
+      const secondSourceBuffer = mediaSource.addSourceBuffer('audio/mp4; codecs="mp4a.40.2"');
+      assert(sourceBuffer instanceof SourceBuffer, 'first addSourceBuffer returns SourceBuffer');
+      assert(secondSourceBuffer instanceof SourceBuffer, 'second addSourceBuffer returns SourceBuffer');
+      assertEqual(sourceBuffer.updating, false, 'first SourceBuffer starts idle');
+      assertEqual(secondSourceBuffer.updating, false, 'second SourceBuffer starts idle');
+      assertEqual(mediaSource.sourceBuffers.length, 2, 'sourceBuffers length updates after two adds');
+      assertEqual(mediaSource.activeSourceBuffers.length, 2,
+        'activeSourceBuffers length updates after two adds');
+      assert(mediaSource.sourceBuffers[0] === sourceBuffer, 'sourceBuffers[0] exposes first SourceBuffer');
+      assert(mediaSource.sourceBuffers[1] === secondSourceBuffer, 'sourceBuffers[1] exposes second SourceBuffer');
       assert(mediaSource.activeSourceBuffers[0] === sourceBuffer,
-        'activeSourceBuffers[0] exposes active SourceBuffer');
+        'activeSourceBuffers[0] exposes first active SourceBuffer');
+      assert(mediaSource.activeSourceBuffers[1] === secondSourceBuffer,
+        'activeSourceBuffers[1] exposes second active SourceBuffer');
 
-      log('--- append invalid bytes to exercise shell/session path ---');
-      const appendStart = waitEvent(sourceBuffer, 'updatestart');
-      const appendEnd = waitEvent(sourceBuffer, 'updateend');
+      log('--- per-buffer append routing stays isolated ---');
+      const firstAppendStart = waitEvent(sourceBuffer, 'updatestart');
+      const firstAppendEnd = waitEvent(sourceBuffer, 'updateend');
       sourceBuffer.appendBuffer(new Uint8Array([1, 2, 3, 4]));
-      await appendStart;
-      assert(sourceBuffer.updating, 'appendBuffer sets updating');
-      await appendEnd;
-      assertEqual(sourceBuffer.updating, false, 'appendBuffer completion clears updating');
-      assertEqual(sourceBuffer.buffered.length, 0, 'truncated append leaves buffered empty');
+      await firstAppendStart;
+      assert(sourceBuffer.updating, 'first appendBuffer sets first SourceBuffer updating');
+      assertEqual(secondSourceBuffer.updating, false,
+        'first append does not mark second SourceBuffer updating');
+      await firstAppendEnd;
+      assertEqual(sourceBuffer.updating, false, 'first append completion clears updating');
+      assertEqual(sourceBuffer.buffered.length, 0, 'first truncated append leaves buffered empty');
+      assertEqual(secondSourceBuffer.buffered.length, 0,
+        'first append does not mutate second SourceBuffer buffered ranges');
 
-      log('--- remove and endOfStream remain wired ---');
-      const removeStart = waitEvent(sourceBuffer, 'updatestart');
-      const removeEnd = waitEvent(sourceBuffer, 'updateend');
-      sourceBuffer.remove(0, 1);
+      const secondAppendStart = waitEvent(secondSourceBuffer, 'updatestart');
+      const secondAppendEnd = waitEvent(secondSourceBuffer, 'updateend');
+      secondSourceBuffer.appendBuffer(new Uint8Array([5, 6, 7, 8]));
+      await secondAppendStart;
+      assert(secondSourceBuffer.updating, 'second appendBuffer sets second SourceBuffer updating');
+      assertEqual(sourceBuffer.updating, false,
+        'second append does not re-mark first SourceBuffer updating');
+      await secondAppendEnd;
+      assertEqual(secondSourceBuffer.updating, false, 'second append completion clears updating');
+      assertEqual(secondSourceBuffer.buffered.length, 0, 'second truncated append leaves buffered empty');
+
+      log('--- per-buffer remove routing stays isolated and endOfStream remains wired ---');
+      const removeStart = waitEvent(secondSourceBuffer, 'updatestart');
+      const removeEnd = waitEvent(secondSourceBuffer, 'updateend');
+      secondSourceBuffer.remove(0, 1);
       await removeStart;
       await removeEnd;
-      assertEqual(sourceBuffer.updating, false, 'remove clears updating');
+      assertEqual(secondSourceBuffer.updating, false, 'second SourceBuffer remove clears updating');
+      assertEqual(sourceBuffer.updating, false, 'second SourceBuffer remove leaves first SourceBuffer idle');
 
       const ended = waitEvent(mediaSource, 'sourceended');
       mediaSource.endOfStream();
       await ended;
       assertEqual(mediaSource.readyState, 'ended', 'endOfStream moves readyState to ended');
-      assertEqual(mediaSource.activeSourceBuffers.length, 1,
+      assertEqual(mediaSource.activeSourceBuffers.length, 2,
         'activeSourceBuffers stays populated while MediaSource is ended');
 
       log('--- detach keeps ownership explicit and rejects detached buffer operations ---');
@@ -150,9 +172,11 @@
 
       log('--- removeSourceBuffer updates lists and removed-state checks ---');
       mediaSource.removeSourceBuffer(sourceBuffer);
-      assertEqual(mediaSource.sourceBuffers.length, 0, 'removeSourceBuffer clears sourceBuffers');
-      assertEqual(mediaSource.activeSourceBuffers.length, 0,
-        'removeSourceBuffer clears activeSourceBuffers');
+      assertEqual(mediaSource.sourceBuffers.length, 1, 'removeSourceBuffer keeps other SourceBuffers registered');
+      assertEqual(mediaSource.activeSourceBuffers.length, 1,
+        'removeSourceBuffer keeps remaining active SourceBuffers');
+      assert(mediaSource.sourceBuffers[0] === secondSourceBuffer,
+        'remaining SourceBuffer stays registered after first removal');
       assertEqual(sourceBuffer.buffered.length, 0,
         'removed SourceBuffer clears buffered ranges');
       expectThrows(
@@ -164,6 +188,14 @@
       expectThrows(
         () => sourceBuffer.remove(0, 1),
         'removed SourceBuffer remove rejects');
+
+      mediaSource.removeSourceBuffer(secondSourceBuffer);
+      assertEqual(mediaSource.sourceBuffers.length, 0, 'removing final SourceBuffer clears sourceBuffers');
+      assertEqual(mediaSource.activeSourceBuffers.length, 0,
+        'removing final SourceBuffer clears activeSourceBuffers');
+      expectThrows(
+        () => secondSourceBuffer.appendBuffer(new Uint8Array([4, 5, 6])),
+        'removed second SourceBuffer appendBuffer rejects');
       log('--- detach closes MediaSource after buffer removal ---');
       const closed = waitEvent(mediaSource, 'sourceclose');
       video.removeAttribute('src');

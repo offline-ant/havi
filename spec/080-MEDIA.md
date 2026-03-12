@@ -122,7 +122,7 @@ Current MSE scope:
 - `duration`
 - `sourceBuffers` / `activeSourceBuffers`
 - `MediaSource.isTypeSupported()` for HAVI MP4 policy
-- one `addSourceBuffer()` per `MediaSource`
+- multiple `addSourceBuffer()` calls per `MediaSource`
 - `removeSourceBuffer()`
 - `SourceBuffer.appendBuffer()` / `remove()` / `abort()`
 - `endOfStream()`
@@ -142,9 +142,11 @@ Current attach/state model:
 
 Current limits:
 
-- one attached `SourceBuffer`
-- valid single-buffer MP4/fMP4 append can drive metadata, buffered ranges,
-  and decode/present on the MSE playback session path
+- one `MediaSource` now owns one playback session with multiple logical
+  `SourceBuffer` append inputs beneath it
+- append/remove completion and error routing are per input
+- the concrete decode/present path supported today remains one muxed MP4/fMP4
+  append input; split audio/video playout is not complete yet
 - `activeSourceBuffers` is still an attached-buffer view, not final track-based
   multi-buffer coordination
 - append/remove stay limited to MP4/fMP4 custom playback

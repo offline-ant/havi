@@ -190,7 +190,6 @@ impl HTMLMediaElement {
     pub(crate) fn create_mse_media_player(
         &self,
         media_source: &MediaSource,
-        mime: String,
     ) -> Result<u64, Error> {
         let autoplay = self.Autoplay();
         let should_loop = self.Loop();
@@ -213,21 +212,15 @@ impl HTMLMediaElement {
         };
 
         info!(
-            "media: create MSE player kind={} mime={} image_key={:?} autoplay={} loop={} muted={}",
+            "media: create MSE player kind={} image_key={:?} autoplay={} loop={} muted={}",
             if image_key.is_some() { "video" } else { "audio" },
-            mime,
             image_key,
             autoplay,
             should_loop,
             muted,
         );
 
-        let controller = MediaController::new_mse_playback(
-            mime,
-            image_key,
-            autoplay,
-            should_loop,
-        );
+        let controller = MediaController::new_mse_playback(image_key, autoplay, should_loop);
         let video_id = controller.video_id;
         if muted {
             controller.mute();
@@ -355,7 +348,7 @@ impl HTMLMediaElement {
             },
             MediaEvent::MseAppendDone { .. }
             | MediaEvent::MseInitSegmentParsed { .. }
-            | MediaEvent::MseError(_) => {
+            | MediaEvent::MseError { .. } => {
                 let attached_media_source = self
                     .attached_media_source
                     .borrow()

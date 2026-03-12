@@ -1030,42 +1030,80 @@ impl App {
 
                 // --- MSE operations ---
 
-                VideoOp::PrepareMsePlayback { video_id, mime, image_key } => {
-                    log!("[mse] prepare id={} mime={} key={:?}", video_id, mime, image_key);
+                VideoOp::PrepareMsePlayback { video_id, image_key } => {
+                    log!("[mse] prepare id={} key={:?}", video_id, image_key);
+                    let handle = makepad_media::SharedMsePlaybackHandle::new();
+                    let session_id = handle.register_session();
+                    self.mse_players.insert(video_id, handle);
+                    self.attach_custom_playback_session(
+                        cx,
+                        video_id,
+                        image_key,
+                        session_id,
+                        false,
+                        false,
+                    );
+                },
+                VideoOp::MseAddSourceBuffer {
+                    video_id,
+                    input_id,
+                    mime,
+                } => {
                     match makepad_widgets::makepad_platform::media_plugin()
                         .ok_or_else(|| "no media plugin".to_string())
                         .and_then(|p| p.create_mse_playback_engine(&mime))
                     {
                         Ok(engine) => {
-                            let handle = makepad_media::SharedMsePlaybackHandle::new(engine);
-                            let session_id = handle.register_session();
-                            self.mse_players.insert(video_id, handle);
-                            self.attach_custom_playback_session(
-                                cx,
-                                video_id,
-                                image_key,
-                                session_id,
-                                false,
-                                false,
-                            );
+                            if let Some(player) = self.mse_players.get_mut(&video_id) {
+                                if let Err(e) = player.add_input(input_id, engine) {
+                                    media_controller::dispatch_media_event(
+                                        video_id,
+                                        ThreadMediaEvent::MseError {
+                                            input_id,
+                                            message: e,
+                                        },
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
-                            log!("[mse] error creating player: {}", e);
+                            log!("[mse] error creating input id={} input={} : {}", video_id, input_id, e);
                             media_controller::dispatch_media_event(
                                 video_id,
-                                ThreadMediaEvent::MseError(e),
+                                ThreadMediaEvent::MseError {
+                                    input_id,
+                                    message: e,
+                                },
                             );
                         }
                     }
                 },
-                VideoOp::MseAppendData { video_id, data } => {
+                VideoOp::MseRemoveSourceBuffer { video_id, input_id } => {
                     if let Some(player) = self.mse_players.get_mut(&video_id) {
-                        match player.append_data(&data) {
+                        if let Err(e) = player.remove_input(input_id) {
+                            media_controller::dispatch_media_event(
+                                video_id,
+                                ThreadMediaEvent::MseError {
+                                    input_id,
+                                    message: e,
+                                },
+                            );
+                        }
+                    }
+                },
+                VideoOp::MseAppendData {
+                    video_id,
+                    input_id,
+                    data,
+                } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        match player.append_data(input_id, &data) {
                             Ok(result) => {
-                                if let Some(prepared) = result.prepared {
+                                if let Some(prepared) = result.input_prepared {
                                     log!(
-                                        "[mse] init parsed id={} {}x{} dur={}ms",
+                                        "[mse] init parsed id={} input={} {}x{} dur={}ms",
                                         video_id,
+                                        input_id,
                                         prepared.width,
                                         prepared.height,
                                         prepared.duration_ms
@@ -1073,6 +1111,7 @@ impl App {
                                     media_controller::dispatch_media_event(
                                         video_id,
                                         ThreadMediaEvent::MseInitSegmentParsed {
+                                            input_id,
                                             width: prepared.width,
                                             height: prepared.height,
                                             duration_ms: prepared.duration_ms,
@@ -1088,15 +1127,20 @@ impl App {
                                 media_controller::dispatch_media_event(
                                     video_id,
                                     ThreadMediaEvent::MseAppendDone {
+                                        input_id,
+                                        input_buffered_ranges: result.input_buffered_ranges,
                                         buffered_ranges: result.buffered_ranges,
                                     },
                                 );
                             }
                             Err(e) => {
-                                log!("[mse] append error id={}: {}", video_id, e);
+                                log!("[mse] append error id={} input={}: {}", video_id, input_id, e);
                                 media_controller::dispatch_media_event(
                                     video_id,
-                                    ThreadMediaEvent::MseError(e),
+                                    ThreadMediaEvent::MseError {
+                                        input_id,
+                                        message: e,
+                                    },
                                 );
                             }
                         }
@@ -1107,24 +1151,36 @@ impl App {
                         if let Err(e) = player.end_of_stream() {
                             media_controller::dispatch_media_event(
                                 video_id,
-                                ThreadMediaEvent::MseError(e),
+                                ThreadMediaEvent::Error(e),
                             );
                         }
                     }
                 },
-                VideoOp::MseRemove { video_id, start, end } => {
+                VideoOp::MseRemove {
+                    video_id,
+                    input_id,
+                    start,
+                    end,
+                } => {
                     if let Some(player) = self.mse_players.get_mut(&video_id) {
-                        match player.remove(start, end) {
-                            Ok(buffered_ranges) => {
+                        match player.remove(input_id, start, end) {
+                            Ok(result) => {
                                 media_controller::dispatch_media_event(
                                     video_id,
-                                    ThreadMediaEvent::MseAppendDone { buffered_ranges },
+                                    ThreadMediaEvent::MseAppendDone {
+                                        input_id,
+                                        input_buffered_ranges: result.input_buffered_ranges,
+                                        buffered_ranges: result.buffered_ranges,
+                                    },
                                 );
                             }
                             Err(e) => {
                                 media_controller::dispatch_media_event(
                                     video_id,
-                                    ThreadMediaEvent::MseError(e),
+                                    ThreadMediaEvent::MseError {
+                                        input_id,
+                                        message: e,
+                                    },
                                 );
                             }
                         }

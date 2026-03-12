@@ -22,7 +22,7 @@ use crate::dom::globalscope::GlobalScope;
 use crate::dom::media::mediasource::MediaSource;
 use crate::dom::timeranges::{TimeRanges, TimeRangesContainer};
 use crate::script_runtime::CanGc;
-use media::controller;
+use media::controller::{self, MseSourceBufferInputId};
 
 const STATE_ATTACHED: u8 = 0;
 const STATE_REMOVED: u8 = 1;
@@ -32,17 +32,23 @@ pub(crate) struct SourceBuffer {
     eventtarget: EventTarget,
     media_source: Dom<MediaSource>,
     mime_type: DomRefCell<DOMString>,
+    input_id: MseSourceBufferInputId,
     state: Cell<u8>,
     updating: Cell<bool>,
     buffered: DomRefCell<TimeRangesContainer>,
 }
 
 impl SourceBuffer {
-    fn new_inherited(media_source: &MediaSource, mime_type: DOMString) -> Self {
+    fn new_inherited(
+        media_source: &MediaSource,
+        mime_type: DOMString,
+        input_id: MseSourceBufferInputId,
+    ) -> Self {
         Self {
             eventtarget: EventTarget::new_inherited(),
             media_source: Dom::from_ref(media_source),
             mime_type: DomRefCell::new(mime_type),
+            input_id,
             state: Cell::new(STATE_ATTACHED),
             updating: Cell::new(false),
             buffered: DomRefCell::new(TimeRangesContainer::default()),
@@ -54,10 +60,11 @@ impl SourceBuffer {
         proto: Option<HandleObject>,
         media_source: &MediaSource,
         mime_type: DOMString,
+        input_id: MseSourceBufferInputId,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object_with_proto(
-            Box::new(Self::new_inherited(media_source, mime_type)),
+            Box::new(Self::new_inherited(media_source, mime_type, input_id)),
             global,
             proto,
             can_gc,
@@ -66,6 +73,10 @@ impl SourceBuffer {
 
     pub(crate) fn mime_type(&self) -> DOMString {
         self.mime_type.borrow().clone()
+    }
+
+    pub(crate) fn input_id(&self) -> MseSourceBufferInputId {
+        self.input_id
     }
 
     pub(crate) fn is_updating(&self) -> bool {
@@ -145,6 +156,14 @@ impl SourceBuffer {
             )))
         })
     }
+
+    pub(crate) fn register_playback_input(&self, video_id: u64) {
+        controller::add_mse_source_buffer(video_id, self.input_id, self.mime_type().str().to_string());
+    }
+
+    pub(crate) fn unregister_playback_input(&self, video_id: u64) {
+        controller::remove_mse_source_buffer(video_id, self.input_id);
+    }
 }
 
 impl SourceBufferMethods<crate::DomTypeHolder> for SourceBuffer {
@@ -164,7 +183,7 @@ impl SourceBufferMethods<crate::DomTypeHolder> for SourceBuffer {
             ArrayBufferViewOrArrayBuffer::ArrayBuffer(buffer) => buffer.to_vec(),
         };
         self.begin_update(CanGc::note());
-        controller::append_mse_data(video_id, bytes);
+        controller::append_mse_data(video_id, self.input_id, bytes);
         Ok(())
     }
 
@@ -172,7 +191,7 @@ impl SourceBufferMethods<crate::DomTypeHolder> for SourceBuffer {
         self.require_not_updating("remove")?;
         let video_id = self.require_active_video_id(CanGc::note(), "remove")?;
         self.begin_update(CanGc::note());
-        controller::remove_mse_data(video_id, *start, *end);
+        controller::remove_mse_data(video_id, self.input_id, *start, *end);
         Ok(())
     }
 

@@ -51,6 +51,8 @@ pub enum MediaOrigin {
 // VideoOp — script thread → Makepad event loop
 // ---------------------------------------------------------------------------
 
+pub type MseSourceBufferInputId = u64;
+
 pub enum VideoOp {
     /// Set up a video player with texture output.
     PrepareVideo {
@@ -99,18 +101,29 @@ pub enum VideoOp {
 
     // --- MSE operations ---
 
-    /// Set up an MSE-backed custom playback session (no source URL; data is
-    /// pushed via `MseAppendData`).
+    /// Set up an MSE-backed playback session (no source URL; append inputs are
+    /// added separately via `MseAddSourceBuffer`).
     PrepareMsePlayback {
         video_id: u64,
-        /// MIME type with codecs parameter, e.g. `video/mp4; codecs="av01.0.04M.08"`.
-        mime: String,
         /// None for audio-only playback.
         image_key: Option<(u32, u32)>,
     },
-    /// Push fMP4 data (init segment or media segment) to an MSE player.
+    /// Register one logical SourceBuffer append input beneath an MSE session.
+    MseAddSourceBuffer {
+        video_id: u64,
+        input_id: MseSourceBufferInputId,
+        /// MIME type with codecs parameter, e.g. `video/mp4; codecs="av01.0.04M.08"`.
+        mime: String,
+    },
+    /// Remove one logical SourceBuffer append input from an MSE session.
+    MseRemoveSourceBuffer {
+        video_id: u64,
+        input_id: MseSourceBufferInputId,
+    },
+    /// Push fMP4 data (init segment or media segment bytes) to one MSE append input.
     MseAppendData {
         video_id: u64,
+        input_id: MseSourceBufferInputId,
         data: Vec<u8>,
     },
     /// Signal end of stream for an MSE player.
@@ -120,6 +133,7 @@ pub enum VideoOp {
     /// Remove buffered data in a time range (seconds).
     MseRemove {
         video_id: u64,
+        input_id: MseSourceBufferInputId,
         start: f64,
         end: f64,
     },
@@ -153,18 +167,24 @@ pub enum MediaEvent {
 
     // --- MSE events ---
 
-    /// MSE append operation completed; source buffer can accept more data.
+    /// MSE append or remove operation completed for one SourceBuffer input.
     MseAppendDone {
+        input_id: MseSourceBufferInputId,
+        input_buffered_ranges: Vec<(f64, f64)>,
         buffered_ranges: Vec<(f64, f64)>,
     },
-    /// MSE init segment parsed; video metadata available.
+    /// MSE init segment parsed for one SourceBuffer input.
     MseInitSegmentParsed {
+        input_id: MseSourceBufferInputId,
         width: u32,
         height: u32,
         duration_ms: u128,
     },
-    /// MSE append or decode error.
-    MseError(String),
+    /// MSE append or decode error for one SourceBuffer input.
+    MseError {
+        input_id: MseSourceBufferInputId,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -215,17 +235,34 @@ pub fn deregister_event_sender(video_id: u64) {
     MEDIA_EVENT_SENDERS.lock().unwrap().remove(&video_id);
 }
 
-pub fn append_mse_data(video_id: u64, data: Vec<u8>) {
-    send_op(VideoOp::MseAppendData { video_id, data });
+pub fn add_mse_source_buffer(video_id: u64, input_id: MseSourceBufferInputId, mime: String) {
+    send_op(VideoOp::MseAddSourceBuffer {
+        video_id,
+        input_id,
+        mime,
+    });
+}
+
+pub fn remove_mse_source_buffer(video_id: u64, input_id: MseSourceBufferInputId) {
+    send_op(VideoOp::MseRemoveSourceBuffer { video_id, input_id });
+}
+
+pub fn append_mse_data(video_id: u64, input_id: MseSourceBufferInputId, data: Vec<u8>) {
+    send_op(VideoOp::MseAppendData {
+        video_id,
+        input_id,
+        data,
+    });
 }
 
 pub fn end_mse_stream(video_id: u64) {
     send_op(VideoOp::MseEndOfStream { video_id });
 }
 
-pub fn remove_mse_data(video_id: u64, start: f64, end: f64) {
+pub fn remove_mse_data(video_id: u64, input_id: MseSourceBufferInputId, start: f64, end: f64) {
     send_op(VideoOp::MseRemove {
         video_id,
+        input_id,
         start,
         end,
     });
@@ -535,21 +572,16 @@ impl MediaController {
 
     /// Create an MSE-backed controller on the shared custom playback path.
     pub fn new_mse_playback(
-        mime: String,
         image_key: Option<(u32, u32)>,
         autoplay: bool,
         should_loop: bool,
     ) -> Self {
         let video_id = next_video_id();
         info!(
-            "media: queue PrepareMsePlayback id={} mime={} image_key={:?} autoplay={} loop={}",
-            video_id, mime, image_key, autoplay, should_loop
+            "media: queue PrepareMsePlayback id={} image_key={:?} autoplay={} loop={}",
+            video_id, image_key, autoplay, should_loop
         );
-        send_op(VideoOp::PrepareMsePlayback {
-            video_id,
-            mime,
-            image_key,
-        });
+        send_op(VideoOp::PrepareMsePlayback { video_id, image_key });
         Self::new_common(video_id, image_key.unwrap_or((0, 0)), image_key.is_none(), !autoplay)
     }
 
@@ -636,16 +668,16 @@ impl MediaController {
             MediaEvent::BufferedRanges(ranges) => {
                 self.buffered_ranges = ranges.clone();
             },
-            MediaEvent::MseAppendDone { buffered_ranges } => {
+            MediaEvent::MseAppendDone { buffered_ranges, .. } => {
                 self.buffered_ranges = buffered_ranges.clone();
             },
-            MediaEvent::MseInitSegmentParsed { width, height, duration_ms } => {
+            MediaEvent::MseInitSegmentParsed { width, height, duration_ms, .. } => {
                 self.prepared = true;
                 self.width = *width;
                 self.height = *height;
                 self.duration_ms = *duration_ms;
             },
-            MediaEvent::MseError(_) => {},
+            MediaEvent::MseError { .. } => {},
         }
     }
 }

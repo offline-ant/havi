@@ -26,7 +26,7 @@ use crate::dom::media::sourcebuffer::SourceBuffer;
 use crate::dom::media::sourcebufferlist::SourceBufferList;
 use crate::dom::window::Window;
 use crate::script_runtime::CanGc;
-use media::controller::{self, MediaEvent};
+use media::controller::{self, MediaEvent, MseSourceBufferInputId};
 
 static MEDIA_SOURCE_OBJECT_URLS: LazyLock<Mutex<HashMap<String, Trusted<MediaSource>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -58,6 +58,7 @@ pub(crate) struct MediaSource {
     active_source_buffers_list: MutNullableDom<SourceBufferList>,
     attached_element: MutNullableDom<HTMLMediaElement>,
     attachment_kind: Cell<u8>,
+    next_input_id: Cell<MseSourceBufferInputId>,
     attached_video_id: Cell<Option<u64>>,
 }
 
@@ -73,6 +74,7 @@ impl MediaSource {
             active_source_buffers_list: Default::default(),
             attached_element: Default::default(),
             attachment_kind: Cell::new(ATTACHMENT_NONE),
+            next_input_id: Cell::new(1),
             attached_video_id: Cell::new(None),
         }
     }
@@ -164,15 +166,19 @@ impl MediaSource {
         Ok(())
     }
 
-    fn single_playback_source_buffer(&self) -> Fallible<Option<DomRoot<SourceBuffer>>> {
-        let source_buffers = self.source_buffers.borrow();
-        match source_buffers.len() {
-            0 => Ok(None),
-            1 => Ok(Some(DomRoot::from_ref(&*source_buffers[0]))),
-            _ => Err(Error::NotSupported(Some(
-                "multiple SourceBuffers are not implemented yet".into(),
-            ))),
-        }
+    fn allocate_input_id(&self) -> MseSourceBufferInputId {
+        let input_id = self.next_input_id.get();
+        self.next_input_id.set(input_id.saturating_add(1));
+        input_id
+    }
+
+    fn source_buffer_by_input_id(
+        &self,
+        input_id: MseSourceBufferInputId,
+    ) -> Option<DomRoot<SourceBuffer>> {
+        self.source_buffers.borrow().iter().find_map(|source_buffer| {
+            (source_buffer.input_id() == input_id).then(|| DomRoot::from_ref(&**source_buffer))
+        })
     }
 
     fn set_duration_value(&self, duration: f64, explicit: bool) {
@@ -302,31 +308,40 @@ impl MediaSource {
     }
 
     pub(crate) fn ensure_playback_controller(&self, can_gc: CanGc) -> Fallible<()> {
-        if self.attached_video_id.get().is_some() {
-            return Ok(());
-        }
         let Some(element) = self.attached_element.get() else {
             return Ok(());
         };
-        let Some(source_buffer) = self.single_playback_source_buffer()? else {
-            return Ok(());
+
+        let video_id = if let Some(video_id) = self.attached_video_id.get() {
+            video_id
+        } else {
+            if self.source_buffers.borrow().is_empty() {
+                return Ok(());
+            }
+            let video_id = element.create_mse_media_player(self)?;
+            self.attached_video_id.set(Some(video_id));
+            if self.is_ended() {
+                self.set_ready_state(READY_STATE_OPEN, can_gc);
+            }
+            video_id
         };
-        let mime = source_buffer.mime_type().str().to_string();
-        let video_id = element.create_mse_media_player(self, mime)?;
-        self.attached_video_id.set(Some(video_id));
-        if self.is_ended() {
-            self.set_ready_state(READY_STATE_OPEN, can_gc);
+
+        for source_buffer in self.source_buffers.borrow().iter() {
+            source_buffer.register_playback_input(video_id);
         }
         Ok(())
     }
 
     pub(crate) fn handle_media_event(&self, event: &MediaEvent, can_gc: CanGc) {
-        let Ok(Some(source_buffer)) = self.single_playback_source_buffer() else {
-            return;
-        };
         match event {
-            MediaEvent::MseAppendDone { buffered_ranges } => {
-                source_buffer.notify_update_success(buffered_ranges, can_gc);
+            MediaEvent::MseAppendDone {
+                input_id,
+                input_buffered_ranges,
+                buffered_ranges,
+            } => {
+                if let Some(source_buffer) = self.source_buffer_by_input_id(*input_id) {
+                    source_buffer.notify_update_success(input_buffered_ranges, can_gc);
+                }
                 self.update_duration_from_buffered_ranges(buffered_ranges);
             }
             MediaEvent::MseInitSegmentParsed { duration_ms, .. } => {
@@ -334,8 +349,10 @@ impl MediaSource {
                     self.set_duration_value(*duration_ms as f64 / 1000.0, false);
                 }
             }
-            MediaEvent::MseError(_) => {
-                source_buffer.notify_update_error(can_gc);
+            MediaEvent::MseError { input_id, .. } => {
+                if let Some(source_buffer) = self.source_buffer_by_input_id(*input_id) {
+                    source_buffer.notify_update_error(can_gc);
+                }
             }
             _ => {}
         }
@@ -388,16 +405,12 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
                 "unsupported MediaSource MIME type".into(),
             )));
         }
-        if !self.source_buffers.borrow().is_empty() {
-            return Err(Error::NotSupported(Some(
-                "only one SourceBuffer is currently supported".into(),
-            )));
-        }
         let source_buffer = SourceBuffer::new(
             &self.global(),
             None,
             self,
             type_.clone(),
+            self.allocate_input_id(),
             CanGc::note(),
         );
         self.source_buffers
@@ -424,6 +437,9 @@ impl MediaSourceMethods<crate::DomTypeHolder> for MediaSource {
         };
 
         let removed = DomRoot::from_ref(&*removed);
+        if let Some(video_id) = self.attached_video_id.get() {
+            removed.unregister_playback_input(video_id);
+        }
         removed.mark_removed();
         removed.clear_for_detach();
         if self.source_buffers.borrow().is_empty() {

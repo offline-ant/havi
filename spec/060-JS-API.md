@@ -372,9 +372,11 @@ Current attach/state model:
 
 Current limits:
 
-- one attached `SourceBuffer` per `MediaSource`
-- valid single-buffer MP4/fMP4 append can reach metadata, buffered ranges,
-  and decode/present through HAVI's MSE playback session path
+- multiple `SourceBuffer`s now route through one `MediaSource` playback session
+  with stable per-buffer internal identities
+- append/remove completion and error routing are per-`SourceBuffer`
+- the concrete decode/present path supported today remains one muxed MP4/fMP4
+  append input; split audio/video playout is not complete yet
 - `activeSourceBuffers` is still a temporary attached-buffer view, not final
   track-driven multi-buffer selection
 - append/remove stay limited to MP4/fMP4 custom playback
