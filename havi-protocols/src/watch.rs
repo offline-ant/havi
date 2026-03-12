@@ -424,6 +424,7 @@ mod tests {
             active_group_app: Some("//g/a".to_string()),
             active_urc: Some("//g/a/doc".to_string()),
             change_detected: false,
+            pending_reload_deadline: None,
         };
 
         tx.send("+ //g/a/doc/|/plex/1735689600:000000000/P.X.H3".to_string())

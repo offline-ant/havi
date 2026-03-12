@@ -17,12 +17,13 @@ use uuid::Uuid;
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::URLBinding::URLMethods;
+use script_bindings::codegen::GenericUnionTypes::BlobOrMediaSource;
 use crate::dom::bindings::error::{Error, ErrorResult, Fallible};
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object_with_proto};
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
-use crate::dom::blob::Blob;
 use crate::dom::globalscope::GlobalScope;
+use crate::dom::media::mediasource::MediaSource;
 use crate::dom::urlhelper::UrlHelper;
 use crate::dom::urlsearchparams::URLSearchParams;
 use crate::script_runtime::CanGc;
@@ -194,14 +195,21 @@ impl URLMethods<crate::DomTypeHolder> for URL {
     }
 
     /// <https://w3c.github.io/FileAPI/#dfn-createObjectURL>
-    fn CreateObjectURL(global: &GlobalScope, blob: &Blob) -> DOMString {
-        // XXX: Second field is an unicode-serialized Origin, it is a temporary workaround
-        //      and should not be trusted. See issue https://github.com/servo/servo/issues/11722
+    fn CreateObjectURL(global: &GlobalScope, object: BlobOrMediaSource<crate::DomTypeHolder>) -> DOMString {
         let origin = global.origin().immutable();
 
-        let id = blob.get_blob_url_id();
-
-        DOMString::from(URL::unicode_serialization_blob_url(origin, &id))
+        match object {
+            BlobOrMediaSource::Blob(blob) => {
+                let id = blob.get_blob_url_id();
+                DOMString::from(URL::unicode_serialization_blob_url(origin, &id))
+            }
+            BlobOrMediaSource::MediaSource(media_source) => {
+                let id = Uuid::new_v4();
+                let url = URL::unicode_serialization_blob_url(origin, &id);
+                MediaSource::register_object_url(url.clone(), &media_source);
+                DOMString::from(url)
+            }
+        }
     }
 
     /// <https://w3c.github.io/FileAPI/#dfn-revokeObjectURL>
@@ -213,6 +221,7 @@ impl URLMethods<crate::DomTypeHolder> for URL {
 
         if let Ok(url) = BrowserUrl::parse(&url.str()) {
             if url.fragment().is_none() && *origin == url.origin() {
+                MediaSource::revoke_object_url(&url);
                 if let Ok((id, _)) = parse_blob_url(&url) {
                     let resource_threads = global.resource_threads();
                     let (tx, rx) = ipc::channel(global.time_profiler_chan().clone()).unwrap();

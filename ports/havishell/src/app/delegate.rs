@@ -1,5 +1,8 @@
 use super::*;
-use servo::{CameraRequest, EmbedderControl};
+use havi_protocols::client::HpprdClientAsync;
+use havi_protocols::credentials::global_credential_store;
+use hppr_client::parse_via;
+use servo::{CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -156,6 +159,52 @@ impl Default for MakepadServoAction {
 
 pub(super) struct HaviWebViewDelegate;
 
+fn home_repo_target() -> hppr_client::ViaSpec {
+    std::env::var("HAVI_HOME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .and_then(|value| parse_via(&value).ok())
+        .unwrap_or_else(havi_protocols::repo_target::get)
+}
+
+fn resolve_media_packet_response(url: String) -> HpprControlResponse {
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            return HpprControlResponse::Error(format!("media resolve runtime: {err}"));
+        },
+    };
+
+    runtime.block_on(async move {
+        let target = home_repo_target();
+        let client = match HpprdClientAsync::new(target) {
+            Ok(client) => Arc::new(client),
+            Err(err) => {
+                return HpprControlResponse::Error(format!("media resolve client: {err}"));
+            },
+        };
+        let creds = global_credential_store();
+        let page = havi_protocols::pages::hppr::handle_request(&url, &client, &creds).await;
+        let Some(packet) = page.hppr_packet else {
+            return HpprControlResponse::Error(format!(
+                "media resolve returned no packet for {url}"
+            ));
+        };
+        let Some(endpoint) = page.hppr_endpoint else {
+            return HpprControlResponse::Error(format!(
+                "media resolve returned no endpoint for {url}"
+            ));
+        };
+        let signer = page.hppr_signer;
+        HpprControlResponse::ResolvedMediaPacket {
+            packet: packet.as_bytes().to_vec(),
+            endpoint,
+            is_repo: signer.is_none(),
+            signer,
+        }
+    })
+}
+
 impl servo::WebViewDelegate for HaviWebViewDelegate {
     fn notify_page_title_changed(&self, webview: servo::WebView, title: Option<String>) {
         Cx::post_action(MakepadServoAction::TitleChanged {
@@ -201,6 +250,28 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
             update: Arc::new(Mutex::new(Some(tree_update))),
         });
         SignalToUI::set_ui_signal();
+    }
+
+    fn handle_control_operation(
+        &self,
+        _webview: servo::WebView,
+        request: servo::ControlOperationRequest,
+    ) {
+        match request.request.clone() {
+            HpprControlRequest::ResolveMediaPacket { url } => {
+                std::thread::Builder::new()
+                    .name("havi-media-resolve".to_string())
+                    .spawn(move || {
+                        request.respond(resolve_media_packet_response(url));
+                    })
+                    .ok();
+            },
+            _ => {
+                request.respond(HpprControlResponse::Error(
+                    "Control operations not supported by havishell".to_string(),
+                ));
+            },
+        }
     }
 
     fn show_embedder_control(&self, webview: servo::WebView, embedder_control: EmbedderControl) {

@@ -321,10 +321,33 @@ Not-yet-implemented execution paths throw DOMException with messages containing
 audio-only streams, mixed audio/video streams, and explicit
 pause/resume/requestData control paths.
 
-`MediaSource` remains not exposed in this part.
+`MediaSource` is now exposed with the first custom-playback path.
 
-For chunked recorder playback, pages can still use standard APIs by assigning
-`Blob` chunks to `<video>.srcObject` while consuming StreamSub incrementally.
+Available API surface:
+
+- constructor: `new MediaSource()`
+- static: `MediaSource.isTypeSupported(mimeType)`
+- attributes: `readyState`
+- methods: `addSourceBuffer(mimeType)`, `endOfStream()`
+- object URLs: `URL.createObjectURL(mediaSource)`, `URL.revokeObjectURL(url)`
+- events: `sourceopen`, `sourceended`, `sourceclose`
+
+`SourceBuffer` is exposed with:
+
+- attributes: `updating`, `buffered`
+- methods: `appendBuffer(data)`, `remove(start, end)`, `abort()`
+- events: `updatestart`, `update`, `updateend`, `error`
+
+Current limits:
+
+- one attached `SourceBuffer` per `MediaSource`
+- no `duration`, `sourceBuffers`, or `activeSourceBuffers` DOM lists yet
+- valid single-buffer MP4/fMP4 append can reach metadata, buffered ranges,
+  and decode/present through HAVI's shared custom playback session path
+- append/remove stay limited to MP4/fMP4 custom playback
+
+For chunked recorder playback, pages can use `MediaSource` through that custom
+session path. Blob handoff remains available as a page-level fallback.
 
 ## Errors
 

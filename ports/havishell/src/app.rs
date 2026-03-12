@@ -10,6 +10,7 @@ use media::controller::{
     self as media_controller, MediaEvent as ThreadMediaEvent, MediaOrigin as ThreadMediaOrigin,
     VideoOp,
 };
+use media::ResolvedMediaAsset;
 use servo::protocol_handler::ProtocolRegistry;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::collections::{HashMap, HashSet};
@@ -847,7 +848,7 @@ impl servo::resources::ResourceReaderMethods for ResourceReader {
 app_main!(App);
 
 impl App {
-    pub(super) fn init_media_bridge(&mut self) {
+    pub(super) fn init_media_bridge(&mut self, cx: &mut Cx) {
         if self.video_op_rx.is_some() {
             return;
         }
@@ -859,7 +860,83 @@ impl App {
         media_controller::set_video_op_sender(tx);
         media_controller::set_can_play_type_fn(makepad_widgets::makepad_platform::can_play_type);
         self.video_op_rx = Some(rx);
+        cx.audio_output(0, move |info, output| {
+            makepad_widgets::makepad_platform::mix_active_media_audio(info, output);
+        });
         log!("[video] media bridge initialized");
+    }
+
+    fn attach_custom_playback_session(
+        &mut self,
+        cx: &mut Cx,
+        video_id: u64,
+        image_key: Option<(u32, u32)>,
+        handle: makepad_media::SharedMsePlaybackHandle,
+        autoplay: bool,
+        should_loop: bool,
+    ) {
+        let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
+        let texture_id = texture.texture_id();
+        if let Some(image_key) = image_key {
+            havi_render::video_texture_map::set_external_texture(image_key, texture);
+            self.video_image_keys.insert(video_id, image_key);
+        }
+        self.video_logged_first_frame.remove(&video_id);
+        self.video_texture_update_count.remove(&video_id);
+
+        let session_id = handle.register_session();
+        self.mse_players.insert(video_id, handle);
+        cx.prepare_video_playback(
+            LiveId(video_id),
+            PlatformVideoSource::PlaybackSession(session_id),
+            makepad_widgets::makepad_platform::event::video_playback::CameraPreviewMode::Texture,
+            0,
+            texture_id,
+            autoplay,
+            should_loop,
+        );
+    }
+
+    fn create_baked_playback_handle(
+        &self,
+        mime: &str,
+        asset: ResolvedMediaAsset,
+    ) -> Result<makepad_media::SharedMsePlaybackHandle, String> {
+        const BAKED_READ_CHUNK: usize = 256 * 1024;
+
+        let engine = makepad_widgets::makepad_platform::media_plugin()
+            .ok_or_else(|| "no media plugin".to_string())?
+            .create_mse_playback_engine(mime)?;
+        let handle = makepad_media::SharedMsePlaybackHandle::new(engine);
+        let mut loader_handle = handle.clone();
+        std::thread::Builder::new()
+            .name("baked-media-loader".to_string())
+            .spawn(move || {
+                let mut offset = 0u64;
+                while offset < asset.content_length() {
+                    let chunk = match asset.read_range(offset, BAKED_READ_CHUNK) {
+                        Ok(chunk) => chunk,
+                        Err(err) => {
+                            log!("[video] baked asset read error at {}: {}", offset, err);
+                            return;
+                        },
+                    };
+                    if chunk.is_empty() {
+                        break;
+                    }
+                    let chunk_len = chunk.len() as u64;
+                    if let Err(err) = loader_handle.append_data(&chunk) {
+                        log!("[video] baked asset append error at {}: {}", offset, err);
+                        return;
+                    }
+                    offset = offset.saturating_add(chunk_len);
+                }
+                if let Err(err) = loader_handle.end_of_stream() {
+                    log!("[video] baked asset end-of-stream error: {}", err);
+                }
+            })
+            .map_err(|err| err.to_string())?;
+        Ok(handle)
     }
 
     pub(super) fn drain_video_ops(&mut self, cx: &mut Cx) {
@@ -919,6 +996,40 @@ impl App {
                         should_loop,
                     );
                 },
+                VideoOp::PrepareBakedPlayback {
+                    video_id,
+                    asset,
+                    mime,
+                    image_key,
+                    autoplay,
+                    should_loop,
+                } => match self.create_baked_playback_handle(&mime, asset) {
+                    Ok(handle) => {
+                        log!(
+                            "[video] prepare-baked id={} mime={} image_key={:?} autoplay={} loop={}",
+                            video_id,
+                            mime,
+                            image_key,
+                            autoplay,
+                            should_loop
+                        );
+                        self.attach_custom_playback_session(
+                            cx,
+                            video_id,
+                            image_key,
+                            handle,
+                            autoplay,
+                            should_loop,
+                        );
+                    }
+                    Err(e) => {
+                        log!("[video] baked prepare error id={}: {}", video_id, e);
+                        media_controller::dispatch_media_event(
+                            video_id,
+                            ThreadMediaEvent::Error(e),
+                        );
+                    }
+                },
                 VideoOp::Play(video_id) => cx.begin_video_playback(LiveId(video_id)),
                 VideoOp::Pause(video_id) => cx.pause_video_playback(LiveId(video_id)),
                 VideoOp::Resume(video_id) => cx.resume_video_playback(LiveId(video_id)),
@@ -946,18 +1057,22 @@ impl App {
 
                 // --- MSE operations ---
 
-                VideoOp::PrepareMseVideo { video_id, mime, image_key } => {
+                VideoOp::PrepareMsePlayback { video_id, mime, image_key } => {
                     log!("[mse] prepare id={} mime={} key={:?}", video_id, mime, image_key);
-                    let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
-                    havi_render::video_texture_map::set_external_texture(image_key, texture);
-                    self.video_image_keys.insert(video_id, image_key);
-
                     match makepad_widgets::makepad_platform::media_plugin()
                         .ok_or_else(|| "no media plugin".to_string())
                         .and_then(|p| p.create_mse_playback_engine(&mime))
                     {
-                        Ok(player) => {
-                            self.mse_players.insert(video_id, player);
+                        Ok(engine) => {
+                            let handle = makepad_media::SharedMsePlaybackHandle::new(engine);
+                            self.attach_custom_playback_session(
+                                cx,
+                                video_id,
+                                image_key,
+                                handle,
+                                false,
+                                false,
+                            );
                         }
                         Err(e) => {
                             log!("[mse] error creating player: {}", e);
@@ -972,27 +1087,24 @@ impl App {
                     if let Some(player) = self.mse_players.get_mut(&video_id) {
                         match player.append_data(&data) {
                             Ok(result) => {
-                                if let Some(init) = &result.init {
-                                    let width = init.video_tracks.first().map(|track| track.width).unwrap_or(0);
-                                    let height = init.video_tracks.first().map(|track| track.height).unwrap_or(0);
+                                if let Some(prepared) = result.prepared {
                                     log!(
                                         "[mse] init parsed id={} {}x{} dur={}ms",
-                                        video_id, width, height, init.duration_ms
+                                        video_id,
+                                        prepared.width,
+                                        prepared.height,
+                                        prepared.duration_ms
                                     );
                                     media_controller::dispatch_media_event(
                                         video_id,
                                         ThreadMediaEvent::MseInitSegmentParsed {
-                                            width,
-                                            height,
-                                            duration_ms: init.duration_ms,
+                                            width: prepared.width,
+                                            height: prepared.height,
+                                            duration_ms: prepared.duration_ms,
                                         },
                                     );
                                 }
-                                // TODO: upload decoded YUV frames to GPU textures
-                                // once platform texture-from-data path is wired.
-                                let has_frames = !result.video_frames.is_empty();
-                                if has_frames {
-                                    log!("[mse] decoded {} frames for id={}", result.video_frames.len(), video_id);
+                                if result.has_video_frames {
                                     self.needs_paint = true;
                                     self.idle_frames = 0;
                                     self.next_frame = cx.new_next_frame();
@@ -1017,11 +1129,21 @@ impl App {
                 },
                 VideoOp::MseEndOfStream { video_id } => {
                     if let Some(player) = self.mse_players.get_mut(&video_id) {
-                        match player.end_of_stream() {
-                            Ok(_frames) => {
+                        if let Err(e) = player.end_of_stream() {
+                            media_controller::dispatch_media_event(
+                                video_id,
+                                ThreadMediaEvent::MseError(e),
+                            );
+                        }
+                    }
+                },
+                VideoOp::MseRemove { video_id, start, end } => {
+                    if let Some(player) = self.mse_players.get_mut(&video_id) {
+                        match player.remove(start, end) {
+                            Ok(buffered_ranges) => {
                                 media_controller::dispatch_media_event(
                                     video_id,
-                                    ThreadMediaEvent::PlaybackCompleted,
+                                    ThreadMediaEvent::MseAppendDone { buffered_ranges },
                                 );
                             }
                             Err(e) => {
@@ -1031,11 +1153,6 @@ impl App {
                                 );
                             }
                         }
-                    }
-                },
-                VideoOp::MseRemove { video_id, start, end } => {
-                    if let Some(player) = self.mse_players.get_mut(&video_id) {
-                        player.remove(start, end);
                     }
                 },
             }
@@ -1339,9 +1456,13 @@ pub struct App {
     #[rust]
     video_texture_update_count: HashMap<u64, u64>,
 
-    /// MSE players keyed by video_id.
+    /// Shared MSE session handles keyed by video_id.
     #[rust]
-    mse_players: HashMap<u64, Box<dyn makepad_widgets::makepad_platform::MsePlaybackEngine>>,
+    mse_players: HashMap<u64, makepad_media::SharedMsePlaybackHandle>,
+
+    /// True once default audio outputs have been selected for custom playback.
+    #[rust]
+    audio_outputs_initialized: bool,
 
     /// Camera subsystem state.
     #[rust]

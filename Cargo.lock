@@ -8513,6 +8513,7 @@ dependencies = [
  "ml-dsa",
  "ml-kem",
  "mozjs",
+ "net",
  "net_traits",
  "nom-rfc8288",
  "num-bigint-dig",

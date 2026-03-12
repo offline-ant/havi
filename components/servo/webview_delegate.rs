@@ -855,6 +855,7 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoPathQuery => "REPO_PATH",
             HpprControlRequest::RepoStatus => "REPO_STATUS",
             HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
+            HpprControlRequest::ResolveMediaPacket { .. } => "RESOLVE_MEDIA_PACKET",
         }
     }
 
@@ -864,7 +865,8 @@ impl ControlOperationRequest {
             self.request,
             HpprControlRequest::RepoPort |
                 HpprControlRequest::RepoPathQuery |
-                HpprControlRequest::RepoStatus
+                HpprControlRequest::RepoStatus |
+                HpprControlRequest::ResolveMediaPacket { .. }
         )
     }
 

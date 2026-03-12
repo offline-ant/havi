@@ -23,9 +23,11 @@
         assertEqual(v.canPlayType('video/mp4; codecs="av01.0.04M.08, mp4a.40.2"'), 'probably',
             'video/mp4 av01+aac → probably');
 
-        // Non-AV1 video codecs in MP4: rejected
-        assertEqual(v.canPlayType('video/mp4; codecs="avc1.42E01E"'), '',
-            'video/mp4 h264 → empty');
+        // Supported and unsupported MP4 video codecs
+        assertEqual(v.canPlayType('video/mp4; codecs="avc1.42E01E"'), 'probably',
+            'video/mp4 h264 → probably');
+        assertEqual(v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'), 'probably',
+            'video/mp4 h264+aac → probably');
         assertEqual(v.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"'), '',
             'video/mp4 h265 → empty');
         assertEqual(v.canPlayType('video/mp4; codecs="vp09.00.10.08"'), '',

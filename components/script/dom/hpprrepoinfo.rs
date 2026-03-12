@@ -124,7 +124,8 @@ impl RoutedPromiseListener<HpprControlResponse> for HpprRepoInfo {
                 promise.reject_error(Error::Type(cformat!("{}", msg)), can_gc);
             },
             HpprControlResponse::Ok |
-            HpprControlResponse::AdminCredential { .. } => {
+            HpprControlResponse::AdminCredential { .. } |
+            HpprControlResponse::ResolvedMediaPacket { .. } => {
                 promise.reject_error(
                     Error::Type(c"Unexpected response type for repo info".to_owned()),
                     can_gc,

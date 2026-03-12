@@ -17,6 +17,8 @@ use log::{info, warn};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
+use crate::asset::ResolvedMediaAsset;
+
 // ---------------------------------------------------------------------------
 // Video ID
 // ---------------------------------------------------------------------------
@@ -66,6 +68,17 @@ pub enum VideoOp {
         autoplay: bool,
         should_loop: bool,
     },
+    /// Set up a browser-owned baked MP4/fMP4 asset on the shared custom
+    /// playback-session path.
+    PrepareBakedPlayback {
+        video_id: u64,
+        asset: ResolvedMediaAsset,
+        mime: String,
+        /// None for audio-only playback.
+        image_key: Option<(u32, u32)>,
+        autoplay: bool,
+        should_loop: bool,
+    },
     Play(u64),
     Pause(u64),
     Resume(u64),
@@ -87,13 +100,14 @@ pub enum VideoOp {
 
     // --- MSE operations ---
 
-    /// Set up an MSE-backed video player (no source URL; data pushed via MseAppendData).
-    PrepareMseVideo {
+    /// Set up an MSE-backed custom playback session (no source URL; data is
+    /// pushed via `MseAppendData`).
+    PrepareMsePlayback {
         video_id: u64,
         /// MIME type with codecs parameter, e.g. `video/mp4; codecs="av01.0.04M.08"`.
         mime: String,
-        /// Raw (namespace, index) image key for VideoTextureMap registration.
-        image_key: (u32, u32),
+        /// None for audio-only playback.
+        image_key: Option<(u32, u32)>,
     },
     /// Push fMP4 data (init segment or media segment) to an MSE player.
     MseAppendData {
@@ -200,6 +214,22 @@ pub fn register_event_sender(video_id: u64, sender: Sender<MediaEvent>) {
 /// Remove the event sender for a video_id.
 pub fn deregister_event_sender(video_id: u64) {
     MEDIA_EVENT_SENDERS.lock().unwrap().remove(&video_id);
+}
+
+pub fn append_mse_data(video_id: u64, data: Vec<u8>) {
+    send_op(VideoOp::MseAppendData { video_id, data });
+}
+
+pub fn end_mse_stream(video_id: u64) {
+    send_op(VideoOp::MseEndOfStream { video_id });
+}
+
+pub fn remove_mse_data(video_id: u64, start: f64, end: f64) {
+    send_op(VideoOp::MseRemove {
+        video_id,
+        start,
+        end,
+    });
 }
 
 /// Returns the canPlayType string for the given MIME type.
@@ -421,6 +451,26 @@ pub struct MediaController {
 }
 
 impl MediaController {
+    fn new_common(video_id: u64, image_key: (u32, u32), is_audio_only: bool, paused: bool) -> Self {
+        Self {
+            video_id,
+            image_key,
+            is_audio_only,
+            prepared: false,
+            width: 0,
+            height: 0,
+            duration_ms: 0,
+            is_seekable: false,
+            video_tracks: vec![],
+            audio_tracks: vec![],
+            position_ms: 0,
+            seekable_ranges: vec![],
+            buffered_ranges: vec![],
+            paused,
+            completed: false,
+        }
+    }
+
     /// Create a video controller and send PrepareVideo to the platform.
     pub fn new_video(
         source: MediaOrigin,
@@ -440,23 +490,7 @@ impl MediaController {
             autoplay,
             should_loop,
         });
-        Self {
-            video_id,
-            image_key,
-            is_audio_only: false,
-            prepared: false,
-            width: 0,
-            height: 0,
-            duration_ms: 0,
-            is_seekable: false,
-            video_tracks: vec![],
-            audio_tracks: vec![],
-            position_ms: 0,
-            seekable_ranges: vec![],
-            buffered_ranges: vec![],
-            paused: !autoplay,
-            completed: false,
-        }
+        Self::new_common(video_id, image_key, false, !autoplay)
     }
 
     /// Create an audio-only controller and send PrepareAudio to the platform.
@@ -472,23 +506,52 @@ impl MediaController {
             autoplay,
             should_loop,
         });
-        Self {
+        Self::new_common(video_id, (0, 0), true, !autoplay)
+    }
+
+    /// Create a baked custom-playback controller from browser-owned MP4/fMP4
+    /// bytes. This stays on the shared playback-session path used by MSE.
+    pub fn new_baked_playback(
+        asset: ResolvedMediaAsset,
+        mime: String,
+        image_key: Option<(u32, u32)>,
+        autoplay: bool,
+        should_loop: bool,
+    ) -> Self {
+        let video_id = next_video_id();
+        info!(
+            "media: queue PrepareBakedPlayback id={} mime={} image_key={:?} autoplay={} loop={}",
+            video_id, mime, image_key, autoplay, should_loop
+        );
+        send_op(VideoOp::PrepareBakedPlayback {
             video_id,
-            image_key: (0, 0),
-            is_audio_only: true,
-            prepared: false,
-            width: 0,
-            height: 0,
-            duration_ms: 0,
-            is_seekable: false,
-            video_tracks: vec![],
-            audio_tracks: vec![],
-            position_ms: 0,
-            seekable_ranges: vec![],
-            buffered_ranges: vec![],
-            paused: !autoplay,
-            completed: false,
-        }
+            asset,
+            mime,
+            image_key,
+            autoplay,
+            should_loop,
+        });
+        Self::new_common(video_id, image_key.unwrap_or((0, 0)), image_key.is_none(), !autoplay)
+    }
+
+    /// Create an MSE-backed controller on the shared custom playback path.
+    pub fn new_mse_playback(
+        mime: String,
+        image_key: Option<(u32, u32)>,
+        autoplay: bool,
+        should_loop: bool,
+    ) -> Self {
+        let video_id = next_video_id();
+        info!(
+            "media: queue PrepareMsePlayback id={} mime={} image_key={:?} autoplay={} loop={}",
+            video_id, mime, image_key, autoplay, should_loop
+        );
+        send_op(VideoOp::PrepareMsePlayback {
+            video_id,
+            mime,
+            image_key,
+        });
+        Self::new_common(video_id, image_key.unwrap_or((0, 0)), image_key.is_none(), !autoplay)
     }
 
     pub fn play(&mut self) {

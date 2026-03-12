@@ -49,13 +49,19 @@ Receiver byte-stream framing is always active.
 
 Playback path selection is explicit:
 
-- if `MediaSource` is available, append framed chunks through `SourceBuffer`
-- otherwise, enqueue each MP4 chunk as a `Blob` and play sequentially through
-  `remoteVideo.srcObject`
+- `MediaSource` / `SourceBuffer` is now available for the primary receiver path
+- pages can append framed MP4 chunks through `SourceBuffer`
+- Blob handoff remains a page-level fallback strategy when a page chooses not
+  to use MSE
 
 If neither path is available, page stays receive-only and reports
 `NotYetImplemented` instead of hanging.
 
-## Still not exposed
+## Current MSE scope
 
-- `MediaSource` / `SourceBuffer`
+- `new MediaSource()`
+- `URL.createObjectURL(mediaSource)`
+- one `addSourceBuffer()` per source
+- `appendBuffer()` / `remove()` / `abort()` / `endOfStream()`
+- valid single-buffer fMP4 receiver playback through the shared custom session
+  path below the browser transport boundary

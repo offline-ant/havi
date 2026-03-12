@@ -474,6 +474,8 @@ pub enum HpprControlRequest {
     RepoStatus,
     /// Get admin ring0 credentials from embedder store
     AdminCredential,
+    /// Resolve an HPPR media URL into the source packet plus routing metadata.
+    ResolveMediaPacket { url: String },
 }
 
 /// Control operation responses - returned from local/embedder operations.
@@ -489,6 +491,13 @@ pub enum HpprControlResponse {
     RepoStatus(String),
     /// Admin credential (ring1 name + token)
     AdminCredential { ring1_name: String, token: String },
+    /// Resolved HPPR media packet plus routing metadata.
+    ResolvedMediaPacket {
+        packet: Vec<u8>,
+        endpoint: String,
+        signer: Option<String>,
+        is_repo: bool,
+    },
     /// Error message
     Error(String),
 }

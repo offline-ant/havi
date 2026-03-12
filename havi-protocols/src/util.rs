@@ -146,6 +146,10 @@ pub fn mime_from_path(path: &str) -> &'static str {
         "image/gif"
     } else if path.ends_with(".svg") {
         "image/svg+xml"
+    } else if path.ends_with(".mp4") || path.ends_with(".m4v") {
+        "video/mp4"
+    } else if path.ends_with(".m4a") {
+        "audio/mp4"
     } else if path.ends_with(".wasm") {
         "application/wasm"
     } else if path.ends_with(".txt") {
@@ -353,6 +357,10 @@ mod tests {
         assert_eq!(mime_from_path("photo.jpeg"), "image/jpeg");
         assert_eq!(mime_from_path("anim.gif"), "image/gif");
         assert_eq!(mime_from_path("icon.svg"), "image/svg+xml");
+        // Media
+        assert_eq!(mime_from_path("clip.mp4"), "video/mp4");
+        assert_eq!(mime_from_path("clip.m4v"), "video/mp4");
+        assert_eq!(mime_from_path("track.m4a"), "audio/mp4");
         // Other
         assert_eq!(mime_from_path("module.wasm"), "application/wasm");
         assert_eq!(mime_from_path("readme.txt"), "text/plain");

@@ -641,6 +641,15 @@ impl AppMain for App {
         // Drain media-thread operations and forward platform video events.
         self.drain_video_ops(cx);
         self.handle_video_event(cx, event);
+        if !self.audio_outputs_initialized {
+            if let Event::AudioDevices(devices) = event {
+                let outputs = devices.default_output();
+                if !outputs.is_empty() {
+                    cx.use_audio_outputs(&outputs);
+                    self.audio_outputs_initialized = true;
+                }
+            }
+        }
 
         // Handle IPC commands (single-instance tab open requests)
         {

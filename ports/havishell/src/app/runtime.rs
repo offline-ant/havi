@@ -93,7 +93,7 @@ impl App {
         // Set Wayland app_id to "havi"
         cx.windows[CxWindowPool::id_zero()].create_app_id = "havi".to_string();
 
-        self.init_media_bridge();
+        self.init_media_bridge(cx);
 
         self.initialized = true;
         self.dpi_factor = dpi_factor;

@@ -100,10 +100,34 @@ Not implemented in part 2:
 Not-yet-implemented paths throw NotSupportedError or InvalidStateError with
 `NotYetImplemented` in the error message.
 
-`MediaSource` is still not exposed.
+`MediaSource` and `SourceBuffer` are exposed on the shared custom playback
+session core.
 
-Remote playback for stream-delivered recorder chunks can use standard
-`<video>.srcObject = Blob` as a non-MSE runtime path.
+Current MSE scope:
+
+- `new MediaSource()`
+- `URL.createObjectURL(mediaSource)`
+- `readyState`
+- `MediaSource.isTypeSupported()` for HAVI MP4 policy
+- one `addSourceBuffer()` per `MediaSource`
+- `SourceBuffer.appendBuffer()` / `remove()` / `abort()`
+- `endOfStream()`
+- `sourceopen` / `sourceended` / `sourceclose`
+- `updatestart` / `update` / `updateend` / `error`
+
+Current limits:
+
+- one attached `SourceBuffer`
+- no `MediaSource.duration`
+- no `sourceBuffers` / `activeSourceBuffers` lists
+- no multi-track `SourceBuffer` coordination
+- valid single-buffer MP4/fMP4 append can drive metadata, buffered ranges,
+  and decode/present on the shared custom playback session path
+- append/remove stay limited to MP4/fMP4 custom playback
+
+Remote playback for stream-delivered recorder chunks can use `MediaSource`
+through the custom session path. The older Blob handoff remains a fallback
+page-level strategy, not the browser media architecture.
 
 ## Audio
 
