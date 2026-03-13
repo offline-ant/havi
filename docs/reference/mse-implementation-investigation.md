@@ -32,8 +32,8 @@ HTMLMediaElement                  MediaController          App::drain_video_ops(
 | Linux backend | `makepad/platform/src/os/linux/linux_video_playback.rs` | GStreamer `playbin` + `appsink` pipeline |
 | macOS backend | `makepad/platform/src/os/apple/apple_video_playback.rs` | AVPlayer + CVMetalTextureCache |
 | Windows backend | `makepad/platform/src/os/windows/windows_video_playback.rs` | IMFMediaEngine |
-| Software AV1 | `makepad-media/makepad-media/src/software_av1.rs` | dav1d-based MP4 demux → AV1 decode (read-all-at-once) |
-| MP4 demux | `makepad-media/makepad-media/src/demux.rs` | Minimal ISOBMFF parser; requires seekable `Read+Seek` |
+| Software AV1 | `makepad/media/src/software_av1.rs` | dav1d-based MP4 demux → AV1 decode (read-all-at-once) |
+| MP4 demux | `makepad/media/src/demux.rs` | Minimal ISOBMFF parser; requires seekable `Read+Seek` |
 | GStreamer FFI | `makepad/platform/src/os/linux/gstreamer_sys.rs` | Dynamic dlopen of libgstreamer, libgstapp; `appsink` only — no `appsrc` |
 | Media plugin | `makepad/platform/src/media_plugin.rs` | `MediaPlugin` trait, `MediaPlaybackSession` trait, `MsePlaybackEngine` trait |
 | Video events | `makepad/platform/src/event/video_playback.rs` | `VideoSource`, `VideoPlaybackPreparedEvent`, etc. |
@@ -353,7 +353,7 @@ struct SourceBuffer {
 For MVP, use the existing software path:
 
 1. **Incremental MP4 demuxer**: Extend
-   `makepad-media/makepad-media/src/demux.rs`
+   `makepad/media/src/demux.rs`
    to support incremental parsing. Current `parse_mp4()` requires seekable
    `Read+Seek` over the full file. Add `IncrementalDemuxer` struct that:
    - accepts `push_data(&mut self, data: &[u8])`
@@ -363,7 +363,7 @@ For MVP, use the existing software path:
    - CMAF/fMP4 format (init `[ftyp+moov]` + media `[moof+mdat]`).
 
 2. **Incremental AV1 decode**: The existing `Dav1dDecoder` in
-   `makepad-media/makepad-media/src/dav1d_ffi.rs` already accepts individual
+   `makepad/media/src/dav1d_ffi.rs` already accepts individual
    OBU/frame data via `send_data()` and produces frames via `get_picture()`.
    Wire `IncrementalDemuxer` sample output to `Dav1dDecoder`.
 
@@ -813,7 +813,7 @@ checking this registry first, falling back to file manager for Blob URLs.
 | `havi/ports/havishell/src/app.rs` | Handle MSE `VideoOp` variants in `drain_video_ops()` |
 | `havi/spec/080-MEDIA.md` | Document MSE support |
 | `havi/spec/060-JS-API.md` | Update MediaSource status |
-| `makepad-media/makepad-media/src/demux.rs` | Add `IncrementalDemuxer` for fMP4 |
+| `makepad/media/src/demux.rs` | Add `IncrementalDemuxer` for fMP4 |
 
 ### No Changes Needed
 
