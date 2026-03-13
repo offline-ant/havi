@@ -40,8 +40,8 @@ fn ensure_font_registered(
 
     // Use pre-loaded data if available, otherwise fall back to disk read.
     let font_data = match preloaded_data {
-        Some(data) => Rc::new((**data).clone()),
-        None => Rc::new(std::fs::read(&handle.path).ok()?),
+        Some(data) => SharedBytes::Owned((**data).clone().into()),
+        None => SharedBytes::Owned(std::fs::read(&handle.path).ok()?.into()),
     };
 
     let font_id = NEXT_FONT_ID.with(|cell| {

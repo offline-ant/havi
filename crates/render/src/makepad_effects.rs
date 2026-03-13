@@ -5,7 +5,6 @@ use makepad_widgets::*;
 
 use crate::frame_tree::{FrameId, FrameTree};
 use crate::makepad_builder::MakepadDrawState;
-use crate::makepad_clip::transform_rect;
 use crate::{CssFilters, FilterPass, OpacityPass};
 
 pub(crate) fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> (f32, CssFilters) {
@@ -22,39 +21,6 @@ pub(crate) fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: Frame
         }
     }
     (1.0, CssFilters::identity())
-}
-
-pub(crate) fn frame_owner_bounds(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> Option<(usize, Rect)> {
-    let frame = frame_tree.frame(frame_id);
-    let owner_node_id = frame.owner_node_id?;
-    for item in &frame.items {
-        match item.fragment {
-            Fragment::Box(bf) | Fragment::Float(bf) => {
-                let br = bf.border_rect();
-                let local = Rect {
-                    pos: dvec2(
-                        item.local_origin.x + br.origin.x.to_f32_px() as f64,
-                        item.local_origin.y + br.origin.y.to_f32_px() as f64,
-                    ),
-                    size: dvec2(br.size.width.to_f32_px() as f64, br.size.height.to_f32_px() as f64),
-                };
-                return Some((owner_node_id, transform_rect(&frame.matrix.world, local)));
-            }
-            Fragment::IFrame(iframe) => {
-                let rect = iframe.base.rect;
-                let local = Rect {
-                    pos: dvec2(
-                        item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                        item.local_origin.y + rect.origin.y.to_f32_px() as f64,
-                    ),
-                    size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
-                };
-                return Some((owner_node_id, transform_rect(&frame.matrix.world, local)));
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 pub(crate) fn begin_filter_pass(

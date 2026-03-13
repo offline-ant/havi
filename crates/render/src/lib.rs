@@ -5,6 +5,7 @@
 
 mod background;
 mod clip_tree;
+mod compositor_scene;
 mod frame_builder;
 mod frame_tree;
 mod hit_test;
@@ -13,6 +14,7 @@ mod makepad_clip;
 mod makepad_effects;
 mod makepad_fragments;
 mod reference_frame;
+mod render_plan;
 pub mod shaders;
 pub mod video_texture_map;
 pub(crate) mod stacking_context;
@@ -208,7 +210,15 @@ pub fn render_fragments(
         frame_draw_lists,
         image_overrides,
     };
-    makepad_builder::paint_scene(cx, &scene.frame_tree, &scene.clip_tree, &mut state, 1.0);
+    makepad_builder::paint_scene(
+        cx,
+        &scene.frame_tree,
+        &scene.clip_tree,
+        &scene.render_plan,
+        &scene.compositor_scene,
+        &mut state,
+        1.0,
+    );
 }
 
 /// Draw fragments with viewport clipping, using a pre-built stacking context tree.
@@ -266,7 +276,15 @@ pub fn render_fragments_clipped(
         frame_draw_lists,
         image_overrides,
     };
-    makepad_builder::paint_scene(cx, &scene.frame_tree, &scene.clip_tree, &mut state, 1.0);
+    makepad_builder::paint_scene(
+        cx,
+        &scene.frame_tree,
+        &scene.clip_tree,
+        &scene.render_plan,
+        &scene.compositor_scene,
+        &mut state,
+        1.0,
+    );
 }
 
 /// Compute the visual offset for a sticky-positioned element.

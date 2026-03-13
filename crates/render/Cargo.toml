@@ -9,6 +9,7 @@ havi-types = { path = "../types" }
 havi-fonts = { path = "../fonts" }
 
 makepad-widgets = { path = "../../../makepad/widgets" }
+makepad-compositor = { path = "../../../makepad/compositor" }
 
 stylo = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", features = ["servo"] }
 servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }

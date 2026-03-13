@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
+use crate::compositor_scene::CompositorScene;
 use crate::reference_frame::reference_frame_spec;
+use crate::render_plan::{collect_owner_render_semantics, RenderPlan};
 use crate::stacking_context::{PaintItem, StackingContext, StackingContextContent, StackingContextSection};
 use havi_types::fragment_tree::BoxFragment;
 use havi_types::{Fragment, IFrameFragment};
@@ -22,6 +24,8 @@ pub(crate) struct BuildContext {
 pub(crate) struct BuiltScene<'a> {
     pub frame_tree: FrameTree<'a>,
     pub clip_tree: ClipTree,
+    pub render_plan: RenderPlan,
+    pub compositor_scene: CompositorScene,
 }
 
 struct StackingContextBuildState<'a> {
@@ -268,6 +272,7 @@ pub(crate) fn build_scene<'a>(
     let mut frame_tree = FrameTree::new();
     let mut clip_tree = ClipTree::new();
     let root_id = frame_tree.root_id();
+    let owner_semantics = collect_owner_render_semantics(fragments);
     frame_tree.set_root_transform(translation_matrix(root_origin.x as f32, root_origin.y as f32));
     SceneBuilder {
         frame_tree: &mut frame_tree,
@@ -286,7 +291,14 @@ pub(crate) fn build_scene<'a>(
             origin_basis: dvec2(0.0, 0.0),
         },
     );
-    BuiltScene { frame_tree, clip_tree }
+    let render_plan = RenderPlan::build(&frame_tree, owner_semantics);
+    let compositor_scene = CompositorScene::build(&frame_tree, &render_plan);
+    BuiltScene {
+        frame_tree,
+        clip_tree,
+        render_plan,
+        compositor_scene,
+    }
 }
 
 fn build_fragment_origin_map(fragments: &[Fragment]) -> HashMap<usize, DVec2> {

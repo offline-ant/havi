@@ -3629,6 +3629,7 @@ dependencies = [
  "euclid",
  "havi-fonts",
  "havi-types",
+ "makepad-compositor",
  "makepad-widgets",
  "servo_arc",
  "stylo",
@@ -5486,6 +5487,13 @@ name = "makepad-byteorder-lite"
 version = "0.1.0"
 
 [[package]]
+name = "makepad-compositor"
+version = "0.1.0"
+dependencies = [
+ "makepad-draw",
+]
+
+[[package]]
 name = "makepad-derive-wasm-bridge"
 version = "1.0.0"
 dependencies = [
@@ -5574,6 +5582,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-live-reload-core"
+version = "0.1.0"
+dependencies = [
+ "makepad-filesystem-watcher",
+]
+
+[[package]]
 name = "makepad-math"
 version = "1.0.0"
 dependencies = [
@@ -5637,13 +5652,15 @@ dependencies = [
  "hilog-sys",
  "makepad-android-state",
  "makepad-apple-sys",
- "makepad-filesystem-watcher",
  "makepad-futures",
  "makepad-futures-legacy",
  "makepad-jni-sys",
+ "makepad-live-reload-core",
  "makepad-network",
  "makepad-objc-sys",
  "makepad-script",
+ "makepad-script-std",
+ "makepad-shared-bytes",
  "makepad-studio-protocol",
  "makepad-wasm-bridge",
  "makepad-zune-png",
@@ -5683,6 +5700,18 @@ version = "1.0.0"
 dependencies = [
  "makepad-micro-proc-macro",
 ]
+
+[[package]]
+name = "makepad-script-std"
+version = "1.0.0"
+dependencies = [
+ "makepad-network",
+ "makepad-script",
+]
+
+[[package]]
+name = "makepad-shared-bytes"
+version = "1.0.0"
 
 [[package]]
 name = "makepad-studio-protocol"

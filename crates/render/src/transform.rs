@@ -102,22 +102,27 @@ pub(crate) fn has_effective_transform_or_perspective(
         || box_style.perspective != Perspective::None
 }
 
-/// Compute the renderer's 2D reference-frame matrix.
+/// Compute the renderer's 2D reference-frame matrix for the element's own
+/// transform chain.
 ///
-/// HAVI does not implement full 3D scene composition. When CSS produces a
-/// genuine 3D or perspective matrix, the renderer falls back to a 2D affine
-/// approximation of the transformed z=0 plane. This preserves structural frame
-/// isolation and slide ownership while keeping the Makepad backend strictly 2D.
+/// CSS `perspective` affects descendants, not the element's own geometry, so it
+/// is not folded into the direct reference-frame transform here. Perspective is
+/// handled structurally elsewhere.
 pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
     bh: f32,
 ) -> Option<Mat4f> {
-    if !has_effective_transform_or_perspective(computed) {
+    let box_style = computed.get_box();
+    let has_transform = !box_style.transform.0.is_empty()
+        || box_style.scale != GenericScale::None
+        || box_style.rotate != GenericRotate::None
+        || box_style.translate != GenericTranslate::None;
+    if !has_transform {
         return None;
     }
 
-    let matrix = compute_css_transform_3d(computed, bw, bh)?;
+    let matrix = compute_css_self_transform_3d(computed, bw, bh)?;
     let matrix = if is_3d_matrix(&matrix) {
         flatten_3d_reference_frame_to_2d(&matrix, bw, bh)?
     } else {
@@ -126,10 +131,66 @@ pub(crate) fn compute_css_reference_frame_matrix(
     Some(Mat4f { v: matrix })
 }
 
-pub(crate) fn compute_css_transform_3d(
+pub(crate) fn has_true_3d_transform(
     computed: &ComputedValues,
     bw: f32,
     bh: f32,
+) -> bool {
+    use euclid::{Point2D, Rect, Size2D, UnknownUnit};
+    use style::values::computed::length::CSSPixelLength;
+
+    let box_style = computed.get_box();
+    let reference_box: Rect<CSSPixelLength, UnknownUnit> = Rect::new(
+        Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
+        Size2D::new(CSSPixelLength::new(bw), CSSPixelLength::new(bh)),
+    );
+
+    if !box_style.transform.0.is_empty() {
+        let Ok((_, is_3d)) = box_style.transform.to_transform_3d_matrix(Some(&reference_box)) else {
+            return false;
+        };
+        if is_3d {
+            return true;
+        }
+    }
+
+    match box_style.rotate {
+        GenericRotate::Rotate3D(x, y, z, angle) => {
+            if angle.radians().abs() > 1e-5 && (x.abs() > 1e-5 || y.abs() > 1e-5 || (z - 1.0).abs() > 1e-5) {
+                return true;
+            }
+        }
+        GenericRotate::Rotate(_) | GenericRotate::None => {}
+    }
+
+    if let GenericScale::Scale(_, _, sz) = box_style.scale {
+        if (sz - 1.0).abs() > 1e-5 {
+            return true;
+        }
+    }
+
+    if let GenericTranslate::Translate(_, _, z) = &box_style.translate {
+        if z.px().abs() > 1e-5 {
+            return true;
+        }
+    }
+
+    false
+}
+
+pub(crate) fn compute_css_self_transform_3d(
+    computed: &ComputedValues,
+    bw: f32,
+    bh: f32,
+) -> Option<[f32; 16]> {
+    compute_css_transform_3d_internal(computed, bw, bh, false)
+}
+
+fn compute_css_transform_3d_internal(
+    computed: &ComputedValues,
+    bw: f32,
+    bh: f32,
+    include_perspective: bool,
 ) -> Option<[f32; 16]> {
     use euclid::{Point2D, Rect, Size2D, Transform3D, UnknownUnit};
     use style::values::computed::length::CSSPixelLength;
@@ -138,7 +199,7 @@ pub(crate) fn compute_css_transform_3d(
     let box_style = computed.get_box();
     let transform_list = &box_style.transform;
     let has_transform = !transform_list.0.is_empty();
-    let has_perspective = !matches!(box_style.perspective, Perspective::None);
+    let has_perspective = include_perspective && !matches!(box_style.perspective, Perspective::None);
     let has_individual_transform = box_style.scale != GenericScale::None
         || box_style.rotate != GenericRotate::None
         || box_style.translate != GenericTranslate::None;
@@ -185,25 +246,29 @@ pub(crate) fn compute_css_transform_3d(
         .then_scale(scale.0, scale.1, scale.2)
         .then(&translate);
 
-    let perspective: Option<Transform3D<f32, UnknownUnit, UnknownUnit>> = match box_style.perspective {
-        Perspective::Length(length) => {
-            let d = length.px();
-            if d > 0.0 {
-                let m = Transform3D::new(
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, -1.0 / d,
-                    0.0, 0.0, 0.0, 1.0,
-                );
-                let po = &box_style.perspective_origin;
-                let pox = po.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
-                let poy = po.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
-                Some(change_basis(&m, pox, poy, 0.0))
-            } else {
-                None
+    let perspective: Option<Transform3D<f32, UnknownUnit, UnknownUnit>> = if include_perspective {
+        match box_style.perspective {
+            Perspective::Length(length) => {
+                let d = length.px();
+                if d > 0.0 {
+                    let m = Transform3D::new(
+                        1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0, 0.0,
+                        0.0, 0.0, 1.0, -1.0 / d,
+                        0.0, 0.0, 0.0, 1.0,
+                    );
+                    let po = &box_style.perspective_origin;
+                    let pox = po.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
+                    let poy = po.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
+                    Some(change_basis(&m, pox, poy, 0.0))
+                } else {
+                    None
+                }
             }
+            Perspective::None => None,
         }
-        Perspective::None => None,
+    } else {
+        None
     };
 
     let combined = match perspective {
