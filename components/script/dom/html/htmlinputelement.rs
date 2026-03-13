@@ -1441,6 +1441,7 @@ impl HTMLInputElement {
         match action {
             KeyReaction::TriggerDefaultAction => {
                 self.implicit_submission(can_gc);
+                event.mark_as_handled();
             },
             KeyReaction::DispatchInput(text, is_composing, input_type) => {
                 if event.IsTrusted() {
@@ -3350,12 +3351,9 @@ impl VirtualMethods for HTMLInputElement {
     // https://w3c.github.io/uievents/#default-action
     /// <https://dom.spec.whatwg.org/#action-versus-occurance>
     fn handle_event(&self, event: &Event, can_gc: CanGc) {
-        if let Some(s) = self.super_type() {
-            s.handle_event(event, can_gc);
-        }
-
         if let Some(mouse_event) = event.downcast::<MouseEvent>() {
             self.handle_mouse_event(mouse_event);
+            event.mark_as_handled();
         } else if event.type_() == atom!("keydown") &&
             !event.DefaultPrevented() &&
             self.input_type().is_textual_or_password()
@@ -3366,13 +3364,6 @@ impl VirtualMethods for HTMLInputElement {
                 let action = self.textinput.borrow_mut().handle_keydown(keyevent);
                 self.handle_key_reaction(action, event, can_gc);
             }
-        } else if event.type_() == atom!("keypress") &&
-            !event.DefaultPrevented() &&
-            self.input_type().is_textual_or_password()
-        {
-            // keypress should be deprecated and replaced by beforeinput.
-            // keypress was supposed to fire "blur" and "focus" events
-            // but already done in `document.rs`
         } else if (event.type_() == atom!("compositionstart") ||
             event.type_() == atom!("compositionupdate") ||
             event.type_() == atom!("compositionend")) &&
@@ -3423,6 +3414,7 @@ impl VirtualMethods for HTMLInputElement {
                 );
             }
             if !flags.is_empty() {
+                event.mark_as_handled();
                 self.upcast::<Node>().dirty(NodeDamage::ContentOrHeritage);
             }
         } else if let Some(event) = event.downcast::<FocusEvent>() {
@@ -3430,6 +3422,10 @@ impl VirtualMethods for HTMLInputElement {
         }
 
         self.value_changed(can_gc);
+
+        if let Some(super_type) = self.super_type() {
+            super_type.handle_event(event, can_gc);
+        }
     }
 
     /// <https://html.spec.whatwg.org/multipage/#the-input-element%3Aconcept-node-clone-ext>

@@ -37,6 +37,7 @@ use libc::{self, c_void, uintptr_t};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use net_traits::image_cache::Image;
 use pixels::ImageMetadata;
+use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
 use script_bindings::codegen::InheritTypes::DocumentFragmentTypeId;
 use script_traits::DocumentActivity;
 use selectors::bloom::BloomFilter;
@@ -105,7 +106,7 @@ use crate::dom::documenttype::DocumentType;
 use crate::dom::element::{
     AttributeMutationReason, CustomElementCreationMode, Element, ElementCreator, SelectorWrapper,
 };
-use crate::dom::event::{Event, EventBubbles, EventCancelable};
+use crate::dom::event::{Event, EventBubbles, EventCancelable, EventFlags};
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::html::htmlcanvaselement::{HTMLCanvasElement, LayoutHTMLCanvasElementHelpers};
@@ -4783,6 +4784,10 @@ impl VirtualMethods for Node {
     }
 
     fn handle_event(&self, event: &Event, can_gc: CanGc) {
+        if event.DefaultPrevented() || event.flags().contains(EventFlags::Handled) {
+            return;
+        }
+
         if let Some(event) = event.downcast::<KeyboardEvent>() {
             self.owner_document()
                 .event_handler()
