@@ -9,6 +9,9 @@ HAVI can:
 - Open repos with `hppr://group/app/path{via:endpoint}`.
 - Open `hppr://group/app/path` using route config from the home repo.
 - Store local route and trust state in the home repo.
+- Apply CSS transforms structurally to rendered subtrees so descendant text,
+  images, stacking contexts, scroll clips, and iframe content render in the
+  transformed coordinate space of their owning element.
 
 ## URL entry and routing
 

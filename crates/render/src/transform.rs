@@ -1,6 +1,9 @@
 //! CSS transform extraction.
 
+use makepad_widgets::Mat4f;
 use style::properties::ComputedValues;
+use style::values::generics::box_::Perspective;
+use style::values::generics::transform::{GenericRotate, GenericScale, GenericTranslate};
 
 /// Full 2D affine transform: | m11 m21 tx |
 ///                           | m12 m22 ty |
@@ -165,6 +168,29 @@ pub(crate) fn compute_css_transform_2d(
 /// Compute a full 3D transform matrix (4x4, column-major) from CSS `transform`
 /// and `perspective` properties, with transform-origin baked in.
 /// Returns None if there is no effective transform or perspective.
+pub(crate) fn has_effective_transform_or_perspective(
+    computed: &ComputedValues,
+) -> bool {
+    let box_style = computed.get_box();
+    !box_style.transform.0.is_empty()
+        || box_style.scale != GenericScale::None
+        || box_style.rotate != GenericRotate::None
+        || box_style.translate != GenericTranslate::None
+        || box_style.perspective != Perspective::None
+}
+
+pub(crate) fn compute_css_reference_frame_matrix(
+    computed: &ComputedValues,
+    bw: f32,
+    bh: f32,
+) -> Option<Mat4f> {
+    if !has_effective_transform_or_perspective(computed) {
+        return None;
+    }
+
+    compute_css_transform_3d(computed, bw, bh).map(|v| Mat4f { v })
+}
+
 pub(crate) fn compute_css_transform_3d(
     computed: &ComputedValues,
     bw: f32,

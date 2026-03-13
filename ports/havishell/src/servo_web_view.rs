@@ -27,16 +27,13 @@ script_mod! {
 struct ImageTextures(havi_render::TextureCache);
 
 #[derive(Default)]
-struct TransformDrawLists(havi_render::TransformState);
+struct FrameDrawLists(havi_render::FrameDrawListState);
 
 #[derive(Default)]
 struct OpacityPasses(havi_render::OpacityState);
 
 #[derive(Default)]
 struct FilterPasses(havi_render::FilterState);
-
-#[derive(Default)]
-struct ScrollDrawLists(havi_render::ScrollDrawListState);
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -144,13 +141,11 @@ pub struct ServoWebView {
     #[rust]
     texture_cache: ImageTextures,
     #[rust]
-    transform_state: TransformDrawLists,
+    frame_draw_lists: FrameDrawLists,
     #[rust]
     opacity_passes: OpacityPasses,
     #[rust]
     filter_passes: FilterPasses,
-    #[rust]
-    scroll_draw_lists: ScrollDrawLists,
     /// Shared fragment tree from layout. When set, draw_walk renders fragments
     /// directly instead of using the GL texture.
     #[rust]
@@ -413,11 +408,10 @@ impl Widget for ServoWebView {
                         }
                     })
                     .as_ref(),
-                &mut self.transform_state.0,
+                &mut self.frame_draw_lists.0,
                 &mut self.opacity_passes.0,
                 &mut self.filter_passes.0,
                 &mut self.draw_filter_image,
-                &mut self.scroll_draw_lists.0,
                 &image_overrides,
             );
         }
@@ -498,7 +492,7 @@ impl ServoWebViewRef {
             // Clear image textures since they are content-dependent.
             inner.texture_cache.0.clear();
             // NOTE: Do NOT clear opacity_passes, filter_passes, or
-            // transform_state. Makepad's DrawPass pool does not properly
+            // frame_draw_lists. Makepad's DrawPass pool does not properly
             // clean up freed entries — dropped passes remain in the pool
             // with stale paint_dirty/parent fields, causing cycle panics.
             // These passes are reconfigured each frame so reuse is safe.

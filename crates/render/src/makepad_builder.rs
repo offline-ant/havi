@@ -1,7 +1,4 @@
-//! Walk a stacking context tree and emit Makepad draw calls.
-//!
-//! Replaces the old `render_fragment()` recursive walk with a stacking-context-ordered
-//! traversal that follows CSS 2.1 Appendix E paint ordering.
+//! Paint a pre-built frame tree using Makepad draw lists.
 
 use havi_types::{Fragment, ImageFragment};
 use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
@@ -9,19 +6,12 @@ use makepad_widgets::makepad_draw::{ImageBuffer, Texture};
 use makepad_widgets::*;
 
 use crate::background::draw_element_box;
-use crate::stacking_context::{
-    PaintItem, StackingContext, StackingContextContent, StackingContextSection,
-};
+use crate::clip_tree::{ClipId, ClipTree};
+use crate::frame_tree::{FrameId, FrameTree};
 use crate::text::draw_text_run;
-use crate::transform::{compute_css_transform_2d, compute_css_transform_3d, is_3d_matrix};
-use crate::{CssFilters, compute_sticky_offset, is_scroll_container, resolve_css_filters};
-use crate::{
-    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv, FilterPass,
-    FilterState, OpacityPass, OpacityState, ScrollDrawListState, ScrollState,
-    SelectionHighlight, TextureCache, TransformState,
-};
+use crate::{CssFilters, DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv};
+use crate::{FilterPass, FilterState, FrameDrawList, FrameDrawListState, OpacityPass, OpacityState, SelectionHighlight, TextureCache};
 
-/// All the Makepad draw state needed for rendering.
 pub(crate) struct MakepadDrawState<'a> {
     pub draw_bg: &'a mut DrawColor,
     pub draw_text: &'a mut DrawText,
@@ -29,134 +19,127 @@ pub(crate) struct MakepadDrawState<'a> {
     pub draw_text_mono: &'a mut DrawText,
     pub draw_image: &'a mut DrawImage,
     pub texture_cache: &'a mut TextureCache,
-    #[allow(dead_code)]
-    pub scroll_state: &'a ScrollState,
     pub draw_rounded_bg: &'a mut DrawRoundedColor,
     pub draw_box_shadow: &'a mut DrawBoxShadow,
     pub draw_gradient: &'a mut DrawGradient,
     pub draw_video_yuv: &'a mut DrawVideoYuv,
     pub selection: Option<&'a SelectionHighlight>,
-    pub transform_state: &'a mut TransformState,
     pub opacity_state: &'a mut OpacityState,
     pub filter_state: &'a mut FilterState,
     pub draw_filter_image: &'a mut DrawFilterImage,
-    pub scroll_draw_lists: &'a mut ScrollDrawListState,
+    pub frame_draw_lists: &'a mut FrameDrawListState,
     pub image_overrides: &'a havi_types::ImageOverrides,
 }
 
-/// Walk a stacking context tree and paint all fragments.
-pub(crate) fn paint_stacking_context(
+pub(crate) fn paint_scene(
     cx: &mut Cx2d,
-    sc: &StackingContext<'_>,
-    origin: DVec2,
-    clip: Option<(f32, f32)>,
-    parent_opacity: f32,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
     state: &mut MakepadDrawState<'_>,
+    parent_opacity: f32,
 ) {
-    // Determine if this stacking context needs opacity isolation or filter pass.
-    let (element_opacity, css_filters) = match sc.initializing_fragment {
-        Some(bf) => (
-            bf.base.style.get_effects().opacity,
-            resolve_css_filters(&bf.base.style),
-        ),
-        None => (1.0, CssFilters::identity()),
-    };
-    let needs_filter = !css_filters.is_identity();
-    // Optimization: skip opacity isolation for leaf stacking contexts (no child
-    // SCs). A leaf has no overlapping child layers, so alpha can be applied
-    // per-instance without double-blending artifacts.
-    let needs_opacity = element_opacity < 1.0 && !needs_filter && !sc.is_leaf();
-    let inner_opacity = if needs_opacity || needs_filter {
-        1.0
-    } else {
-        parent_opacity * element_opacity
-    };
+    paint_frame(cx, frame_tree, clip_tree, frame_tree.root, state, parent_opacity);
+    paint_selection_overlay(cx, state);
+}
 
-    let node_id = sc
-        .initializing_fragment
-        .and_then(|bf| bf.base.tag.map(|t| t.node.0));
-
-    // Filter pass: render to texture, composite with filter shader.
-    if needs_filter {
-        if let Some(node_id) = node_id {
-            let bf = sc.initializing_fragment.unwrap();
-            let (bx, by, bw, bh) = sc_border_box(bf, origin);
-            let pw = bw.max(1.0);
-            let ph = bh.max(1.0);
-
-            let fp = state.filter_state.entry(node_id).or_insert_with(|| {
-                let pass = DrawPass::new(cx.cx);
-                let texture = Texture::new_with_format(
-                    cx.cx,
-                    TextureFormat::RenderBGRAu8 {
-                        size: TextureSize::Auto,
-                        initial: true,
-                    },
-                );
-                pass.set_color_texture(
-                    cx.cx,
-                    &texture,
-                    DrawPassClearColor::ClearWith(Vec4f {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                        w: 0.0,
-                    }),
-                );
-                FilterPass {
-                    pass,
-                    texture,
-                    draw_list: DrawList2d::new(cx.cx),
-                }
-            });
-            fp.pass.set_size(cx.cx, dvec2(pw, ph));
-            cx.make_child_pass(&fp.pass);
-            cx.begin_pass(&fp.pass, None);
-            cx.set_pass_shift_scale(&fp.pass, dvec2(bx, by), dvec2(1.0, 1.0));
-            fp.draw_list.begin_always(cx);
-
-            paint_sc_contents(cx, sc, origin, clip, 1.0, state);
-
-            let fp = state.filter_state.get_mut(&node_id).unwrap();
-            fp.draw_list.end(cx);
-            cx.end_pass(&fp.pass);
-
-            let combined = parent_opacity * element_opacity * css_filters.filter_opacity;
-            state
-                .draw_filter_image
-                .draw_vars
-                .set_texture(0, &fp.texture);
-            state.draw_filter_image.opacity = combined;
-            state.draw_filter_image.blur_radius = css_filters.blur_radius;
-            state.draw_filter_image.brightness = css_filters.brightness;
-            state.draw_filter_image.contrast = css_filters.contrast;
-            state.draw_filter_image.grayscale = css_filters.grayscale;
-            state.draw_filter_image.hue_rotate = css_filters.hue_rotate_deg;
-            state.draw_filter_image.invert = css_filters.invert;
-            state.draw_filter_image.saturate = css_filters.saturate;
-            state.draw_filter_image.sepia = css_filters.sepia;
-            state.draw_filter_image.tex_size = Vec2f {
-                x: pw as f32,
-                y: ph as f32,
-            };
-            state.draw_filter_image.draw_abs(
-                cx,
-                Rect {
-                    pos: dvec2(bx, by),
-                    size: dvec2(pw, ph),
-                },
-            );
-            return;
-        }
+fn paint_frame(
+    cx: &mut Cx2d,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
+    state: &mut MakepadDrawState<'_>,
+    parent_opacity: f32,
+) {
+    if frame_id == frame_tree.root {
+        paint_frame_with_effects(cx, frame_tree, clip_tree, frame_id, state, parent_opacity);
+        return;
     }
 
-    // Opacity isolation: render to texture, composite with opacity.
-    if needs_opacity {
-        if let Some(node_id) = node_id {
-            let bf = sc.initializing_fragment.unwrap();
-            let (bx, by, bw, bh) = sc_border_box(bf, origin);
-            let pw = bw.max(1.0);
-            let ph = bh.max(1.0);
+    let frame = frame_tree.frame(frame_id);
+    state
+        .frame_draw_lists
+        .entry(frame.key)
+        .or_insert_with(|| FrameDrawList {
+            draw_list: DrawList2d::new(cx.cx),
+        })
+        .draw_list
+        .begin_always(cx);
+    state
+        .frame_draw_lists
+        .get_mut(&frame.key)
+        .unwrap()
+        .draw_list
+        .set_view_transform_self_only(cx.cx, &frame.matrix.world);
+    paint_frame_with_effects(cx, frame_tree, clip_tree, frame_id, state, parent_opacity);
+    state
+        .frame_draw_lists
+        .get_mut(&frame.key)
+        .unwrap()
+        .draw_list
+        .end(cx);
+}
+
+fn paint_frame_with_effects(
+    cx: &mut Cx2d,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
+    state: &mut MakepadDrawState<'_>,
+    parent_opacity: f32,
+) {
+    let (element_opacity, css_filters) = frame_effects_for_node(frame_tree, frame_id);
+    let needs_filter = !css_filters.is_identity();
+    let needs_opacity = element_opacity < 1.0 && !needs_filter;
+    if (needs_filter || needs_opacity) && frame_id != frame_tree.root {
+        if let Some((node_id, bounds)) = frame_owner_bounds(frame_tree, frame_id) {
+            let pw = bounds.size.x.max(1.0);
+            let ph = bounds.size.y.max(1.0);
+            if needs_filter {
+                let fp = state.filter_state.entry(node_id).or_insert_with(|| {
+                    let pass = DrawPass::new(cx.cx);
+                    let texture = Texture::new_with_format(
+                        cx.cx,
+                        TextureFormat::RenderBGRAu8 {
+                            size: TextureSize::Auto,
+                            initial: true,
+                        },
+                    );
+                    pass.set_color_texture(
+                        cx.cx,
+                        &texture,
+                        DrawPassClearColor::ClearWith(Vec4f { x: 0.0, y: 0.0, z: 0.0, w: 0.0 }),
+                    );
+                    FilterPass {
+                        pass,
+                        texture,
+                        draw_list: DrawList2d::new(cx.cx),
+                    }
+                });
+                fp.pass.set_size(cx.cx, dvec2(pw, ph));
+                cx.make_child_pass(&fp.pass);
+                cx.begin_pass(&fp.pass, None);
+                cx.set_pass_shift_scale(&fp.pass, bounds.pos, dvec2(1.0, 1.0));
+                fp.draw_list.begin_always(cx);
+                paint_frame_contents(cx, frame_tree, clip_tree, frame_id, state, 1.0);
+                let fp = state.filter_state.get_mut(&node_id).unwrap();
+                fp.draw_list.end(cx);
+                cx.end_pass(&fp.pass);
+
+                let combined = parent_opacity * element_opacity * css_filters.filter_opacity;
+                state.draw_filter_image.draw_vars.set_texture(0, &fp.texture);
+                state.draw_filter_image.opacity = combined;
+                state.draw_filter_image.blur_radius = css_filters.blur_radius;
+                state.draw_filter_image.brightness = css_filters.brightness;
+                state.draw_filter_image.contrast = css_filters.contrast;
+                state.draw_filter_image.grayscale = css_filters.grayscale;
+                state.draw_filter_image.hue_rotate = css_filters.hue_rotate_deg;
+                state.draw_filter_image.invert = css_filters.invert;
+                state.draw_filter_image.saturate = css_filters.saturate;
+                state.draw_filter_image.sepia = css_filters.sepia;
+                state.draw_filter_image.tex_size = Vec2f { x: pw as f32, y: ph as f32 };
+                state.draw_filter_image.draw_abs(cx, bounds);
+                return;
+            }
 
             let op = state.opacity_state.entry(node_id).or_insert_with(|| {
                 let pass = DrawPass::new(cx.cx);
@@ -170,12 +153,7 @@ pub(crate) fn paint_stacking_context(
                 pass.set_color_texture(
                     cx.cx,
                     &texture,
-                    DrawPassClearColor::ClearWith(Vec4f {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                        w: 0.0,
-                    }),
+                    DrawPassClearColor::ClearWith(Vec4f { x: 0.0, y: 0.0, z: 0.0, w: 0.0 }),
                 );
                 OpacityPass {
                     pass,
@@ -186,534 +164,267 @@ pub(crate) fn paint_stacking_context(
             op.pass.set_size(cx.cx, dvec2(pw, ph));
             cx.make_child_pass(&op.pass);
             cx.begin_pass(&op.pass, None);
-            cx.set_pass_shift_scale(&op.pass, dvec2(bx, by), dvec2(1.0, 1.0));
+            cx.set_pass_shift_scale(&op.pass, bounds.pos, dvec2(1.0, 1.0));
             op.draw_list.begin_always(cx);
-
-            paint_sc_contents(cx, sc, origin, clip, 1.0, state);
-
+            paint_frame_contents(cx, frame_tree, clip_tree, frame_id, state, 1.0);
             let op = state.opacity_state.get_mut(&node_id).unwrap();
             op.draw_list.end(cx);
             cx.end_pass(&op.pass);
 
-            let combined = parent_opacity * element_opacity;
             state.draw_image.draw_vars.set_texture(0, &op.texture);
-            state.draw_image.opacity = combined;
-            state.draw_image.draw_abs(
-                cx,
-                Rect {
-                    pos: dvec2(bx, by),
-                    size: dvec2(pw, ph),
-                },
-            );
+            state.draw_image.opacity = parent_opacity * element_opacity;
+            state.draw_image.draw_abs(cx, bounds);
             return;
         }
     }
 
-    // Scroll container handling: render children into a cached DrawList2d and
-    // apply scroll offset via view transform instead of re-emitting all draw
-    // calls on every scroll event.
-    let is_scroll = sc.initializing_fragment.map_or(false, is_scroll_container);
-    if is_scroll {
-        let bf = sc.initializing_fragment.unwrap();
-        let node_id = bf.base.tag.map(|t| t.node.0);
+    paint_frame_contents(cx, frame_tree, clip_tree, frame_id, state, parent_opacity * element_opacity);
+}
 
-        // Look up scroll offset for this container.
-        let scroll_offset = node_id
-            .and_then(|nid| state.scroll_state.get(&nid))
-            .copied()
-            .unwrap_or(DVec2 { x: 0.0, y: 0.0 });
-
-        // Paint own backgrounds/borders at original origin (unscrolled, unclipped).
-        paint_sc_own_backgrounds(cx, sc, origin, clip, inner_opacity, state);
-
-        // Compute clip rect (padding box in screen space) for children.
-        let padding_rect = bf.padding_rect();
-        let own_cb_origin = sc
-            .contents
-            .iter()
-            .find_map(|c| {
-                if let StackingContextContent::Fragment {
-                    containing_block_origin,
-                    section,
-                    ..
-                } = c
-                {
-                    if *section == StackingContextSection::OwnBackgroundsAndBorders {
-                        return Some(*containing_block_origin);
-                    }
-                }
-                None
-            })
-            .unwrap_or((0.0, 0.0));
-
-        let px = origin.x + own_cb_origin.0 + padding_rect.origin.x.to_f32_px() as f64;
-        let py = origin.y + own_cb_origin.1 + padding_rect.origin.y.to_f32_px() as f64;
-        let pw = padding_rect.size.width.to_f32_px() as f64;
-        let ph = padding_rect.size.height.to_f32_px() as f64;
-        let clip_rect = Rect {
-            pos: dvec2(px, py),
-            size: dvec2(pw, ph),
-        };
-
-        cx.push_clip_rect(clip_rect);
-
-        if let Some(nid) = node_id {
-            // Use cached DrawList2d for scroll container children.
-            // Content is only re-rendered when the fragment tree changes
-            // (detected by frag_ptr). Scroll-only changes reuse the existing
-            // draw list and update the view transform — O(1) instead of O(n).
-            let frag_ptr = sc.contents.as_ptr() as usize;
-            let sdl = state
-                .scroll_draw_lists
-                .entry(nid)
-                .or_insert_with(|| crate::ScrollDrawList {
-                    draw_list: DrawList2d::new(cx.cx),
-                    frag_ptr: 0,
-                    last_offset: dvec2(0.0, 0.0),
-                });
-
-            let content_changed = sdl.frag_ptr != frag_ptr;
-            if content_changed {
-                // Content changed — clear and re-render children.
-                sdl.frag_ptr = frag_ptr;
-                sdl.draw_list.begin_always(cx);
-                paint_sc_children_only(cx, sc, origin, clip, inner_opacity, state);
-                let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
-                sdl.draw_list.end(cx);
-            } else {
-                // Content unchanged — begin_maybe with will_redraw=false
-                // preserves existing draw items without re-emitting them.
-                // Only call end() when begin_maybe actually pushed to the
-                // draw_list_stack (Redrawing::yes), otherwise end() would
-                // pop the wrong entry and panic.
-                if sdl.draw_list.begin_maybe(cx, false).is_redrawing() {
-                    let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
-                    sdl.draw_list.end(cx);
-                }
-            }
-
-            // Apply scroll offset via view transform (translation matrix).
-            let sdl = state.scroll_draw_lists.get_mut(&nid).unwrap();
-            sdl.last_offset = scroll_offset;
-            let mat = Mat4f {
-                v: [
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    -(scroll_offset.x as f32),
-                    -(scroll_offset.y as f32),
-                    0.0,
-                    1.0,
-                ],
-            };
-            sdl.draw_list.set_view_transform(cx.cx, &mat);
-        } else {
-            // No node id — fall back to full repaint with offset.
-            let scrolled_origin = dvec2(origin.x - scroll_offset.x, origin.y - scroll_offset.y);
-            paint_sc_children_only(cx, sc, scrolled_origin, clip, inner_opacity, state);
-        }
-
-        cx.pop_clip_rect();
-    } else {
-        paint_sc_contents(cx, sc, origin, clip, inner_opacity, state);
+fn paint_frame_contents(
+    cx: &mut Cx2d,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
+    state: &mut MakepadDrawState<'_>,
+    opacity: f32,
+) {
+    paint_frame_items(cx, frame_tree, clip_tree, frame_id, state, opacity);
+    for &child_frame_id in &frame_tree.frame(frame_id).children {
+        paint_frame(cx, frame_tree, clip_tree, child_frame_id, state, opacity);
     }
 }
 
-/// Paint the contents of a stacking context in CSS paint order.
-fn paint_sc_contents(
+fn paint_frame_items(
     cx: &mut Cx2d,
-    sc: &StackingContext<'_>,
-    origin: DVec2,
-    clip: Option<(f32, f32)>,
-    opacity: f32,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
     state: &mut MakepadDrawState<'_>,
-) {
-    sc.paint_in_order(&mut |item| {
-        match item {
-            PaintItem::Content(content) => {
-                paint_content(cx, content, origin, clip, opacity, state);
-            },
-            PaintItem::ChildStackingContext(child) => {
-                paint_stacking_context(cx, child, origin, clip, opacity, state);
-            },
-            PaintItem::Outline(content) => {
-                // TODO: outline drawing. Currently outlines are drawn as part of
-                // draw_element_box — we would need to split that. For now, skip.
-                let _ = content;
-            },
-        }
-    });
-}
-
-/// Paint only OwnBackgroundsAndBorders for a stacking context (used for scroll containers).
-fn paint_sc_own_backgrounds(
-    cx: &mut Cx2d,
-    sc: &StackingContext<'_>,
-    origin: DVec2,
-    clip: Option<(f32, f32)>,
     opacity: f32,
-    state: &mut MakepadDrawState<'_>,
 ) {
-    sc.paint_in_order(&mut |item| match item {
-        PaintItem::Content(content) => {
-            if let StackingContextContent::Fragment { section, .. } = content {
-                if *section == StackingContextSection::OwnBackgroundsAndBorders {
-                    paint_content(cx, content, origin, clip, opacity, state);
-                }
-            }
-        },
-        _ => {},
-    });
-}
-
-/// Paint everything except OwnBackgroundsAndBorders for a stacking context.
-fn paint_sc_children_only(
-    cx: &mut Cx2d,
-    sc: &StackingContext<'_>,
-    origin: DVec2,
-    clip: Option<(f32, f32)>,
-    opacity: f32,
-    state: &mut MakepadDrawState<'_>,
-) {
-    sc.paint_in_order(&mut |item| match item {
-        PaintItem::Content(content) => {
-            if let StackingContextContent::Fragment { section, .. } = content {
-                if *section != StackingContextSection::OwnBackgroundsAndBorders {
-                    paint_content(cx, content, origin, clip, opacity, state);
-                }
-            } else {
-                paint_content(cx, content, origin, clip, opacity, state);
-            }
-        },
-        PaintItem::ChildStackingContext(child) => {
-            paint_stacking_context(cx, child, origin, clip, opacity, state);
-        },
-        PaintItem::Outline(content) => {
-            let _ = content;
-        },
-    });
-}
-
-/// Check if a fragment's Y extent is entirely outside the viewport.
-fn is_culled(fragment: &Fragment, cb_origin: (f64, f64), clip: Option<(f32, f32)>) -> bool {
-    let Some((vp_top, vp_bottom)) = clip else {
-        return false;
-    };
-    let (frag_top, frag_bottom) = match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => {
-            let br = bf.border_rect();
-            let top = cb_origin.1 + br.origin.y.to_f32_px() as f64;
-            let bottom = top + br.size.height.to_f32_px() as f64;
-            (top, bottom)
-        },
-        Fragment::Text(tf) => {
-            let r = tf.base.rect;
-            let top = cb_origin.1 + r.origin.y.to_f32_px() as f64;
-            let bottom = top + r.size.height.to_f32_px() as f64;
-            (top, bottom)
-        },
-        Fragment::Image(img) => {
-            let r = img.base.rect;
-            let top = cb_origin.1 + r.origin.y.to_f32_px() as f64;
-            let bottom = top + r.size.height.to_f32_px() as f64;
-            (top, bottom)
-        },
-        _ => return false,
-    };
-    frag_bottom < vp_top as f64 || frag_top > vp_bottom as f64
-}
-
-/// Paint a single content item.
-fn paint_content(
-    cx: &mut Cx2d,
-    content: &StackingContextContent<'_>,
-    origin: DVec2,
-    clip: Option<(f32, f32)>,
-    opacity: f32,
-    state: &mut MakepadDrawState<'_>,
-) {
-    let (section, fragment, cb_origin) = match content {
-        StackingContextContent::Fragment {
-            section,
-            fragment,
-            containing_block_origin,
-        } => (*section, *fragment, *containing_block_origin),
-        StackingContextContent::AtomicInlineStackingContainer { .. } => {
-            // Handled by paint_in_order emitting ChildStackingContext.
-            return;
-        },
-    };
-
-    // Viewport culling: skip fragments entirely outside the visible area.
-    if is_culled(fragment, cb_origin, clip) {
-        return;
+    for item in &frame_tree.frame(frame_id).items {
+        let pushed = push_clip_chain(cx, clip_tree, item.clip_id);
+        paint_fragment_item(cx, item, state, opacity);
+        pop_clip_chain(cx, pushed);
     }
+}
 
-    let draw_origin = dvec2(origin.x + cb_origin.0, origin.y + cb_origin.1);
-
-    match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => {
-            // Transform.
-            let (tx, ty, view_mat) = {
-                let br = bf.border_rect();
-                let bw = br.size.width.to_f32_px();
-                let bh = br.size.height.to_f32_px();
-                let t2d = compute_css_transform_2d(&bf.base.style, bw, bh);
-                let t3d = compute_css_transform_3d(&bf.base.style, bw, bh);
-                if t3d.as_ref().map_or(false, is_3d_matrix) {
-                    let mat = t3d.unwrap();
-                    (mat[12], mat[13], Some(mat))
-                } else {
-                    match t2d {
-                        Some(t) if !t.is_translate_only() => (t.tx, t.ty, Some(t.to_mat4f())),
-                        Some(t) => (t.tx, t.ty, None),
-                        None => (0.0, 0.0, None),
-                    }
-                }
-            };
-
-            let has_transform = view_mat.is_some();
-            let node_id = bf.base.tag.map(|t| t.node.0);
-
-            if has_transform {
-                if let Some(nid) = node_id {
-                    let dl = state
-                        .transform_state
-                        .entry(nid)
-                        .or_insert_with(|| DrawList2d::new(cx.cx));
-                    dl.begin_always(cx);
-                }
-            }
-
-            // Sticky offset.
-            let (sticky_dx, sticky_dy) = compute_sticky_offset(fragment, draw_origin, clip);
-
-            match section {
-                StackingContextSection::OwnBackgroundsAndBorders
-                | StackingContextSection::DescendantBackgroundsAndBorders => {
-                    // Draw backgrounds and borders.
-                    let border_rect = bf.border_rect();
-                    let bx = draw_origin.x
-                        + border_rect.origin.x.to_f32_px() as f64
-                        + tx as f64
-                        + sticky_dx;
-                    let by = draw_origin.y
-                        + border_rect.origin.y.to_f32_px() as f64
-                        + ty as f64
-                        + sticky_dy;
-                    let bw = border_rect.size.width.to_f32_px();
-                    let bh = border_rect.size.height.to_f32_px();
-                    draw_element_box(
+fn paint_fragment_item(
+    cx: &mut Cx2d,
+    item: &crate::frame_tree::FramePaintItem<'_>,
+    state: &mut MakepadDrawState<'_>,
+    opacity: f32,
+) {
+    match item.fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => match item.section {
+            crate::stacking_context::StackingContextSection::OwnBackgroundsAndBorders
+            | crate::stacking_context::StackingContextSection::DescendantBackgroundsAndBorders
+            | crate::stacking_context::StackingContextSection::Foreground => {
+                let border_rect = bf.border_rect();
+                let bx = item.local_origin.x + border_rect.origin.x.to_f32_px() as f64;
+                let by = item.local_origin.y + border_rect.origin.y.to_f32_px() as f64;
+                let bw = border_rect.size.width.to_f32_px();
+                let bh = border_rect.size.height.to_f32_px();
+                draw_element_box(
+                    cx,
+                    &bf.base.style,
+                    bx,
+                    by,
+                    bw,
+                    bh,
+                    state.draw_bg,
+                    state.draw_rounded_bg,
+                    state.draw_box_shadow,
+                    state.draw_gradient,
+                    opacity,
+                );
+                if !bf.background_images.is_empty() {
+                    crate::background::draw_background_url_images(
                         cx,
-                        &bf.base.style,
+                        &bf.background_images,
                         bx,
                         by,
                         bw,
                         bh,
-                        state.draw_bg,
-                        state.draw_rounded_bg,
-                        state.draw_box_shadow,
-                        state.draw_gradient,
+                        state.draw_image,
+                        state.texture_cache,
                         opacity,
                     );
-                    if !bf.background_images.is_empty() {
-                        crate::background::draw_background_url_images(
-                            cx,
-                            &bf.background_images,
-                            bx,
-                            by,
-                            bw,
-                            bh,
-                            state.draw_image,
-                            state.texture_cache,
-                            opacity,
-                        );
-                    }
-
-                    // Handle overflow clipping for children if this is the
-                    // OwnBackgroundsAndBorders section of a stacking context.
-                    // Children will be painted as separate content items, so
-                    // clipping is handled at that level.
-                },
-                StackingContextSection::Foreground => {
-                    // Box fragments in foreground section: draw backgrounds/borders
-                    // (for inline boxes that appear in foreground).
-                    let border_rect = bf.border_rect();
-                    let bx = draw_origin.x
-                        + border_rect.origin.x.to_f32_px() as f64
-                        + tx as f64
-                        + sticky_dx;
-                    let by = draw_origin.y
-                        + border_rect.origin.y.to_f32_px() as f64
-                        + ty as f64
-                        + sticky_dy;
-                    let bw = border_rect.size.width.to_f32_px();
-                    let bh = border_rect.size.height.to_f32_px();
-                    draw_element_box(
-                        cx,
-                        &bf.base.style,
-                        bx,
-                        by,
-                        bw,
-                        bh,
-                        state.draw_bg,
-                        state.draw_rounded_bg,
-                        state.draw_box_shadow,
-                        state.draw_gradient,
-                        opacity,
-                    );
-                    if !bf.background_images.is_empty() {
-                        crate::background::draw_background_url_images(
-                            cx,
-                            &bf.background_images,
-                            bx,
-                            by,
-                            bw,
-                            bh,
-                            state.draw_image,
-                            state.texture_cache,
-                            opacity,
-                        );
-                    }
-                },
-                StackingContextSection::Outline => {
-                    // TODO: draw outline only.
-                },
-            }
-
-            // Close transform.
-            if has_transform {
-                if let Some(nid) = node_id {
-                    if let Some(dl) = state.transform_state.get_mut(&nid) {
-                        dl.end(cx);
-                        let mat = Mat4f {
-                            v: view_mat.unwrap(),
-                        };
-                        dl.set_view_transform(cx.cx, &mat);
-                    }
                 }
             }
+            crate::stacking_context::StackingContextSection::Outline => {}
         },
-
         Fragment::Text(text_fragment) => {
-            if section != StackingContextSection::Foreground {
+            if item.section != crate::stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = text_fragment.base.rect;
-            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
-            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
-            let w = rect.size.width.to_f32_px();
-            let h = rect.size.height.to_f32_px();
-
-            if let Some(sel) = state.selection {
-                let text_rect = Rect {
-                    pos: dvec2(x, y),
-                    size: dvec2(w as f64, h as f64),
-                };
-                let text_top = text_rect.pos.y;
-                let text_bottom = text_rect.pos.y + text_rect.size.y;
-                for sel_rect in &sel.rects {
-                    if sel_rect.size.x <= 0.0 || sel_rect.size.y <= 0.0 {
-                        continue;
-                    }
-                    let sel_top = sel_rect.pos.y;
-                    let sel_bottom = sel_rect.pos.y + sel_rect.size.y;
-                    if sel_bottom <= text_top || sel_top >= text_bottom {
-                        continue;
-                    }
-                    if let Some(intersection) = rect_intersection(&text_rect, sel_rect) {
-                        state.draw_bg.color = sel.color;
-                        state.draw_bg.draw_abs(cx, intersection);
-                    }
-                }
-            }
             draw_text_run(
                 cx,
                 text_fragment,
-                x,
-                y,
-                w,
-                h,
+                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
+                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                rect.size.width.to_f32_px(),
+                rect.size.height.to_f32_px(),
                 opacity,
                 state.draw_bg,
                 state.draw_text,
                 state.draw_text_bold,
                 state.draw_text_mono,
             );
-        },
-
+        }
         Fragment::Image(img) => {
-            if section != StackingContextSection::Foreground {
+            if item.section != crate::stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = img.base.rect;
-            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
-            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
-            let w = rect.size.width.to_f32_px();
-            let h = rect.size.height.to_f32_px();
             draw_image_fragment(
                 cx,
                 img,
-                x,
-                y,
-                w,
-                h,
+                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
+                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                rect.size.width.to_f32_px(),
+                rect.size.height.to_f32_px(),
                 state.draw_image,
                 state.draw_video_yuv,
                 state.texture_cache,
                 state.image_overrides,
                 opacity,
             );
-        },
-
+        }
         Fragment::IFrame(iframe) => {
-            if section != StackingContextSection::Foreground {
+            if item.section != crate::stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = iframe.base.rect;
-            let x = draw_origin.x + rect.origin.x.to_f32_px() as f64;
-            let y = draw_origin.y + rect.origin.y.to_f32_px() as f64;
-            let w = rect.size.width.to_f32_px();
-            let h = rect.size.height.to_f32_px();
-            let iframe_rect = Rect {
-                pos: dvec2(x, y),
-                size: dvec2(w as f64, h as f64),
-            };
-            cx.push_clip_rect(iframe_rect);
-            // IFrame children get their own stacking context tree build.
-            // For now, recurse using the simple build.
-            let child_sc =
-                crate::stacking_context::build_stacking_context_tree(&iframe.child_fragments);
-            paint_stacking_context(cx, &child_sc, dvec2(x, y), clip, opacity, state);
-            cx.pop_clip_rect();
-        },
-
-        Fragment::Positioning(_) => {
-            // Positioning fragments are handled during tree building.
-        },
+            draw_element_box(
+                cx,
+                &iframe.base.style,
+                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
+                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                rect.size.width.to_f32_px(),
+                rect.size.height.to_f32_px(),
+                state.draw_bg,
+                state.draw_rounded_bg,
+                state.draw_box_shadow,
+                state.draw_gradient,
+                opacity,
+            );
+        }
+        Fragment::Positioning(_) => {}
     }
 }
 
-fn sc_border_box(
-    bf: &havi_types::fragment_tree::BoxFragment,
-    origin: DVec2,
-) -> (f64, f64, f64, f64) {
-    let br = bf.border_rect();
-    (
-        origin.x + br.origin.x.to_f32_px() as f64,
-        origin.y + br.origin.y.to_f32_px() as f64,
-        br.size.width.to_f32_px() as f64,
-        br.size.height.to_f32_px() as f64,
-    )
+fn push_clip_chain(cx: &mut Cx2d, clip_tree: &ClipTree, clip_id: ClipId) -> usize {
+    if clip_id == ClipId::INVALID {
+        return 0;
+    }
+    let mut chain = Vec::new();
+    let mut current = clip_id;
+    while current != ClipId::INVALID {
+        let node = clip_tree.get(current);
+        chain.push(node.rect);
+        current = node.parent_clip_id;
+    }
+    chain.reverse();
+    for rect in &chain {
+        cx.push_clip_rect(*rect);
+    }
+    chain.len()
+}
+
+fn pop_clip_chain(cx: &mut Cx2d, pushed_count: usize) {
+    for _ in 0..pushed_count {
+        cx.pop_clip_rect();
+    }
+}
+
+fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> (f32, CssFilters) {
+    let frame = frame_tree.frame(frame_id);
+    for item in &frame.items {
+        match item.fragment {
+            Fragment::Box(bf) | Fragment::Float(bf) => {
+                return (bf.base.style.get_effects().opacity, crate::resolve_css_filters(&bf.base.style));
+            }
+            Fragment::IFrame(iframe) => {
+                return (iframe.base.style.get_effects().opacity, crate::resolve_css_filters(&iframe.base.style));
+            }
+            _ => {}
+        }
+    }
+    (1.0, CssFilters::identity())
+}
+
+fn frame_owner_bounds(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> Option<(usize, Rect)> {
+    let frame = frame_tree.frame(frame_id);
+    let owner_node_id = frame.owner_node_id?;
+    for item in &frame.items {
+        match item.fragment {
+            Fragment::Box(bf) | Fragment::Float(bf) => {
+                let br = bf.border_rect();
+                let local = Rect {
+                    pos: dvec2(
+                        item.local_origin.x + br.origin.x.to_f32_px() as f64,
+                        item.local_origin.y + br.origin.y.to_f32_px() as f64,
+                    ),
+                    size: dvec2(br.size.width.to_f32_px() as f64, br.size.height.to_f32_px() as f64),
+                };
+                return Some((owner_node_id, transform_rect(&frame.matrix.world, local)));
+            }
+            Fragment::IFrame(iframe) => {
+                let rect = iframe.base.rect;
+                let local = Rect {
+                    pos: dvec2(
+                        item.local_origin.x + rect.origin.x.to_f32_px() as f64,
+                        item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                    ),
+                    size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
+                };
+                return Some((owner_node_id, transform_rect(&frame.matrix.world, local)));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
+    let points = [
+        dvec2(rect.pos.x, rect.pos.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y),
+        dvec2(rect.pos.x, rect.pos.y + rect.size.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y + rect.size.y),
+    ];
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for point in points {
+        let mapped = matrix.transform_vec4(vec4f(point.x as f32, point.y as f32, 0.0, 1.0));
+        let x = if mapped.w.abs() > 1e-6 { mapped.x / mapped.w } else { mapped.x } as f64;
+        let y = if mapped.w.abs() > 1e-6 { mapped.y / mapped.w } else { mapped.y } as f64;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    Rect {
+        pos: dvec2(min_x, min_y),
+        size: dvec2((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+    }
+}
+
+fn paint_selection_overlay(cx: &mut Cx2d, state: &mut MakepadDrawState<'_>) {
+    let Some(selection) = state.selection else {
+        return;
+    };
+    state.draw_bg.color = selection.color;
+    for rect in &selection.rects {
+        if rect.size.x > 0.0 && rect.size.y > 0.0 {
+            state.draw_bg.draw_abs(cx, *rect);
+        }
+    }
 }
 
 /// Cheap hash of a byte range identity (pointer + offset + len) to detect frame changes
@@ -741,7 +452,6 @@ fn draw_image_fragment(
 ) {
     let node_id = img.base.tag.map(|t| t.node.0).unwrap_or(0);
 
-    // Check for a live video binding registered via VideoTextureMap.
     if let Some(key) = img.image_key {
         if let Some(binding) = crate::video_texture_map::get_video_binding(key) {
             if binding.yuv_metadata.enabled {
@@ -753,13 +463,7 @@ fn draw_image_fragment(
                     draw_video_yuv.yuv_biplanar = binding.yuv_metadata.shader_biplanar();
                     draw_video_yuv.yuv_rotation_steps = binding.yuv_metadata.rotation_steps;
                     draw_video_yuv.opacity = opacity;
-                    draw_video_yuv.draw_abs(
-                        cx,
-                        Rect {
-                            pos: dvec2(x, y),
-                            size: dvec2(w as f64, h as f64),
-                        },
-                    );
+                    draw_video_yuv.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
                     return;
                 }
             }
@@ -767,31 +471,18 @@ fn draw_image_fragment(
             if let Some(video_tex) = binding.external_texture {
                 draw_image.draw_vars.set_texture(0, &video_tex);
                 draw_image.opacity = opacity;
-                draw_image.draw_abs(
-                    cx,
-                    Rect {
-                        pos: dvec2(x, y),
-                        size: dvec2(w as f64, h as f64),
-                    },
-                );
+                draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
                 return;
             }
         }
     }
 
-    // Check for Paint-layer overrides (canvas updates, late animation frames).
     let (image_data, frame_start, frame_end, width, height) =
         if let Some(ov) = img.image_key.and_then(|k| image_overrides.get(&k)) {
             let frame_size = (ov.width as usize) * (ov.height as usize) * 4;
             let start = ov.offset;
             let end = (start + frame_size).min(ov.data.len());
-            (
-                &*ov.data as &[u8],
-                start,
-                end,
-                ov.width as usize,
-                ov.height as usize,
-            )
+            (&*ov.data as &[u8], start, end, ov.width as usize, ov.height as usize)
         } else {
             (
                 &*img.image_data as &[u8],
@@ -823,7 +514,6 @@ fn draw_image_fragment(
         }
     });
 
-    // Re-upload only when the frame changed (different byte range or different image data).
     if entry.data_hash != hash {
         entry.data_hash = hash;
         let data = rgba_to_bgra_u32(frame_bytes);
@@ -832,34 +522,13 @@ fn draw_image_fragment(
 
     draw_image.draw_vars.set_texture(0, &entry.texture);
     draw_image.opacity = opacity;
-    draw_image.draw_abs(
-        cx,
-        Rect {
-            pos: dvec2(x, y),
-            size: dvec2(w as f64, h as f64),
-        },
-    );
+    draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
 }
 
-/// Convert RGBA byte slice to BGRA u32 vec for Makepad textures.
 fn rgba_to_bgra_u32(rgba: &[u8]) -> Vec<u32> {
     rgba.chunks_exact(4)
         .map(|px| {
             (px[2] as u32) | ((px[1] as u32) << 8) | ((px[0] as u32) << 16) | ((px[3] as u32) << 24)
         })
         .collect()
-}
-
-fn rect_intersection(a: &Rect, b: &Rect) -> Option<Rect> {
-    let x0 = a.pos.x.max(b.pos.x);
-    let y0 = a.pos.y.max(b.pos.y);
-    let x1 = (a.pos.x + a.size.x).min(b.pos.x + b.size.x);
-    let y1 = (a.pos.y + a.size.y).min(b.pos.y + b.size.y);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    Some(Rect {
-        pos: dvec2(x0, y0),
-        size: dvec2(x1 - x0, y1 - y0),
-    })
 }

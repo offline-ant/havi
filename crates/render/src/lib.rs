@@ -4,6 +4,9 @@
 //! it in correct paint order, emitting Makepad draw calls.
 
 mod background;
+mod clip_tree;
+mod frame_builder;
+mod frame_tree;
 mod hit_test;
 mod makepad_builder;
 pub mod shaders;
@@ -39,9 +42,7 @@ use havi_types::fragment_tree::BoxFragment;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::Texture;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
-use app_units::Au;
 use style::computed_values::overflow_x::T as ComputedOverflow;
-use style::computed_values::position::T as ComputedPosition;
 
 pub use shaders::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
@@ -72,9 +73,11 @@ pub struct SelectionHighlight {
 /// Per-element scroll offsets for overflow containers, keyed by OpaqueNode id.
 pub type ScrollState = HashMap<usize, DVec2>;
 
-/// Reusable sub-DrawLists for elements with CSS transforms (rotation/skew).
-/// Keyed by OpaqueNode id to allow reuse across frames.
-pub type TransformState = HashMap<usize, DrawList2d>;
+pub struct FrameDrawList {
+    pub draw_list: DrawList2d,
+}
+
+pub type FrameDrawListState = HashMap<crate::frame_tree::FrameKey, FrameDrawList>;
 
 /// Render-to-texture state for opacity isolation (CSS stacking context).
 /// When an element has opacity < 1.0, its subtree must be composited as a group
@@ -98,23 +101,6 @@ pub struct FilterPass {
 
 /// Per-element filter passes, keyed by OpaqueNode id.
 pub type FilterState = HashMap<usize, FilterPass>;
-
-/// Cached DrawList2d per scroll container, keyed by OpaqueNode id.
-/// Scroll containers render their children into a DrawList2d once. On
-/// subsequent frames where only the scroll offset changed (not the content),
-/// the DrawList2d is reused with an updated view transform instead of
-/// re-emitting all draw calls.
-pub struct ScrollDrawList {
-    pub draw_list: DrawList2d,
-    /// Fragment Arc data pointer when this draw list was last built.
-    /// When it changes, the content must be re-rendered.
-    pub frag_ptr: usize,
-    /// Scroll offset applied to this draw list's view transform.
-    pub last_offset: DVec2,
-}
-
-/// Per-element scroll container draw lists, keyed by OpaqueNode id.
-pub type ScrollDrawListState = HashMap<usize, ScrollDrawList>;
 
 /// CSS filter parameters resolved from computed values.
 pub(crate) struct CssFilters {
@@ -191,14 +177,15 @@ pub fn render_fragments(
     draw_gradient: &mut DrawGradient,
     draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
-    transform_state: &mut TransformState,
+    frame_draw_lists: &mut FrameDrawListState,
     opacity_state: &mut OpacityState,
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
-    scroll_draw_lists: &mut ScrollDrawListState,
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
+    let viewport_size = cx.turtle().rect().size;
+    let scene = frame_builder::build_scene(&sc, scroll_state, origin, viewport_size);
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -206,20 +193,18 @@ pub fn render_fragments(
         draw_text_mono,
         draw_image,
         texture_cache,
-        scroll_state,
         draw_rounded_bg,
         draw_box_shadow,
         draw_gradient,
         draw_video_yuv,
         selection,
-        transform_state,
         opacity_state,
         filter_state,
         draw_filter_image,
-        scroll_draw_lists,
+        frame_draw_lists,
         image_overrides,
     };
-    makepad_builder::paint_stacking_context(cx, &sc, origin, None, 1.0, &mut state);
+    makepad_builder::paint_scene(cx, &scene.frame_tree, &scene.clip_tree, &mut state, 1.0);
 }
 
 /// Draw fragments with viewport clipping, using a pre-built stacking context tree.
@@ -241,13 +226,17 @@ pub fn render_fragments_clipped(
     draw_gradient: &mut DrawGradient,
     draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
-    transform_state: &mut TransformState,
+    frame_draw_lists: &mut FrameDrawListState,
     opacity_state: &mut OpacityState,
     filter_state: &mut FilterState,
     draw_filter_image: &mut DrawFilterImage,
-    scroll_draw_lists: &mut ScrollDrawListState,
     image_overrides: &havi_types::ImageOverrides,
 ) {
+    let viewport_size = dvec2(
+        cx.turtle().rect().size.x,
+        (viewport_bottom - viewport_top) as f64,
+    );
+    let scene = frame_builder::build_scene(cached_tree.tree(), scroll_state, origin, viewport_size);
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -255,81 +244,24 @@ pub fn render_fragments_clipped(
         draw_text_mono,
         draw_image,
         texture_cache,
-        scroll_state,
         draw_rounded_bg,
         draw_box_shadow,
         draw_gradient,
         draw_video_yuv,
         selection,
-        transform_state,
         opacity_state,
         filter_state,
         draw_filter_image,
-        scroll_draw_lists,
+        frame_draw_lists,
         image_overrides,
     };
-    makepad_builder::paint_stacking_context(
-        cx,
-        cached_tree.tree(),
-        origin,
-        Some((viewport_top, viewport_bottom)),
-        1.0,
-        &mut state,
-    );
+    makepad_builder::paint_scene(cx, &scene.frame_tree, &scene.clip_tree, &mut state, 1.0);
 }
 
 /// Compute the visual offset for a sticky-positioned element.
 ///
 /// Returns (dx, dy) offset to apply to the element's rendered position.
 /// For non-sticky elements, returns (0, 0).
-pub(crate) fn compute_sticky_offset(
-    fragment: &Fragment,
-    parent_draw_origin: DVec2,
-    clip: Option<(f32, f32)>,
-) -> (f64, f64) {
-    let bf = match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => bf,
-        _ => return (0.0, 0.0),
-    };
-
-    if bf.base.style.get_box().position != ComputedPosition::Sticky {
-        return (0.0, 0.0);
-    }
-
-    let (viewport_top, viewport_bottom) = match clip {
-        Some((top, bottom)) => (top as f64, bottom as f64),
-        None => return (0.0, 0.0),
-    };
-
-    let position = bf.base.style.get_position();
-    let border_rect = bf.border_rect();
-    let element_top = parent_draw_origin.y + border_rect.origin.y.to_f32_px() as f64;
-    let element_h = border_rect.size.height.to_f32_px() as f64;
-
-    let mut dy = 0.0;
-
-    if let style::values::generics::position::Inset::LengthPercentage(ref lp) = position.top {
-        let basis = Au::from_f32_px((viewport_bottom - viewport_top) as f32);
-        let inset = lp.to_used_value(basis).to_f32_px() as f64;
-        let sticky_edge = viewport_top + inset;
-        if element_top < sticky_edge {
-            dy = sticky_edge - element_top;
-        }
-    }
-
-    if let style::values::generics::position::Inset::LengthPercentage(ref lp) = position.bottom {
-        let basis = Au::from_f32_px((viewport_bottom - viewport_top) as f32);
-        let inset = lp.to_used_value(basis).to_f32_px() as f64;
-        let sticky_edge = viewport_bottom - inset;
-        let element_bottom = element_top + element_h + dy;
-        if element_bottom > sticky_edge {
-            dy += sticky_edge - element_bottom;
-        }
-    }
-
-    (0.0, dy)
-}
-
 /// Check if a box fragment establishes a scroll container (overflow != visible).
 pub fn is_scroll_container(bf: &BoxFragment) -> bool {
     let ov = bf.base.style.get_box();
