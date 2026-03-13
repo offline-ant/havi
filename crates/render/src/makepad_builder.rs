@@ -52,19 +52,43 @@ impl CompositorRuntime {
         }
     }
 
-    fn surface_mut(
+    fn ensure_surface(
         &mut self,
         cx: &mut Cx,
         surface_id: CompositorSurfaceId,
         size: DVec2,
         with_depth: bool,
-    ) -> &mut MpSurface {
+    ) {
         self.surfaces
             .entry(surface_id)
             .and_modify(|surface| surface.resize(cx, size))
-            .or_insert_with(|| {
-                MpSurface::new(cx, size, MpSurfaceColorFormat::BgraU8, with_depth)
-            })
+            .or_insert_with(|| MpSurface::new(cx, size, MpSurfaceColorFormat::BgraU8, with_depth));
+    }
+
+    fn begin_surface(
+        &mut self,
+        cx: &mut Cx2d,
+        surface_id: CompositorSurfaceId,
+        size: DVec2,
+        with_depth: bool,
+        shift: DVec2,
+    ) {
+        self.ensure_surface(cx.cx, surface_id, size, with_depth);
+        let surface = self.surfaces.get_mut(&surface_id).unwrap();
+        surface.begin(cx, None);
+        cx.set_pass_shift_scale(surface.pass(), shift, dvec2(1.0, 1.0));
+    }
+
+    fn end_surface(&mut self, cx: &mut Cx2d, surface_id: CompositorSurfaceId) {
+        self.surfaces.get_mut(&surface_id).unwrap().end(cx);
+    }
+
+    fn surface_texture(&self, surface_id: CompositorSurfaceId) -> Texture {
+        self.surfaces
+            .get(&surface_id)
+            .unwrap()
+            .color_texture()
+            .clone()
     }
 }
 
@@ -173,11 +197,13 @@ fn paint_compositor_surface(
         render_plan.frame_participation(surface_root_frame_id),
         RenderParticipation::Compositor { .. }
     );
-    {
-        let surface = runtime.surface_mut(cx.cx, surface_id, local_bounds.size, with_depth);
-        surface.begin(cx, None);
-        cx.set_pass_shift_scale(surface.pass(), local_bounds.pos, dvec2(1.0, 1.0));
-    }
+    runtime.begin_surface(
+        cx,
+        surface_id,
+        local_bounds.size,
+        with_depth,
+        local_bounds.pos,
+    );
     paint_frame_target(
         cx,
         frame_tree,
@@ -191,13 +217,10 @@ fn paint_compositor_surface(
         state,
         1.0,
     );
-    runtime.surface_mut(cx.cx, surface_id, local_bounds.size, with_depth).end(cx);
+    runtime.end_surface(cx, surface_id);
 
     let mut quad = MpCompositedQuad::new(
-        runtime
-            .surface_mut(cx.cx, surface_id, local_bounds.size, with_depth)
-            .color_texture()
-            .clone(),
+        runtime.surface_texture(surface_id),
         Rect {
             pos: dvec2(0.0, 0.0),
             size: local_bounds.size,

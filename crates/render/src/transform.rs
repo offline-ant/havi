@@ -73,6 +73,25 @@ mod tests {
     }
 
     #[test]
+    fn descendant_perspective_matrix_contains_perspective_without_self_transform() {
+        let mut style = style::properties::ComputedValues::initial_values_with_font_override(
+            style::properties::generated::style_structs::Font::initial_values(),
+        );
+        servo_arc::Arc::make_mut(&mut style)
+            .mutate_box()
+            .set_perspective(style::values::generics::box_::Perspective::Length(
+                style::values::computed::length::NonNegativeLength::new(600.0),
+            ));
+
+        let self_transform = super::compute_css_self_transform_3d(&style.to_arc(), 400.0, 300.0);
+        let perspective = super::compute_css_descendant_perspective_matrix(&style.to_arc(), 400.0, 300.0).unwrap();
+
+        assert!(self_transform.is_none());
+        assert!(super::is_3d_matrix(&perspective));
+        assert!((perspective[11] + (1.0 / 600.0)).abs() < 0.0001);
+    }
+
+    #[test]
     fn flatten_3d_rotatey_keeps_origin_finite() {
         let c = std::f32::consts::FRAC_1_SQRT_2;
         let m = [
@@ -183,28 +202,36 @@ pub(crate) fn compute_css_self_transform_3d(
     bw: f32,
     bh: f32,
 ) -> Option<[f32; 16]> {
-    compute_css_transform_3d_internal(computed, bw, bh, false)
+    let transform = compute_css_self_transform_euclid(computed, bw, bh)?;
+    Some(transform_to_array(&transform))
 }
 
-fn compute_css_transform_3d_internal(
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn compute_css_descendant_perspective_matrix(
     computed: &ComputedValues,
     bw: f32,
     bh: f32,
-    include_perspective: bool,
 ) -> Option<[f32; 16]> {
+    let perspective = compute_css_descendant_perspective_euclid(computed, bw, bh)?;
+    Some(transform_to_array(&perspective))
+}
+
+fn compute_css_self_transform_euclid(
+    computed: &ComputedValues,
+    bw: f32,
+    bh: f32,
+) -> Option<euclid::Transform3D<f32, euclid::UnknownUnit, euclid::UnknownUnit>> {
     use euclid::{Point2D, Rect, Size2D, Transform3D, UnknownUnit};
     use style::values::computed::length::CSSPixelLength;
-    use style::values::generics::box_::Perspective;
 
     let box_style = computed.get_box();
     let transform_list = &box_style.transform;
     let has_transform = !transform_list.0.is_empty();
-    let has_perspective = include_perspective && !matches!(box_style.perspective, Perspective::None);
     let has_individual_transform = box_style.scale != GenericScale::None
         || box_style.rotate != GenericRotate::None
         || box_style.translate != GenericTranslate::None;
 
-    if !has_transform && !has_perspective && !has_individual_transform {
+    if !has_transform && !has_individual_transform {
         return None;
     }
 
@@ -246,49 +273,52 @@ fn compute_css_transform_3d_internal(
         .then_scale(scale.0, scale.1, scale.2)
         .then(&translate);
 
-    let perspective: Option<Transform3D<f32, UnknownUnit, UnknownUnit>> = if include_perspective {
-        match box_style.perspective {
-            Perspective::Length(length) => {
-                let d = length.px();
-                if d > 0.0 {
-                    let m = Transform3D::new(
-                        1.0, 0.0, 0.0, 0.0,
-                        0.0, 1.0, 0.0, 0.0,
-                        0.0, 0.0, 1.0, -1.0 / d,
-                        0.0, 0.0, 0.0, 1.0,
-                    );
-                    let po = &box_style.perspective_origin;
-                    let pox = po.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
-                    let poy = po.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
-                    Some(change_basis(&m, pox, poy, 0.0))
-                } else {
-                    None
-                }
-            }
-            Perspective::None => None,
-        }
-    } else {
-        None
-    };
-
-    let combined = match perspective {
-        Some(p) => p.then(&transform),
-        None => transform,
-    };
-
     let origin = &box_style.transform_origin;
     let ox = origin.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
     let oy = origin.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
     let oz = origin.depth.px();
 
-    let result = change_basis(&combined, ox, oy, oz);
+    Some(change_basis(&transform, ox, oy, oz))
+}
 
-    Some([
-        result.m11, result.m12, result.m13, result.m14,
-        result.m21, result.m22, result.m23, result.m24,
-        result.m31, result.m32, result.m33, result.m34,
-        result.m41, result.m42, result.m43, result.m44,
-    ])
+#[cfg_attr(not(test), allow(dead_code))]
+fn compute_css_descendant_perspective_euclid(
+    computed: &ComputedValues,
+    bw: f32,
+    bh: f32,
+) -> Option<euclid::Transform3D<f32, euclid::UnknownUnit, euclid::UnknownUnit>> {
+    use euclid::Transform3D;
+    use style::values::generics::box_::Perspective;
+
+    let box_style = computed.get_box();
+    match box_style.perspective {
+        Perspective::Length(length) => {
+            let d = length.px();
+            if d <= 0.0 {
+                return None;
+            }
+            let matrix = Transform3D::new(
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, -1.0 / d,
+                0.0, 0.0, 0.0, 1.0,
+            );
+            let origin = &box_style.perspective_origin;
+            let ox = origin.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
+            let oy = origin.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
+            Some(change_basis(&matrix, ox, oy, 0.0))
+        }
+        Perspective::None => None,
+    }
+}
+
+fn transform_to_array<U, V>(transform: &euclid::Transform3D<f32, U, V>) -> [f32; 16] {
+    [
+        transform.m11, transform.m12, transform.m13, transform.m14,
+        transform.m21, transform.m22, transform.m23, transform.m24,
+        transform.m31, transform.m32, transform.m33, transform.m34,
+        transform.m41, transform.m42, transform.m43, transform.m44,
+    ]
 }
 
 /// Check if a column-major 4x4 matrix has 3D components (not a pure 2D affine).
