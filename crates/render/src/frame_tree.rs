@@ -42,12 +42,10 @@ pub(crate) enum FramePaintCommand {
 }
 
 pub(crate) struct RenderFrame<'a> {
-    pub id: FrameId,
     pub key: FrameKey,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub kind: FrameKind,
     pub owner_node_id: Option<usize>,
-    pub parent: Option<FrameId>,
-    pub children: Vec<FrameId>,
     pub matrix: FrameMatrix,
     pub clip_id: crate::clip_tree::ClipId,
     pub items: Vec<FramePaintItem<'a>>,
@@ -83,20 +81,12 @@ impl<'a> FrameTree<'a> {
         &self.frames[id]
     }
 
-    pub(crate) fn frame_mut(&mut self, id: FrameId) -> &mut RenderFrame<'a> {
-        &mut self.frames[id]
-    }
-
     pub(crate) fn push_root(&mut self) -> FrameId {
-        let id = self.frames.len();
         let identity = Mat4f::identity();
         self.frames.push(RenderFrame {
-            id,
             key: FrameKey::Root,
             kind: FrameKind::Root,
             owner_node_id: None,
-            parent: None,
-            children: Vec::new(),
             matrix: FrameMatrix {
                 local: identity,
                 world: identity,
@@ -106,7 +96,7 @@ impl<'a> FrameTree<'a> {
             items: Vec::new(),
             paint_list: Vec::new(),
         });
-        id
+        self.frames.len() - 1
     }
 
     pub(crate) fn push_child_frame(
@@ -117,17 +107,13 @@ impl<'a> FrameTree<'a> {
         owner_node_id: Option<usize>,
         local: Mat4f,
     ) -> FrameId {
-        let id = self.frames.len();
         let parent_world = self.frames[parent].matrix.world;
         let world = Mat4f::mul(&parent_world, &local);
         let world_inverse = world.invert();
         self.frames.push(RenderFrame {
-            id,
             key,
             kind,
             owner_node_id,
-            parent: Some(parent),
-            children: Vec::new(),
             matrix: FrameMatrix {
                 local,
                 world,
@@ -137,8 +123,7 @@ impl<'a> FrameTree<'a> {
             items: Vec::new(),
             paint_list: Vec::new(),
         });
-        self.frames[parent].children.push(id);
-        id
+        self.frames.len() - 1
     }
 
     pub(crate) fn append_child_frame(&mut self, parent: FrameId, child: FrameId) {

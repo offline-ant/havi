@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 //! Hit testing and scroll container lookup using the frame and clip scene model.
 
 use havi_types::{Fragment, OpaqueNode};

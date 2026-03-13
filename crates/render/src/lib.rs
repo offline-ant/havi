@@ -9,6 +9,10 @@ mod frame_builder;
 mod frame_tree;
 mod hit_test;
 mod makepad_builder;
+mod makepad_clip;
+mod makepad_effects;
+mod makepad_fragments;
+mod reference_frame;
 pub mod shaders;
 pub mod video_texture_map;
 pub(crate) mod stacking_context;
@@ -47,7 +51,6 @@ use style::computed_values::overflow_x::T as ComputedOverflow;
 pub use shaders::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
-pub(crate) use hit_test::{find_scroll_container, hit_test};
 pub use stacking_context::CachedStackingContextTree;
 
 /// Cache for image textures, keyed by OpaqueNode id.

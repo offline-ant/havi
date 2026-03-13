@@ -2,14 +2,13 @@ use std::collections::HashMap;
 
 use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
+use crate::reference_frame::reference_frame_spec;
 use crate::stacking_context::{PaintItem, StackingContext, StackingContextContent, StackingContextSection};
-use crate::transform::compute_css_reference_frame_matrix;
 use havi_types::fragment_tree::BoxFragment;
 use havi_types::{Fragment, IFrameFragment};
 use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
-use style::values::generics::box_::Perspective;
 use style::values::generics::position::Inset;
 
 #[derive(Clone, Copy)]
@@ -84,7 +83,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 scx.ensure_descendant_frame_entry(self.frame_tree);
                 self.build_stacking_context_into_scene(child, scx.descendant_cx);
             }
-            PaintItem::Outline(_) => {}
+            PaintItem::Outline => {}
         }
     }
 
@@ -188,7 +187,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         let mut entry_frame_id = None;
 
         if let Some(owner_origin) = self.box_origins.get(&(std::ptr::from_ref(owner_fragment) as usize)).copied() {
-            if let Some(spec) = fragment_reference_frame_spec(owner_fragment, owner_origin) {
+            if let Some(spec) = reference_frame_spec(owner_fragment, owner_origin) {
                 let frame_id = self.frame_tree.push_child_frame(
                     visual.frame_id,
                     FrameKey::NodeReferenceFrame(frame_key_id),
@@ -198,8 +197,13 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 );
                 entry_frame_id = Some(frame_id);
                 visual.frame_id = frame_id;
-                if let Some(origin_basis) = spec.origin_basis {
-                    visual.origin_basis = origin_basis;
+                match spec.mode {
+                    crate::reference_frame::ReferenceFrameMode::AnchoredTransform => {
+                        if let Some(origin_basis) = spec.origin_basis {
+                            visual.origin_basis = origin_basis;
+                        }
+                    }
+                    crate::reference_frame::ReferenceFrameMode::PerspectiveOnlyIsolation => {}
                 }
             }
         }
@@ -373,50 +377,6 @@ fn frame_key_id_for_iframe(iframe: &IFrameFragment) -> usize {
         .unwrap_or(std::ptr::from_ref(iframe) as usize)
 }
 
-struct ReferenceFrameSpec {
-    matrix: Mat4f,
-    origin_basis: Option<DVec2>,
-}
-
-fn fragment_reference_frame_spec(bf: &BoxFragment, current_origin: DVec2) -> Option<ReferenceFrameSpec> {
-    let border_rect = bf.border_rect();
-    let bw = border_rect.size.width.to_f32_px();
-    let bh = border_rect.size.height.to_f32_px();
-    let style = &bf.base.style;
-    let box_style = style.get_box();
-    let has_transform = !box_style.transform.0.is_empty()
-        || box_style.scale != style::values::generics::transform::GenericScale::None
-        || box_style.rotate != style::values::generics::transform::GenericRotate::None
-        || box_style.translate != style::values::generics::transform::GenericTranslate::None;
-    let has_perspective = !matches!(box_style.perspective, Perspective::None);
-
-    if !has_transform && has_perspective {
-        return Some(ReferenceFrameSpec {
-            matrix: Mat4f::identity(),
-            origin_basis: None,
-        });
-    }
-
-    let css_matrix = compute_css_reference_frame_matrix(style, bw, bh)?;
-    let anchor = fragment_border_origin_absolute(bf, current_origin);
-    Some(ReferenceFrameSpec {
-        matrix: compose_reference_frame_transform(anchor, css_matrix),
-        origin_basis: Some(anchor),
-    })
-}
-
-fn fragment_border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) -> DVec2 {
-    let border_rect = bf.border_rect();
-    dvec2(
-        current_origin.x + border_rect.origin.x.to_f32_px() as f64,
-        current_origin.y + border_rect.origin.y.to_f32_px() as f64,
-    )
-}
-
-fn compose_reference_frame_transform(anchor: DVec2, transform: Mat4f) -> Mat4f {
-    Mat4f::mul(&translation_matrix(anchor.x as f32, anchor.y as f32), &transform)
-}
-
 fn fragment_sticky_translation(
     bf: &BoxFragment,
     scroll_frame_size: Option<DVec2>,
@@ -481,20 +441,6 @@ fn iframe_content_origin(iframe: &IFrameFragment, current_origin: DVec2) -> DVec
         current_origin.x + rect.origin.x.to_f32_px() as f64,
         current_origin.y + rect.origin.y.to_f32_px() as f64,
     )
-}
-
-fn fragment_iframe_clip_rect(iframe: &IFrameFragment, current_origin: DVec2) -> Rect {
-    let rect = iframe.base.rect;
-    Rect {
-        pos: dvec2(
-            current_origin.x + rect.origin.x.to_f32_px() as f64,
-            current_origin.y + rect.origin.y.to_f32_px() as f64,
-        ),
-        size: dvec2(
-            rect.size.width.to_f32_px() as f64,
-            rect.size.height.to_f32_px() as f64,
-        ),
-    }
 }
 
 fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
@@ -629,10 +575,4 @@ mod tests {
         assert!(iframe_frame.items.iter().any(|item| item.local_origin == dvec2(5.0, 6.0)));
     }
 
-    #[test]
-    fn reference_frame_transform_translates_local_space_to_anchor() {
-        let mat = compose_reference_frame_transform(dvec2(100.0, 0.0), translation_matrix(10.0, 0.0));
-        let mapped = mat.transform_vec4(vec4f(0.0, 0.0, 0.0, 1.0));
-        assert_eq!(mapped.x, 110.0);
-    }
 }

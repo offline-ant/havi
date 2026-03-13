@@ -10,7 +10,6 @@ impl ClipId {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ClipNode {
-    pub id: ClipId,
     pub parent_clip_id: ClipId,
     pub parent_frame_id: FrameId,
     pub rect: Rect,
@@ -38,7 +37,6 @@ impl ClipTree {
     ) -> ClipId {
         let id = ClipId(self.nodes.len());
         self.nodes.push(ClipNode {
-            id,
             parent_clip_id,
             parent_frame_id,
             rect,

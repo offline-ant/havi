@@ -5,54 +5,8 @@ use style::properties::ComputedValues;
 use style::values::generics::box_::Perspective;
 use style::values::generics::transform::{GenericRotate, GenericScale, GenericTranslate};
 
-/// Full 2D affine transform: | m11 m21 tx |
-///                           | m12 m22 ty |
-/// Applied with transform-origin baked in.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Transform2D {
-    pub m11: f32,
-    pub m12: f32,
-    pub m21: f32,
-    pub m22: f32,
-    pub tx: f32,
-    pub ty: f32,
-}
-
-impl Transform2D {
-    /// True if this is a pure translation (no rotation, skew, or scale != 1).
-    pub fn is_translate_only(&self) -> bool {
-        (self.m11 - 1.0).abs() < 1e-5 && self.m12.abs() < 1e-5
-            && self.m21.abs() < 1e-5 && (self.m22 - 1.0).abs() < 1e-5
-    }
-
-    /// Convert to a Makepad Mat4f (column-major 4x4).
-    pub fn to_mat4f(&self) -> [f32; 16] {
-        [
-            self.m11, self.m12, 0.0, 0.0,
-            self.m21, self.m22, 0.0, 0.0,
-            0.0,      0.0,      1.0, 0.0,
-            self.tx,  self.ty,  0.0, 1.0,
-        ]
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::Transform2D;
-
-    #[test]
-    fn translate_only_detected() {
-        let t = Transform2D { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0, tx: 10.0, ty: 20.0 };
-        assert!(t.is_translate_only());
-    }
-
-    #[test]
-    fn rotation_detected_as_non_trivial() {
-        // 45-degree rotation: cos(45) ≈ 0.707, sin(45) ≈ 0.707
-        let c = std::f32::consts::FRAC_1_SQRT_2;
-        let t = Transform2D { m11: c, m12: c, m21: -c, m22: c, tx: 0.0, ty: 0.0 };
-        assert!(!t.is_translate_only());
-    }
 
     #[test]
     fn is_3d_identity_is_not_3d() {
@@ -105,17 +59,6 @@ mod tests {
     }
 
     #[test]
-    fn mat4f_identity_for_translate() {
-        let t = Transform2D { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0, tx: 5.0, ty: 3.0 };
-        let m = t.to_mat4f();
-        // Column-major: m[12]=tx, m[13]=ty
-        assert_eq!(m[12], 5.0);
-        assert_eq!(m[13], 3.0);
-        assert_eq!(m[0], 1.0);
-        assert_eq!(m[5], 1.0);
-    }
-
-    #[test]
     fn flatten_3d_preserves_2d_translation() {
         let m = [
             1.0, 0.0, 0.0, 0.0,
@@ -145,55 +88,6 @@ mod tests {
     }
 }
 
-/// Compute a full 2D affine transform from CSS `transform` property,
-/// with transform-origin baked into the translation.
-pub(crate) fn compute_css_transform_2d(
-    computed: &ComputedValues,
-    bw: f32,
-    bh: f32,
-) -> Option<Transform2D> {
-    let transform_list = &computed.get_box().transform;
-    if transform_list.0.is_empty() {
-        return None;
-    }
-
-    use style::values::computed::length::CSSPixelLength;
-    use euclid::{Rect, Point2D, Size2D, UnknownUnit};
-
-    let reference_box: Rect<CSSPixelLength, UnknownUnit> = Rect::new(
-        Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
-        Size2D::new(CSSPixelLength::new(bw), CSSPixelLength::new(bh)),
-    );
-
-    let (matrix, _is_3d) = transform_list.to_transform_3d_matrix(Some(&reference_box)).ok()?;
-
-    if !matrix.is_invertible() {
-        return None;
-    }
-
-    let origin = &computed.get_box().transform_origin;
-    let ox = origin.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
-    let oy = origin.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
-
-    // T(ox,oy) * M * T(-ox,-oy) = full affine with origin baked in.
-    // Result matrix:
-    //   m11' = m11,  m21' = m21
-    //   m12' = m12,  m22' = m22
-    //   tx'  = ox*(1-m11) - oy*m21 + m41
-    //   ty'  = -ox*m12 + oy*(1-m22) + m42
-    let tx = ox * (1.0 - matrix.m11) - oy * matrix.m21 + matrix.m41;
-    let ty = -ox * matrix.m12 + oy * (1.0 - matrix.m22) + matrix.m42;
-
-    Some(Transform2D {
-        m11: matrix.m11,
-        m12: matrix.m12,
-        m21: matrix.m21,
-        m22: matrix.m22,
-        tx,
-        ty,
-    })
-}
-
 /// Compute a full 3D transform matrix (4x4, column-major) from CSS `transform`
 /// and `perspective` properties, with transform-origin baked in.
 /// Returns None if there is no effective transform or perspective.
@@ -208,6 +102,12 @@ pub(crate) fn has_effective_transform_or_perspective(
         || box_style.perspective != Perspective::None
 }
 
+/// Compute the renderer's 2D reference-frame matrix.
+///
+/// HAVI does not implement full 3D scene composition. When CSS produces a
+/// genuine 3D or perspective matrix, the renderer falls back to a 2D affine
+/// approximation of the transformed z=0 plane. This preserves structural frame
+/// isolation and slide ownership while keeping the Makepad backend strictly 2D.
 pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
@@ -343,6 +243,11 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     (m[15] - 1.0).abs() > 1e-5                       // m44
 }
 
+/// Flatten a 3D reference frame into a 2D affine basis.
+///
+/// The fallback samples the transformed origin and the transformed unit axes on
+/// the element's local z=0 plane, then rebuilds a 2D affine matrix from those
+/// projected basis vectors.
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
         let p = Mat4f { v: *m }.transform_vec4(makepad_widgets::vec4f(x, y, 0.0, 1.0));
