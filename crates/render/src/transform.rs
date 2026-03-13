@@ -114,6 +114,35 @@ mod tests {
         assert_eq!(m[0], 1.0);
         assert_eq!(m[5], 1.0);
     }
+
+    #[test]
+    fn flatten_3d_preserves_2d_translation() {
+        let m = [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            -1.6, -0.52, 1.0, -0.0016,
+            640.0, 555.0, 0.0, 1.0,
+        ];
+        let flattened = super::flatten_3d_reference_frame_to_2d(&m, 1280.0, 720.0).unwrap();
+        assert!(!super::is_3d_matrix(&flattened));
+        assert!((flattened[12] - 640.0).abs() < 0.01);
+        assert!((flattened[13] - 555.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn flatten_3d_rotatey_keeps_origin_finite() {
+        let c = std::f32::consts::FRAC_1_SQRT_2;
+        let m = [
+            c, 0.0, -c, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            c, 0.0, c, 0.0,
+            100.0, 50.0, 0.0, 1.0,
+        ];
+        let flattened = super::flatten_3d_reference_frame_to_2d(&m, 400.0, 300.0).unwrap();
+        assert!(!super::is_3d_matrix(&flattened));
+        assert!(flattened[12].is_finite());
+        assert!(flattened[13].is_finite());
+    }
 }
 
 /// Compute a full 2D affine transform from CSS `transform` property,
@@ -188,7 +217,13 @@ pub(crate) fn compute_css_reference_frame_matrix(
         return None;
     }
 
-    compute_css_transform_3d(computed, bw, bh).map(|v| Mat4f { v })
+    let matrix = compute_css_transform_3d(computed, bw, bh)?;
+    let matrix = if is_3d_matrix(&matrix) {
+        flatten_3d_reference_frame_to_2d(&matrix, bw, bh)?
+    } else {
+        matrix
+    };
+    Some(Mat4f { v: matrix })
 }
 
 pub(crate) fn compute_css_transform_3d(
@@ -196,16 +231,19 @@ pub(crate) fn compute_css_transform_3d(
     bw: f32,
     bh: f32,
 ) -> Option<[f32; 16]> {
+    use euclid::{Point2D, Rect, Size2D, Transform3D, UnknownUnit};
     use style::values::computed::length::CSSPixelLength;
     use style::values::generics::box_::Perspective;
-    use euclid::{Rect, Point2D, Size2D, Transform3D, UnknownUnit};
 
     let box_style = computed.get_box();
     let transform_list = &box_style.transform;
     let has_transform = !transform_list.0.is_empty();
     let has_perspective = !matches!(box_style.perspective, Perspective::None);
+    let has_individual_transform = box_style.scale != GenericScale::None
+        || box_style.rotate != GenericRotate::None
+        || box_style.translate != GenericTranslate::None;
 
-    if !has_transform && !has_perspective {
+    if !has_transform && !has_perspective && !has_individual_transform {
         return None;
     }
 
@@ -214,8 +252,7 @@ pub(crate) fn compute_css_transform_3d(
         Size2D::new(CSSPixelLength::new(bw), CSSPixelLength::new(bh)),
     );
 
-    // Compute the transform matrix.
-    let transform: Transform3D<f32, UnknownUnit, UnknownUnit> = if has_transform {
+    let list_transform: Transform3D<f32, UnknownUnit, UnknownUnit> = if has_transform {
         let (matrix, _is_3d) = transform_list.to_transform_3d_matrix(Some(&reference_box)).ok()?;
         if !matrix.is_invertible() {
             return None;
@@ -225,19 +262,39 @@ pub(crate) fn compute_css_transform_3d(
         Transform3D::identity()
     };
 
-    // Compute the perspective matrix.
+    let rotate = match box_style.rotate {
+        GenericRotate::Rotate(angle) => (0.0, 0.0, 1.0, angle.radians()),
+        GenericRotate::Rotate3D(x, y, z, angle) => (x, y, z, angle.radians()),
+        GenericRotate::None => (0.0, 0.0, 1.0, 0.0),
+    };
+    let scale = match box_style.scale {
+        GenericScale::Scale(sx, sy, sz) => (sx, sy, sz),
+        GenericScale::None => (1.0, 1.0, 1.0),
+    };
+    let translate: Transform3D<f32, UnknownUnit, UnknownUnit> = match &box_style.translate {
+        GenericTranslate::Translate(x, y, z) => Transform3D::translation(
+            x.resolve(CSSPixelLength::new(bw)).px(),
+            y.resolve(CSSPixelLength::new(bh)).px(),
+            z.px(),
+        ),
+        GenericTranslate::None => Transform3D::identity(),
+    };
+
+    let transform = list_transform
+        .then_rotate(rotate.0, rotate.1, rotate.2, euclid::Angle::radians(rotate.3))
+        .then_scale(scale.0, scale.1, scale.2)
+        .then(&translate);
+
     let perspective: Option<Transform3D<f32, UnknownUnit, UnknownUnit>> = match box_style.perspective {
         Perspective::Length(length) => {
             let d = length.px();
             if d > 0.0 {
-                // CSS perspective matrix: identical to WebRender's create_perspective_matrix.
                 let m = Transform3D::new(
                     1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
                     0.0, 0.0, 1.0, -1.0 / d,
                     0.0, 0.0, 0.0, 1.0,
                 );
-                // Apply perspective-origin.
                 let po = &box_style.perspective_origin;
                 let pox = po.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
                 let poy = po.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
@@ -249,13 +306,11 @@ pub(crate) fn compute_css_transform_3d(
         Perspective::None => None,
     };
 
-    // Combine: perspective * transform (perspective first, then transform).
     let combined = match perspective {
         Some(p) => p.then(&transform),
         None => transform,
     };
 
-    // Apply transform-origin.
     let origin = &box_style.transform_origin;
     let ox = origin.horizontal.to_used_value(app_units::Au::from_f32_px(bw)).to_f32_px();
     let oy = origin.vertical.to_used_value(app_units::Au::from_f32_px(bh)).to_f32_px();
@@ -263,7 +318,6 @@ pub(crate) fn compute_css_transform_3d(
 
     let result = change_basis(&combined, ox, oy, oz);
 
-    // Column-major layout for Mat4f.
     Some([
         result.m11, result.m12, result.m13, result.m14,
         result.m21, result.m22, result.m23, result.m24,
@@ -287,6 +341,36 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     m[11].abs() > 1e-5 ||                            // m34
     m[14].abs() > 1e-5 ||                            // m43
     (m[15] - 1.0).abs() > 1e-5                       // m44
+}
+
+fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
+    fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
+        let p = Mat4f { v: *m }.transform_vec4(makepad_widgets::vec4f(x, y, 0.0, 1.0));
+        let w = if p.w.abs() > 1e-6 { p.w } else { 1.0 };
+        let px = p.x / w;
+        let py = p.y / w;
+        if px.is_finite() && py.is_finite() {
+            Some((px, py))
+        } else {
+            None
+        }
+    }
+
+    let p00 = project(m, 0.0, 0.0)?;
+    let px = if bw.abs() > 1e-6 { bw } else { 1.0 };
+    let py = if bh.abs() > 1e-6 { bh } else { 1.0 };
+    let p10 = project(m, px, 0.0)?;
+    let p01 = project(m, 0.0, py)?;
+
+    let basis_x = ((p10.0 - p00.0) / px, (p10.1 - p00.1) / px);
+    let basis_y = ((p01.0 - p00.0) / py, (p01.1 - p00.1) / py);
+
+    Some([
+        basis_x.0, basis_x.1, 0.0, 0.0,
+        basis_y.0, basis_y.1, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        p00.0, p00.1, 0.0, 1.0,
+    ])
 }
 
 /// T(x,y,z) * M * T(-x,-y,-z)

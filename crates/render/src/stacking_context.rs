@@ -12,6 +12,7 @@ use havi_types::Fragment;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
+use style::computed_values::transform_style::T as ComputedTransformStyle;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::ClipPath;
 use style::values::specified::box_::DisplayOutside;
@@ -426,8 +427,9 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
         return true;
     }
 
-    // Transform.
-    if !style.get_box().transform.0.is_empty() {
+    if crate::transform::has_effective_transform_or_perspective(style)
+        || style.get_box().transform_style == ComputedTransformStyle::Preserve3d
+    {
         return true;
     }
 

@@ -35,6 +35,12 @@ pub(crate) struct FramePaintItem<'a> {
     pub clip_id: crate::clip_tree::ClipId,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FramePaintCommand {
+    Item(usize),
+    ChildFrame(FrameId),
+}
+
 pub(crate) struct RenderFrame<'a> {
     pub id: FrameId,
     pub key: FrameKey,
@@ -43,7 +49,9 @@ pub(crate) struct RenderFrame<'a> {
     pub parent: Option<FrameId>,
     pub children: Vec<FrameId>,
     pub matrix: FrameMatrix,
+    pub clip_id: crate::clip_tree::ClipId,
     pub items: Vec<FramePaintItem<'a>>,
+    pub paint_list: Vec<FramePaintCommand>,
 }
 
 pub(crate) struct FrameTree<'a> {
@@ -63,6 +71,12 @@ impl<'a> FrameTree<'a> {
 
     pub(crate) fn root_id(&self) -> FrameId {
         self.root
+    }
+
+    pub(crate) fn set_root_transform(&mut self, world: Mat4f) {
+        self.frames[self.root].matrix.local = world;
+        self.frames[self.root].matrix.world = world;
+        self.frames[self.root].matrix.world_inverse = world.invert();
     }
 
     pub(crate) fn frame(&self, id: FrameId) -> &RenderFrame<'a> {
@@ -88,7 +102,9 @@ impl<'a> FrameTree<'a> {
                 world: identity,
                 world_inverse: identity,
             },
+            clip_id: crate::clip_tree::ClipId::INVALID,
             items: Vec::new(),
+            paint_list: Vec::new(),
         });
         id
     }
@@ -117,10 +133,22 @@ impl<'a> FrameTree<'a> {
                 world,
                 world_inverse,
             },
+            clip_id: crate::clip_tree::ClipId::INVALID,
             items: Vec::new(),
+            paint_list: Vec::new(),
         });
         self.frames[parent].children.push(id);
         id
+    }
+
+    pub(crate) fn append_child_frame(&mut self, parent: FrameId, child: FrameId) {
+        self.frames[parent]
+            .paint_list
+            .push(FramePaintCommand::ChildFrame(child));
+    }
+
+    pub(crate) fn set_clip(&mut self, frame: FrameId, clip_id: crate::clip_tree::ClipId) {
+        self.frames[frame].clip_id = clip_id;
     }
 
     pub(crate) fn push_item(
@@ -131,12 +159,16 @@ impl<'a> FrameTree<'a> {
         local_origin: DVec2,
         clip_id: crate::clip_tree::ClipId,
     ) {
+        let item_index = self.frames[frame].items.len();
         self.frames[frame].items.push(FramePaintItem {
             fragment,
             section,
             local_origin,
             clip_id,
         });
+        self.frames[frame]
+            .paint_list
+            .push(FramePaintCommand::Item(item_index));
     }
 }
 
@@ -177,5 +209,19 @@ mod tests {
         assert_eq!(tree.frame(a).matrix.world.v[13], 20.0);
         assert_eq!(tree.frame(b).matrix.world.v[12], 7.0);
         assert_eq!(tree.frame(b).matrix.world.v[13], 16.0);
+    }
+
+    #[test]
+    fn paint_list_preserves_item_and_child_order() {
+        let mut tree = FrameTree::new();
+        let child = tree.push_child_frame(
+            tree.root_id(),
+            FrameKey::NodeReferenceFrame(1),
+            FrameKind::ReferenceFrame,
+            Some(1),
+            Mat4f::identity(),
+        );
+        tree.append_child_frame(tree.root_id(), child);
+        assert_eq!(tree.frame(tree.root_id()).paint_list, vec![FramePaintCommand::ChildFrame(child)]);
     }
 }

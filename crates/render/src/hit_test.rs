@@ -3,6 +3,8 @@
 use havi_types::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 
+use crate::frame_tree::FramePaintCommand;
+
 pub(crate) fn hit_test(
     frame_tree: &crate::frame_tree::FrameTree<'_>,
     clip_tree: &crate::clip_tree::ClipTree,
@@ -26,21 +28,25 @@ fn hit_test_frame_reverse(
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
     let frame = frame_tree.frame(frame_id);
-
-    for &child_id in frame.children.iter().rev() {
-        if let Some(hit) = hit_test_frame_reverse(frame_tree, clip_tree, child_id, point_world) {
-            return Some(hit);
-        }
-    }
-
     let point_local = map_world_to_frame_local(frame, point_world);
-    for item in frame.items.iter().rev() {
-        if !clip_chain_contains_point(frame_tree, clip_tree, item.clip_id, point_world) {
-            continue;
-        }
-        if hit_test_item_local(item, point_local) {
-            if let Some(tag) = item.fragment.tag() {
-                return Some(tag.node);
+
+    for command in frame.paint_list.iter().rev() {
+        match *command {
+            FramePaintCommand::ChildFrame(child_id) => {
+                if let Some(hit) = hit_test_frame_reverse(frame_tree, clip_tree, child_id, point_world) {
+                    return Some(hit);
+                }
+            }
+            FramePaintCommand::Item(item_index) => {
+                let item = &frame.items[item_index];
+                if !clip_chain_contains_point(frame_tree, clip_tree, item.clip_id, point_world) {
+                    continue;
+                }
+                if hit_test_item_local(item, point_local) {
+                    if let Some(tag) = item.fragment.tag() {
+                        return Some(tag.node);
+                    }
+                }
             }
         }
     }
@@ -56,14 +62,16 @@ fn find_scroll_container_in_frame_reverse(
 ) -> Option<OpaqueNode> {
     let frame = frame_tree.frame(frame_id);
 
-    for &child_id in frame.children.iter().rev() {
-        if let Some(hit) = find_scroll_container_in_frame_reverse(frame_tree, clip_tree, child_id, point_world) {
-            return Some(hit);
+    for command in frame.paint_list.iter().rev() {
+        if let FramePaintCommand::ChildFrame(child_id) = *command {
+            if let Some(hit) = find_scroll_container_in_frame_reverse(frame_tree, clip_tree, child_id, point_world) {
+                return Some(hit);
+            }
         }
     }
 
     if frame.kind == crate::frame_tree::FrameKind::ScrollFrame {
-        if !clip_chain_contains_point(frame_tree, clip_tree, first_clip_id(frame), point_world) {
+        if !clip_chain_contains_point(frame_tree, clip_tree, frame.clip_id, point_world) {
             return None;
         }
         if let Some(node_id) = frame.owner_node_id {
@@ -146,14 +154,6 @@ fn point_in_rect(point: DVec2, rect: Rect) -> bool {
         && point.y < rect.pos.y + rect.size.y
 }
 
-fn first_clip_id(frame: &crate::frame_tree::RenderFrame<'_>) -> crate::clip_tree::ClipId {
-    frame
-        .items
-        .first()
-        .map(|item| item.clip_id)
-        .unwrap_or(crate::clip_tree::ClipId::INVALID)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +215,7 @@ mod tests {
         let b = make_box(2, 0.0, 0.0, 100.0, 100.0);
         frames.push_item(frames.root, &a, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
         let child = frames.push_child_frame(frames.root, FrameKey::NodeReferenceFrame(2), FrameKind::ReferenceFrame, Some(2), translation(10.0, 0.0));
+        frames.append_child_frame(frames.root, child);
         frames.push_item(child, &b, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
 
         assert_eq!(hit_test(&frames, &clips, dvec2(20.0, 20.0)), Some(OpaqueNode(2)));
@@ -241,11 +242,15 @@ mod tests {
         frames.push_item(frames.root, &outer_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
         let outer_clip = clips.push_rect(frames.root, ClipId::INVALID, Rect { pos: dvec2(0.0, 0.0), size: dvec2(200.0, 200.0) });
         let outer_scroll = frames.push_child_frame(frames.root, FrameKey::NodeScrollFrame(10), FrameKind::ScrollFrame, Some(10), Mat4f::identity());
+        frames.set_clip(outer_scroll, outer_clip);
+        frames.append_child_frame(frames.root, outer_scroll);
         frames.push_item(outer_scroll, &outer_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), outer_clip);
 
         let inner_fragment = make_box(20, 20.0, 20.0, 50.0, 50.0);
         let inner_clip = clips.push_rect(outer_scroll, outer_clip, Rect { pos: dvec2(20.0, 20.0), size: dvec2(50.0, 50.0) });
         let inner_scroll = frames.push_child_frame(outer_scroll, FrameKey::NodeScrollFrame(20), FrameKind::ScrollFrame, Some(20), Mat4f::identity());
+        frames.set_clip(inner_scroll, inner_clip);
+        frames.append_child_frame(outer_scroll, inner_scroll);
         frames.push_item(inner_scroll, &inner_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(20.0, 20.0), inner_clip);
 
         assert_eq!(find_scroll_container(&frames, &clips, dvec2(30.0, 30.0)), Some(OpaqueNode(20)));

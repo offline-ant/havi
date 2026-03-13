@@ -7,7 +7,9 @@ use crate::transform::compute_css_reference_frame_matrix;
 use havi_types::fragment_tree::BoxFragment;
 use havi_types::{Fragment, IFrameFragment};
 use makepad_widgets::*;
+use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
+use style::values::generics::box_::Perspective;
 use style::values::generics::position::Inset;
 
 #[derive(Clone, Copy)]
@@ -15,11 +17,34 @@ pub(crate) struct BuildContext {
     pub frame_id: FrameId,
     pub clip_id: ClipId,
     pub local_origin: DVec2,
+    pub origin_basis: DVec2,
 }
 
 pub(crate) struct BuiltScene<'a> {
     pub frame_tree: FrameTree<'a>,
     pub clip_tree: ClipTree,
+}
+
+struct StackingContextBuildState<'a> {
+    visual_cx: BuildContext,
+    descendant_cx: BuildContext,
+    owner_fragment: Option<&'a BoxFragment>,
+    entry_frame_id: Option<FrameId>,
+    descendant_frame_entry_id: Option<FrameId>,
+    descendant_frame_entry_inserted: bool,
+}
+
+impl<'a> StackingContextBuildState<'a> {
+    fn ensure_descendant_frame_entry(&mut self, frame_tree: &mut FrameTree<'a>) {
+        let Some(frame_id) = self.descendant_frame_entry_id else {
+            return;
+        };
+        if self.descendant_frame_entry_inserted {
+            return;
+        }
+        frame_tree.append_child_frame(self.visual_cx.frame_id, frame_id);
+        self.descendant_frame_entry_inserted = true;
+    }
 }
 
 struct SceneBuilder<'tree, 'a> {
@@ -28,32 +53,37 @@ struct SceneBuilder<'tree, 'a> {
     scroll_state: &'tree crate::ScrollState,
     viewport_size: DVec2,
     fragment_origins: HashMap<usize, DVec2>,
+    box_origins: HashMap<usize, DVec2>,
+    debug_transforms: bool,
 }
 
 impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     fn build_stacking_context_into_scene(&mut self, sc: &StackingContext<'a>, cx: BuildContext) {
-        let (visual_cx, descendant_cx, owner_fragment) = self.contexts_for_stacking_context(sc, cx);
-        sc.paint_in_order(&mut |item| self.build_paint_item_into_scene(item, visual_cx, descendant_cx, owner_fragment));
+        let mut scx = self.contexts_for_stacking_context(sc, cx);
+        if let Some(frame_id) = scx.entry_frame_id {
+            self.frame_tree.append_child_frame(cx.frame_id, frame_id);
+        }
+        sc.paint_in_order(&mut |item| self.build_paint_item_into_scene(item, &mut scx));
     }
 
     fn build_paint_item_into_scene(
         &mut self,
         item: PaintItem<'a, '_>,
-        visual_cx: BuildContext,
-        descendant_cx: BuildContext,
-        owner_fragment: Option<&'a BoxFragment>,
+        scx: &mut StackingContextBuildState<'a>,
     ) {
         match item {
             PaintItem::Content(content) => {
-                let build_cx = if uses_visual_context(content, owner_fragment) {
-                    visual_cx
+                let build_cx = if uses_visual_context(content, scx.owner_fragment) {
+                    scx.visual_cx
                 } else {
-                    descendant_cx
+                    scx.ensure_descendant_frame_entry(self.frame_tree);
+                    scx.descendant_cx
                 };
                 self.build_content_into_scene(content, build_cx);
             }
             PaintItem::ChildStackingContext(child) => {
-                self.build_stacking_context_into_scene(child, descendant_cx);
+                scx.ensure_descendant_frame_entry(self.frame_tree);
+                self.build_stacking_context_into_scene(child, scx.descendant_cx);
             }
             PaintItem::Outline(_) => {}
         }
@@ -71,10 +101,26 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     frame_id: cx.frame_id,
                     clip_id: cx.clip_id,
                     local_origin: dvec2(
-                        cx.local_origin.x + containing_block_origin.x,
-                        cx.local_origin.y + containing_block_origin.y,
+                        cx.local_origin.x + containing_block_origin.x - cx.origin_basis.x,
+                        cx.local_origin.y + containing_block_origin.y - cx.origin_basis.y,
                     ),
+                    origin_basis: cx.origin_basis,
                 };
+                if self.debug_transforms {
+                    match fragment {
+                        Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) => {
+                            eprintln!(
+                                "[render] item frame={} section={:?} cb={:?} basis={:?} local={:?}",
+                                item_cx.frame_id,
+                                section,
+                                containing_block_origin,
+                                cx.origin_basis,
+                                item_cx.local_origin,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
                 self.build_fragment_into_scene(fragment, *section, item_cx);
             }
             StackingContextContent::AtomicInlineStackingContainer { .. } => {}
@@ -89,10 +135,12 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     ) {
         match fragment {
             Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) | Fragment::Image(_) => {
-                self.frame_tree.push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
+                self.frame_tree
+                    .push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
             }
             Fragment::IFrame(iframe) => {
-                self.frame_tree.push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
+                self.frame_tree
+                    .push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
                 self.build_iframe_into_scene(iframe, cx);
             }
             Fragment::Positioning(_) => {}
@@ -100,26 +148,36 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     }
 
     fn build_iframe_into_scene(&mut self, iframe: &'a IFrameFragment, cx: BuildContext) {
-        let node_id = iframe.base.tag.map(|tag| tag.node.0);
-        let clip_id = self.clip_tree.push_rect(
-            cx.frame_id,
-            cx.clip_id,
-            fragment_iframe_clip_rect(iframe, cx.local_origin),
-        );
+        let key_id = frame_key_id_for_iframe(iframe);
+        let iframe_origin = iframe_content_origin(iframe, cx.local_origin);
         let frame_id = self.frame_tree.push_child_frame(
             cx.frame_id,
-            FrameKey::NodeIFrameRoot(node_id.unwrap_or(0)),
+            FrameKey::NodeIFrameRoot(key_id),
             FrameKind::IFrameRoot,
-            node_id,
-            Mat4f::identity(),
+            iframe.base.tag.map(|tag| tag.node.0),
+            translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32),
         );
+        let clip_id = self.clip_tree.push_rect(
+            frame_id,
+            cx.clip_id,
+            Rect {
+                pos: dvec2(0.0, 0.0),
+                size: dvec2(
+                    iframe.base.rect.size.width.to_f32_px() as f64,
+                    iframe.base.rect.size.height.to_f32_px() as f64,
+                ),
+            },
+        );
+        self.frame_tree.set_clip(frame_id, clip_id);
+        self.frame_tree.append_child_frame(cx.frame_id, frame_id);
         let child_sc = crate::stacking_context::build_stacking_context_tree(&iframe.child_fragments);
         self.build_stacking_context_into_scene(
             &child_sc,
             BuildContext {
                 frame_id,
                 clip_id,
-                local_origin: iframe_content_origin(iframe, cx.local_origin),
+                local_origin: dvec2(0.0, 0.0),
+                origin_basis: dvec2(0.0, 0.0),
             },
         );
     }
@@ -128,56 +186,99 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         &mut self,
         sc: &StackingContext<'a>,
         cx: BuildContext,
-    ) -> (BuildContext, BuildContext, Option<&'a BoxFragment>) {
+    ) -> StackingContextBuildState<'a> {
         let Some(owner_fragment) = sc.initializing_fragment else {
-            return (cx, cx, None);
+            return StackingContextBuildState {
+                visual_cx: cx,
+                descendant_cx: cx,
+                owner_fragment: None,
+                entry_frame_id: None,
+                descendant_frame_entry_id: None,
+                descendant_frame_entry_inserted: false,
+            };
         };
 
-        let node_id = owner_fragment.base.tag.map(|tag| tag.node.0);
+        let frame_key_id = frame_key_id_for_box(owner_fragment);
+        let owner_node_id = owner_fragment.base.tag.map(|tag| tag.node.0);
         let mut visual = cx;
+        let mut entry_frame_id = None;
 
-        if let Some(mat) = fragment_reference_frame_matrix(owner_fragment) {
-            visual.frame_id = self.frame_tree.push_child_frame(
-                visual.frame_id,
-                FrameKey::NodeReferenceFrame(node_id.unwrap_or(0)),
-                FrameKind::ReferenceFrame,
-                node_id,
-                mat,
-            );
+        if let Some(owner_origin) = self.box_origins.get(&(std::ptr::from_ref(owner_fragment) as usize)).copied() {
+            if let Some(spec) = fragment_reference_frame_spec(owner_fragment, owner_origin) {
+                let frame_id = self.frame_tree.push_child_frame(
+                    visual.frame_id,
+                    FrameKey::NodeReferenceFrame(frame_key_id),
+                    FrameKind::ReferenceFrame,
+                    owner_node_id,
+                    spec.matrix,
+                );
+                let anchor = fragment_border_origin_absolute(owner_fragment, owner_origin);
+                if self.debug_transforms {
+                    eprintln!(
+                        "[render] ref-frame node={:?} owner_origin={:?} anchor={:?} local_origin={:?} basis={:?} mat={:?}",
+                        owner_node_id,
+                        owner_origin,
+                        anchor,
+                        visual.local_origin,
+                        spec.origin_basis,
+                        spec.matrix.v,
+                    );
+                }
+                entry_frame_id = Some(frame_id);
+                visual.frame_id = frame_id;
+                if let Some(origin_basis) = spec.origin_basis {
+                    visual.origin_basis = origin_basis;
+                }
+            }
         }
 
         if let Some(mat) = fragment_sticky_translation(owner_fragment, None, self.viewport_size) {
-            visual.frame_id = self.frame_tree.push_child_frame(
+            let frame_id = self.frame_tree.push_child_frame(
                 visual.frame_id,
-                FrameKey::NodeStickyFrame(node_id.unwrap_or(0)),
+                FrameKey::NodeStickyFrame(frame_key_id),
                 FrameKind::StickyFrame,
-                node_id,
+                owner_node_id,
                 mat,
             );
+            entry_frame_id = entry_frame_id.or(Some(frame_id));
+            visual.frame_id = frame_id;
         }
 
         let mut descendant = visual;
-        if crate::is_scroll_container(owner_fragment) {
-            if let Some(rect) = fragment_overflow_clip_rect(owner_fragment) {
-                descendant.clip_id = self.clip_tree.push_rect(
-                    visual.frame_id,
-                    visual.clip_id,
-                    Rect {
-                        pos: dvec2(visual.local_origin.x + rect.pos.x, visual.local_origin.y + rect.pos.y),
-                        size: rect.size,
-                    },
-                );
-            }
-            descendant.frame_id = self.frame_tree.push_child_frame(
+        if let Some(rect) = fragment_overflow_clip_rect(owner_fragment) {
+            descendant.clip_id = self.clip_tree.push_rect(
                 visual.frame_id,
-                FrameKey::NodeScrollFrame(node_id.unwrap_or(0)),
-                FrameKind::ScrollFrame,
-                node_id,
-                fragment_scroll_translation(owner_fragment, self.scroll_state).unwrap_or_else(Mat4f::identity),
+                visual.clip_id,
+                Rect {
+                    pos: dvec2(visual.local_origin.x + rect.pos.x, visual.local_origin.y + rect.pos.y),
+                    size: rect.size,
+                },
             );
         }
 
-        (visual, descendant, Some(owner_fragment))
+        let mut descendant_frame_entry_id = None;
+        if crate::is_scroll_container(owner_fragment) {
+            let frame_id = self.frame_tree.push_child_frame(
+                visual.frame_id,
+                FrameKey::NodeScrollFrame(frame_key_id),
+                FrameKind::ScrollFrame,
+                owner_node_id,
+                fragment_scroll_translation(owner_fragment, self.scroll_state)
+                    .unwrap_or_else(Mat4f::identity),
+            );
+            self.frame_tree.set_clip(frame_id, descendant.clip_id);
+            descendant.frame_id = frame_id;
+            descendant_frame_entry_id = Some(frame_id);
+        }
+
+        StackingContextBuildState {
+            visual_cx: visual,
+            descendant_cx: descendant,
+            owner_fragment: Some(owner_fragment),
+            entry_frame_id,
+            descendant_frame_entry_id,
+            descendant_frame_entry_inserted: false,
+        }
     }
 }
 
@@ -191,19 +292,23 @@ pub(crate) fn build_scene<'a>(
     let mut frame_tree = FrameTree::new();
     let mut clip_tree = ClipTree::new();
     let root_id = frame_tree.root_id();
+    frame_tree.set_root_transform(translation_matrix(root_origin.x as f32, root_origin.y as f32));
     SceneBuilder {
         frame_tree: &mut frame_tree,
         clip_tree: &mut clip_tree,
         scroll_state,
         viewport_size,
         fragment_origins: build_fragment_origin_map(fragments),
+        box_origins: build_box_origin_map(fragments),
+        debug_transforms: std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some(),
     }
     .build_stacking_context_into_scene(
         sc,
         BuildContext {
             frame_id: root_id,
             clip_id: ClipId::INVALID,
-            local_origin: root_origin,
+            local_origin: dvec2(0.0, 0.0),
+            origin_basis: dvec2(0.0, 0.0),
         },
     );
     BuiltScene { frame_tree, clip_tree }
@@ -212,26 +317,36 @@ pub(crate) fn build_scene<'a>(
 fn build_fragment_origin_map(fragments: &[Fragment]) -> HashMap<usize, DVec2> {
     let mut origins = HashMap::new();
     for fragment in fragments {
-        collect_fragment_origins(fragment, dvec2(0.0, 0.0), &mut origins);
+        collect_fragment_origins(fragment, dvec2(0.0, 0.0), &mut origins, &mut HashMap::new());
     }
     origins
+}
+
+fn build_box_origin_map(fragments: &[Fragment]) -> HashMap<usize, DVec2> {
+    let mut box_origins = HashMap::new();
+    for fragment in fragments {
+        collect_fragment_origins(fragment, dvec2(0.0, 0.0), &mut HashMap::new(), &mut box_origins);
+    }
+    box_origins
 }
 
 fn collect_fragment_origins(
     fragment: &Fragment,
     containing_block_origin: DVec2,
     origins: &mut HashMap<usize, DVec2>,
+    box_origins: &mut HashMap<usize, DVec2>,
 ) {
     origins.insert(std::ptr::from_ref(fragment) as usize, containing_block_origin);
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
+            box_origins.insert(std::ptr::from_ref(bf) as usize, containing_block_origin);
             let rect = bf.content_rect();
             let child_origin = dvec2(
                 containing_block_origin.x + rect.origin.x.to_f32_px() as f64,
                 containing_block_origin.y + rect.origin.y.to_f32_px() as f64,
             );
             for child in &bf.children {
-                collect_fragment_origins(child, child_origin, origins);
+                collect_fragment_origins(child, child_origin, origins, box_origins);
             }
         }
         Fragment::Positioning(pf) => {
@@ -241,10 +356,15 @@ fn collect_fragment_origins(
                 containing_block_origin.y + rect.origin.y.to_f32_px() as f64,
             );
             for child in &pf.children {
-                collect_fragment_origins(child, child_origin, origins);
+                collect_fragment_origins(child, child_origin, origins, box_origins);
             }
         }
-        Fragment::IFrame(_) | Fragment::Text(_) | Fragment::Image(_) => {}
+        Fragment::IFrame(iframe) => {
+            for child in iframe.child_fragments.iter() {
+                collect_fragment_origins(child, dvec2(0.0, 0.0), origins, box_origins);
+            }
+        }
+        Fragment::Text(_) | Fragment::Image(_) => {}
     }
 }
 
@@ -267,11 +387,63 @@ fn uses_visual_context(
     }
 }
 
-fn fragment_reference_frame_matrix(bf: &BoxFragment) -> Option<Mat4f> {
+fn frame_key_id_for_box(bf: &BoxFragment) -> usize {
+    bf.base
+        .tag
+        .map(|tag| tag.node.0)
+        .unwrap_or(std::ptr::from_ref(bf) as usize)
+}
+
+fn frame_key_id_for_iframe(iframe: &IFrameFragment) -> usize {
+    iframe
+        .base
+        .tag
+        .map(|tag| tag.node.0)
+        .unwrap_or(std::ptr::from_ref(iframe) as usize)
+}
+
+struct ReferenceFrameSpec {
+    matrix: Mat4f,
+    origin_basis: Option<DVec2>,
+}
+
+fn fragment_reference_frame_spec(bf: &BoxFragment, current_origin: DVec2) -> Option<ReferenceFrameSpec> {
     let border_rect = bf.border_rect();
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();
-    compute_css_reference_frame_matrix(&bf.base.style, bw, bh)
+    let style = &bf.base.style;
+    let box_style = style.get_box();
+    let has_transform = !box_style.transform.0.is_empty()
+        || box_style.scale != style::values::generics::transform::GenericScale::None
+        || box_style.rotate != style::values::generics::transform::GenericRotate::None
+        || box_style.translate != style::values::generics::transform::GenericTranslate::None;
+    let has_perspective = !matches!(box_style.perspective, Perspective::None);
+
+    if !has_transform && has_perspective {
+        return Some(ReferenceFrameSpec {
+            matrix: Mat4f::identity(),
+            origin_basis: None,
+        });
+    }
+
+    let css_matrix = compute_css_reference_frame_matrix(style, bw, bh)?;
+    let anchor = fragment_border_origin_absolute(bf, current_origin);
+    Some(ReferenceFrameSpec {
+        matrix: compose_reference_frame_transform(anchor, css_matrix),
+        origin_basis: Some(anchor),
+    })
+}
+
+fn fragment_border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) -> DVec2 {
+    let border_rect = bf.border_rect();
+    dvec2(
+        current_origin.x + border_rect.origin.x.to_f32_px() as f64,
+        current_origin.y + border_rect.origin.y.to_f32_px() as f64,
+    )
+}
+
+fn compose_reference_frame_transform(anchor: DVec2, transform: Mat4f) -> Mat4f {
+    Mat4f::mul(&translation_matrix(anchor.x as f32, anchor.y as f32), &transform)
 }
 
 fn fragment_sticky_translation(
@@ -312,6 +484,13 @@ fn fragment_scroll_translation(
 }
 
 fn fragment_overflow_clip_rect(bf: &BoxFragment) -> Option<Rect> {
+    let overflow = bf.base.style.get_box();
+    if matches!(overflow.overflow_x, ComputedOverflow::Visible)
+        && matches!(overflow.overflow_y, ComputedOverflow::Visible)
+    {
+        return None;
+    }
+
     let padding_rect = bf.padding_rect();
     Some(Rect {
         pos: dvec2(
@@ -360,6 +539,8 @@ fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use havi_types::fragment_tree::{BaseFragment, BaseFragmentInfo, Baselines, BoxFragment};
     use havi_types::geom::{PhysicalRect, PhysicalSides};
@@ -374,6 +555,10 @@ mod tests {
             euclid::Point2D::<Au, CSSPixel>::new(Au::from_f32_px(x), Au::from_f32_px(y)),
             euclid::Size2D::<Au, CSSPixel>::new(Au::from_f32_px(w), Au::from_f32_px(h)),
         )
+    }
+
+    fn initial_style() -> servo_arc::Arc<ComputedValues> {
+        ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
     }
 
     fn scroll_box(node_id: usize) -> Fragment {
@@ -401,6 +586,25 @@ mod tests {
         })
     }
 
+    fn plain_box(node_id: usize, x: f32, y: f32, children: Vec<Fragment>) -> Fragment {
+        use app_units::Au;
+        let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
+        Fragment::Box(BoxFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(node_id)),
+                initial_style(),
+                make_rect(x, y, 100.0, 100.0),
+            ),
+            children,
+            padding: sides,
+            border: sides,
+            margin: sides,
+            baselines: Baselines::default(),
+            block_level_info: None,
+            background_images: Vec::new(),
+        })
+    }
+
     #[test]
     fn build_scene_creates_scroll_frame_for_overflow_container() {
         let fragment = scroll_box(7);
@@ -413,9 +617,51 @@ mod tests {
             dvec2(50.0, 60.0),
             dvec2(800.0, 600.0),
         );
-        assert!(scene.frame_tree.frames.iter().any(|frame| {
-            frame.kind == FrameKind::ScrollFrame && frame.owner_node_id == Some(7)
-        }));
-        assert_eq!(scene.frame_tree.frame(scene.frame_tree.root).items[0].local_origin, dvec2(50.0, 60.0));
+        let scroll_frame = scene
+            .frame_tree
+            .frames
+            .iter()
+            .find(|frame| frame.kind == FrameKind::ScrollFrame && frame.owner_node_id == Some(7))
+            .unwrap();
+        assert_eq!(scene.frame_tree.frame(scene.frame_tree.root).items[0].local_origin, dvec2(0.0, 0.0));
+        assert_eq!(scroll_frame.clip_id, ClipId(0));
+    }
+
+    #[test]
+    fn iframe_child_fragments_get_nested_origins() {
+        let child_fragments = Arc::new(vec![plain_box(2, 5.0, 6.0, vec![plain_box(3, 7.0, 8.0, Vec::new())])]);
+        let iframe = Fragment::IFrame(IFrameFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(1)),
+                initial_style(),
+                make_rect(30.0, 40.0, 200.0, 150.0),
+            ),
+            child_fragments,
+            child_content_height: 150.0,
+        });
+        let fragments = [iframe];
+        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let scene = build_scene(
+            &sc,
+            &fragments,
+            &crate::ScrollState::default(),
+            dvec2(0.0, 0.0),
+            dvec2(800.0, 600.0),
+        );
+        let iframe_frame = scene
+            .frame_tree
+            .frames
+            .iter()
+            .find(|frame| frame.kind == FrameKind::IFrameRoot)
+            .unwrap();
+        assert!(iframe_frame.items.iter().any(|item| item.local_origin == dvec2(0.0, 0.0)));
+        assert!(iframe_frame.items.iter().any(|item| item.local_origin == dvec2(5.0, 6.0)));
+    }
+
+    #[test]
+    fn reference_frame_transform_translates_local_space_to_anchor() {
+        let mat = compose_reference_frame_transform(dvec2(100.0, 0.0), translation_matrix(10.0, 0.0));
+        let mapped = mat.transform_vec4(vec4f(0.0, 0.0, 0.0, 1.0));
+        assert_eq!(mapped.x, 110.0);
     }
 }

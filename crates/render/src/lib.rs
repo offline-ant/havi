@@ -63,7 +63,7 @@ pub struct TextureCacheEntry {
     data_hash: u64,
 }
 
-/// Pre-computed selection highlight rectangles in content-space.
+/// Pre-computed selection highlight rectangles in root visual coordinates.
 #[derive(Clone, Debug)]
 pub struct SelectionHighlight {
     pub color: Vec4f,
@@ -186,6 +186,7 @@ pub fn render_fragments(
     let sc = stacking_context::build_stacking_context_tree(fragments);
     let viewport_size = cx.turtle().rect().size;
     let scene = frame_builder::build_scene(&sc, fragments, scroll_state, origin, viewport_size);
+    frame_draw_lists.clear();
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -243,6 +244,7 @@ pub fn render_fragments_clipped(
         origin,
         viewport_size,
     );
+    frame_draw_lists.clear();
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -271,8 +273,8 @@ pub fn render_fragments_clipped(
 /// Check if a box fragment establishes a scroll container (overflow != visible).
 pub fn is_scroll_container(bf: &BoxFragment) -> bool {
     let ov = bf.base.style.get_box();
-    !matches!(ov.overflow_x, ComputedOverflow::Visible)
-        || !matches!(ov.overflow_y, ComputedOverflow::Visible)
+    matches!(ov.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll)
+        || matches!(ov.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll)
 }
 
 /// Compute the scrollable content bounds for a box fragment.

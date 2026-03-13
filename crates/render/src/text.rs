@@ -190,6 +190,14 @@ fn draw_text_at(
         }
     } else if !tf.glyphs.is_empty() {
         // Use font_handle if available, otherwise fall back to DrawText's built-in font
+        if std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some() {
+            eprintln!(
+                "[render] glyph-run count={} font_handle={} text_len={}",
+                tf.glyphs.len(),
+                tf.font_handle.is_some(),
+                tf.text.len(),
+            );
+        }
         if let Some(ref handle) = tf.font_handle {
             if let Some(font_id) = ensure_font_registered(cx, handle, tf.font_data.as_ref()) {
                 let family_id = ensure_font_family(cx, font_id);
@@ -272,6 +280,9 @@ fn draw_positioned_glyphs_with_font(
         pen_x += glyph.advance.to_f32_px();
     }
 
+    if std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some() {
+        eprintln!("[render] rasterized-with-font glyphs={}", rasterized_glyphs.len());
+    }
     if !rasterized_glyphs.is_empty() {
         dt.color = color;
         dt.draw_rasterized_glyphs_abs(cx, &rasterized_glyphs, color);
@@ -315,6 +326,9 @@ fn draw_positioned_glyphs(
         pen_x += glyph.advance.to_f32_px();
     }
 
+    if std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some() {
+        eprintln!("[render] rasterized-default glyphs={}", rasterized_glyphs.len());
+    }
     if !rasterized_glyphs.is_empty() {
         dt.draw_rasterized_glyphs_abs(cx, &rasterized_glyphs, dt.color);
     }

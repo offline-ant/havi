@@ -6,8 +6,12 @@ use makepad_widgets::makepad_draw::{ImageBuffer, Texture};
 use makepad_widgets::*;
 
 use crate::background::draw_element_box;
+
+fn debug_transform_render() -> bool {
+    std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some()
+}
 use crate::clip_tree::{ClipId, ClipTree};
-use crate::frame_tree::{FrameId, FrameTree};
+use crate::frame_tree::{FrameId, FramePaintCommand, FrameTree};
 use crate::text::draw_text_run;
 use crate::{CssFilters, DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv};
 use crate::{FilterPass, FilterState, FrameDrawList, FrameDrawListState, OpacityPass, OpacityState, SelectionHighlight, TextureCache};
@@ -189,24 +193,27 @@ fn paint_frame_contents(
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
-    paint_frame_items(cx, frame_tree, clip_tree, frame_id, state, opacity);
-    for &child_frame_id in &frame_tree.frame(frame_id).children {
-        paint_frame(cx, frame_tree, clip_tree, child_frame_id, state, opacity);
-    }
-}
-
-fn paint_frame_items(
-    cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    frame_id: FrameId,
-    state: &mut MakepadDrawState<'_>,
-    opacity: f32,
-) {
-    for item in &frame_tree.frame(frame_id).items {
-        let pushed = push_clip_chain(cx, clip_tree, item.clip_id);
-        paint_fragment_item(cx, item, state, opacity);
-        pop_clip_chain(cx, pushed);
+    let paint_list = frame_tree.frame(frame_id).paint_list.clone();
+    for command in paint_list {
+        match command {
+            FramePaintCommand::Item(item_index) => {
+                let item = &frame_tree.frame(frame_id).items[item_index];
+                let pushed = push_local_clip_chain(cx, clip_tree, frame_id, item.clip_id);
+                paint_fragment_item(cx, item, state, opacity);
+                pop_clip_chain(cx, pushed);
+            }
+            FramePaintCommand::ChildFrame(child_frame_id) => {
+                let pushed = push_clip_chain(
+                    cx,
+                    frame_tree,
+                    clip_tree,
+                    frame_id,
+                    frame_tree.frame(child_frame_id).clip_id,
+                );
+                paint_frame(cx, frame_tree, clip_tree, child_frame_id, state, opacity);
+                pop_clip_chain(cx, pushed);
+            }
+        }
     }
 }
 
@@ -260,11 +267,17 @@ fn paint_fragment_item(
                 return;
             }
             let rect = text_fragment.base.rect;
+            let x = item.local_origin.x + rect.origin.x.to_f32_px() as f64;
+            let y = item.local_origin.y + rect.origin.y.to_f32_px() as f64;
+            if debug_transform_render() {
+                let sample = text_fragment.text.chars().take(40).collect::<String>();
+                eprintln!("[render] text '{}' at ({:.1},{:.1}) size=({:.1},{:.1})", sample, x, y, rect.size.width.to_f32_px(), rect.size.height.to_f32_px());
+            }
             draw_text_run(
                 cx,
                 text_fragment,
-                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                x,
+                y,
                 rect.size.width.to_f32_px(),
                 rect.size.height.to_f32_px(),
                 opacity,
@@ -316,7 +329,13 @@ fn paint_fragment_item(
     }
 }
 
-fn push_clip_chain(cx: &mut Cx2d, clip_tree: &ClipTree, clip_id: ClipId) -> usize {
+fn push_clip_chain(
+    cx: &mut Cx2d,
+    frame_tree: &FrameTree<'_>,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
+    clip_id: ClipId,
+) -> usize {
     if clip_id == ClipId::INVALID {
         return 0;
     }
@@ -324,6 +343,40 @@ fn push_clip_chain(cx: &mut Cx2d, clip_tree: &ClipTree, clip_id: ClipId) -> usiz
     let mut current = clip_id;
     while current != ClipId::INVALID {
         let node = clip_tree.get(current);
+        chain.push(map_rect_between_frames(
+            frame_tree,
+            node.parent_frame_id,
+            frame_id,
+            node.rect,
+        ));
+        current = node.parent_clip_id;
+    }
+    chain.reverse();
+    if debug_transform_render() && frame_id != frame_tree.root {
+        eprintln!("[render] clip-chain frame={} clip={:?} mapped={:?}", frame_id, clip_id, chain);
+    }
+    for rect in &chain {
+        cx.push_clip_rect(*rect);
+    }
+    chain.len()
+}
+
+fn push_local_clip_chain(
+    cx: &mut Cx2d,
+    clip_tree: &ClipTree,
+    frame_id: FrameId,
+    clip_id: ClipId,
+) -> usize {
+    if clip_id == ClipId::INVALID {
+        return 0;
+    }
+    let mut chain = Vec::new();
+    let mut current = clip_id;
+    while current != ClipId::INVALID {
+        let node = clip_tree.get(current);
+        if node.parent_frame_id != frame_id {
+            break;
+        }
         chain.push(node.rect);
         current = node.parent_clip_id;
     }
@@ -413,6 +466,19 @@ fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
         pos: dvec2(min_x, min_y),
         size: dvec2((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
     }
+}
+
+fn map_rect_between_frames(
+    frame_tree: &FrameTree<'_>,
+    from_frame_id: FrameId,
+    to_frame_id: FrameId,
+    rect: Rect,
+) -> Rect {
+    if from_frame_id == to_frame_id {
+        return rect;
+    }
+    let world_rect = transform_rect(&frame_tree.frame(from_frame_id).matrix.world, rect);
+    transform_rect(&frame_tree.frame(to_frame_id).matrix.world_inverse, world_rect)
 }
 
 fn paint_selection_overlay(cx: &mut Cx2d, state: &mut MakepadDrawState<'_>) {
