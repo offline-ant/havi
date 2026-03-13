@@ -295,6 +295,14 @@ impl DocumentEventHandler {
                 },
                 InputEvent::MouseMove(_) => {
                     self.handle_native_mouse_move_event(&event, can_gc);
+                    input_event_outcomes.extend(
+                        mem::take(&mut coalesced_move_event_ids)
+                            .into_iter()
+                            .map(|id| InputEventOutcome {
+                                id,
+                                result: InputEventResult::default(),
+                            }),
+                    );
                     InputEventResult::default()
                 },
                 InputEvent::MouseLeftViewport(mouse_leave_event) => {
@@ -305,7 +313,13 @@ impl DocumentEventHandler {
                     self.handle_touch_event(touch_event, &event, can_gc)
                 },
                 InputEvent::Wheel(wheel_event) => {
-                    self.handle_wheel_event(wheel_event, &event, can_gc)
+                    let result = self.handle_wheel_event(wheel_event, &event, can_gc);
+                    input_event_outcomes.extend(
+                        mem::take(&mut coalesced_wheel_event_ids)
+                            .into_iter()
+                            .map(|id| InputEventOutcome { id, result }),
+                    );
+                    result
                 },
                 InputEvent::Keyboard(keyboard_event) => {
                     self.handle_keyboard_event(keyboard_event, can_gc)
