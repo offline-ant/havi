@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
 use crate::stacking_context::{PaintItem, StackingContext, StackingContextContent, StackingContextSection};
@@ -25,6 +27,7 @@ struct SceneBuilder<'tree, 'a> {
     clip_tree: &'tree mut ClipTree,
     scroll_state: &'tree crate::ScrollState,
     viewport_size: DVec2,
+    fragment_origins: HashMap<usize, DVec2>,
 }
 
 impl<'tree, 'a> SceneBuilder<'tree, 'a> {
@@ -58,17 +61,18 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 
     fn build_content_into_scene(&mut self, content: &StackingContextContent<'a>, cx: BuildContext) {
         match content {
-            StackingContextContent::Fragment {
-                section,
-                fragment,
-                containing_block_origin,
-            } => {
+            StackingContextContent::Fragment { section, fragment } => {
+                let containing_block_origin = self
+                    .fragment_origins
+                    .get(&(std::ptr::from_ref(*fragment) as usize))
+                    .copied()
+                    .unwrap_or(dvec2(0.0, 0.0));
                 let item_cx = BuildContext {
                     frame_id: cx.frame_id,
                     clip_id: cx.clip_id,
                     local_origin: dvec2(
-                        cx.local_origin.x + containing_block_origin.0,
-                        cx.local_origin.y + containing_block_origin.1,
+                        cx.local_origin.x + containing_block_origin.x,
+                        cx.local_origin.y + containing_block_origin.y,
                     ),
                 };
                 self.build_fragment_into_scene(fragment, *section, item_cx);
@@ -179,6 +183,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 
 pub(crate) fn build_scene<'a>(
     sc: &StackingContext<'a>,
+    fragments: &'a [Fragment],
     scroll_state: &crate::ScrollState,
     root_origin: DVec2,
     viewport_size: DVec2,
@@ -191,6 +196,7 @@ pub(crate) fn build_scene<'a>(
         clip_tree: &mut clip_tree,
         scroll_state,
         viewport_size,
+        fragment_origins: build_fragment_origin_map(fragments),
     }
     .build_stacking_context_into_scene(
         sc,
@@ -203,6 +209,45 @@ pub(crate) fn build_scene<'a>(
     BuiltScene { frame_tree, clip_tree }
 }
 
+fn build_fragment_origin_map(fragments: &[Fragment]) -> HashMap<usize, DVec2> {
+    let mut origins = HashMap::new();
+    for fragment in fragments {
+        collect_fragment_origins(fragment, dvec2(0.0, 0.0), &mut origins);
+    }
+    origins
+}
+
+fn collect_fragment_origins(
+    fragment: &Fragment,
+    containing_block_origin: DVec2,
+    origins: &mut HashMap<usize, DVec2>,
+) {
+    origins.insert(std::ptr::from_ref(fragment) as usize, containing_block_origin);
+    match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            let rect = bf.content_rect();
+            let child_origin = dvec2(
+                containing_block_origin.x + rect.origin.x.to_f32_px() as f64,
+                containing_block_origin.y + rect.origin.y.to_f32_px() as f64,
+            );
+            for child in &bf.children {
+                collect_fragment_origins(child, child_origin, origins);
+            }
+        }
+        Fragment::Positioning(pf) => {
+            let rect = pf.base.rect;
+            let child_origin = dvec2(
+                containing_block_origin.x + rect.origin.x.to_f32_px() as f64,
+                containing_block_origin.y + rect.origin.y.to_f32_px() as f64,
+            );
+            for child in &pf.children {
+                collect_fragment_origins(child, child_origin, origins);
+            }
+        }
+        Fragment::IFrame(_) | Fragment::Text(_) | Fragment::Image(_) => {}
+    }
+}
+
 fn uses_visual_context(
     content: &StackingContextContent<'_>,
     owner_fragment: Option<&BoxFragment>,
@@ -211,7 +256,7 @@ fn uses_visual_context(
         return false;
     };
     match content {
-        StackingContextContent::Fragment { fragment, section, .. } => match fragment {
+        StackingContextContent::Fragment { fragment, section } => match fragment {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 std::ptr::eq(bf, owner_fragment)
                     && *section == StackingContextSection::OwnBackgroundsAndBorders
@@ -363,6 +408,7 @@ mod tests {
         let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc,
+            &fragments,
             &[(7usize, dvec2(12.0, 13.0))].into_iter().collect(),
             dvec2(50.0, 60.0),
             dvec2(800.0, 600.0),

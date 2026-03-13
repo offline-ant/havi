@@ -42,12 +42,10 @@ pub(crate) enum StackingContextType {
 
 /// A content item inside a stacking context.
 pub(crate) enum StackingContextContent<'a> {
-    /// A fragment reference with its paint section and containing-block origin.
+    /// A fragment reference with its paint section.
     Fragment {
         section: StackingContextSection,
         fragment: &'a Fragment,
-        /// Absolute (x, y) origin of the containing block for this fragment.
-        containing_block_origin: (f64, f64),
     },
     /// Index into `StackingContext::atomic_inline_stacking_containers`.
     AtomicInlineStackingContainer { index: usize },
@@ -258,7 +256,7 @@ pub(crate) fn build_stacking_context_tree<'a>(
 ) -> StackingContext<'a> {
     let mut root = StackingContext::new_root();
     for fragment in fragments {
-        build_for_fragment(fragment, &mut root, (0.0, 0.0));
+        build_for_fragment(fragment, &mut root);
     }
     root.sort();
     root
@@ -267,14 +265,13 @@ pub(crate) fn build_stacking_context_tree<'a>(
 fn build_for_fragment<'a>(
     fragment: &'a Fragment,
     stacking_context: &mut StackingContext<'a>,
-    cb_origin: (f64, f64),
 ) {
     match fragment {
         Fragment::Box(bf) => {
-            build_for_box(fragment, bf, false, stacking_context, cb_origin);
+            build_for_box(fragment, bf, false, stacking_context);
         }
         Fragment::Float(bf) => {
-            build_for_box(fragment, bf, true, stacking_context, cb_origin);
+            build_for_box(fragment, bf, true, stacking_context);
         }
         Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => {
             stacking_context
@@ -282,17 +279,11 @@ fn build_for_fragment<'a>(
                 .push(StackingContextContent::Fragment {
                     section: StackingContextSection::Foreground,
                     fragment,
-                    containing_block_origin: cb_origin,
                 });
         }
         Fragment::Positioning(pf) => {
-            let rect = pf.base.rect;
-            let new_origin = (
-                cb_origin.0 + rect.origin.x.to_f32_px() as f64,
-                cb_origin.1 + rect.origin.y.to_f32_px() as f64,
-            );
             for child in &pf.children {
-                build_for_fragment(child, stacking_context, new_origin);
+                build_for_fragment(child, stacking_context);
             }
         }
     }
@@ -303,7 +294,6 @@ fn build_for_box<'a>(
     bf: &'a BoxFragment,
     is_float: bool,
     parent_sc: &mut StackingContext<'a>,
-    cb_origin: (f64, f64),
 ) {
     let context_type = get_stacking_context_type(bf, is_float);
 
@@ -326,11 +316,10 @@ fn build_for_box<'a>(
                 .push(StackingContextContent::Fragment {
                     section: StackingContextSection::OwnBackgroundsAndBorders,
                     fragment,
-                    containing_block_origin: cb_origin,
                 });
 
             // Build children.
-            build_box_children(bf, &mut child_sc, cb_origin);
+            build_box_children(bf, &mut child_sc);
 
             // Steal real stacking contexts from non-real containers.
             let mut stolen = Vec::new();
@@ -354,9 +343,8 @@ fn build_for_box<'a>(
                 .push(StackingContextContent::Fragment {
                     section,
                     fragment,
-                    containing_block_origin: cb_origin,
                 });
-            build_box_children(bf, parent_sc, cb_origin);
+            build_box_children(bf, parent_sc);
         }
     }
 }
@@ -364,15 +352,9 @@ fn build_for_box<'a>(
 fn build_box_children<'a>(
     bf: &'a BoxFragment,
     stacking_context: &mut StackingContext<'a>,
-    cb_origin: (f64, f64),
 ) {
-    let content_rect = bf.content_rect();
-    let child_origin = (
-        cb_origin.0 + content_rect.origin.x.to_f32_px() as f64,
-        cb_origin.1 + content_rect.origin.y.to_f32_px() as f64,
-    );
     for child in &bf.children {
-        build_for_fragment(child, stacking_context, child_origin);
+        build_for_fragment(child, stacking_context);
     }
 }
 
@@ -556,5 +538,9 @@ impl CachedStackingContextTree {
     /// Get a reference to the cached tree.
     pub(crate) fn tree(&self) -> &StackingContext<'_> {
         &self.tree
+    }
+
+    pub(crate) fn fragments(&self) -> &[Fragment] {
+        self._fragments.as_slice()
     }
 }

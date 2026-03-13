@@ -3,7 +3,7 @@
 use havi_types::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 
-pub fn hit_test(
+pub(crate) fn hit_test(
     frame_tree: &crate::frame_tree::FrameTree<'_>,
     clip_tree: &crate::clip_tree::ClipTree,
     point_world: DVec2,
@@ -11,7 +11,7 @@ pub fn hit_test(
     hit_test_frame_reverse(frame_tree, clip_tree, frame_tree.root, point_world)
 }
 
-pub fn find_scroll_container(
+pub(crate) fn find_scroll_container(
     frame_tree: &crate::frame_tree::FrameTree<'_>,
     clip_tree: &crate::clip_tree::ClipTree,
     point_world: DVec2,
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn scene_hit_test_hits_topmost_child_frame() {
         let mut frames = FrameTree::new();
-        let mut clips = ClipTree::new();
+        let clips = ClipTree::new();
         let a = make_box(1, 0.0, 0.0, 100.0, 100.0);
         let b = make_box(2, 0.0, 0.0, 100.0, 100.0);
         frames.push_item(frames.root, &a, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);

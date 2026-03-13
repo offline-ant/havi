@@ -47,7 +47,7 @@ use style::computed_values::overflow_x::T as ComputedOverflow;
 pub use shaders::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
-pub use hit_test::{hit_test, find_scroll_container};
+pub(crate) use hit_test::{find_scroll_container, hit_test};
 pub use stacking_context::CachedStackingContextTree;
 
 /// Cache for image textures, keyed by OpaqueNode id.
@@ -185,7 +185,7 @@ pub fn render_fragments(
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
     let viewport_size = cx.turtle().rect().size;
-    let scene = frame_builder::build_scene(&sc, scroll_state, origin, viewport_size);
+    let scene = frame_builder::build_scene(&sc, fragments, scroll_state, origin, viewport_size);
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -236,7 +236,13 @@ pub fn render_fragments_clipped(
         cx.turtle().rect().size.x,
         (viewport_bottom - viewport_top) as f64,
     );
-    let scene = frame_builder::build_scene(cached_tree.tree(), scroll_state, origin, viewport_size);
+    let scene = frame_builder::build_scene(
+        cached_tree.tree(),
+        cached_tree.fragments(),
+        scroll_state,
+        origin,
+        viewport_size,
+    );
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
