@@ -6,10 +6,6 @@ use makepad_widgets::makepad_draw::{ImageBuffer, Texture};
 use makepad_widgets::*;
 
 use crate::background::draw_element_box;
-
-fn debug_transform_render() -> bool {
-    std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some()
-}
 use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FramePaintCommand, FrameTree};
 use crate::text::draw_text_run;
@@ -269,10 +265,6 @@ fn paint_fragment_item(
             let rect = text_fragment.base.rect;
             let x = item.local_origin.x + rect.origin.x.to_f32_px() as f64;
             let y = item.local_origin.y + rect.origin.y.to_f32_px() as f64;
-            if debug_transform_render() {
-                let sample = text_fragment.text.chars().take(40).collect::<String>();
-                eprintln!("[render] text '{}' at ({:.1},{:.1}) size=({:.1},{:.1})", sample, x, y, rect.size.width.to_f32_px(), rect.size.height.to_f32_px());
-            }
             draw_text_run(
                 cx,
                 text_fragment,
@@ -352,9 +344,6 @@ fn push_clip_chain(
         current = node.parent_clip_id;
     }
     chain.reverse();
-    if debug_transform_render() && frame_id != frame_tree.root {
-        eprintln!("[render] clip-chain frame={} clip={:?} mapped={:?}", frame_id, clip_id, chain);
-    }
     for rect in &chain {
         cx.push_clip_rect(*rect);
     }

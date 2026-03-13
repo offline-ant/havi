@@ -54,7 +54,6 @@ struct SceneBuilder<'tree, 'a> {
     viewport_size: DVec2,
     fragment_origins: HashMap<usize, DVec2>,
     box_origins: HashMap<usize, DVec2>,
-    debug_transforms: bool,
 }
 
 impl<'tree, 'a> SceneBuilder<'tree, 'a> {
@@ -106,21 +105,6 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     ),
                     origin_basis: cx.origin_basis,
                 };
-                if self.debug_transforms {
-                    match fragment {
-                        Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) => {
-                            eprintln!(
-                                "[render] item frame={} section={:?} cb={:?} basis={:?} local={:?}",
-                                item_cx.frame_id,
-                                section,
-                                containing_block_origin,
-                                cx.origin_basis,
-                                item_cx.local_origin,
-                            );
-                        }
-                        _ => {}
-                    }
-                }
                 self.build_fragment_into_scene(fragment, *section, item_cx);
             }
             StackingContextContent::AtomicInlineStackingContainer { .. } => {}
@@ -212,18 +196,6 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     owner_node_id,
                     spec.matrix,
                 );
-                let anchor = fragment_border_origin_absolute(owner_fragment, owner_origin);
-                if self.debug_transforms {
-                    eprintln!(
-                        "[render] ref-frame node={:?} owner_origin={:?} anchor={:?} local_origin={:?} basis={:?} mat={:?}",
-                        owner_node_id,
-                        owner_origin,
-                        anchor,
-                        visual.local_origin,
-                        spec.origin_basis,
-                        spec.matrix.v,
-                    );
-                }
                 entry_frame_id = Some(frame_id);
                 visual.frame_id = frame_id;
                 if let Some(origin_basis) = spec.origin_basis {
@@ -300,7 +272,6 @@ pub(crate) fn build_scene<'a>(
         viewport_size,
         fragment_origins: build_fragment_origin_map(fragments),
         box_origins: build_box_origin_map(fragments),
-        debug_transforms: std::env::var_os("HAVI_RENDER_DEBUG_TRANSFORM").is_some(),
     }
     .build_stacking_context_into_scene(
         sc,
