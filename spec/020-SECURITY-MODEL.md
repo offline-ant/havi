@@ -13,10 +13,6 @@ through local route and remote deployment pointers.
 
 Origin format: `//<group>/<app>/`.
 
-When local shadow mode is enabled for an origin, HAVI resolves that origin
-through the local shadow root `//~<group>/<app>/...` before normal route and
-deployment lookup.
-
 For routed non-repo pages (`hppr://<group>/<app>/...`):
 
 1. Read local route packet from home repo:
@@ -41,9 +37,12 @@ Coordinate:
 
 `//repo/admin/route/<group>/<app>/|/seal/<repo-vkey>`
 
-Typical headers:
+Required headers:
 
 - `Upstream`
+
+Optional headers:
+
 - `Upstream-Verification-Key`
 
 Route config is local. Only ring0 can write route packets.
@@ -87,27 +86,20 @@ Lookup target:
 
 `//u/index/<group>/<app>`
 
+Expected packet data:
+
+- `Upstream`
+- optional `Upstream-Verification-Key`
+
 Rules:
 
 - groups starting with `~` are local/private and skip bootstrap lookup
 - bootstrap lookup responses must be Seals signed by the configured bootstrap
   verification key
-- on success, HAVI uses the returned `Upstream` and
-  `Upstream-Verification-Key` values and attempts to store a local route packet
+- on success, HAVI may store a local route packet using the returned values
 
 If lookup is skipped, missing, or invalid, HAVI falls back to the home repo
 endpoint.
-
-### Setup flow
-
-For a new direct endpoint, HAVI:
-
-1. fetches remote HELLO
-2. compares current local route endpoint
-3. asks the user to approve route update
-4. stores route config locally
-5. creates route key for group if not exists
-6. navigates to normal `hppr://` URL
 
 ## Site sandboxing
 
@@ -158,3 +150,4 @@ Privilege escalation requires explicit ring0 approval for proxy actions.
 - XSS still applies when apps render untrusted content unsafely.
 - Route key compromise affects all routes in the group.
 - Deployment pointer compromise affects routed content selection for that app.
+- `file://` pages use a browser-defined local origin and local site identity.

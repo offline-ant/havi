@@ -2,7 +2,11 @@
 
 HAVI is a browser for HPPR content.
 
-These docs define runtime behavior, security, and developer APIs.
+These docs define browser behavior, security, and developer APIs needed for an
+HPPR-native browser implementation.
+
+HAVI shell tooling, internal pages, runtime controls, and operator details live
+in `../../reference.md`.
 
 ## Reading order
 
@@ -26,5 +30,6 @@ These docs define runtime behavior, security, and developer APIs.
 
 ## Related docs
 
+- [HAVI Reference](../../reference.md)
 - [HPPR Core Specs](../../hppr/spec/)
 - [HAVI CLAUDE.md](../CLAUDE.md)

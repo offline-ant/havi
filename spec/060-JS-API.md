@@ -11,7 +11,7 @@ HAVI exposes HPPR APIs on `window`.
 - `window.home`: home repo client (always available)
 - `window.route`: route repo client (nullable)
 - `window.resolve(input)`: browser-owned document source resolver
-- `window.ring0`: admin client (privileged schemes only)
+- `window.ring0`: admin client (privileged implementations only)
 - `window.H3`: crypto namespace (always available)
 
 `window.route` is `null` when no route exists or no matching route auth key is
@@ -169,8 +169,8 @@ Use `envelope()` for manifest-level response inspection.
 
 ## `window.resolve(input)`
 
-`window.resolve(input)` applies HAVI's built-in browser resolution policy and
-returns a dedicated resolve result.
+`window.resolve(input)` applies the browser's built-in HPPR source resolution
+policy and returns a dedicated resolve result.
 
 It is the high-level source API for browser-owned document resolution.
 It is not a Fetch response and it does not expose fetch-style options.
@@ -183,7 +183,7 @@ Result fields:
 - `signer`: signer identity string when routed access is used
 - `isRepo`: whether the resolved source came from the home repo path
 
-`window.resolve()` is document resolve only in this pass.
+`window.resolve()` is document resolve only.
 Listing stays on `window.home.list()` or `window.route.list()`.
 
 ## Relative resolution
@@ -219,14 +219,14 @@ Setting `scheme`, `endpoint`, `group`, `app`, or `location` recomputes the full
 URL and navigates.
 
 HAVI also installs a `window.location` and `document.location` compatibility
-shim on `hppr*://` and `file://` pages.
+shim on `hppr://` and `file://` pages.
 The shim logs a warning on first use and projects common web fields onto HAVI
 state:
 
 - `hash` maps to JSONqa fragment (`{#:...}`)
 - `search` maps to projected top-level JSONqa key/value pairs
 - `pathname` maps to `/<app>/<location>`
-- `origin` projects as `scheme://<group>` on `hppr*://`
+- `origin` projects as `scheme://<group>` on `hppr://`
 
 Compatibility input is strict.
 `window.location` does not accept raw JSONqa syntax.
@@ -251,9 +251,8 @@ Message payload format:
 - `+ <coord>` for store
 - `- <coord>` for detach
 
-
-`<x watch>` elements share WatchSocket connections through a per-document pool
-keyed by watch prefix. See `070-X-ELEMENT.md`.
+`<x watch>` elements may share WatchSocket connections through a per-document
+pool keyed by watch prefix. See `070-X-ELEMENT.md`.
 
 ## StreamPub
 
@@ -312,84 +311,11 @@ Lifecycle events:
 Byte delivery is incremental and order-preserving for the received payload
 stream.
 
-## MediaRecorder and MediaSource status
+## Media APIs
 
-`MediaRecorder` is exposed in HAVI with a strict part-2 camera path.
-
-Available API surface:
-
-- constructor: `new MediaRecorder(stream, options)`
-- static: `MediaRecorder.isTypeSupported(mimeType)`
-- attributes: `state`, `mimeType`, `stream`
-- event handlers: `onstart`, `onstop`, `ondataavailable`, `onerror`
-- methods: `start(timeslice?)`, `stop()`, `pause()`, `resume()`, `requestData()`
-
-Part-2 behavior:
-
-- constructor validates options and stores recorder state
-- `isTypeSupported()` follows HAVI media policy checks
-- `start(timeslice)` starts camera-backed AV1 encode and emits periodic
-  `dataavailable` chunks (`Blob` payload in `event.data`)
-- `stop()` emits a final chunk when available, then `stop`
-
-Current supported execution path:
-
-- exactly one live camera video track
-- AV1-in-MP4 media policy mime (`video/mp4` + AV1 codecs)
-
-Not-yet-implemented execution paths throw DOMException with messages containing
-`NotYetImplemented` (NotSupportedError or InvalidStateError), including
-audio-only streams, mixed audio/video streams, and explicit
-pause/resume/requestData control paths.
-
-`MediaSource` is now exposed on the append-backed MSE playback path.
-
-Available API surface:
-
-- constructor: `new MediaSource()`
-- static: `MediaSource.isTypeSupported(mimeType)`
-- attributes: `readyState`, `duration`, `sourceBuffers`, `activeSourceBuffers`
-- methods: `addSourceBuffer(mimeType)`, `removeSourceBuffer(sourceBuffer)`,
-  `endOfStream()`
-- object URLs: `URL.createObjectURL(mediaSource)`, `URL.revokeObjectURL(url)`
-- events: `sourceopen`, `sourceended`, `sourceclose`
-
-`SourceBuffer` is exposed with:
-
-- attributes: `updating`, `buffered`
-- methods: `appendBuffer(data)`, `remove(start, end)`, `abort()`
-- events: `updatestart`, `update`, `updateend`, `error`
-
-Current attach/state model:
-
-- `video.src = URL.createObjectURL(mediaSource)` is supported
-- `video.srcObject = mediaSource` is supported
-- both attach paths share the same `MediaSource` attach/detach state machine
-- detached `SourceBuffer`s stay registered in `sourceBuffers` and leave
-  `activeSourceBuffers` until reattached
-- removed `SourceBuffer`s are explicitly invalid and reject further operations
-
-Current limits:
-
-- multiple `SourceBuffer`s now route through one `MediaSource` playback session
-  with stable per-buffer internal identities
-- append/remove completion and error routing are per-`SourceBuffer`
-- each `SourceBuffer` currently allows one in-flight append/remove operation at
-  a time; a second operation on the same buffer while updating throws
-  `InvalidStateError`
-- incomplete fMP4 append tails may be completed by a later append on the same
-  buffer; this is distinct from invalid-state rejection at the DOM surface
-- `HTMLMediaElement` audio/video track selection now feeds MSE session and
-  active-buffer coordination for parsed MSE track metadata
-- the concrete decode/present path supported today remains one muxed MP4/fMP4
-  append input; split audio/video playout is not complete yet
-- `activeSourceBuffers` now begins to follow parsed track metadata and current
-  DOM track selection, but final multi-track coordination is not complete yet
-- append/remove stay limited to MP4/fMP4 custom playback
-
-Direct source-backed playback remains separate from MSE. For chunked recorder
-playback, pages can use `MediaSource` through the append-backed path. Blob
-handoff remains a page-level fallback.
+When exposed, browser media APIs follow the media policy in `080-MEDIA.md`.
+Implementation status and HAVI-specific rollout details belong in
+`../../reference.md` or other reference docs.
 
 ## Errors
 
@@ -415,16 +341,13 @@ When `fatal` is `true`, create a new client connection.
 
 ## HpprRepoInfo
 
-Available on `window.ring0.repo`.
+Available on `window.ring0.repo` when privileged repo integration is exposed.
 
 Methods:
 
 - `port()`
 - `repoPath()`
-- `status()` runtime/backend string (`external`, `self_exec`, or `inline`)
-  - `external`: external-process runtime path
-  - `self_exec`: pylon self-exec process runtime path
-  - `inline`: in-process runtime path
+- `status()` runtime/backend string
 
 ## EnvelopeHpprClient
 

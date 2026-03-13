@@ -1,6 +1,6 @@
 # Protocol Handlers
 
-Protocol handlers map HAVI URLs to HPPR operations.
+Protocol handlers map browser URLs to HPPR operations.
 
 ## URL form
 
@@ -8,11 +8,11 @@ General form:
 
 `scheme://group/app/location{via:endpoint}`
 
-`{via:endpoint}` is optional in most cases.
+`{via:endpoint}` is optional.
 
 ### Endpoint transport
 
-When `via` is present, HAVI connects directly to that endpoint.
+When `via` is present, the browser connects directly to that endpoint.
 
 | `via` value      | Transport | Default port |
 |------------------|-----------|--------------|
@@ -23,31 +23,29 @@ Packet signatures provide integrity and authorship regardless of transport.
 
 ## Supported schemes
 
-- `hppr://` for normal content navigation
-- `hppr-setup://` for route setup
-- `hppr-join://` for Ring2 membership requests
-- `hppr-sandbox://` for untrusted preview
-- `hppr-browse://` for directory browsing
-- `hppr-editor://` for local packet editing
-- `file://` for local file rendering with home repo access
-- `havi://` for internal pages
+This spec defines browser behavior for:
+
+- `hppr://` for HPPR content navigation
+- `file://` for local file rendering with HPPR browser APIs
+
+Additional implementation-specific schemes may exist. HAVI-specific helper
+schemes are documented in `../../reference.md`.
 
 ## `hppr://`
 
 Primary browsing scheme.
 
-### Routed non-repo resolution
+### Routed resolution
 
-For routed non-repo pages (`hppr://<group>/<app>/...`), HAVI resolves in this
-order:
+For routed non-repo pages (`hppr://<group>/<app>/...`), the browser resolves in
+this order:
 
-1. if local shadow mode is enabled, resolve directly to local shadow root
-   `//~<group>/<app>/...`
-2. local route packet → endpoint (`//repo/admin/route/<group>/<app>/|/...`)
-3. if route is missing and `group` does not start with `~`, try bootstrap index
-   lookup at `//u/index/<group>/<app>` and use/store returned route values
-4. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-5. target from `Deploy-Root` + requested location
+1. local route packet -> endpoint
+   (`//repo/admin/route/<group>/<app>/|/...`)
+2. if route is missing and `group` does not start with `~`, try bootstrap index
+   lookup at `//u/index/<group>/<app>`
+3. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
+4. target from `Deploy-Root` + requested location
 
 Fetch behavior:
 
@@ -55,6 +53,9 @@ Fetch behavior:
 - LIST uses unsealed target: `<target>/`
 
 Origin remains `//<group>/<app>/`.
+
+How a browser persists routes, asks for user approval, or offers join/setup
+flows is implementation-defined.
 
 ### Content fetch
 
@@ -68,7 +69,7 @@ A path with trailing `/` performs LIST and renders directory HTML.
 
 ### Chunk manifest handling
 
-If GET returns a chunk manifest (`Chunk+Link` + `Data-Length: 0`), HAVI:
+If GET returns a chunk manifest (`Chunk+Link` + `Data-Length: 0`), the browser:
 
 1. fetches chunk packets
 2. resolves nested manifests to depth 8
@@ -78,136 +79,18 @@ If GET returns a chunk manifest (`Chunk+Link` + `Data-Length: 0`), HAVI:
 `document.packet` exposes the rendered packet.
 For manifest-level inspection, use envelope/raw APIs in `060-JS-API.md`.
 
-### Direct endpoint redirect
-
-If a direct endpoint URL has no local route config, HAVI redirects to setup:
-
-`hppr-setup://group/app/path{via:endpoint}`
-
-### Ring2 unauthorized redirect
-
-For routed non-repo content, if remote GET or LIST returns `UNAUTHORIZED`,
-HAVI redirects to:
-
-`hppr-join://group/app/`
-
-## `hppr-setup://`
-
-Setup flow for route configuration.
-
-This scheme exposes `window.ring0` so the setup page can store local route
-packets after user approval.
-
-Setup pages may embed untrusted preview through `hppr-sandbox://`.
-
-## `hppr-join://`
-
-Ring2 membership request flow.
-
-The page is local HTML and receives `window.route` credentials for the target
-route endpoint and group route key signer.
-
-The page offers two paths:
-
-### Password login
-
-If the user already has a group account (username + password), they can log in
-directly:
-
-1. enter username and password
-2. page derives Ring2 adhoc key client-side via `connectRing2Password()`
-3. test the derived identity with a probe request
-4. on success, navigate to `hppr://<group>/<app>/`
-5. on failure (not a member), show error
-
-Password login bypasses the join request/approval flow entirely. It works when
-the derived verification key is already registered as a `Member` in the group.
-
-### Join request
-
-If the user does not have credentials, request membership:
-
-1. show group/app and requester route verification key
-2. submit request with `window.route.add()` to `//<group>/admin/request/join/|`
-3. watch `//<group>/admin/request/join/<requester-vkey>/reply/`
-4. on `Request-Status: approved`, navigate to `hppr://<group>/<app>/`
-
-### Fixture mode
-
-Join fixture mode for deterministic tests can override join result handling with
-process-local state:
-
-- `none`: normal network join flow
-- `pending`: show pending state without sending network request
-- `approved`: navigate directly to `hppr://<group>/<app>/`
-
-Fixture state is controlled from `havi:///diagnostics` API and resets when HAVI
-restarts.
-
-`hppr-join://` does not expose `window.ring0`.
-
-## `hppr-sandbox://`
-
-Untrusted preview mode.
-
-- anonymous access only
-- strict CSP
-- JavaScript and active features blocked
-
-## `hppr-browse://`
-
-Directory explorer for coordinate trees.
-
-## `hppr-editor://`
-
-Local editor with `window.ring0` and `window.home`.
-
-- edit headers and data
-- save via `ADD`
-- redirect to `hppr://` on success
-
-Endpoint is forbidden. Editor always targets localhost context.
-
 ## `file://`
 
-Local filesystem content rendered as an HPPR HTML page.
+Local filesystem content rendered as a browser page.
 
-- `window.home` available (site identity `site:file#local`)
-- `window.route` is `null` (no remote endpoint)
-- `window.ring0` is `null` (not a privileged scheme)
-- `document.packet` is `null` (no HPPR packet)
-- `<x>` elements work (child frames load via their own scheme)
-- disabled web APIs installed (same as `hppr://`)
+- `window.home` available
+- `window.route` is `null`
+- `window.ring0` is `null`
+- `document.packet` is `null`
+- disabled web APIs installed the same way as `hppr://`
 - `window.location` is a compatibility shim, not the native `Location` object
 - content type from file extension
 - directory paths render HTML listing
 
-All `file://` pages share one origin and one site Ring1 identity.
-
-## `havi://`
-
-Internal browser pages for local administration and diagnostics.
-
-The `havi://` scheme is implementation-defined UI. The spec defines only the
-handler-level behavior and privilege model, not specific page inventory or
-layout.
-
-`havi:///services` exposes pylon controls for:
-
-- service start/stop
-- hpprd listen/unlisten
-- mount/unmount
-- status and mounts inspection
-
-`havi:///diagnostics` exposes route/deploy/auth/join diagnostics and fixture
-controls.
-
-`havi:///diagnostics/api` commands:
-
-- `inspect` with `group`, `app`, optional `location`
-- `join_fixture_get`
-- `join_fixture_set` with `state=none|pending|approved`
-
-Join fixture state is process-local and resets on restart.
-
-All `havi://` pages have pre-authorized `window.ring0` access.
+All `file://` pages share one browser-defined local origin and one browser-defined
+site identity.
