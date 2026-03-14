@@ -31,6 +31,7 @@ use script_bindings::codegen::GenericBindings::DocumentBinding::DocumentMethods;
 use script_bindings::codegen::GenericBindings::ElementBinding::ScrollLogicalPosition;
 use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
 use script_bindings::codegen::GenericBindings::HTMLElementBinding::HTMLElementMethods;
+use script_bindings::codegen::GenericBindings::SelectionBinding::SelectionMethods;
 use script_bindings::codegen::GenericBindings::HTMLLabelElementBinding::HTMLLabelElementMethods;
 use script_bindings::codegen::GenericBindings::TouchBinding::TouchMethods;
 use script_bindings::codegen::GenericBindings::WindowBinding::{ScrollBehavior, WindowMethods};
@@ -295,14 +296,6 @@ impl DocumentEventHandler {
                 },
                 InputEvent::MouseMove(_) => {
                     self.handle_native_mouse_move_event(&event, can_gc);
-                    input_event_outcomes.extend(
-                        mem::take(&mut coalesced_move_event_ids)
-                            .into_iter()
-                            .map(|id| InputEventOutcome {
-                                id,
-                                result: InputEventResult::default(),
-                            }),
-                    );
                     InputEventResult::default()
                 },
                 InputEvent::MouseLeftViewport(mouse_leave_event) => {
@@ -313,13 +306,7 @@ impl DocumentEventHandler {
                     self.handle_touch_event(touch_event, &event, can_gc)
                 },
                 InputEvent::Wheel(wheel_event) => {
-                    let result = self.handle_wheel_event(wheel_event, &event, can_gc);
-                    input_event_outcomes.extend(
-                        mem::take(&mut coalesced_wheel_event_ids)
-                            .into_iter()
-                            .map(|id| InputEventOutcome { id, result }),
-                    );
-                    result
+                    self.handle_wheel_event(wheel_event, &event, can_gc)
                 },
                 InputEvent::Keyboard(keyboard_event) => {
                     self.handle_keyboard_event(keyboard_event, can_gc)

@@ -4185,7 +4185,7 @@ impl ScriptThread {
         }
     }
 
-    fn handle_navigate_to(&self, pipeline_id: PipelineId, url: ServoUrl) {
+    fn handle_navigate_to(&self, pipeline_id: PipelineId, url: BrowserUrl) {
         // The constellation only needs to know the WebView ID for navigation,
         // but actors don't keep track of it. Infer WebView ID from pipeline ID instead.
         if let Some(document) = self.documents.borrow().find_document(pipeline_id) {

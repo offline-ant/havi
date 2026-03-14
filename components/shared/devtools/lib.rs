@@ -338,7 +338,7 @@ pub enum DevtoolScriptControlMsg {
     RequestAnimationFrame(PipelineId, String),
     /// Direct the WebView containing the given pipeline to load a new URL,
     /// as if it was typed by the user.
-    NavigateTo(PipelineId, ServoUrl),
+    NavigateTo(PipelineId, BrowserUrl),
     /// Direct the WebView containing the given pipeline to traverse history backward
     /// up to one step.
     GoBack(PipelineId),

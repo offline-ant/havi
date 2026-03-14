@@ -883,7 +883,7 @@ impl From<DOMString> for LocalName {
                 return LocalName::from(s);
             }
         }
-        contents.make_rust();
+        contents.ensure_rust_string();
         LocalName::from(contents.str().deref())
     }
 }
@@ -908,7 +908,7 @@ impl From<&DOMString> for LocalName {
                 return LocalName::from(s);
             }
         }
-        contents.make_rust();
+        contents.ensure_rust_string();
         LocalName::from(contents.str().deref())
     }
 }
@@ -933,7 +933,7 @@ impl From<DOMString> for Namespace {
                 return Namespace::from(s);
             }
         }
-        contents.make_rust();
+        contents.ensure_rust_string();
         Namespace::from(contents.str().deref())
     }
 }
@@ -958,7 +958,7 @@ impl From<DOMString> for Atom {
                 return Atom::from(s);
             }
         }
-        contents.make_rust();
+        contents.ensure_rust_string();
         Atom::from(contents.str().deref())
     }
 }

@@ -13,7 +13,7 @@ use devtools_traits::DevtoolScriptControlMsg;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use servo_url::ServoUrl;
+use servo_url::BrowserUrl;
 
 use crate::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use crate::actors::browsing_context::{BrowsingContextActor, BrowsingContextActorMsg};
@@ -139,7 +139,7 @@ impl Actor for TabDescriptorActor {
                 let url = msg
                     .get("url")
                     .and_then(|value| value.as_str())
-                    .map(ServoUrl::parse)
+                    .map(BrowserUrl::parse)
                     .ok_or(ActorError::Internal)?
                     .map_err(|_| ActorError::Internal)?;
 

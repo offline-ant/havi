@@ -1373,8 +1373,8 @@ impl HTMLScriptElementMethods<crate::DomTypeHolder> for HTMLScriptElement {
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-script-crossorigin>
-    fn SetCrossOrigin(&self, value: Option<DOMString>, can_gc: CanGc) {
-        set_cross_origin_attribute(self.upcast::<Element>(), value, can_gc);
+    fn SetCrossOrigin(&self, cx: &mut JSContext, value: Option<DOMString>) {
+        set_cross_origin_attribute(self.upcast::<Element>(), value, CanGc::from_cx(cx));
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-script-referrerpolicy>
