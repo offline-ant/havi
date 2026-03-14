@@ -315,7 +315,7 @@ stream.
 
 When exposed, browser media APIs follow the media policy in `080-MEDIA.md`.
 Implementation status and HAVI-specific rollout details belong in
-`../../reference.md` or other reference docs.
+`../reference.md` or other reference docs.
 
 ## Errors
 

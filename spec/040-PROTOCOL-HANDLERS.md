@@ -29,7 +29,7 @@ This spec defines browser behavior for:
 - `file://` for local file rendering with HPPR browser APIs
 
 Additional implementation-specific schemes may exist. HAVI-specific helper
-schemes are documented in `../../reference.md`.
+schemes are documented in `../reference.md`.
 
 ## `hppr://`
 

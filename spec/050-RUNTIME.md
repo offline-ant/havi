@@ -4,7 +4,7 @@ This spec defines browser-visible runtime concepts for HPPR browsing.
 
 Implementation-specific shell behavior, local database layout, watch controls,
 shadow workflows, diagnostics pages, and service management belong in
-`../../reference.md`.
+`../reference.md`.
 
 ## Home repo role
 
