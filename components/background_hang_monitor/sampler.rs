@@ -24,7 +24,9 @@ impl Sampler for DummySampler {
 
 pub struct NativeStack {
     instruction_ptrs: [*mut std::ffi::c_void; MAX_NATIVE_FRAMES],
+    #[cfg_attr(any(target_os = "windows", target_os = "ios", target_env = "ohos"), expect(dead_code))]
     stack_ptrs: [*mut std::ffi::c_void; MAX_NATIVE_FRAMES],
+    #[cfg_attr(any(target_os = "windows", target_os = "ios", target_env = "ohos"), expect(dead_code))]
     count: usize,
 }
 
@@ -39,7 +41,7 @@ impl Default for NativeStack {
 }
 
 impl NativeStack {
-    #[cfg_attr(any(target_os = "windows", target_env = "ohos"), expect(dead_code))]
+    #[cfg_attr(any(target_os = "windows", target_os = "ios", target_env = "ohos"), expect(dead_code))]
     pub fn process_register(
         &mut self,
         instruction_ptr: *mut std::ffi::c_void,

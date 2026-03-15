@@ -2,8 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+#[cfg(not(target_os = "ios"))]
 use std::ffi::OsStr;
-use std::{env, process};
+#[cfg(not(target_os = "ios"))]
+use std::env;
+use std::process;
 
 #[cfg(any(
     target_os = "macos",
