@@ -18,7 +18,7 @@ pub enum PylonHostMode {
 pub fn ensure_pylon(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
-    host_mode: PylonHostMode,
+    _host_mode: PylonHostMode,
 ) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
@@ -27,7 +27,7 @@ pub fn ensure_pylon(
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        ensure_pylon_process_host(repo_dir, home_addr, host_mode)
+        ensure_pylon_process_host(repo_dir, home_addr, _host_mode)
     }
 }
 

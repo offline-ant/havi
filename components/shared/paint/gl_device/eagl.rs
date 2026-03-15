@@ -2,17 +2,13 @@
 
 use std::ffi::{CString, c_char, c_void};
 use std::ptr;
-use std::sync::OnceLock;
 
 unsafe extern "C" {
     fn objc_getClass(name: *const c_char) -> *mut c_void;
     fn sel_registerName(name: *const c_char) -> *mut c_void;
     fn objc_msgSend(receiver: *mut c_void, sel: *mut c_void, ...) -> *mut c_void;
-    fn dlopen(filename: *const c_char, flags: i32) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
-
-const RTLD_LAZY: i32 = 1;
 
 /// EAGL display info for iOS. Carries the host EAGLContext (for sharegroup-based
 /// context sharing) and a handle to OpenGLES.framework for GL function loading.

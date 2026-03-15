@@ -246,6 +246,7 @@ pub fn spawn_multiprocess(_content: UnprivilegedContent) -> Result<Process, IpcE
     process::exit(1);
 }
 
+#[cfg(not(target_os = "ios"))]
 fn setup_common<C: CommandMethods>(command: &mut C, token: String) {
     C::arg(command, "--content-process");
     C::arg(command, token);
@@ -260,6 +261,7 @@ fn setup_common<C: CommandMethods>(command: &mut C, token: String) {
 }
 
 /// A trait to unify commands launched as multiprocess with or without a sandbox.
+#[cfg(not(target_os = "ios"))]
 trait CommandMethods {
     /// A command line argument.
     fn arg<T>(&mut self, arg: T)
@@ -273,6 +275,7 @@ trait CommandMethods {
         U: AsRef<OsStr>;
 }
 
+#[cfg(not(target_os = "ios"))]
 impl CommandMethods for process::Command {
     fn arg<T>(&mut self, arg: T)
     where
