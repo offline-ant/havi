@@ -70,8 +70,10 @@ fn build_display_info(
 fn create_rendering_context(
     cx: &mut Cx,
     size: dpi::PhysicalSize<u32>,
-) -> Result<Rc<servo::MakepadRenderingContext>, servo::rendering_context::Error> {
-    let bridge = cx.create_gl_render_bridge();
+) -> Result<Option<Rc<servo::MakepadRenderingContext>>, servo::rendering_context::Error> {
+    let Some(bridge) = cx.try_create_gl_render_bridge() else {
+        return Ok(None);
+    };
     bridge.make_current();
 
     let display_info = Some(build_display_info(&bridge));
@@ -96,7 +98,7 @@ fn create_rendering_context(
     }?;
     cx.restore_gl_context();
 
-    Ok(Rc::new(rc))
+    Ok(Some(Rc::new(rc)))
 }
 
 impl App {
@@ -140,13 +142,20 @@ impl App {
         self.content_size = (width as usize, height as usize);
 
         // Create rendering context + texture via the unified GL render bridge.
-        let size = dpi::PhysicalSize::new(width, height);
-        let rendering_context = match create_rendering_context(cx, size) {
-            Ok(result) => result,
-            Err(e) => {
-                log!("[havishell] FAILED to create rendering context: {:?}", e);
-                return;
-            },
+        // In no-display mode, the bridge is absent and Servo runs without a GL context.
+        let rendering_context = {
+            let size = dpi::PhysicalSize::new(width, height);
+            match create_rendering_context(cx, size) {
+                Ok(Some(result)) => Some(result),
+                Ok(None) => {
+                    eprintln!("[havishell] no-display mode: skipping GL rendering context");
+                    None
+                }
+                Err(e) => {
+                    log!("[havishell] FAILED to create rendering context: {:?}", e);
+                    return;
+                },
+            }
         };
 
         #[cfg(target_os = "android")]
@@ -388,7 +397,7 @@ impl App {
         servo.setup_logging();
 
         self.servo = Some(servo);
-        self.rendering_context = Some(rendering_context);
+        self.rendering_context = rendering_context;
 
         // Step 5: Create first WebView or show splash screen.
         if pylon_mode == PylonMode::None {
@@ -423,6 +432,7 @@ impl App {
             let mut state = Vec::new();
             if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
                 if !socket.is_empty() {
+                    println!("HAVI_MAKEPAD_SOCKET={}", socket);
                     state.push(("HAVI_MAKEPAD_SOCKET", socket));
                 }
             }
@@ -474,10 +484,10 @@ impl App {
         // PYLON= is printed later when PylonReady arrives.
         {
             let repo_dir = havi_protocols::config::repo_dir();
-            eprintln!("HPPRD_REPO={}", repo_dir.display());
-            eprintln!("HAVI_URL={}", self.start_url);
+            println!("HPPRD_REPO={}", repo_dir.display());
+            println!("HAVI_URL={}", self.start_url);
             eprintln!(
-                "[havi] startup: state={:?}, start_navigation_done={}",
+                "# [havi] startup: state={:?}, start_navigation_done={}",
                 self.startup_state, self.start_navigation_done
             );
         }
