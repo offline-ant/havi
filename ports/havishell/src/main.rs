@@ -1,5 +1,4 @@
 fn havi_socket_path() -> std::path::PathBuf {
-    let app_id = "dev.makepad.havi";
     let app_name = "havi";
 
     #[cfg(target_os = "macos")]

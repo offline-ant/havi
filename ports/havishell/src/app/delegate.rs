@@ -439,7 +439,7 @@ impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         let bind = format!("127.0.0.1:{}", port);
         set_devtools_bind(bind.clone());
-        eprintln!("HAVI_DEVTOOLS={}", bind);
+        println!("HAVI_DEVTOOLS={}", bind);
         log!(
             "DEVTOOLS_BIND={} # havi-devtools-cli -p {}",
             bind,

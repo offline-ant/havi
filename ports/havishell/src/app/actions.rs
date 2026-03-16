@@ -833,6 +833,8 @@ impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         if let Event::Shutdown = event {
             crate::app::runtime::remove_state_file();
+            #[cfg(unix)]
+            crate::makepad_socket::cleanup();
         }
 
         // Lazy init servo on first event
@@ -932,9 +934,12 @@ impl AppMain for App {
                         self.refresh_pylon_status(cx);
                         self.complete_startup_navigation(cx);
 
-                        let mut state = vec![("PYLON_BIND", format!("127.0.0.1:{}", pylon_port))];
+                        let pylon_bind = format!("127.0.0.1:{}", pylon_port);
+                        println!("PYLON_BIND={}", pylon_bind);
+                        let mut state = vec![("PYLON_BIND", pylon_bind)];
                         if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
                             if !socket.is_empty() {
+                                println!("HAVI_MAKEPAD_SOCKET={}", socket);
                                 state.push(("HAVI_MAKEPAD_SOCKET", socket));
                             }
                         }
@@ -953,6 +958,7 @@ impl AppMain for App {
                         let mut state = Vec::new();
                         if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
                             if !socket.is_empty() {
+                                println!("HAVI_MAKEPAD_SOCKET={}", socket);
                                 state.push(("HAVI_MAKEPAD_SOCKET", socket));
                             }
                         }

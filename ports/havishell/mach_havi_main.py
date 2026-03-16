@@ -182,7 +182,7 @@ def triple_to_abi(triple: str) -> str:
 
 def _log(action: str, *, target: str | None = None, abi: str | None = None,
          env: dict[str, str] | None = None, cmd: list[str] | None = None) -> None:
-    parts = [f"[mach-havi] {action}"]
+    parts = [f"# [mach-havi] {action}"]
     if target:
         parts.append(f"target={target}")
     if abi:
@@ -192,9 +192,9 @@ def _log(action: str, *, target: str | None = None, abi: str | None = None,
         for key in ("ANDROID_NDK_ROOT", "ANDROID_SDK_ROOT", "CARGO_TARGET_DIR", "LIBCLANG_PATH", "CC", "CXX"):
             val = env.get(key)
             if val:
-                print(f"  {key}={val}")
+                print(f"#   {key}={val}")
     if cmd:
-        print(f"  $ {' '.join(cmd)}")
+        print(f"#   $ {' '.join(cmd)}")
 
 
 def _run_logged(cmd: list[str], **kwargs: Any) -> int:
@@ -202,7 +202,7 @@ def _run_logged(cmd: list[str], **kwargs: Any) -> int:
     log_file = tempfile.NamedTemporaryFile(
         prefix="mach-havi-", suffix=".log", delete=False, mode="w",
     )
-    print(f"  log: {log_file.name}")
+    print(f"#   log: {log_file.name}")
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs,
     )
@@ -636,7 +636,7 @@ def _cargo_makepad_cmd_base() -> list[str]:
         return [str(exe)]
 
     return [
-        "cargo", "run",
+        "cargo", "run", "-q",
         "--manifest-path", str(MAKEPAD_ROOT / "Cargo.toml"),
         "-p", "cargo-makepad",
         "--",
@@ -841,23 +841,24 @@ def _run_desktop(args: argparse.Namespace) -> int:
         return ret
 
     cmd = [str(binary)]
-    extra = getattr(args, "extra", None)
+    extra = list(getattr(args, "extra", None) or [])
+    if getattr(args, "app_open", False):
+        extra = [arg for arg in extra if arg != "--foreground"]
+    elif "--foreground" not in extra:
+        extra.insert(0, "--foreground")
     if extra:
         cmd.extend(extra)
 
-    if getattr(args, "makepad_socket", False):
-        return run_desktop_makepad_socket(
-            cmd,
-            env,
-            HAVI_ROOT,
-            socket_path=getattr(args, "makepad_socket_path", None),
-        )
+    socket_path = getattr(args, "makepad_socket_path", None)
+    if socket_path:
+        env["HAVI_MAKEPAD_SOCKET"] = socket_path
 
-    _log("desktop run", env=env, cmd=cmd)
-    try:
-        return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
-    except KeyboardInterrupt:
-        return 130
+    return run_desktop_makepad_socket(
+        cmd,
+        env,
+        HAVI_ROOT,
+        socket_path=socket_path,
+    )
 
 
 def _run_android(args: argparse.Namespace) -> int:
@@ -1028,8 +1029,10 @@ def run(topdir: str) -> int:
 
     # run (desktop, default)
     _add_release_flag(p_run)
-    p_run.add_argument("--makepad-socket", action="store_true",
-                       help="Launch with Makepad event socket for havi-makepad-cli")
+    p_run.add_argument("--foreground", action="store_true",
+                       help="Run in foreground mode (default)")
+    p_run.add_argument("--app-open", action="store_true",
+                       help="Run in app-open mode for single-instance state/app-open behavior")
     p_run.add_argument("--makepad-socket-path", default=None,
                        help="Explicit Unix socket path (default: random in /tmp)")
     p_run.set_defaults(func=cmd_run)

@@ -70,10 +70,8 @@ fn build_display_info(
 fn create_rendering_context(
     cx: &mut Cx,
     size: dpi::PhysicalSize<u32>,
-) -> Result<Option<Rc<servo::MakepadRenderingContext>>, servo::rendering_context::Error> {
-    let Some(bridge) = cx.try_create_gl_render_bridge() else {
-        return Ok(None);
-    };
+) -> Result<Rc<servo::MakepadRenderingContext>, servo::rendering_context::Error> {
+    let bridge = cx.create_gl_render_bridge();
     bridge.make_current();
 
     let display_info = Some(build_display_info(&bridge));
@@ -98,7 +96,7 @@ fn create_rendering_context(
     }?;
     cx.restore_gl_context();
 
-    Ok(Some(Rc::new(rc)))
+    Ok(Rc::new(rc))
 }
 
 impl App {
@@ -142,15 +140,10 @@ impl App {
         self.content_size = (width as usize, height as usize);
 
         // Create rendering context + texture via the unified GL render bridge.
-        // In no-display mode, the bridge is absent and Servo runs without a GL context.
         let rendering_context = {
             let size = dpi::PhysicalSize::new(width, height);
             match create_rendering_context(cx, size) {
-                Ok(Some(result)) => Some(result),
-                Ok(None) => {
-                    eprintln!("[havishell] no-display mode: skipping GL rendering context");
-                    None
-                }
+                Ok(result) => Some(result),
                 Err(e) => {
                     log!("[havishell] FAILED to create rendering context: {:?}", e);
                     return;

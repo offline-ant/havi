@@ -1,6 +1,7 @@
 pub use makepad_widgets;
 pub mod app;
 pub mod input;
+pub mod makepad_socket;
 pub mod protocols;
 pub mod pylon_host;
 pub mod servo_web_view;

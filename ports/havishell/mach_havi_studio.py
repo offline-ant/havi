@@ -17,9 +17,9 @@ import makepad_control as mc  # type: ignore[import-not-found]
 
 
 def _log(action: str, *, cmd: list[str] | None = None) -> None:
-    print(f"[mach-havi] {action}")
+    print(f"# [mach-havi] {action}")
     if cmd:
-        print(f"  $ {' '.join(cmd)}")
+        print(f"#   $ {' '.join(cmd)}")
 
 
 def run_studio(
@@ -63,19 +63,20 @@ def run_desktop_makepad_socket(
 
     # HAVI-specific state collected during startup.
     devtools_addr: list[str] = []
+    pylon_bind: list[str] = []
     ready_event = threading.Event()
 
     def on_nonjson_line(line: str) -> None:
+        stripped = line.strip()
+        if stripped.startswith("HAVI_DEVTOOLS=") and not devtools_addr:
+            devtools_addr.append(stripped.split("=", 1)[1])
+        if stripped.startswith("PYLON_BIND=") and not pylon_bind:
+            pylon_bind.append(stripped.split("=", 1)[1])
         print(line, file=sys.stderr)
-        if line.strip().startswith("HAVI_DEVTOOLS=") and not devtools_addr:
-            devtools_addr.append(line.strip().split("=", 1)[1])
 
     def on_ready() -> None:
         dt = devtools_addr[0] if devtools_addr else ""
         dt_port = dt.rsplit(":", 1)[-1] if dt else ""
-        print(f"\nHAVI_MAKEPAD_SOCKET={sock_path}")
-        if dt:
-            print(f"HAVI_DEVTOOLS={dt}")
         print(f"# havi-makepad-cli --socket {sock_path} screenshot /tmp/test.png")
         if dt_port:
             print(f"# havi-devtools-cli -p {dt_port} eval 'document.title'")
