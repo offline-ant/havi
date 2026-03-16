@@ -8,7 +8,20 @@ use servo::{
     HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument, HpprResolvedMediaSource,
     HpprResolvedSourceRef,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+static DEVTOOLS_BIND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+pub(super) fn set_devtools_bind(bind: String) {
+    let cell = DEVTOOLS_BIND.get_or_init(|| Mutex::new(None));
+    *cell.lock().unwrap() = Some(bind);
+}
+
+pub(super) fn get_devtools_bind() -> Option<String> {
+    DEVTOOLS_BIND
+        .get()
+        .and_then(|cell| cell.lock().ok().and_then(|value| value.clone()))
+}
 
 #[derive(Clone)]
 pub enum MakepadServoAction {
@@ -424,10 +437,12 @@ pub(super) struct HaviServoDelegate;
 
 impl servo::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
-        eprintln!("HAVI_DEVTOOLS=127.0.0.1:{}", port);
+        let bind = format!("127.0.0.1:{}", port);
+        set_devtools_bind(bind.clone());
+        eprintln!("HAVI_DEVTOOLS={}", bind);
         log!(
-            "DEVTOOLS_BIND=127.0.0.1:{} # havi-devtools-cli -p {}",
-            port,
+            "DEVTOOLS_BIND={} # havi-devtools-cli -p {}",
+            bind,
             port
         );
     }

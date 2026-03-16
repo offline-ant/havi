@@ -1,5 +1,31 @@
 use super::*;
 
+pub(super) fn write_state_file(lines: &[(&str, String)]) {
+    let Some(socket_path) = makepad_widgets::makepad_platform::single_instance::app_socket_path() else {
+        return;
+    };
+    let state_path = std::path::PathBuf::from(format!("{}.state", socket_path.display()));
+    if let Some(parent) = state_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut out = String::new();
+    for (key, value) in lines {
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+        out.push('\n');
+    }
+    let _ = std::fs::write(&state_path, out);
+}
+
+pub(super) fn remove_state_file() {
+    let Some(socket_path) = makepad_widgets::makepad_platform::single_instance::app_socket_path() else {
+        return;
+    };
+    let state_path = std::path::PathBuf::from(format!("{}.state", socket_path.display()));
+    let _ = std::fs::remove_file(state_path);
+}
+
 /// GL_TEXTURE_RECTANGLE constant (macOS CGL/IOSurface textures).
 const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
 
@@ -393,6 +419,17 @@ impl App {
                 .text_input(cx, ids!(url_input))
                 .set_text(cx, &self.start_url);
             self.sync_toolbar_state(cx);
+
+            let mut state = Vec::new();
+            if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
+                if !socket.is_empty() {
+                    state.push(("HAVI_MAKEPAD_SOCKET", socket));
+                }
+            }
+            if let Some(bind) = crate::app::delegate::get_devtools_bind() {
+                state.push(("HAVI_DEVTOOLS", bind));
+            }
+            write_state_file(&state);
         } else {
             // Pylon booting — show splash screen, start 3s timeout.
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);
@@ -427,15 +464,6 @@ impl App {
             self.ui
                 .view(cx, ids!(window_controls))
                 .set_visible(cx, false);
-        }
-
-        // Start HAVI IPC listener for single-instance support
-        havi_protocols::instance::set_signal_callback(|| {
-            SignalToUI::set_ui_signal();
-        });
-        match havi_protocols::instance::start_ipc_listener() {
-            Ok(rx) => self.ipc_rx = Some(rx),
-            Err(e) => log!("[havishell] IPC listener: {}", e),
         }
 
         // Signal that we need to paint the first frame

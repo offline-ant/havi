@@ -1,3 +1,48 @@
+fn havi_socket_path() -> std::path::PathBuf {
+    let app_id = "dev.makepad.havi";
+    let app_name = "havi";
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join(app_name)
+                .join("app.sock");
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+            if !xdg.is_empty() {
+                return std::path::PathBuf::from(xdg)
+                    .join(app_name)
+                    .join("app.sock");
+            }
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home)
+                .join(".local")
+                .join("state")
+                .join(app_name)
+                .join("app.sock");
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        return std::env::temp_dir().join("dev.makepad.havi.port");
+    }
+
+    std::env::temp_dir().join("dev.makepad.havi.sock")
+}
+
+fn havi_state_file_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{}.state", havi_socket_path().display()))
+}
+
 fn main() {
     // Parse args and extract argv0 basename for dispatch.
     let args: Vec<String> = std::env::args().collect();
@@ -90,10 +135,17 @@ fn main() {
         std::env::set_var("HAVI_PYLON_MODE", pylon_mode);
     }
 
-    // Single-instance check: if another HAVI is running, ask it to open a new tab.
-    let url = std::env::var("HAVI_URL").unwrap_or_else(|_| "hppr://u/web/index.html".to_string());
-    if havi_protocols::instance::try_send_open(&url).is_ok() {
-        eprintln!("[havi] Sent open command to running instance");
+    let url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());
+    let items = [url.as_str()];
+    if let havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Secondary =
+        havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance(
+            "dev.makepad.havi",
+            &items,
+        )
+    {
+        if let Ok(state) = std::fs::read_to_string(havi_state_file_path()) {
+            print!("{}", state);
+        }
         return;
     }
 

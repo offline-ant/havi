@@ -13,7 +13,6 @@
 pub mod client;
 pub mod config;
 pub mod credentials;
-pub mod instance;
 pub mod join_fixture;
 pub mod local_ip;
 pub mod page_shell;

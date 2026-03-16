@@ -358,14 +358,14 @@ impl MatchEvent for App {
         }
         if self.ui.button(cx, ids!(watch_btn)).clicked(actions) {
             if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-                let next = tab.watch.mode().next();
-                tab.watch.set_mode(next);
-                if next != havi_protocols::watch::WatchMode::Off {
+                let next_scope = tab.watch.scope().next();
+                tab.watch.set_scope(next_scope);
+                if next_scope != havi_protocols::watch::WatchScope::None {
                     self.ensure_watch_pool();
                 }
                 self.ui
                     .button(cx, ids!(watch_btn))
-                    .set_text(cx, &watch_button_text(next));
+                    .set_text(cx, &watch_button_text(next_scope));
             }
         }
         if self.ui.button(cx, ids!(shadow_btn)).clicked(actions) {
@@ -662,12 +662,12 @@ impl MatchEvent for App {
                     webview_id,
                     response_sender,
                 }) => {
-                    let mode = self
+                    let wire = self
                         .tab_index_for_webview(*webview_id)
                         .and_then(|idx| self.tabs.get(idx))
-                        .map(|tab| mode_to_wire(tab.watch.mode()))
-                        .unwrap_or_else(|| "off".to_string());
-                    let _ = response_sender.send(mode);
+                        .map(|tab| settings_to_wire(tab.watch.settings()))
+                        .unwrap_or_else(|| "none".to_string());
+                    let _ = response_sender.send(wire);
                 },
                 Some(MakepadServoAction::WatchSetMode {
                     webview_id,
@@ -676,35 +676,35 @@ impl MatchEvent for App {
                 }) => {
                     let tab_idx = self.tab_index_for_webview(*webview_id);
                     let mut need_watch_pool = false;
-                    let new_mode = if let Some(mode) = mode_from_wire(mode) {
-                        if mode != havi_protocols::watch::WatchMode::Off {
+                    let new_wire = if let Some(settings) = settings_from_wire(mode) {
+                        if settings.is_active() {
                             need_watch_pool = true;
                         }
                         if let Some(idx) = tab_idx {
                             if let Some(tab) = self.tabs.get_mut(idx) {
-                                tab.watch.set_mode(mode);
+                                tab.watch.set_settings(settings);
                                 if idx == self.active_tab_idx {
                                     self.ui
                                         .button(cx, ids!(watch_btn))
-                                        .set_text(cx, &watch_button_text(mode));
+                                        .set_text(cx, &watch_button_text(tab.watch.scope()));
                                 }
-                                mode_to_wire(tab.watch.mode())
+                                settings_to_wire(tab.watch.settings())
                             } else {
-                                "off".to_string()
+                                "none".to_string()
                             }
                         } else {
-                            "off".to_string()
+                            "none".to_string()
                         }
                     } else {
                         tab_idx
                             .and_then(|idx| self.tabs.get(idx))
-                            .map(|tab| mode_to_wire(tab.watch.mode()))
-                            .unwrap_or_else(|| "off".to_string())
+                            .map(|tab| settings_to_wire(tab.watch.settings()))
+                            .unwrap_or_else(|| "none".to_string())
                     };
                     if need_watch_pool {
                         self.ensure_watch_pool();
                     }
-                    let _ = response_sender.send(new_mode);
+                    let _ = response_sender.send(new_wire);
                 },
                 Some(MakepadServoAction::DevtoolsSetUrl {
                     webview_id,
@@ -775,7 +775,10 @@ impl MatchEvent for App {
                     if let Some(idx) = self.tab_index_for_webview(*webview_id) {
                         if *enabled {
                             if let Some(tab) = self.tabs.get_mut(idx) {
-                                tab.watch.set_mode(havi_protocols::watch::WatchMode::Tree);
+                                tab.watch.set_settings(havi_protocols::watch::WatchSettings {
+                                    scope: havi_protocols::watch::WatchScope::App,
+                                    navigate: true,
+                                });
                             }
                             self.ensure_watch_pool();
                         }
@@ -828,6 +831,10 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        if let Event::Shutdown = event {
+            crate::app::runtime::remove_state_file();
+        }
+
         // Lazy init servo on first event
         self.init_servo(cx);
 
@@ -844,20 +851,9 @@ impl AppMain for App {
             }
         }
 
-        // Handle IPC commands (single-instance tab open requests)
-        {
-            let mut ipc_urls = Vec::new();
-            if let Some(ref rx) = self.ipc_rx {
-                while let Ok(cmd) = rx.try_recv() {
-                    match cmd {
-                        havi_protocols::instance::IpcCommand::Open { url } => {
-                            ipc_urls.push(url);
-                        },
-                    }
-                }
-            }
-            for url in ipc_urls {
-                if let Some(webview) = self.create_webview(&url) {
+        if let Event::AppOpen(items) = event {
+            for url in items {
+                if let Some(webview) = self.create_webview(url) {
                     let webview_id = webview.id();
                     let shared = layout_api::shared_fragment_tree_for(webview_id);
                     let scroll = layout_api::shared_scroll_state_for(webview_id);
@@ -869,7 +865,7 @@ impl AppMain for App {
                     self.tabs.push(TabInfo {
                         webview_id,
                         webview,
-                        title: title_from_url(&url),
+                        title: title_from_url(url),
                         url: url.clone(),
                         widget_id: next_tab_live_id(),
                         watch: Default::default(),
@@ -883,7 +879,7 @@ impl AppMain for App {
                         cx.hide_clipboard_actions();
                         cx.hide_selection_handles();
                     }
-                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, url);
                     self.needs_paint = true;
                     self.sync_tab_bar(cx);
                     self.idle_frames = 0;
@@ -935,6 +931,17 @@ impl AppMain for App {
                         }
                         self.refresh_pylon_status(cx);
                         self.complete_startup_navigation(cx);
+
+                        let mut state = vec![("PYLON_BIND", format!("127.0.0.1:{}", pylon_port))];
+                        if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
+                            if !socket.is_empty() {
+                                state.push(("HAVI_MAKEPAD_SOCKET", socket));
+                            }
+                        }
+                        if let Some(bind) = crate::app::delegate::get_devtools_bind() {
+                            state.push(("HAVI_DEVTOOLS", bind));
+                        }
+                        crate::app::runtime::write_state_file(&state);
                     },
                     PylonInitResult::Failed { reason } => {
                         self.startup_state = StartupState::Failed;
@@ -942,6 +949,17 @@ impl AppMain for App {
                         self.pylon_status.health = pylon_menu::PylonHealth::Red;
                         self.update_pylon_dot(cx);
                         self.complete_startup_navigation(cx);
+
+                        let mut state = Vec::new();
+                        if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
+                            if !socket.is_empty() {
+                                state.push(("HAVI_MAKEPAD_SOCKET", socket));
+                            }
+                        }
+                        if let Some(bind) = crate::app::delegate::get_devtools_bind() {
+                            state.push(("HAVI_DEVTOOLS", bind));
+                        }
+                        crate::app::runtime::write_state_file(&state);
                     },
                 }
                 self.needs_paint = true;

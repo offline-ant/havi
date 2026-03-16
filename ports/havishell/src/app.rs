@@ -261,16 +261,13 @@ script_mod! {
                                 get: |arg| {
                                     let text = self.watch_btn.text()
                                     if text == "🔔" {
-                                        "notify"
-                                    }
-                                    else if text == "🔁" {
-                                        "auto"
+                                        "page"
                                     }
                                     else if text == "⚡" {
-                                        "tree"
+                                        "app"
                                     }
                                     else {
-                                        "off"
+                                        "none"
                                     }
                                 }
                                 next: |arg| {
@@ -279,49 +276,22 @@ script_mod! {
                                 }
                                 set: |arg| {
                                     let text = self.watch_btn.text()
-                                    if arg == "notify" {
+                                    if arg == "page" || arg == "notify" || arg == "auto" {
                                         if text == "👁️" { self.watch_btn.on_click() }
-                                        else if text == "🔁" {
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                        }
                                         else if text == "⚡" {
                                             self.watch_btn.on_click()
                                             self.watch_btn.on_click()
                                         }
                                     }
-                                    else if arg == "auto" {
+                                    else if arg == "app" || arg == "tree" || arg == "dev" {
                                         if text == "👁️" {
                                             self.watch_btn.on_click()
                                             self.watch_btn.on_click()
                                         }
                                         else if text == "🔔" { self.watch_btn.on_click() }
-                                        else if text == "⚡" {
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                        }
                                     }
-                                    else if arg == "tree" || arg == "dev" {
-                                        if text == "👁️" {
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                        }
-                                        else if text == "🔔" {
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                        }
-                                        else if text == "🔁" { self.watch_btn.on_click() }
-                                    }
-                                    else if arg == "off" {
+                                    else if arg == "none" || arg == "off" {
                                         if text == "🔔" {
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                            self.watch_btn.on_click()
-                                        }
-                                        else if text == "🔁" {
                                             self.watch_btn.on_click()
                                             self.watch_btn.on_click()
                                         }
@@ -680,32 +650,19 @@ script_mod! {
 // Actions
 // ---------------------------------------------------------------------------
 
-fn mode_from_wire(mode: &str) -> Option<havi_protocols::watch::WatchMode> {
-    match mode {
-        "off" => Some(havi_protocols::watch::WatchMode::Off),
-        "notify" => Some(havi_protocols::watch::WatchMode::Notify),
-        "auto" => Some(havi_protocols::watch::WatchMode::Auto),
-        "tree" | "dev" => Some(havi_protocols::watch::WatchMode::Tree),
-        _ => None,
-    }
+fn settings_from_wire(mode: &str) -> Option<havi_protocols::watch::WatchSettings> {
+    havi_protocols::watch::WatchSettings::from_wire(mode)
 }
 
-fn mode_to_wire(mode: havi_protocols::watch::WatchMode) -> String {
-    match mode {
-        havi_protocols::watch::WatchMode::Off => "off",
-        havi_protocols::watch::WatchMode::Notify => "notify",
-        havi_protocols::watch::WatchMode::Auto => "auto",
-        havi_protocols::watch::WatchMode::Tree => "tree",
-    }
-    .to_string()
+fn settings_to_wire(settings: havi_protocols::watch::WatchSettings) -> String {
+    settings.to_wire()
 }
 
-fn watch_button_text(mode: havi_protocols::watch::WatchMode) -> &'static str {
-    match mode {
-        havi_protocols::watch::WatchMode::Off => "👁️",
-        havi_protocols::watch::WatchMode::Notify => "🔔",
-        havi_protocols::watch::WatchMode::Auto => "🔁",
-        havi_protocols::watch::WatchMode::Tree => "⚡",
+fn watch_button_text(scope: havi_protocols::watch::WatchScope) -> &'static str {
+    match scope {
+        havi_protocols::watch::WatchScope::None => "👁️",
+        havi_protocols::watch::WatchScope::Page => "🔔",
+        havi_protocols::watch::WatchScope::App => "⚡",
     }
 }
 
@@ -1508,10 +1465,6 @@ pub struct App {
     /// (which caused ghost DrawQuad rendering artifacts on Linux/OpenGL).
     #[rust]
     tab_template_source: ScriptObjectRef,
-
-    // --- IPC single-instance listener ---
-    #[rust]
-    ipc_rx: Option<std::sync::mpsc::Receiver<havi_protocols::instance::IpcCommand>>,
 
     // --- Pylon event stream ---
     /// Receives pylon service events. The background reader thread keeps the
