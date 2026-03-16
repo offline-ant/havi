@@ -59,14 +59,14 @@ impl App {
     }
 
     pub(super) fn sync_toolbar_state(&self, cx: &mut Cx) {
-        let watch_mode = self
+        let scope = self
             .tabs
             .get(self.active_tab_idx)
-            .map(|tab| tab.watch.mode())
+            .map(|tab| tab.watch.scope())
             .unwrap_or_default();
         self.ui
             .button(cx, ids!(watch_btn))
-            .set_text(cx, &watch_button_text(watch_mode));
+            .set_text(cx, &watch_button_text(scope));
         self.ui
             .button(cx, ids!(shadow_btn))
             .set_text(cx, shadow_button_text(self.active_shadow_enabled()));
@@ -297,7 +297,7 @@ impl App {
         let url = current.url.clone();
         let title = current.title.clone();
         let widget_id = current.widget_id;
-        let watch_mode = current.watch.mode();
+        let watch_settings = current.watch.settings();
 
         let Some(webview) = self.create_webview(&url) else {
             return;
@@ -305,7 +305,7 @@ impl App {
         let webview_id = webview.id();
 
         let mut watch = havi_protocols::watch::WatchHandle::default();
-        watch.set_mode(watch_mode);
+        watch.set_settings(watch_settings);
         self.tabs[self.active_tab_idx] = TabInfo {
             webview_id,
             webview,

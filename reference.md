@@ -138,30 +138,27 @@ These visuals are shell UI details, not protocol semantics.
 ## Watch mode
 
 Watch mode is a HAVI tab feature for live reload and change indication.
+Two orthogonal settings control behavior:
 
-Modes:
+**Watch scope** (cycled by the watch button):
 
-- `Off`
-- `Notify`
-- `Auto`
-- `Tree`
+- `None` — no watching
+- `Page` — watch the current page coordinate only
+- `App` — watch the entire app (all changes under backing root)
 
-Labels:
+**Navigate** (boolean toggle):
 
-- `W:Off`
-- `W:Note`
-- `W:Auto`
-- `W:Tree`
+- Off: changes produce a notification badge on the tab
+- On: changes trigger automatic page reload
 
-Cycling order:
+Labels: `W:None`, `W:Page`, `W:App`. When navigate is on: `W:Page↻`, `W:App↻`.
 
-`Off -> Notify -> Auto -> Tree -> Off`
+Cycling order: `None → Page → App → None`
 
-Behavior:
+Wire protocol values: `none`, `page`, `app`, `page+navigate`, `app+navigate`.
 
-- `Notify` flags a change on exact-coordinate match
-- `Auto` reloads on exact-coordinate match
-- `Tree` reloads on any event under the current backing root
+Backward compatibility: `off`→none, `notify`→page, `auto`→page+navigate,
+`tree`/`dev`→app+navigate.
 
 Connections are pooled by backing-root prefix and shared across tabs.
 
@@ -179,7 +176,7 @@ Current HAVI behavior:
 - shadow state is persisted in local HAVI state
 - entering shadow mode creates or reuses a persistent local shadow signing key
 - the current page is seeded into the shadow tree when resolution succeeds
-- tab watch mode is switched to `Tree`
+- tab watch is set to scope=App, navigate=on
 - publishing may re-seal content with a different target signer
 
 Shadow mode is a HAVI workflow feature, not a generic HPPR browser requirement.

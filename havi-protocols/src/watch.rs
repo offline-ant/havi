@@ -20,35 +20,115 @@ use crate::util::{append_location, shadow_root};
 
 const WATCH_RELOAD_DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// Per-tab watch mode.
+/// Watch scope: what coordinate range triggers events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum WatchMode {
+pub enum WatchScope {
+    /// No watching.
     #[default]
-    Off,
-    Notify,
-    Auto,
-    Tree,
+    None,
+    /// Watch the current page coordinate only.
+    Page,
+    /// Watch the entire app (all changes under backing root).
+    App,
 }
 
-impl WatchMode {
-    /// Cycle to next mode.
+impl WatchScope {
+    /// Cycle to next scope.
     pub fn next(self) -> Self {
         match self {
-            Self::Off => Self::Notify,
-            Self::Notify => Self::Auto,
-            Self::Auto => Self::Tree,
-            Self::Tree => Self::Off,
+            Self::None => Self::Page,
+            Self::Page => Self::App,
+            Self::App => Self::None,
         }
     }
 
-    /// Button label text.
+    /// Wire protocol value.
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Page => "page",
+            Self::App => "app",
+        }
+    }
+
+    /// Parse from wire protocol value, with backward compatibility.
+    pub fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "none" | "off" => Some(Self::None),
+            "page" | "notify" => Some(Self::Page),
+            "app" | "tree" | "dev" => Some(Self::App),
+            // "auto" maps to Page (exact-coordinate match + navigate implied by caller)
+            "auto" => Some(Self::Page),
+            _ => Option::None,
+        }
+    }
+
+    /// Tab label prefix.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Off => "W:Off",
-            Self::Notify => "W:Note",
-            Self::Auto => "W:Auto",
-            Self::Tree => "W:Tree",
+            Self::None => "W:None",
+            Self::Page => "W:Page",
+            Self::App => "W:App",
         }
+    }
+}
+
+/// Per-tab watch settings: scope + navigate toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WatchSettings {
+    pub scope: WatchScope,
+    /// When true, changes trigger automatic page reload.
+    /// When false, changes produce a notification badge.
+    pub navigate: bool,
+}
+
+impl WatchSettings {
+    /// Tab label text, e.g. `W:Page` or `W:App↻`.
+    pub fn label(self) -> String {
+        let base = self.scope.label();
+        if self.navigate && self.scope != WatchScope::None {
+            format!("{}↻", base)
+        } else {
+            base.to_string()
+        }
+    }
+
+    /// Wire protocol string: `scope` or `scope+navigate`.
+    pub fn to_wire(self) -> String {
+        let s = self.scope.wire();
+        if self.navigate && self.scope != WatchScope::None {
+            format!("{}+navigate", s)
+        } else {
+            s.to_string()
+        }
+    }
+
+    /// Parse from wire string, with backward compatibility.
+    ///
+    /// Accepts: `none`, `page`, `app`, `page+navigate`, `app+navigate`,
+    /// and legacy: `off`→none, `notify`→page, `auto`→page+navigate,
+    /// `tree`/`dev`→app+navigate.
+    pub fn from_wire(s: &str) -> Option<Self> {
+        // Check for +navigate suffix
+        if let Some(base) = s.strip_suffix("+navigate") {
+            let scope = WatchScope::from_wire(base)?;
+            return Some(Self { scope, navigate: scope != WatchScope::None });
+        }
+
+        // Legacy backward compatibility
+        match s {
+            "auto" => Some(Self { scope: WatchScope::Page, navigate: true }),
+            "tree" | "dev" => Some(Self { scope: WatchScope::App, navigate: true }),
+            _ => {
+                let scope = WatchScope::from_wire(s)?;
+                Some(Self { scope, navigate: false })
+            }
+        }
+    }
+
+    /// Whether watching is active (scope is not None).
+    pub fn is_active(self) -> bool {
+        self.scope != WatchScope::None
     }
 }
 
@@ -237,16 +317,16 @@ impl WatchPool {
 // WatchHandle — per-tab, lives on TabInfo
 // ---------------------------------------------------------------------------
 
-/// Per-tab watch state. Holds mode, connection, and event receiver.
+/// Per-tab watch state. Holds settings, connection, and event receiver.
 pub struct WatchHandle {
-    mode: WatchMode,
+    settings: WatchSettings,
     conn: Option<Arc<WatchConn>>,
     rx: Option<std::sync::mpsc::Receiver<String>>,
     /// The backing root prefix this handle is watching.
     active_group_app: Option<String>,
     /// Full backing coordinate of the tab's current page.
     active_urc: Option<String>,
-    /// Whether a change has been detected (for Notify mode indicator).
+    /// Whether a change has been detected (for notification badge).
     pub change_detected: bool,
     pending_reload_deadline: Option<Instant>,
 }
@@ -254,7 +334,7 @@ pub struct WatchHandle {
 impl Default for WatchHandle {
     fn default() -> Self {
         Self {
-            mode: WatchMode::Off,
+            settings: WatchSettings::default(),
             conn: None,
             rx: None,
             active_group_app: None,
@@ -266,16 +346,38 @@ impl Default for WatchHandle {
 }
 
 impl WatchHandle {
-    /// Current mode.
-    pub fn mode(&self) -> WatchMode {
-        self.mode
+    /// Current settings.
+    pub fn settings(&self) -> WatchSettings {
+        self.settings
     }
 
-    /// Set mode and reset change_detected.
-    pub fn set_mode(&mut self, mode: WatchMode) {
-        self.mode = mode;
+    /// Current scope.
+    pub fn scope(&self) -> WatchScope {
+        self.settings.scope
+    }
+
+    /// Current navigate flag.
+    pub fn navigate(&self) -> bool {
+        self.settings.navigate
+    }
+
+    /// Set full settings and reset change_detected.
+    pub fn set_settings(&mut self, settings: WatchSettings) {
+        self.settings = settings;
         self.change_detected = false;
         self.pending_reload_deadline = None;
+    }
+
+    /// Set scope, preserving navigate. Reset change_detected.
+    pub fn set_scope(&mut self, scope: WatchScope) {
+        self.settings.scope = scope;
+        self.change_detected = false;
+        self.pending_reload_deadline = None;
+    }
+
+    /// Set navigate flag.
+    pub fn set_navigate(&mut self, navigate: bool) {
+        self.settings.navigate = navigate;
     }
 
     /// Clear the change_detected flag (on navigation).
@@ -287,9 +389,9 @@ impl WatchHandle {
     /// Reconcile watch state with the tab's current URL.
     ///
     /// Acquires or releases connections from the pool as needed based on
-    /// current mode and URL.
+    /// current settings and URL.
     pub fn reconcile(&mut self, url: &str, pool: &mut WatchPool) {
-        if self.mode == WatchMode::Off {
+        if self.settings.scope == WatchScope::None {
             self.stop();
             return;
         }
@@ -333,10 +435,10 @@ impl WatchHandle {
         let mut action = WatchAction::None;
         while let Ok(line) = rx.try_recv() {
             let event = hppr_client::parse_watch_event(&line);
-            let matches = match self.mode {
-                WatchMode::Off => false,
-                WatchMode::Tree => event.is_some(), // any parsed event under backing root
-                WatchMode::Auto | WatchMode::Notify => {
+            let matches = match self.settings.scope {
+                WatchScope::None => false,
+                WatchScope::App => event.is_some(), // any parsed event under backing root
+                WatchScope::Page => {
                     // Match if the event path contains the tab's exact coordinate.
                     match (&self.active_urc, event.as_ref()) {
                         (Some(urc), Some(ev)) => ev.path.contains(urc),
@@ -348,15 +450,13 @@ impl WatchHandle {
                 continue;
             }
 
-            match self.mode {
-                WatchMode::Notify => {
-                    action = WatchAction::ChangeDetected;
-                }
-                WatchMode::Auto | WatchMode::Tree => {
-                    self.change_detected = true;
-                    self.pending_reload_deadline = Some(now + WATCH_RELOAD_DEBOUNCE);
-                }
-                WatchMode::Off => {}
+            if self.settings.navigate {
+                // Navigate mode: debounce and reload
+                self.change_detected = true;
+                self.pending_reload_deadline = Some(now + WATCH_RELOAD_DEBOUNCE);
+            } else {
+                // Notify mode: badge only
+                action = WatchAction::ChangeDetected;
             }
         }
 
@@ -364,7 +464,7 @@ impl WatchHandle {
             self.change_detected = true;
         }
 
-        if matches!(self.mode, WatchMode::Auto | WatchMode::Tree)
+        if self.settings.navigate
             && self
                 .pending_reload_deadline
                 .is_some_and(|deadline| Instant::now() >= deadline)
@@ -428,10 +528,10 @@ mod tests {
     }
 
     #[test]
-    fn notify_mode_uses_structured_watch_path() {
+    fn page_scope_notify_uses_structured_watch_path() {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut handle = WatchHandle {
-            mode: WatchMode::Notify,
+            settings: WatchSettings { scope: WatchScope::Page, navigate: false },
             conn: None,
             rx: Some(rx),
             active_group_app: Some("//g/a".to_string()),
