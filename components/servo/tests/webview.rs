@@ -64,7 +64,7 @@ fn open_context_menu_at_point(webview: &WebView, point: DevicePoint) {
 fn test_create_webview() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .build();
 
@@ -89,7 +89,7 @@ fn test_create_webview_http() {
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(url)
         .build();
@@ -130,7 +130,7 @@ fn test_create_webview_http_custom_host() {
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(custom_url.clone())
         .build();
@@ -151,14 +151,14 @@ fn test_create_webview_http_custom_host() {
 #[test]
 fn test_create_webview_and_immediately_drop_webview_before_shutdown() {
     let servo_test = ServoTest::new();
-    WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone()).build();
+    WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone()).build();
 }
 
 #[test]
 fn test_theme_change() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,page one").unwrap())
         .build();
@@ -184,7 +184,7 @@ fn test_theme_change() {
 
     // Now test the same thing, but setting the theme immediately after creating the WebView.
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,page one").unwrap())
         .build();
@@ -197,7 +197,7 @@ fn test_theme_change() {
 fn test_cursor_change() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -232,7 +232,7 @@ fn test_cursor_change() {
 fn test_cursor_unchanged_input_color() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -275,7 +275,8 @@ fn test_negative_resize_to_request() {
     impl WebViewDelegate for WebViewResizeTestDelegate {
         fn request_create_new(&self, parent_webview: WebView, request: CreateNewWebViewRequest) {
             let webview = request
-                .builder(self.rendering_context.clone())
+                .builder(PhysicalSize::new(500, 500))
+                .rendering_context(self.rendering_context.clone())
                 .delegate(parent_webview.delegate())
                 .build();
             self.popup.borrow_mut().replace(webview.clone());
@@ -292,7 +293,7 @@ fn test_negative_resize_to_request() {
         resize_request: None.into(),
     });
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -333,7 +334,7 @@ fn test_negative_resize_to_request() {
 fn test_resize_webview_zero() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html><body>hello</body>").unwrap())
         .build();
@@ -352,7 +353,7 @@ fn test_resize_webview_zero() {
 fn test_webview_resize_interactivity() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -388,7 +389,7 @@ fn test_webview_resize_interactivity() {
 fn test_control_show_and_hide() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -421,7 +422,7 @@ fn test_control_show_and_hide() {
 fn test_page_zoom() {
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .build();
 
@@ -452,7 +453,7 @@ fn test_viewport_meta_tag_initial_zoom() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -477,7 +478,7 @@ fn test_show_and_hide_ime() {
     let servo_test = ServoTest::new();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -561,7 +562,7 @@ fn test_simple_dialog(prompt: &str, validate: impl Fn(&SimpleDialog)) {
 
     let servo_test = ServoTest::new();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(make_test_html(prompt))
         .build();
@@ -588,7 +589,7 @@ fn test_simple_context_menu() {
     let servo_test = ServoTest::new();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html>").unwrap())
         .build();
@@ -650,7 +651,7 @@ fn test_open_context_menu_closes_existing() {
     let servo_test = ServoTest::new();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html>").unwrap())
         .build();
@@ -677,7 +678,7 @@ fn test_contextual_context_menu_items() {
     let servo_test = ServoTest::new();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(
             Url::parse(
@@ -805,7 +806,7 @@ fn test_can_go_forward_and_can_go_back() {
     let page_2_url = Url::parse("data:text/html,<!DOCTYPE html> page 2").unwrap();
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(page_1_url.clone())
         .build();
@@ -835,7 +836,7 @@ fn test_can_go_forward_and_can_go_back() {
 fn test_user_content_manager_empty() {
     let servo_test = ServoTest::new();
     let user_content_manager = UserContentManager::new(servo_test.servo());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(Rc::new(user_content_manager))
         .url(Url::parse("data:text/html,Hello World").unwrap())
         .build();
@@ -860,7 +861,7 @@ fn test_user_content_manager_user_script() {
     let user_content_manager = Rc::new(UserContentManager::new(servo_test.servo()));
     user_content_manager.add_script(Rc::new("window.fromUserContentScript = 42;".into()));
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(url)
         .build();
@@ -875,7 +876,7 @@ fn test_user_content_manager_user_script() {
     user_content_manager.add_script(second_user_script.clone());
 
     // The second user script must immediately take effect in any new WebViews.
-    let new_webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let new_webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html>").unwrap())
         .build();
@@ -938,7 +939,8 @@ fn test_user_content_manager_for_auxiliary_webviews() {
                 "window.fromAuxiliaryUserContentScript = 32;".into(),
             ));
             let auxiliary_webview = request
-                .builder(self.rendering_context.clone())
+                .builder(PhysicalSize::new(500, 500))
+                .rendering_context(self.rendering_context.clone())
                 .user_content_manager(Rc::new(user_content_manager_for_auxiliary_webview))
                 .build();
             self.auxiliary_webview
@@ -956,7 +958,7 @@ fn test_user_content_manager_for_auxiliary_webviews() {
     let user_content_manager = UserContentManager::new(servo_test.servo());
     user_content_manager.add_script(Rc::new("window.fromUserContentScript = 42;".into()));
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .user_content_manager(Rc::new(user_content_manager))
         .url(
@@ -1036,7 +1038,7 @@ fn test_user_content_manager_for_user_stylesheets() {
     ));
     user_content_manager.add_stylesheet(user_stylesheet.clone());
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(
             Url::parse(
@@ -1091,7 +1093,7 @@ fn test_pinch_zoom_update_dom_visual_viewport() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html><body>Hello world!</body>").unwrap())
         .build();

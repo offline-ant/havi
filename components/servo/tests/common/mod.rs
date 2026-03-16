@@ -21,6 +21,7 @@ use webrender_api::units::DevicePoint;
 pub struct ServoTest {
     pub servo: Servo,
     pub rendering_context: Rc<dyn RenderingContext>,
+    pub initial_size: PhysicalSize<u32>,
 }
 
 impl ServoTest {
@@ -33,12 +34,13 @@ impl ServoTest {
     where
         F: FnOnce(ServoBuilder) -> ServoBuilder,
     {
+        let initial_size = PhysicalSize {
+            width: 500,
+            height: 500,
+        };
         let rendering_context = Rc::new(
-            SoftwareRenderingContext::new(PhysicalSize {
-                width: 500,
-                height: 500,
-            })
-            .expect("Could not create SoftwareRenderingContext"),
+            SoftwareRenderingContext::new(initial_size)
+                .expect("Could not create SoftwareRenderingContext"),
         );
         assert!(rendering_context.make_current().is_ok());
 
@@ -67,6 +69,7 @@ impl ServoTest {
         Self {
             servo: builder.build(),
             rendering_context,
+            initial_size,
         }
     }
 

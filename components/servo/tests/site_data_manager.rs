@@ -25,7 +25,7 @@ impl WebViewTest {
     fn new() -> Self {
         let servo_test = ServoTest::new();
         let delegate = Rc::new(WebViewDelegateImpl::default());
-        let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+        let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
             .delegate(delegate.clone())
             .build();
         let delegate_clone = delegate.clone();
@@ -582,7 +582,7 @@ fn test_clear_cookies() {
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(url)
         .build();

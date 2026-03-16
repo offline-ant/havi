@@ -8,6 +8,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use dpi::PhysicalSize;
 use net::test_util::{make_body, make_server};
 use servo::user_contents::UserStyleSheet;
 use servo::{
@@ -22,7 +23,7 @@ use crate::common::{ServoTest, evaluate_javascript};
 fn test_user_content_manager_empty() {
     let servo_test = ServoTest::new();
     let user_content_manager = UserContentManager::new(servo_test.servo());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(Rc::new(user_content_manager))
         .url(Url::parse("data:text/html,Hello World").unwrap())
         .build();
@@ -45,7 +46,7 @@ fn test_user_content_manager_user_script() {
     let user_content_manager = Rc::new(UserContentManager::new(servo_test.servo()));
     user_content_manager.add_script(Rc::new("window.fromUserContentScript = 42;".into()));
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(url.into_url())
         .build();
@@ -58,7 +59,7 @@ fn test_user_content_manager_user_script() {
     user_content_manager.add_script(second_user_script.clone());
 
     // The second user script must immediately take effect in any new WebViews.
-    let new_webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let new_webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(Url::parse("data:text/html,<!DOCTYPE html>").unwrap())
         .build();
@@ -116,7 +117,8 @@ fn test_user_content_manager_for_auxiliary_webviews() {
                 "window.fromAuxiliaryUserContentScript = 32;".into(),
             ));
             let auxiliary_webview = request
-                .builder(self.rendering_context.clone())
+                .builder(PhysicalSize::new(500, 500))
+                .rendering_context(self.rendering_context.clone())
                 .user_content_manager(Rc::new(user_content_manager_for_auxiliary_webview))
                 .build();
             self.auxiliary_webview
@@ -134,7 +136,7 @@ fn test_user_content_manager_for_auxiliary_webviews() {
     let user_content_manager = UserContentManager::new(servo_test.servo());
     user_content_manager.add_script(Rc::new("window.fromUserContentScript = 42;".into()));
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .user_content_manager(Rc::new(user_content_manager))
         .url(
@@ -214,7 +216,7 @@ fn test_user_content_manager_for_user_stylesheets() {
     ));
     user_content_manager.add_stylesheet(user_stylesheet.clone());
 
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .user_content_manager(user_content_manager.clone())
         .url(
             Url::parse(

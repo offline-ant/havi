@@ -3,7 +3,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::PipelineId;
@@ -19,7 +18,7 @@ use embedder_traits::{
     RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup, SimpleDialogRequest, TraversalId,
     WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
 };
-use paint_api::rendering_context::RenderingContext;
+use dpi::PhysicalSize;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use tokio::sync::oneshot::Sender;
 use servo_url::BrowserUrl;
@@ -817,8 +816,8 @@ pub struct CreateNewWebViewRequest {
 }
 
 impl CreateNewWebViewRequest {
-    pub fn builder(self, rendering_context: Rc<dyn RenderingContext>) -> WebViewBuilder {
-        WebViewBuilder::new_for_create_request(&self.servo, rendering_context, self.responder)
+    pub fn builder(self, physical_size: PhysicalSize<u32>) -> WebViewBuilder {
+        WebViewBuilder::new_for_create_request(&self.servo, physical_size, self.responder)
     }
 }
 
@@ -883,8 +882,8 @@ impl ControlOperationRequest {
 
 pub trait WebViewDelegate {
     /// Get the [`ScreenGeometry`] for this [`WebView`]. If this is unimplemented or returns `None`
-    /// the screen will have the size of the [`WebView`]'s `RenderingContext` and `WebView` will be
-    /// considered to be positioned at the screen's origin.
+    /// the screen will have the size of the [`WebView`] viewport and `WebView` will be considered
+    /// to be positioned at the screen's origin.
     fn screen_geometry(&self, _webview: WebView) -> Option<ScreenGeometry> {
         None
     }
@@ -977,7 +976,7 @@ pub trait WebViewDelegate {
     /// ```rust
     /// fn request_create_new(&self, parent_webview: WebView, request: CreateNewWebViewRequest) {
     ///     let webview = request
-    ///         .builder(self.rendering_context())
+    ///         .builder(dpi::PhysicalSize::new(800, 600))
     ///         .delegate(parent_webview.delegate())
     ///         .build();
     ///     self.register_webview(webview);

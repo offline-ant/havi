@@ -88,7 +88,8 @@ impl ApplicationHandler<WakerEvent> for App {
                 .expect("Guaranteed by argument");
 
             let webview =
-                WebViewBuilder::new(&app_state.servo, app_state.rendering_context.clone())
+                WebViewBuilder::new(&app_state.servo, app_state.window.inner_size())
+                    .rendering_context(app_state.rendering_context.clone())
                     .url(url)
                     .hidpi_scale_factor(Scale::new(app_state.window.scale_factor() as f32))
                     .delegate(app_state.clone())

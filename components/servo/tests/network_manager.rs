@@ -20,7 +20,7 @@ fn test_cache_entries() {
     let servo_test = ServoTest::new();
     let servo = servo_test.servo();
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo, servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo, servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .build();
     let delegate_clone = delegate.clone();
@@ -78,7 +78,7 @@ fn test_clear_cache() {
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
 
-    let _webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let _webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(url)
         .build();

@@ -8,7 +8,7 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use base::generic_channel::GenericSender;
-use base::id::WebViewId;
+use base::id::{PainterId, WebViewId};
 use constellation_traits::{EmbedderToConstellationMessage, TraversalDirection};
 use dpi::PhysicalSize;
 use embedder_traits::{
@@ -88,7 +88,8 @@ pub(crate) struct WebViewInner {
     #[cfg(feature = "gamepad")]
     pub(crate) gamepad_provider: Rc<dyn GamepadProvider>,
 
-    rendering_context: Rc<dyn RenderingContext>,
+    _rendering_context: Option<Rc<dyn RenderingContext>>,
+    viewport_size: Size2D<u32, DevicePixel>,
     user_content_manager: Option<Rc<UserContentManager>>,
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
     load_status: LoadStatus,
@@ -118,15 +119,19 @@ impl Drop for WebViewInner {
 impl WebView {
     pub(crate) fn new(mut builder: WebViewBuilder) -> Self {
         let servo = builder.servo;
-        let painter_id = servo
-            .paint_mut()
-            .register_rendering_context(builder.rendering_context.clone());
+        let painter_id = PainterId::next();
+        if let Some(rendering_context) = builder.rendering_context.as_ref() {
+            servo
+                .paint_mut()
+                .register_rendering_context(painter_id, rendering_context.clone());
+        }
 
         let id = WebViewId::new(painter_id);
         let webview = Self(Rc::new(RefCell::new(WebViewInner {
             id,
             servo: servo.clone(),
-            rendering_context: builder.rendering_context,
+            _rendering_context: builder.rendering_context,
+            viewport_size: builder.physical_size,
             delegate: builder.delegate,
             clipboard_delegate: Rc::new(DefaultClipboardDelegate),
             #[cfg(feature = "gamepad")]
@@ -218,8 +223,7 @@ impl WebView {
         // The division by 1 represents the page's default zoom of 100%,
         // and gives us the appropriate CSSPixel type for the viewport.
         let inner = self.inner();
-        let scaled_viewport_size =
-            inner.rendering_context.size2d().to_f32() / inner.hidpi_scale_factor;
+        let scaled_viewport_size = inner.viewport_size.to_f32() / inner.hidpi_scale_factor;
         ViewportDetails {
             size: scaled_viewport_size / Scale::new(1.0),
             hidpi_scale_factor: Scale::new(inner.hidpi_scale_factor.0),
@@ -371,27 +375,21 @@ impl WebView {
         self.delegate().notify_animating_changed(self, new_value);
     }
 
-    /// The size of this [`WebView`]'s [`RenderingContext`].
+    /// The current physical viewport size of this [`WebView`].
     pub fn size(&self) -> DeviceSize {
-        self.inner().rendering_context.size2d().to_f32()
+        self.inner().viewport_size.to_f32()
     }
 
-    /// Request that the given [`WebView`]'s [`RenderingContext`] be resized. Note that the
-    /// minimum size for a WebView is 1 pixel by 1 pixel so any requested size will be
-    /// clamped by that value.
-    ///
-    /// This will also resize any other [`WebView`] using the same [`RenderingContext`]. A
-    /// [`WebView`] is always as big as its [`RenderingContext`].
+    /// Request that the given [`WebView`] viewport be resized. Note that the minimum size for a
+    /// WebView is 1 pixel by 1 pixel so any requested size will be clamped by that value.
     pub fn resize(&self, new_size: PhysicalSize<u32>) {
         let new_size = PhysicalSize {
             width: new_size.width.max(MINIMUM_WEBVIEW_SIZE.width as u32),
             height: new_size.height.max(MINIMUM_WEBVIEW_SIZE.height as u32),
         };
 
-        self.inner()
-            .servo
-            .paint()
-            .resize_rendering_context(self.id(), new_size);
+        self.inner_mut().viewport_size = Size2D::new(new_size.width, new_size.height);
+        self.inner().servo.paint().resize_webview(self.id(), new_size);
     }
 
     pub fn hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel> {
@@ -782,7 +780,8 @@ impl WebViewTrait for ServoRendererWebView {
 
 pub struct WebViewBuilder {
     servo: Servo,
-    rendering_context: Rc<dyn RenderingContext>,
+    physical_size: Size2D<u32, DevicePixel>,
+    rendering_context: Option<Rc<dyn RenderingContext>>,
     delegate: Rc<dyn WebViewDelegate>,
     url: Option<BrowserUrl>,
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
@@ -791,10 +790,11 @@ pub struct WebViewBuilder {
 }
 
 impl WebViewBuilder {
-    pub fn new(servo: &Servo, rendering_context: Rc<dyn RenderingContext>) -> Self {
+    pub fn new(servo: &Servo, physical_size: PhysicalSize<u32>) -> Self {
         Self {
             servo: servo.clone(),
-            rendering_context,
+            physical_size: Size2D::new(physical_size.width, physical_size.height),
+            rendering_context: None,
             url: None,
             hidpi_scale_factor: Scale::new(1.0),
             delegate: Rc::new(DefaultWebViewDelegate),
@@ -805,12 +805,17 @@ impl WebViewBuilder {
 
     pub(crate) fn new_for_create_request(
         servo: &Servo,
-        rendering_context: Rc<dyn RenderingContext>,
+        physical_size: PhysicalSize<u32>,
         responder: IpcResponder<Option<NewWebViewDetails>>,
     ) -> Self {
-        let mut builder = Self::new(servo, rendering_context);
+        let mut builder = Self::new(servo, physical_size);
         builder.create_new_webview_responder = Some(responder);
         builder
+    }
+
+    pub fn rendering_context(mut self, rendering_context: Rc<dyn RenderingContext>) -> Self {
+        self.rendering_context = Some(rendering_context);
+        self
     }
 
     pub fn delegate(mut self, delegate: Rc<dyn WebViewDelegate>) -> Self {

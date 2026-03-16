@@ -216,6 +216,20 @@ It also maintains per-group route keys for authenticated remote operations.
 Legacy `HAVI-site:<group>#<app>` naming may still appear in compatibility code.
 `site:<group>#<app>` is the current form.
 
+## Rendering architecture
+
+HAVI webview creation is viewport-first.
+
+Current shell model:
+
+- HAVI creates webviews from explicit physical viewport size and hidpi scale
+- HAVI may attach a legacy `RenderingContext` only for compatibility backends
+- webview identity and viewport updates do not depend on rendering-context registration
+- page rendering remains direct fragment rendering through `havi-render`
+
+This is phase 1 of the rendering cleanup. Optional GPU attachment remains a
+separate concern and is not part of mandatory webview creation.
+
 ## Notes on scope
 
 This document may describe current HAVI implementation details that change over

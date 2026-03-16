@@ -25,7 +25,7 @@ fn test_multiprocess_preference_observer() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .build();
 

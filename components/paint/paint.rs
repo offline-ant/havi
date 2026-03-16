@@ -69,8 +69,11 @@ fn next_key_index() -> u32 {
 /// This struct retains the message routing, resource key generation, WebGPU/WebXR
 /// infrastructure, and public API surface.
 pub struct Paint {
-    /// Rendering contexts registered per painter.
+    /// Legacy rendering contexts registered per painter.
     rendering_contexts: HashMap<PainterId, Rc<dyn RenderingContext>>,
+
+    /// Current physical viewport size per webview.
+    viewport_sizes: RefCell<HashMap<WebViewId, Size2D<u32, DevicePixel>>>,
 
     /// Tracks whether we are in the process of shutting down.
     shutdown_state: Rc<Cell<ShutdownState>>,
@@ -153,6 +156,7 @@ impl Paint {
 
         Rc::new(RefCell::new(Paint {
             rendering_contexts: Default::default(),
+            viewport_sizes: Default::default(),
             shutdown_state: state.shutdown_state,
             paint_receiver: state.receiver,
             embedder_to_constellation_sender: state.embedder_to_constellation_sender.clone(),
@@ -182,19 +186,9 @@ impl Paint {
 
     pub fn register_rendering_context(
         &mut self,
+        painter_id: PainterId,
         rendering_context: Rc<dyn RenderingContext>,
-    ) -> PainterId {
-        // Check if this rendering context is already registered.
-        if let Some(painter_id) = self
-            .rendering_contexts
-            .iter()
-            .find_map(|(id, rc)| Rc::ptr_eq(rc, &rendering_context).then_some(*id))
-        {
-            return painter_id;
-        }
-
-        let painter_id = PainterId::next();
-
+    ) {
         if let Some(display_info) = rendering_context.gl_display_info() {
             let painter_gl_details = PainterGlDetails { display_info };
             self.painter_gl_details_map
@@ -206,21 +200,7 @@ impl Paint {
             );
         }
 
-        self.rendering_contexts
-            .insert(painter_id, rendering_context);
-        painter_id
-    }
-
-    pub fn painter_id(&self) -> PainterId {
-        *self
-            .rendering_contexts
-            .keys()
-            .next()
-            .expect("No rendering contexts registered")
-    }
-
-    pub fn rendering_context_size(&self, painter_id: PainterId) -> Size2D<u32, DevicePixel> {
-        self.rendering_contexts[&painter_id].size2d()
+        self.rendering_contexts.insert(painter_id, rendering_context);
     }
 
     pub fn webrender_external_image_id_manager(&self) -> WebRenderExternalImageIdManager {
@@ -349,7 +329,12 @@ impl Paint {
         }
     }
 
-    pub fn remove_webview(&mut self, _webview_id: WebViewId) {
+    pub fn remove_webview(&mut self, webview_id: WebViewId) {
+        self.viewport_sizes.borrow_mut().remove(&webview_id);
+        self.page_zooms.borrow_mut().remove(&webview_id);
+        self.hidpi_scale_factors.borrow_mut().remove(&webview_id);
+        self.root_scroll_offsets.borrow_mut().remove(&webview_id);
+        self.webview_pipelines.borrow_mut().remove(&webview_id);
         // TODO(havi-render): Clean up webview state.
     }
 
@@ -394,9 +379,15 @@ impl Paint {
 
     pub fn add_webview(
         &self,
-        _webview: Box<dyn WebViewTrait>,
-        _viewport_details: ViewportDetails,
+        webview: Box<dyn WebViewTrait>,
+        viewport_details: ViewportDetails,
     ) {
+        let physical_size = (viewport_details.size * viewport_details.hidpi_scale_factor)
+            .to_u32()
+            .cast_unit();
+        self.viewport_sizes
+            .borrow_mut()
+            .insert(webview.id(), physical_size);
         // TODO(havi-render): Register webview with Makepad renderer.
     }
 
@@ -421,14 +412,15 @@ impl Paint {
             .insert(webview_id, new_scale_factor);
     }
 
-    pub fn resize_rendering_context(
-        &self,
-        webview_id: WebViewId,
-        new_size: PhysicalSize<u32>,
-    ) {
+    pub fn resize_webview(&self, webview_id: WebViewId, new_size: PhysicalSize<u32>) {
         if self.shutdown_state() != ShutdownState::NotShuttingDown {
             return;
         }
+
+        self.viewport_sizes.borrow_mut().insert(
+            webview_id,
+            Size2D::new(new_size.width, new_size.height),
+        );
 
         let hidpi_scale_factor = self
             .hidpi_scale_factors

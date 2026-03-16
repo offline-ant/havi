@@ -260,7 +260,9 @@ impl App {
         let url = servo::BrowserUrl::parse(url_str).ok()?;
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
-        let webview = servo::WebViewBuilder::new(servo, rc.clone())
+        let viewport_size = dpi::PhysicalSize::new(self.content_size.0 as u32, self.content_size.1 as u32);
+        let webview = servo::WebViewBuilder::new(servo, viewport_size)
+            .rendering_context(rc.clone())
             .url(url)
             .hidpi_scale_factor(hidpi)
             .delegate(Rc::new(HaviWebViewDelegate))

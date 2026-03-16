@@ -32,7 +32,7 @@ fn test_largest_contentful_paint_js_api() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse(DATA_URL_FOR_PAGE_WITH_SINGLE_RED_SQUARE).unwrap())
         .build();
@@ -80,7 +80,7 @@ fn test_largest_contentful_paint_js_api_with_mouse_move() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse(DATA_URL_FOR_PAGE_WITH_SINGLE_RED_SQUARE).unwrap())
         .build();
@@ -119,7 +119,7 @@ fn test_largest_contentful_paint_js_api_with_mouse_click_and_reload() {
     });
 
     let delegate = Rc::new(WebViewDelegateImpl::default());
-    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.initial_size).rendering_context(servo_test.rendering_context.clone())
         .delegate(delegate.clone())
         .url(Url::parse(DATA_URL_FOR_PAGE_WITH_SINGLE_RED_SQUARE).unwrap())
         .build();
