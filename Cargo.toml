@@ -6,12 +6,10 @@ members = [
     "components/xpath",
     "havi-protocols",
     "ports/havishell",
-    "ports/servoshell",
     "tests/unit/*",
 ]
-default-members = ["ports/servoshell"]
+default-members = ["ports/havishell"]
 exclude = [".cargo", "support/crown"]
-
 [workspace.package]
 version = "0.0.1"
 authors = ["The Servo Project Developers"]
@@ -25,7 +23,6 @@ publish = false
 # bumped freely.
 # Skip 1.90 which causes mis-compilation: https://github.com/rust-lang/rust/issues/147265
 rust-version = "1.86.0"
-
 [workspace.dependencies]
 accesskit = { version = "0.24.0", features = ["serde"] }
 accountable-refcell = "0.2.2"
@@ -162,7 +159,6 @@ resvg = "0.47.0"
 ring = "0.17"
 rsa = { version = "0.9.10", features = ["sha1", "sha2"] }
 rustc-hash = "2.1.1"
-
 script_traits = { path = "components/shared/script" }
 sea-query = { version = "1.0.0-rc.31", default-features = false, features = ["backend-sqlite", "derive"] }
 sea-query-rusqlite = { version = "0.8.0-rc.15" }
@@ -229,7 +225,6 @@ x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 xi-unicode = "0.3.0"
 xml5ever = "0.38"
 xpath = { path = "components/xpath" }
-
 # RSA key generation could be very slow without compilation
 # optimizations, in development mode. Without optimizations, WPT might
 # consider RSA key generation tests fail due to timeout.
@@ -238,36 +233,28 @@ xpath = { path = "components/xpath" }
 # More details: <https://docs.rs/rsa/0.9.8/rsa/index.html#example>
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
-
 # Force tikv-jemalloc-sys to build with at least -O1.
 # This can help with build environments that force _FORTIFY_SOURCE, such as Nix.
 # More details: <https://github.com/tikv/jemallocator/issues/108>
 [profile.dev.package.tikv-jemalloc-sys]
 opt-level = 1
-
 [profile.dev.package.hppr-packet]
 opt-level = 3
-
 [profile.dev.package.hsb3]
 opt-level = 3
-
 [profile.dev.package.k256]
 opt-level = 3
-
 [profile.dev.package.rust-argon2]
 opt-level = 3
-
 [profile.release]
 opt-level = 3
 debug-assertions = true
-
 # Disk-space is limited in CI, so we disabled features that are not needed for code coverage.
 # Locally using the default `dev` profile is perfectly fine.
 [profile.coverage]
 inherits = "dev"
 incremental = false
 debug = false
-
 # A profile between `dev` and `release` which aims to offer a compromise between
 # fast incremental rebuilds and runtime speed.
 [profile.medium]
@@ -275,25 +262,21 @@ inherits = "release"
 opt-level = 2
 incremental = true
 debug = "line-tables-only"
-
 [profile.production]
 inherits = "release"
 debug-assertions = false
 lto = true
 codegen-units = 1
 opt-level = "s"
-
 [profile.production-stripped]
 inherits = "production"
 strip = true
-
 [profile.profiling]
 inherits = "release"
 debug-assertions = false
 debug = true
 lto = "thin"
 codegen-units = 1
-
 [patch.crates-io]
 svgtypes = { path = "components/vendored/svgtypes" }
 mozjs = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
@@ -317,7 +300,7 @@ mozjs_sys = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
 # mozjs_sys = { path = "../mozjs/mozjs-sys" }
 #
 # Pending egui bumping their accesskit version: https://github.com/emilk/egui/pull/7850
-# This is only used in servoshell.
+# This is only used in the legacy desktop shell.
 # TODO: When these are no longer needed remove the exception in deny.toml as well.
 egui = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }
 egui-winit = { git = "https://github.com/emilk/egui.git", rev = "5d8f393335e051785b4fd3af9ef92eda5b61177f" }

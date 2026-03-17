@@ -833,8 +833,6 @@ impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         if let Event::Shutdown = event {
             crate::app::runtime::remove_state_file();
-            #[cfg(unix)]
-            crate::makepad_socket::cleanup();
         }
 
         // Lazy init servo on first event
@@ -936,15 +934,10 @@ impl AppMain for App {
 
                         let pylon_bind = format!("127.0.0.1:{}", pylon_port);
                         println!("PYLON_BIND={}", pylon_bind);
-                        let mut state = vec![("PYLON_BIND", pylon_bind)];
-                        if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
-                            if !socket.is_empty() {
-                                println!("HAVI_MAKEPAD_SOCKET={}", socket);
-                                state.push(("HAVI_MAKEPAD_SOCKET", socket));
-                            }
-                        }
+                        let mut state = crate::app::runtime::included_state_entries();
+                        state.push(("PYLON_BIND".to_string(), pylon_bind));
                         if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                            state.push(("HAVI_DEVTOOLS", bind));
+                            state.push(("HAVI_DEVTOOLS".to_string(), bind));
                         }
                         crate::app::runtime::write_state_file(&state);
                     },
@@ -955,15 +948,9 @@ impl AppMain for App {
                         self.update_pylon_dot(cx);
                         self.complete_startup_navigation(cx);
 
-                        let mut state = Vec::new();
-                        if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
-                            if !socket.is_empty() {
-                                println!("HAVI_MAKEPAD_SOCKET={}", socket);
-                                state.push(("HAVI_MAKEPAD_SOCKET", socket));
-                            }
-                        }
+                        let mut state = crate::app::runtime::included_state_entries();
                         if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                            state.push(("HAVI_DEVTOOLS", bind));
+                            state.push(("HAVI_DEVTOOLS".to_string(), bind));
                         }
                         crate::app::runtime::write_state_file(&state);
                     },

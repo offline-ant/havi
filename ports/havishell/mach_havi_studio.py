@@ -44,22 +44,26 @@ def run_desktop_makepad_socket(
     cmd: list[str],
     env: dict[str, str],
     havi_root: pathlib.Path,
-    socket_path: str | None = None,
 ) -> int:
-    """Launch HAVI with stdin/stdout piped, relay via Unix domain socket.
+    """Launch desktop HAVI with automatic Makepad socket relay.
 
-    Uses the generic Makepad socket relay from makepad_control. Adds
-    HAVI-specific startup detection (ReadyToStart, HAVI_DEVTOOLS).
+    The desktop launcher always exposes the Makepad socket. This helper owns
+    socket-path selection, enables stdin/stdout event injection, and relays
+    the stream over a Unix domain socket.
     """
     import tempfile
 
-    sock_path = socket_path or os.path.join(
-        tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
+    sock_path = os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
 
     # Tell HAVI to use stdin/stdout event injection mode.
     env["HAVI_MAKEPAD_EVENTS"] = "1"
+    env["HAVI_MAKEPAD_SOCKET"] = sock_path
+    env["HAVI_INCLUDE_STATE"] = "HAVI_MAKEPAD_SOCKET"
 
-    _log("desktop run (makepad-socket)", cmd=cmd)
+    print(f"HAVI_MAKEPAD_SOCKET={sock_path}")
+    sys.stdout.flush()
+
+    _log("desktop run", cmd=cmd)
 
     # HAVI-specific state collected during startup.
     devtools_addr: list[str] = []

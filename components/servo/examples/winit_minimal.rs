@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use euclid::{Scale, Size2D};
 use servo::{
-    InputEvent, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta,
-    WheelEvent, WheelMode, WindowRenderingContext,
+    InputEvent, Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta,
+    WheelEvent, WheelMode,
 };
 use tracing::warn;
 use url::Url;
@@ -18,7 +18,6 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::EventLoop;
-use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -32,7 +31,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 struct AppState {
     window: Window,
     servo: Servo,
-    rendering_context: Rc<WindowRenderingContext>,
     webviews: RefCell<Vec<WebView>>,
 }
 
@@ -56,20 +54,9 @@ impl App {
 impl ApplicationHandler<WakerEvent> for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if let Self::Initial(waker) = self {
-            let display_handle = event_loop
-                .display_handle()
-                .expect("Failed to get display handle");
             let window = event_loop
                 .create_window(Window::default_attributes())
                 .expect("Failed to create winit Window");
-            let window_handle = window.window_handle().expect("Failed to get window handle");
-
-            let rendering_context = Rc::new(
-                WindowRenderingContext::new(display_handle, window_handle, window.inner_size())
-                    .expect("Could not create RenderingContext for window."),
-            );
-
-            let _ = rendering_context.make_current();
 
             let servo = ServoBuilder::default()
                 .event_loop_waker(Box::new(waker.clone()))
@@ -79,7 +66,6 @@ impl ApplicationHandler<WakerEvent> for App {
             let app_state = Rc::new(AppState {
                 window,
                 servo,
-                rendering_context,
                 webviews: Default::default(),
             });
 
@@ -89,7 +75,7 @@ impl ApplicationHandler<WakerEvent> for App {
 
             let webview =
                 WebViewBuilder::new(&app_state.servo, app_state.window.inner_size())
-                    .rendering_context(app_state.rendering_context.clone())
+                    
                     .url(url)
                     .hidpi_scale_factor(Scale::new(app_state.window.scale_factor() as f32))
                     .delegate(app_state.clone())
@@ -123,7 +109,6 @@ impl ApplicationHandler<WakerEvent> for App {
             WindowEvent::RedrawRequested => {
                 if let Self::Running(state) = self {
                     state.webviews.borrow().last().unwrap().paint();
-                    state.rendering_context.present();
                 }
             },
             WindowEvent::MouseWheel { delta, .. } => {

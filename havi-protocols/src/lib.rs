@@ -7,8 +7,8 @@
 //! This crate provides content generation for all HPPR/HAVI protocol schemes
 //! without depending on any particular rendering engine (no servo dependency).
 //!
-//! Shell embedders (havishell, servoshell) call these functions and feed the
-//! result to their rendering layer.
+//! Shell embedders call these functions and feed the result to their rendering
+//! layer.
 
 pub mod client;
 pub mod config;

@@ -42,7 +42,7 @@ pub(crate) struct LayoutContext<'a> {
     /// tree construction. Later passed to display list construction.
     pub image_resolver: Arc<ImageResolver>,
 
-    /// The [`PainterId`] that identifies which `RenderingContext` that this layout targets.
+    /// The [`PainterId`] that identifies which embedder-owned paint target this layout targets.
     pub painter_id: PainterId,
 }
 
@@ -74,10 +74,9 @@ pub(crate) struct ImageResolver {
     pub pending_rasterization_images: Mutex<Vec<PendingRasterizationImage>>,
 
     /// A list of `SVGSVGElement`s encountered during layout that are not
-    /// serialized yet. This is needed to support inline SVGs as they are treated
-    /// as replaced elements and the layout is responsible for triggering the
-    /// network load for the corresponding serialized data: urls (similar to
-    /// background images).
+    /// serialized yet. This supports inline SVGs, which layout treats as
+    /// replaced elements and serializes into data URLs before loading them,
+    /// similar to background images.
     pub pending_svg_elements_for_serialization: Mutex<Vec<UntrustedNodeAddress>>,
 
     /// A shared reference to script's map of DOM nodes with animated images. This is used

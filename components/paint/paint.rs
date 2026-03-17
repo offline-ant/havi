@@ -21,11 +21,7 @@ use image::RgbaImage;
 use ipc_channel::ipc;
 use log::{debug, warn};
 use smallvec::SmallVec;
-use paint_api::rendering_context::RenderingContext;
-use paint_api::{
-    PaintMessage, PainterGlDetails, PainterGlDetailsMap,
-    WebRenderExternalImageIdManager, WebViewTrait,
-};
+use paint_api::{PaintMessage, WebRenderExternalImageIdManager, WebViewTrait};
 use profile_traits::mem::{
     ProcessReports, ProfilerRegistration, Report, ReportKind,
 };
@@ -44,13 +40,6 @@ use crate::InitialPaintState;
 use crate::screenshot::ScreenshotTaker;
 use crate::touch::TouchHandler;
 
-/// An option to control what kind of WebRender debugging is enabled while Servo is running.
-#[derive(Copy, Clone)]
-pub enum WebRenderDebugOption {
-    Profiler,
-    TextureCacheDebug,
-    RenderTargetDebug,
-}
 
 /// Error type for unknown webview operations.
 #[derive(Debug)]
@@ -69,9 +58,6 @@ fn next_key_index() -> u32 {
 /// This struct retains the message routing, resource key generation, WebGPU/WebXR
 /// infrastructure, and public API surface.
 pub struct Paint {
-    /// Legacy rendering contexts registered per painter.
-    rendering_contexts: HashMap<PainterId, Rc<dyn RenderingContext>>,
-
     /// Current physical viewport size per webview.
     viewport_sizes: RefCell<HashMap<WebViewId, Size2D<u32, DevicePixel>>>,
 
@@ -86,9 +72,6 @@ pub struct Paint {
 
     /// The [`WebRenderExternalImageIdManager`] used to generate new `ExternalImageId`s.
     webrender_external_image_id_manager: WebRenderExternalImageIdManager,
-
-    /// GL display details per painter (needed for WebGPU).
-    pub(crate) painter_gl_details_map: PainterGlDetailsMap,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
@@ -146,7 +129,6 @@ impl Paint {
         );
 
         let webrender_external_image_id_manager = WebRenderExternalImageIdManager::default();
-        let painter_gl_details_map = PainterGlDetailsMap::default();
 
         // TODO: WebXR init needs rework after WebGL removal
         #[cfg(feature = "webxr")]
@@ -155,7 +137,6 @@ impl Paint {
         };
 
         Rc::new(RefCell::new(Paint {
-            rendering_contexts: Default::default(),
             viewport_sizes: Default::default(),
             shutdown_state: state.shutdown_state,
             paint_receiver: state.receiver,
@@ -163,7 +144,6 @@ impl Paint {
             webrender_external_image_id_manager,
             time_profiler_chan: state.time_profiler_chan,
             _mem_profiler_registration: registration,
-            painter_gl_details_map,
             screenshot_taker: Default::default(),
             page_zooms: Default::default(),
             hidpi_scale_factors: Default::default(),
@@ -182,25 +162,6 @@ impl Paint {
     /// Get a clone of the shared image store handle for the render layer.
     pub fn image_store(&self) -> paint_api::SharedImageStore {
         self.image_store.clone()
-    }
-
-    pub fn register_rendering_context(
-        &mut self,
-        painter_id: PainterId,
-        rendering_context: Rc<dyn RenderingContext>,
-    ) {
-        if let Some(display_info) = rendering_context.gl_display_info() {
-            let painter_gl_details = PainterGlDetails { display_info };
-            self.painter_gl_details_map
-                .insert(painter_id, painter_gl_details);
-        } else {
-            warn!(
-                "RenderingContext for painter {:?} does not provide gl_display_info; WebGPU disabled",
-                painter_id
-            );
-        }
-
-        self.rendering_contexts.insert(painter_id, rendering_context);
     }
 
     pub fn webrender_external_image_id_manager(&self) -> WebRenderExternalImageIdManager {
@@ -485,10 +446,6 @@ impl Paint {
 
         self.shutdown_state() != ShutdownState::FinishedShuttingDown
     }
-
-    pub fn toggle_webrender_debug(&self, _option: WebRenderDebugOption) {}
-
-    pub fn capture_webrender(&self, _webview_id: WebViewId) {}
 
     pub fn notify_input_event(&self, _webview_id: WebViewId, event: InputEventAndId) {
         if let embedder_traits::InputEvent::Wheel(_) = event.event {

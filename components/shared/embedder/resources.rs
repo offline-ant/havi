@@ -1,26 +1,20 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
-
 use std::path::PathBuf;
 use std::sync::RwLock;
-
 static RES: RwLock<Option<Box<dyn ResourceReaderMethods + Sync + Send>>> = RwLock::new(None);
-
 #[cfg(feature = "baked-default-resources")]
 static INIT_TEST_RESOURCES: std::sync::Once = std::sync::Once::new();
-
 #[cfg(all(feature = "baked-default-resources", servo_production))]
 const _: () = assert!(
     false,
     "baked-default-resources should not be used in production"
 );
-
 /// The Embedder should initialize the ResourceReader early.
 pub fn set(reader: Box<dyn ResourceReaderMethods + Sync + Send>) {
     *RES.write().unwrap() = Some(reader);
 }
-
 #[cfg(not(feature = "baked-default-resources"))]
 pub fn read_bytes(res: Resource) -> Vec<u8> {
     if let Some(reader) = RES.read().unwrap().as_ref() {
@@ -30,7 +24,6 @@ pub fn read_bytes(res: Resource) -> Vec<u8> {
         vec![]
     }
 }
-
 #[cfg(feature = "baked-default-resources")]
 pub fn read_bytes(res: Resource) -> Vec<u8> {
     INIT_TEST_RESOURCES.call_once(|| {
@@ -45,11 +38,9 @@ pub fn read_bytes(res: Resource) -> Vec<u8> {
         .expect("Resource reader not set.")
         .read(res)
 }
-
 pub fn read_string(res: Resource) -> String {
     String::from_utf8(read_bytes(res)).unwrap()
 }
-
 pub fn sandbox_access_files() -> Vec<PathBuf> {
     RES.read()
         .unwrap()
@@ -57,7 +48,6 @@ pub fn sandbox_access_files() -> Vec<PathBuf> {
         .map(|reader| reader.sandbox_access_files())
         .unwrap_or_default()
 }
-
 pub fn sandbox_access_files_dirs() -> Vec<PathBuf> {
     RES.read()
         .unwrap()
@@ -65,7 +55,6 @@ pub fn sandbox_access_files_dirs() -> Vec<PathBuf> {
         .map(|reader| reader.sandbox_access_files_dirs())
         .unwrap_or_default()
 }
-
 pub enum Resource {
     /// A list of GATT services that are blocked from being used by web bluetooth.
     /// The format of the file is a list of UUIDs, one per line, with an optional second word to specify the
@@ -112,7 +101,6 @@ pub enum Resource {
     /// RPC script for the Debugger API on behalf of devtools.
     DebuggerJS,
 }
-
 impl Resource {
     pub fn filename(&self) -> &'static str {
         match self {
@@ -129,16 +117,14 @@ impl Resource {
         }
     }
 }
-
 pub trait ResourceReaderMethods {
     fn read(&self, res: Resource) -> Vec<u8>;
     fn sandbox_access_files(&self) -> Vec<PathBuf>;
     fn sandbox_access_files_dirs(&self) -> Vec<PathBuf>;
 }
-
 /// Provides baked in resources for tests.
 ///
-/// Embedder builds (e.g. servoshell) should use [`set`] and ship the resources themselves.
+/// Embedder builds should use [`set`] and ship the resources themselves.
 #[cfg(feature = "baked-default-resources")]
 fn resources_for_tests() -> Box<dyn ResourceReaderMethods + Sync + Send> {
     struct ResourceReader;

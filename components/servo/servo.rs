@@ -1,13 +1,11 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
-
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::cmp::max;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
-
 use background_hang_monitor::HangMonitorRegister;
 use base::generic_channel::{GenericCallback, RoutedReceiver};
 #[cfg(feature = "bluetooth")]
@@ -56,7 +54,6 @@ use net::protocols::ProtocolRegistry;
 use net::resource_thread::new_resource_threads;
 use net_traits::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
 use paint::{InitialPaintState, Paint};
-pub use paint_api::rendering_context::RenderingContext;
 use paint_api::{CrossProcessPaintApi, PaintMessage, PaintProxy};
 use profile::{mem as profile_mem, system_reporter, time as profile_time};
 use profile_traits::mem::{MemoryReportResult, ProfilerMsg, Reporter};
@@ -73,7 +70,6 @@ use servo_media::ServoMedia;
 use storage::new_storage_threads;
 use storage_traits::StorageThreads;
 use style::global_style_data::StyleThreadPool;
-
 use crate::clipboard_delegate::StringRequest;
 #[cfg(feature = "gamepad")]
 use crate::gamepad_provider::{GamepadHapticEffectRequest, GamepadHapticEffectRequestType};
@@ -89,19 +85,16 @@ use crate::webview_delegate::{
     FilePicker, NavigationRequest, PermissionRequest, ProtocolHandlerRegistration,
     WebResourceLoad,
 };
-
 mod media_platform {
     use super::ServoMedia;
     pub fn init() {
         ServoMedia::init::<servo_media_dummy::DummyBackend>();
     }
 }
-
 enum Message {
     FromNet(NetToEmbedderMsg),
     FromUnknown(EmbedderMsg),
 }
-
 struct ServoInner {
     delegate: RefCell<Rc<dyn ServoDelegate>>,
     paint: Rc<RefCell<Paint>>,
@@ -127,7 +120,6 @@ struct ServoInner {
     /// own instance that exists in the content process instead.
     _js_engine_setup: Option<JSEngineSetup>,
 }
-
 impl ServoInner {
     fn get_webview_handle(&self, id: WebViewId) -> Option<WebView> {
         self.webviews
@@ -135,12 +127,10 @@ impl ServoInner {
             .get(&id)
             .and_then(WebView::from_weak_handle)
     }
-
     fn spin_event_loop(&self) -> bool {
         if self.shutdown_state.get() == ShutdownState::FinishedShuttingDown {
             return false;
         }
-
         {
             let paint = self.paint.borrow();
             let mut messages = Vec::new();
@@ -154,7 +144,6 @@ impl ServoInner {
             }
             paint.handle_messages(messages);
         }
-
         // Only handle incoming embedder messages if `Paint` hasn't already started shutting down.
         while let Some(message) = self.receive_one_message() {
             match message {
@@ -165,25 +154,20 @@ impl ServoInner {
                 break;
             }
         }
-
         if self.constellation_proxy.disconnected() {
             self.delegate
                 .borrow()
                 .notify_error(ServoError::LostConnectionWithBackend);
         }
-
         self.paint.borrow_mut().perform_updates();
         self.send_new_frame_ready_messages();
         self.handle_delegate_errors();
         self.clean_up_destroyed_webview_handles();
-
         if self.shutdown_state.get() == ShutdownState::FinishedShuttingDown {
             return false;
         }
-
         true
     }
-
     fn receive_one_message(&self) -> Option<Message> {
         let mut select = crossbeam_channel::Select::new();
         let embedder_receiver_index = select.recv(&self.embedder_receiver);
@@ -207,10 +191,8 @@ impl ServoInner {
             None
         }
     }
-
     fn send_new_frame_ready_messages(&self) {
         let webviews_needing_repaint = self.paint.borrow().webviews_needing_repaint();
-
         for webview in webviews_needing_repaint
             .iter()
             .filter_map(|webview_id| self.get_webview_handle(*webview_id))
@@ -218,13 +200,11 @@ impl ServoInner {
             webview.delegate().notify_new_frame_ready(webview);
         }
     }
-
     fn handle_delegate_errors(&self) {
         while let Some(error) = self.servo_errors.try_recv() {
             self.delegate.borrow().notify_error(error);
         }
     }
-
     fn clean_up_destroyed_webview_handles(&self) {
         // Remove any webview handles that have been destroyed and would not be upgradable.
         // Note that `retain` is O(capacity) because it visits empty buckets, so it may be worth
@@ -234,13 +214,11 @@ impl ServoInner {
             .borrow_mut()
             .retain(|_webview_id, webview| webview.strong_count() > 0);
     }
-
     fn finish_shutting_down(&self) {
         debug!("Servo received message that Constellation shutdown is complete");
         self.shutdown_state.set(ShutdownState::FinishedShuttingDown);
         self.paint.borrow_mut().finish_shutting_down();
     }
-
     fn handle_net_embedder_message(&self, message: NetToEmbedderMsg) {
         match message {
             NetToEmbedderMsg::SelectFiles(control_id, file_picker_request, response_sender) => {
@@ -304,7 +282,6 @@ impl ServoInner {
             },
         }
     }
-
     fn handle_embedder_message(&self, message: EmbedderMsg) {
         match message {
             EmbedderMsg::ShutdownComplete => self.finish_shutting_down(),
@@ -425,7 +402,6 @@ impl ServoInner {
                     input_event_id,
                     result,
                 );
-
                 if let Some(webview) = self.get_webview_handle(webview_id) {
                     webview
                         .delegate()
@@ -615,10 +591,8 @@ impl ServoInner {
                     let Some(screen_geometry) = webview.delegate().screen_geometry(webview) else {
                         return DeviceIndependentIntRect::default();
                     };
-
                     convert_rect_to_css_pixel(screen_geometry.window_rect, hidpi_scale_factor)
                 };
-
                 if let Err(error) = response_sender.send(window_rect()) {
                     warn!("Failed to respond to GetWindowRect: {error}");
                 }
@@ -632,7 +606,6 @@ impl ServoInner {
                     let Some(screen_geometry) = webview.delegate().screen_geometry(webview) else {
                         return ScreenMetrics::default();
                     };
-
                     ScreenMetrics {
                         screen_size: convert_size_to_css_pixel(
                             screen_geometry.size,
@@ -699,7 +672,6 @@ impl ServoInner {
         }
     }
 }
-
 impl Drop for ServoInner {
     fn drop(&mut self) {
         self.constellation_proxy
@@ -710,7 +682,6 @@ impl Drop for ServoInner {
         }
     }
 }
-
 /// An in-process handle to a `Servo` instance. Cloning the handle does not create a new instance
 /// of `Servo`.
 ///
@@ -721,7 +692,6 @@ impl Drop for ServoInner {
 /// application and various browser components.
 #[derive(Clone)]
 pub struct Servo(Rc<ServoInner>);
-
 impl Servo {
     #[servo_tracing::instrument(skip(builder))]
     fn new(builder: ServoBuilder) -> Self {
@@ -729,14 +699,11 @@ impl Servo {
         let opts = builder.opts.map(|opts| *opts);
         opts::initialize_options(opts.unwrap_or_default());
         let opts = opts::get();
-
         // Set the preferences globally.
         // TODO: It would be better to make these private to a particular Servo instance.
         let preferences = builder.preferences.map(|opts| *opts);
         servo_config::prefs::set(preferences.unwrap_or_default());
-
         use std::sync::atomic::Ordering;
-
         style::context::DEFAULT_DISABLE_STYLE_SHARING_CACHE.store(
             !pref!(layout_style_sharing_cache_enabled),
             Ordering::Relaxed,
@@ -745,14 +712,11 @@ impl Servo {
             .store(opts.debug.style_statistics, Ordering::Relaxed);
         style::traversal::IS_SERVO_NONINCREMENTAL_LAYOUT
             .store(opts.nonincremental_layout, Ordering::Relaxed);
-
         if !opts.multiprocess {
             media_platform::init();
         }
-
         // Reserving a namespace to create WebViewId.
         PipelineNamespace::install(PipelineNamespaceId(0));
-
         // Get both endpoints of a special channel for communication between
         // the client window and `Paint`. This channel is unique because
         // messages to client may need to pump a platform-specific event loop
@@ -768,7 +732,6 @@ impl Servo {
             opts.time_profiler_trace_path.clone(),
         );
         let mem_profiler_chan = profile_mem::Profiler::create();
-
         let devtools_sender = if pref!(devtools_server_enabled) {
             Some(devtools::start_server(
                 embedder_proxy.clone(),
@@ -777,7 +740,6 @@ impl Servo {
         } else {
             None
         };
-
         // Important that this call is done in a single-threaded fashion, we
         // can't defer it after `create_constellation` has started.
         let js_engine_setup = if !opts.multiprocess {
@@ -785,12 +747,10 @@ impl Servo {
         } else {
             None
         };
-
         // Create the constellation, which maintains the engine pipelines, including script and
         // layout, as well as the navigation context.
         let mut protocols = ProtocolRegistry::with_internal_protocols();
         protocols.merge(builder.protocol_registry);
-
         // The `Paint` coordinates with the client window to create the final
         // rendered page and display it somewhere.
         let shutdown_state = Rc::new(Cell::new(ShutdownState::NotShuttingDown));
@@ -805,7 +765,6 @@ impl Servo {
             #[cfg(feature = "webxr")]
             webxr_registry: builder.webxr_registry,
         });
-
         let protocols = Arc::new(protocols);
         let (public_resource_threads, private_resource_threads, async_runtime) =
             new_resource_threads(
@@ -819,10 +778,8 @@ impl Servo {
                 protocols.clone(),
                 builder.hppr_home_target.clone(),
             );
-
         let (private_storage_threads, public_storage_threads) =
             new_storage_threads(mem_profiler_chan.clone(), opts.config_dir.clone());
-
         create_constellation(
             embedder_to_constellation_receiver,
             &paint.borrow(),
@@ -843,11 +800,9 @@ impl Servo {
                 embedder_traits::HpprViaSpec::Unknown { scheme, rest } => format!("{scheme}+{rest}"),
             },
         );
-
         if opts::get().multiprocess {
             prefs::add_observer(Box::new(constellation_proxy.clone()));
         }
-
         Servo(Rc::new(ServoInner {
             delegate: RefCell::new(Rc::new(DefaultServoDelegate)),
             paint,
@@ -873,19 +828,15 @@ impl Servo {
             _js_engine_setup: js_engine_setup,
         }))
     }
-
     pub fn delegate(&self) -> Rc<dyn ServoDelegate> {
         self.0.delegate.borrow().clone()
     }
-
     pub fn set_delegate(&self, delegate: Rc<dyn ServoDelegate>) {
         *self.0.delegate.borrow_mut() = delegate;
     }
-
     /// Formerly initialized GL accelerated media playback. Now a no-op; video uses Makepad
     /// platform-native playback instead.
     pub fn initialize_gl_accelerated_media(_display: NativeDisplay, _api: GlApi, _context: GlContext) {}
-
     /// Spin the Servo event loop, which:
     ///
     ///   - Performs updates in `Paint`, such as queued pinch zoom events
@@ -894,48 +845,39 @@ impl Servo {
     pub fn spin_event_loop(&self) {
         self.0.spin_event_loop();
     }
-
     pub fn setup_logging(&self) {
         let constellation_chan = self.0.constellation_proxy.sender();
         apply_hppr_log_env();
         let env = env_logger::Env::default();
         let env_logger = EnvLoggerBuilder::from_env(env).build();
         let con_logger = FromEmbedderLogger::new(constellation_chan);
-
         let filter = max(env_logger.filter(), con_logger.filter());
         let logger = BothLogger(env_logger, con_logger);
-
         if log::set_boxed_logger(Box::new(logger)).is_ok() {
             log::set_max_level(filter);
         }
     }
-
     pub fn create_memory_report(&self, snd: GenericCallback<MemoryReportResult>) {
         self.0
             .constellation_proxy
             .send(EmbedderToConstellationMessage::CreateMemoryReport(snd));
     }
-
     pub fn execute_webdriver_command(&self, command: WebDriverCommandMsg) {
         self.0
             .constellation_proxy
             .send(EmbedderToConstellationMessage::WebDriverCommand(command));
     }
-
     pub fn set_preference(&self, name: &str, value: PrefValue) {
         let mut preferences = prefs::get().clone();
         preferences.set_value(name, value);
         prefs::set(preferences);
     }
-
     pub fn network_manager<'a>(&'a self) -> Ref<'a, NetworkManager> {
         self.0.network_manager.borrow()
     }
-
     pub fn site_data_manager<'a>(&'a self) -> Ref<'a, SiteDataManager> {
         self.0.site_data_manager.borrow()
     }
-
     pub fn set_accessibility_active(&self, active: bool) {
         self.0
             .constellation_proxy
@@ -943,35 +885,28 @@ impl Servo {
                 active,
             ));
     }
-
     /// Get a clone of the shared image store handle for the render layer.
     pub fn image_store(&self) -> paint_api::SharedImageStore {
         self.0.paint.borrow().image_store()
     }
-
     pub(crate) fn paint<'a>(&'a self) -> Ref<'a, Paint> {
         self.0.paint.borrow()
     }
-
     pub(crate) fn paint_mut<'a>(&'a self) -> RefMut<'a, Paint> {
         self.0.paint.borrow_mut()
     }
-
     pub(crate) fn webviews_mut<'a>(
         &'a self,
     ) -> RefMut<'a, FxHashMap<WebViewId, Weak<RefCell<WebViewInner>>>> {
         self.0.webviews.borrow_mut()
     }
-
     pub(crate) fn constellation_proxy(&self) -> &ConstellationProxy {
         &self.0.constellation_proxy
     }
-
     pub(crate) fn javascript_evaluator_mut<'a>(&'a self) -> RefMut<'a, JavaScriptEvaluator> {
         self.0.javascript_evaluator.borrow_mut()
     }
 }
-
 fn create_embedder_channel(
     event_loop_waker: Box<dyn EventLoopWaker>,
 ) -> (EmbedderProxy, Receiver<EmbedderMsg>) {
@@ -984,7 +919,6 @@ fn create_embedder_channel(
         receiver,
     )
 }
-
 fn create_generic_embedder_channel<T>(
     event_loop_waker: Box<dyn EventLoopWaker>,
 ) -> (GenericEmbedderProxy<T>, Receiver<T>) {
@@ -997,7 +931,6 @@ fn create_generic_embedder_channel<T>(
         receiver,
     )
 }
-
 fn create_paint_channel(
     event_loop_waker: Box<dyn EventLoopWaker>,
 ) -> (PaintProxy, RoutedReceiver<PaintMessage>) {
@@ -1011,7 +944,6 @@ fn create_paint_channel(
         }
         event_loop_waker_clone.wake();
     };
-
     let generic_callback =
         GenericCallback::new(result_callback).expect("Failed to create callback");
     let cross_process_paint_api = CrossProcessPaintApi::new(generic_callback);
@@ -1020,10 +952,8 @@ fn create_paint_channel(
         cross_process_paint_api,
         event_loop_waker,
     };
-
     (paint_proxy, receiver)
 }
-
 #[expect(clippy::too_many_arguments)]
 fn create_constellation(
     embedder_to_constellation_receiver: Receiver<EmbedderToConstellationMessage>,
@@ -1043,13 +973,10 @@ fn create_constellation(
 ) {
     // Global configuration options, parsed from the command line.
     let opts = opts::get();
-
     #[cfg(feature = "bluetooth")]
     let bluetooth_thread: GenericSender<BluetoothRequest> =
         BluetoothThreadFactory::new(embedder_proxy.clone());
-
     let privileged_urls = protocols.privileged_urls();
-
     let system_font_service = Arc::new(
         SystemFontService::spawn(
             paint_proxy.cross_process_paint_api.clone(),
@@ -1057,7 +984,6 @@ fn create_constellation(
         )
         .to_proxy(),
     );
-
     let initial_state = InitialConstellationState {
         paint_proxy,
         embedder_proxy,
@@ -1082,9 +1008,7 @@ fn create_constellation(
         privileged_urls,
         hppr_home_endpoint,
     };
-
     let layout_factory = Arc::new(LayoutFactoryImpl());
-
     Constellation::<script::ScriptThread, script::ServiceWorkerManager>::start(
         embedder_to_constellation_receiver,
         initial_state,
@@ -1094,11 +1018,9 @@ fn create_constellation(
         opts.hard_fail,
     );
 }
-
 // A logger that logs to two downstream loggers.
 // This should probably be in the log crate.
 struct BothLogger<Log1, Log2>(Log1, Log2);
-
 impl<Log1, Log2> Log for BothLogger<Log1, Log2>
 where
     Log1: Log,
@@ -1107,18 +1029,15 @@ where
     fn enabled(&self, metadata: &Metadata) -> bool {
         self.0.enabled(metadata) || self.1.enabled(metadata)
     }
-
     fn log(&self, record: &Record) {
         self.0.log(record);
         self.1.log(record);
     }
-
     fn flush(&self) {
         self.0.flush();
         self.1.flush();
     }
 }
-
 /// Expand HPPR_LOG into per-module RUST_LOG directives.
 /// Call before building env_logger. Merges with existing RUST_LOG if set.
 fn apply_hppr_log_env() {
@@ -1128,7 +1047,7 @@ fn apply_hppr_log_env() {
     };
     let modules = [
         "hppr_packet", "hpprd", "hppr_client", "hsb3",
-        "servoshell::protocols::hppr", "servoshell::hpprd_client",
+        "havishell::protocols::hppr", "havishell::hpprd_client",
         "net::watch_loader", "net::hppr_pool", "net::hppr_async_state",
     ];
     let hppr_directives: String = modules
@@ -1143,21 +1062,17 @@ fn apply_hppr_log_env() {
     // SAFETY: Called once at startup before env_logger init, single-threaded at this point.
     unsafe { std::env::set_var("RUST_LOG", merged) };
 }
-
 fn set_logger(script_to_constellation_sender: ScriptToConstellationSender) {
     let con_logger = FromScriptLogger::new(script_to_constellation_sender);
     apply_hppr_log_env();
     let env = env_logger::Env::default();
     let env_logger = EnvLoggerBuilder::from_env(env).build();
-
     let filter = max(env_logger.filter(), con_logger.filter());
     let logger = BothLogger(env_logger, con_logger);
-
     if log::set_boxed_logger(Box::new(logger)).is_ok() {
         log::set_max_level(filter);
     }
 }
-
 /// Content process entry point.
 pub fn run_content_process(token: String) {
     let (unprivileged_content_sender, unprivileged_content_receiver) =
@@ -1167,41 +1082,32 @@ pub fn run_content_process(token: String) {
     connection_bootstrap
         .send(unprivileged_content_sender)
         .unwrap();
-
     let unprivileged_content = unprivileged_content_receiver.recv().unwrap();
     opts::initialize_options(unprivileged_content.opts());
     prefs::set(unprivileged_content.prefs().clone());
-
     // Enter the sandbox if necessary.
     if opts::get().sandbox {
         create_sandbox();
     }
-
     let _js_engine_setup = script::init();
-
     match unprivileged_content {
         UnprivilegedContent::ScriptEventLoop(new_event_loop_info) => {
             media_platform::init();
-
             // Start the fetch thread for this content process.
             let fetch_thread_join_handle = start_fetch_thread();
-
             set_logger(
                 new_event_loop_info
                     .initial_script_state
                     .script_to_constellation_sender
                     .clone(),
             );
-
             register_system_memory_reporter_for_event_loop(&new_event_loop_info);
-
             let (background_hang_monitor_register, background_hang_monitor_join_handle) =
                 HangMonitorRegister::init(
                     new_event_loop_info.bhm_to_constellation_sender.clone(),
                     new_event_loop_info.constellation_to_bhm_receiver,
                     opts::get().background_hang_monitor,
                 );
-
             let layout_factory = Arc::new(LayoutFactoryImpl());
             let script_join_handle = script::ScriptThread::create(
                 new_event_loop_info.initial_script_state,
@@ -1211,16 +1117,13 @@ pub fn run_content_process(token: String) {
                 )),
                 background_hang_monitor_register,
             );
-
             script_join_handle
                 .join()
                 .expect("Failed to join on the script thread.");
             background_hang_monitor_join_handle
                 .join()
                 .expect("Failed to join on the BHM background thread.");
-
             StyleThreadPool::shutdown();
-
             // Shut down the fetch thread started above.
             exit_fetch_thread();
             fetch_thread_join_handle
@@ -1232,7 +1135,6 @@ pub fn run_content_process(token: String) {
         },
     }
 }
-
 #[cfg(all(
     not(target_os = "windows"),
     not(target_os = "ios"),
@@ -1246,7 +1148,6 @@ fn create_sandbox() {
         .activate()
         .expect("Failed to activate sandbox!");
 }
-
 #[cfg(any(
     target_os = "windows",
     target_os = "ios",
@@ -1258,20 +1159,16 @@ fn create_sandbox() {
 fn create_sandbox() {
     panic!("Sandboxing is not supported on Windows, iOS, ARM targets and android.");
 }
-
 struct DefaultEventLoopWaker;
-
 impl EventLoopWaker for DefaultEventLoopWaker {
     fn clone_box(&self) -> Box<dyn EventLoopWaker> {
         Box::new(DefaultEventLoopWaker)
     }
 }
-
 #[cfg(feature = "webxr")]
 struct DefaultWebXrRegistry;
 #[cfg(feature = "webxr")]
 impl webxr::WebXrRegistry for DefaultWebXrRegistry {}
-
 pub struct ServoBuilder {
     opts: Option<Box<Opts>>,
     preferences: Option<Box<Preferences>>,
@@ -1281,7 +1178,6 @@ pub struct ServoBuilder {
     #[cfg(feature = "webxr")]
     webxr_registry: Box<dyn webxr::WebXrRegistry>,
 }
-
 impl Default for ServoBuilder {
     fn default() -> Self {
         Self {
@@ -1299,44 +1195,36 @@ impl Default for ServoBuilder {
         }
     }
 }
-
 impl ServoBuilder {
     pub fn build(self) -> Servo {
         Servo::new(self)
     }
-
     pub fn opts(mut self, opts: Opts) -> Self {
         self.opts = Some(Box::new(opts));
         self
     }
-
     pub fn preferences(mut self, preferences: Preferences) -> Self {
         self.preferences = Some(Box::new(preferences));
         self
     }
-
     pub fn event_loop_waker(mut self, event_loop_waker: Box<dyn EventLoopWaker>) -> Self {
         self.event_loop_waker = event_loop_waker;
         self
     }
-
     pub fn protocol_registry(mut self, protocol_registry: ProtocolRegistry) -> Self {
         self.protocol_registry = protocol_registry;
         self
     }
-
     pub fn hppr_home_target(mut self, target: embedder_traits::HpprViaSpec) -> Self {
         self.hppr_home_target = target;
         self
     }
-
     #[cfg(feature = "webxr")]
     pub fn webxr_registry(mut self, webxr_registry: Box<dyn webxr::WebXrRegistry>) -> Self {
         self.webxr_registry = webxr_registry;
         self
     }
 }
-
 fn register_system_memory_reporter_for_event_loop(
     new_event_loop_info: &NewScriptEventLoopProcessInfo,
 ) {

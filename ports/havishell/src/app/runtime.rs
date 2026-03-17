@@ -1,6 +1,25 @@
 use super::*;
 
-pub(super) fn write_state_file(lines: &[(&str, String)]) {
+pub(super) fn included_state_entries() -> Vec<(String, String)> {
+    let Ok(include) = std::env::var("HAVI_INCLUDE_STATE") else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for key in include.split(',') {
+        if key.is_empty() {
+            continue;
+        }
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                out.push((key.to_string(), value));
+            }
+        }
+    }
+    out
+}
+
+pub(super) fn write_state_file(lines: &[(String, String)]) {
     let Some(socket_path) = makepad_widgets::makepad_platform::single_instance::app_socket_path() else {
         return;
     };
@@ -24,79 +43,6 @@ pub(super) fn remove_state_file() {
     };
     let state_path = std::path::PathBuf::from(format!("{}.state", socket_path.display()));
     let _ = std::fs::remove_file(state_path);
-}
-
-/// GL_TEXTURE_RECTANGLE constant (macOS CGL/IOSurface textures).
-const GL_TEXTURE_RECTANGLE: u32 = 0x84F5;
-
-/// Build platform display info for WebGL from the GL render bridge.
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
-fn build_display_info(
-    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
-) -> servo::gl_device::egl::EglDisplayInfo {
-    let egl_gpa: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void =
-        unsafe { std::mem::transmute(bridge.get_proc_address("eglGetProcAddress")) };
-    servo::gl_device::egl::EglDisplayInfo {
-        display: bridge.egl_display(),
-        config: bridge.egl_config(),
-        share_context: bridge.egl_context(),
-        get_proc_address: egl_gpa,
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn build_display_info(
-    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
-) -> servo::gl_device::cgl::CglDisplayInfo {
-    servo::gl_device::cgl::CglDisplayInfo {
-        pixel_format: bridge.cgl_pixel_format(),
-        share_context: bridge.cgl_context(),
-    }
-}
-
-#[cfg(target_os = "ios")]
-fn build_display_info(
-    bridge: &makepad_widgets::makepad_platform::gl_render_bridge::GlRenderBridge,
-) -> servo::gl_device::eagl::EaglDisplayInfo {
-    servo::gl_device::eagl::EaglDisplayInfo {
-        share_context: bridge.eagl_context(),
-        opengles_framework: bridge.opengles_framework(),
-    }
-}
-
-/// Create a rendering context for Servo's internal pipeline.
-/// With direct Makepad rendering, we don't use the GL output, but Servo
-/// still requires a RenderingContext for pipeline creation.
-fn create_rendering_context(
-    cx: &mut Cx,
-    size: dpi::PhysicalSize<u32>,
-) -> Result<Rc<servo::MakepadRenderingContext>, servo::rendering_context::Error> {
-    let bridge = cx.create_gl_render_bridge();
-    bridge.make_current();
-
-    let display_info = Some(build_display_info(&bridge));
-
-    let gl_api = match bridge.gl_api() {
-        GlApi::GL => servo::gl_device::GlApi::GL,
-        GlApi::GLES => servo::gl_device::GlApi::GLES,
-    };
-    let texture_target = match bridge.gl_api() {
-        GlApi::GL => GL_TEXTURE_RECTANGLE,
-        GlApi::GLES => 0x0DE1, // GL_TEXTURE_2D
-    };
-
-    let rc = unsafe {
-        servo::MakepadRenderingContext::new_from_loader(
-            size,
-            &|name| bridge.get_proc_address(name) as *const std::ffi::c_void,
-            gl_api,
-            texture_target,
-            display_info,
-        )
-    }?;
-    cx.restore_gl_context();
-
-    Ok(Rc::new(rc))
 }
 
 impl App {
@@ -138,18 +84,6 @@ impl App {
         let width = ((inner.x * self.dpi_factor) as u32).max(64);
         let height = ((inner.y * self.dpi_factor) as u32).max(64);
         self.content_size = (width as usize, height as usize);
-
-        // Create rendering context + texture via the unified GL render bridge.
-        let rendering_context = {
-            let size = dpi::PhysicalSize::new(width, height);
-            match create_rendering_context(cx, size) {
-                Ok(result) => Some(result),
-                Err(e) => {
-                    log!("[havishell] FAILED to create rendering context: {:?}", e);
-                    return;
-                },
-            }
-        };
 
         #[cfg(target_os = "android")]
         {
@@ -390,7 +324,6 @@ impl App {
         servo.setup_logging();
 
         self.servo = Some(servo);
-        self.rendering_context = rendering_context;
 
         // Step 5: Create first WebView or show splash screen.
         if pylon_mode == PylonMode::None {
@@ -422,15 +355,9 @@ impl App {
                 .set_text(cx, &self.start_url);
             self.sync_toolbar_state(cx);
 
-            let mut state = Vec::new();
-            if let Ok(socket) = std::env::var("HAVI_MAKEPAD_SOCKET") {
-                if !socket.is_empty() {
-                    println!("HAVI_MAKEPAD_SOCKET={}", socket);
-                    state.push(("HAVI_MAKEPAD_SOCKET", socket));
-                }
-            }
+            let mut state = included_state_entries();
             if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                state.push(("HAVI_DEVTOOLS", bind));
+                state.push(("HAVI_DEVTOOLS".to_string(), bind));
             }
             write_state_file(&state);
         } else {
@@ -488,41 +415,53 @@ impl App {
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
 
-        // Control mode: stdin/stdout JSON protocol.
+        // Control mode. KEEP existing stdin/stdout behavior when
+        // HAVI_MAKEPAD_EVENTS is set. Add optional single-controller connect
+        // mode through MAKEPAD_CONNECT.
         // Skip when running inside Makepad Studio's RunView — stdin is already
         // used by the Studio WebSocket protocol.
-        if std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() && !cx.in_makepad_studio {
-            Cx::set_studio_stdout_mode(true);
-            cx.in_makepad_studio = true;
-
-            let (tx, rx) = mpsc::channel();
-            Cx::set_control_channel(rx);
-            std::thread::spawn(move || {
-                use std::io::BufRead;
-                let stdin = std::io::stdin();
-                let reader = std::io::BufReader::new(stdin.lock());
-                for line in reader.lines() {
-                    let Ok(line) = line else { break };
-                    if line.is_empty() {
-                        continue;
-                    }
-                    match StudioToApp::deserialize_json(&line) {
-                        Ok(msg) => {
-                            if tx.send(msg).is_err() {
-                                break;
-                            }
-                            SignalToUI::set_ui_signal();
-                        },
-                        Err(e) => {
-                            eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
-                        },
+        if !cx.in_makepad_studio {
+            if let Ok(addr) = std::env::var("MAKEPAD_CONNECT") {
+                if !addr.is_empty() {
+                    if let Err(err) = Cx::connect_studio_tcp(&addr) {
+                        eprintln!("[havi-makepad-connect] {err}");
+                    } else {
+                        cx.in_makepad_studio = true;
                     }
                 }
-            });
+            } else if std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() {
+                Cx::set_studio_stdout_mode(true);
+                cx.in_makepad_studio = true;
 
-            use std::io::Write;
-            let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
-            let _ = std::io::stdout().flush();
+                let (tx, rx) = mpsc::channel();
+                Cx::set_control_channel(rx);
+                std::thread::spawn(move || {
+                    use std::io::BufRead;
+                    let stdin = std::io::stdin();
+                    let reader = std::io::BufReader::new(stdin.lock());
+                    for line in reader.lines() {
+                        let Ok(line) = line else { break };
+                        if line.is_empty() {
+                            continue;
+                        }
+                        match StudioToApp::deserialize_json(&line) {
+                            Ok(msg) => {
+                                if tx.send(msg).is_err() {
+                                    break;
+                                }
+                                SignalToUI::set_ui_signal();
+                            },
+                            Err(e) => {
+                                eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
+                            },
+                        }
+                    }
+                });
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
+                let _ = std::io::stdout().flush();
+            }
         }
     }
 

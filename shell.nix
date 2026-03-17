@@ -5,7 +5,7 @@
   buildAndroid ? false
 }:
 with import (builtins.fetchTarball {
-  # NixOS users: if servoshell crashes with an assertion failure in surfman’s x11/connection.rs,
+  # NixOS users: if the shell crashes with an assertion failure in surfman’s x11/connection.rs,
   # eglInitialize() may be failing, or you may be building with an incompatible version of glibc.
   # Use your system nixpkgs here, change `llvmPackages` below if necessary, then do a clean build.
   url = "https://github.com/NixOS/nixpkgs/archive/ffbc9f8cbaacfb331b6017d5a5abb21a492c9a38.tar.gz";

@@ -428,8 +428,13 @@ class CommandBase(object):
             response = urllib.request.urlopen(req).read()
             tree = XML(response)
             namespaces = {"ns": tree.tag[1 : tree.tag.index("}")]}
-            # pyrefly: ignore  # missing-attribute
-            file_to_download = tree.find("ns:Contents", namespaces).find("ns:Key", namespaces).text
+            contents = tree.find("ns:Contents", namespaces)
+            if contents is None:
+                raise AttributeError
+            key = contents.find("ns:Key", namespaces)
+            if key is None or key.text is None:
+                raise AttributeError
+            file_to_download = key.text
         except urllib.error.URLError as e:
             print("Could not fetch the available nightly versions from the repository : {}".format(e.reason))
             sys.exit(1)
@@ -447,7 +452,6 @@ class CommandBase(object):
         nightly_target_directory = path.join(self.context.topdir, "target")
         # ':' is not an authorized character for a file name on Windows
         # make sure the OS specific separator is used
-        # pyrefly: ignore  # missing-attribute
         target_file_path = file_to_download.replace(":", "-").split("/")
         destination_file = os.path.join(nightly_target_directory, os.path.join(*target_file_path))
         # Once extracted, the nightly folder name is the tar name without the extension
@@ -465,8 +469,8 @@ class CommandBase(object):
             print("The nightly file {} has already been downloaded.".format(destination_file))
         else:
             print("The nightly {} does not exist yet, downloading it.".format(destination_file))
-            # pyrefly: ignore  # no-matching-overload
-            download_file(destination_file, NIGHTLY_REPOSITORY_URL + file_to_download, destination_file)
+            download_url = NIGHTLY_REPOSITORY_URL + file_to_download
+            download_file(destination_file, download_url, destination_file)
 
         # Extract the downloaded nightly version
         if os.path.isdir(destination_folder):
@@ -493,7 +497,7 @@ class CommandBase(object):
 
                 # FIXME: This is necessary to run unit tests, because they depend on dylibs from the
                 # GStreamer distribution (such as harfbuzz), but we only modify the rpath of the
-                # target binary (servoshell / libsimpleservo).
+                # target shell binary.
                 if platform.is_macos:
                     util.prepend_paths_to_env(env, "DYLD_FALLBACK_LIBRARY_PATH", os.path.join(gstreamer_root, "lib"))
 
@@ -869,7 +873,7 @@ class CommandBase(object):
         if "--manifest-path" not in cargo_args:
             args += [
                 "--manifest-path",
-                path.join(self.context.topdir, "ports", "servoshell", "Cargo.toml"),
+                path.join(self.context.topdir, "ports", "havishell", "Cargo.toml"),
             ]
 
         if self.target.is_cross_build():

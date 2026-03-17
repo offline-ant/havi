@@ -23,8 +23,6 @@ MACH_MODULES = [
     os.path.join("python", "servo", "bootstrap_commands.py"),
     os.path.join("python", "servo", "build_commands.py"),
     os.path.join("python", "servo", "testing_commands.py"),
-    os.path.join("python", "servo", "post_build_commands.py"),
-    os.path.join("python", "servo", "package_commands.py"),
     os.path.join("python", "servo", "devenv_commands.py"),
 ]
 

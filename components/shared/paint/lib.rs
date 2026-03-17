@@ -19,16 +19,13 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use strum::IntoStaticStr;
 use style_traits::CSSPixel;
-use gl_device::GlDisplayInfo;
 use webrender_api::FontVariation;
 
 pub mod scroll_tree;
-pub mod gl_device;
 pub mod largest_contentful_paint_candidate;
-pub mod rendering_context;
 pub mod viewport_description;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use base::generic_channel::{
     self, GenericCallback, GenericSender, GenericSharedMemory,
@@ -458,35 +455,6 @@ impl CrossProcessPaintApi {
             pipeline_id,
             source,
         ));
-    }
-}
-
-/// Per-painter GL display details, used to create `GlDevice` instances
-/// for WebGL context management.
-#[derive(Clone)]
-pub struct PainterGlDetails {
-    pub display_info: GlDisplayInfo,
-}
-
-/// Thread-safe map of `PainterId` to `PainterGlDetails`.
-#[derive(Clone, Default)]
-pub struct PainterGlDetailsMap(Arc<Mutex<HashMap<PainterId, PainterGlDetails>>>);
-
-impl PainterGlDetailsMap {
-    pub fn get(&self, painter_id: PainterId) -> Option<PainterGlDetails> {
-        let map = self.0.lock().expect("poisoned");
-        map.get(&painter_id).cloned()
-    }
-
-    pub fn insert(&self, painter_id: PainterId, details: PainterGlDetails) {
-        let mut map = self.0.lock().expect("poisoned");
-        let existing = map.insert(painter_id, details);
-        assert!(existing.is_none())
-    }
-
-    pub fn remove(&self, painter_id: PainterId) {
-        let mut map = self.0.lock().expect("poisoned");
-        map.remove(&painter_id);
     }
 }
 

@@ -229,6 +229,6 @@ skip = [
 github = [
     "servo",
 
-    # Temporarily needed by servoshell: see root Cargo.toml
+    # Temporarily needed by legacy shell support: see root Cargo.toml
     "emilk",
 ]

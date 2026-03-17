@@ -6,15 +6,12 @@ license.workspace = true
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-
 [lib]
 name = "servo"
 path = "lib.rs"
 crate-type = ["rlib"]
-
 [features]
-# Note: Servoshell does not use the default features of libservo, so you also
-# need to add features that should be default to ports/servoshell/Cargo.toml
+# Note: Shell ports that disable libservo default features must opt into any needed features explicitly.
 default = ["clipboard", "js_jit"]
 background_hang_monitor = ["background_hang_monitor/sampler"]
 bluetooth = [
@@ -37,7 +34,6 @@ gamepad = [
 jitspew = ["script/jitspew"]
 js_backtrace = ["script/js_backtrace"]
 js_jit = ["script/js_jit"]
-
 native-bluetooth = ["bluetooth/native-bluetooth"]
 no-wgl = ["paint_api/no-wgl"]
 profilemozjs = ["script/profilemozjs"]
@@ -66,7 +62,6 @@ webxr = [
     "paint/webxr",
     "script/webxr",
 ]
-
 [dependencies]
 accesskit = { workspace = true }
 background_hang_monitor = { path = "../background_hang_monitor" }
@@ -120,29 +115,14 @@ url = { workspace = true }
 webgpu = { path = "../webgpu", optional = true }
 webrender_api = { workspace = true }
 webxr-api = { workspace = true, optional = true }
-
 [target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
 webxr = { path = "../webxr", optional = true }
-
 [target.'cfg(not(any(target_os = "android", target_env = "ohos")))'.dependencies]
 arboard = { workspace = true, optional = true }
 webxr = { path = "../webxr", features = ["glwindow", "headless"], optional = true }
-
 [target.'cfg(all(not(target_os = "windows"), not(target_os = "ios"), not(target_os = "android"), not(target_env = "ohos"), not(target_arch = "arm"), not(target_arch = "aarch64")))'.dependencies]
 gaol = "0.2.1"
-
 [target.'cfg(target_os = "windows")'.dependencies]
 webxr = { path = "../webxr", features = ["glwindow", "headless", "openxr-api"], optional = true }
-
 [dev-dependencies]
-http = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
-libservo = { path = ".", features = ["tracing"] }
-net = { path = "../net", features = ["test-util"] }
-tracing = { workspace = true }
 winit = { workspace = true }
-
-[[test]]
-name = "multiprocess"
-harness = false

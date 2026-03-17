@@ -36,7 +36,6 @@ from mach.decorators import (
 import servo.devtools_tests
 import servo.try_parser
 from servo.command_base import BuildType, CommandBase, call, check_call
-from servo.post_build_commands import PostBuildCommands
 from servo.util import delete
 
 SCRIPT_PATH = os.path.split(__file__)[0]
@@ -228,7 +227,6 @@ class MachCommands(CommandBase):
             "script_bindings",
             "selectors",
             "servo_config",
-            "servoshell",
             "servo_url",
             "storage",
             "storage_traits",
@@ -820,7 +818,7 @@ class MachCommands(CommandBase):
         args = ["-f", "tests/html/close-on-load.html"]
         if multiprocess:
             args.append("-M")
-        return PostBuildCommands(self.context)._run(servo_binary, params + args)
+        return subprocess.call([servo_binary, *(params + args)])
 
     @Command("try", description="Runs try jobs by force pushing to try branch", category="testing")
     @CommandArgument("--remote", "-r", default="origin", help="A git remote to run the try job on")

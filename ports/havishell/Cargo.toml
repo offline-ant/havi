@@ -25,7 +25,6 @@ max_log_level = ["log/release_max_level_info"]
 native-bluetooth = ["libservo/native-bluetooth"]
 profilemozjs = ["libservo/profilemozjs"]
 refcell_backtrace = ["libservo/refcell_backtrace"]
-webgpu = ["libservo/webgpu"]
 
 [dependencies]
 makepad-widgets = { path = "../../../makepad/widgets" }

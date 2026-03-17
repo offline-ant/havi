@@ -20,7 +20,6 @@ use embedder_traits::{
 use euclid::{Scale, Size2D};
 use image::RgbaImage;
 use paint_api::WebViewTrait;
-use paint_api::rendering_context::RenderingContext;
 use servo_geometry::DeviceIndependentPixel;
 use servo_url::BrowserUrl;
 use style_traits::CSSPixel;
@@ -33,7 +32,7 @@ use crate::responders::IpcResponder;
 use crate::webview_delegate::{CreateNewWebViewRequest, DefaultWebViewDelegate, WebViewDelegate};
 use crate::{
     ColorPicker, ContextMenu, EmbedderControl, InputMethodControl, SelectElement, Servo,
-    UserContentManager, WebRenderDebugOption,
+    UserContentManager,
 };
 
 pub(crate) const MINIMUM_WEBVIEW_SIZE: Size2D<i32, DevicePixel> = Size2D::new(1, 1);
@@ -43,28 +42,9 @@ pub(crate) const MINIMUM_WEBVIEW_SIZE: Size2D<i32, DevicePixel> = Size2D::new(1,
 /// considers that the webview has closed and will clean up all associated resources related
 /// to this webview.
 ///
-/// ## Rendering Model
-///
-/// Every [`WebView`] has a [`RenderingContext`](crate::RenderingContext). The embedder manages when
-/// the contents of the [`WebView`] paint to the [`RenderingContext`](crate::RenderingContext). When
-/// a [`WebView`] needs to be painted, for instance, because its contents have changed, Servo will
-/// call [`WebViewDelegate::notify_new_frame_ready`] in order to signal that it is time to repaint
-/// the [`WebView`] using [`WebView::paint`].
-///
-/// An example of how this flow might work is:
-///
-/// 1. [`WebViewDelegate::notify_new_frame_ready`] is called. The applications triggers a request
-///    to repaint the window that contains this [`WebView`].
-/// 2. During window repainting, the application calls [`WebView::paint`] and the contents of the
-///    [`RenderingContext`][crate::RenderingContext] are updated.
-/// 3. If the [`RenderingContext`][crate::RenderingContext] is double-buffered, the
-///    application then calls [`crate::RenderingContext::present()`] in order to swap the back buffer
-///    to the front, finally displaying the updated [`WebView`] contents.
-///
-/// In cases where the [`WebView`] contents have not been updated, but a repaint is necessary, for
-/// instance when repainting a window due to damage, an application may simply perform the final two
-/// steps and Servo will repaint even without first calling the
-/// [`WebViewDelegate::notify_new_frame_ready`] method.
+/// [`WebViewDelegate::notify_new_frame_ready`] tells the embedder that fresh page
+/// content is available. HAVI renders that content directly through Makepad's
+/// fragment renderer.
 #[derive(Clone)]
 pub struct WebView(Rc<RefCell<WebViewInner>>);
 
@@ -88,7 +68,6 @@ pub(crate) struct WebViewInner {
     #[cfg(feature = "gamepad")]
     pub(crate) gamepad_provider: Rc<dyn GamepadProvider>,
 
-    _rendering_context: Option<Rc<dyn RenderingContext>>,
     viewport_size: Size2D<u32, DevicePixel>,
     user_content_manager: Option<Rc<UserContentManager>>,
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
@@ -119,18 +98,10 @@ impl Drop for WebViewInner {
 impl WebView {
     pub(crate) fn new(mut builder: WebViewBuilder) -> Self {
         let servo = builder.servo;
-        let painter_id = PainterId::next();
-        if let Some(rendering_context) = builder.rendering_context.as_ref() {
-            servo
-                .paint_mut()
-                .register_rendering_context(painter_id, rendering_context.clone());
-        }
-
-        let id = WebViewId::new(painter_id);
+        let id = WebViewId::new(PainterId::next());
         let webview = Self(Rc::new(RefCell::new(WebViewInner {
             id,
             servo: servo.clone(),
-            _rendering_context: builder.rendering_context,
             viewport_size: builder.physical_size,
             delegate: builder.delegate,
             clipboard_delegate: Rc::new(DefaultClipboardDelegate),
@@ -585,14 +556,6 @@ impl WebView {
         );
     }
 
-    pub fn toggle_webrender_debugging(&self, debugging: WebRenderDebugOption) {
-        self.inner().servo.paint().toggle_webrender_debug(debugging);
-    }
-
-    pub fn capture_webrender(&self) {
-        self.inner().servo.paint().capture_webrender(self.id());
-    }
-
     pub fn toggle_sampling_profiler(&self, rate: Duration, max_duration: Duration) {
         self.inner().servo.constellation_proxy().send(
             EmbedderToConstellationMessage::ToggleProfiler(rate, max_duration),
@@ -609,7 +572,7 @@ impl WebView {
             ));
     }
 
-    /// Paint the contents of this [`WebView`] into its `RenderingContext`.
+    /// Trigger paint-side work for this [`WebView`].
     pub fn paint(&self) {
         self.inner().servo.paint().render(self.id());
     }
@@ -617,6 +580,19 @@ impl WebView {
     /// Get the [`UserContentManager`] associated with this [`WebView`].
     pub fn user_content_manager(&self) -> Option<Rc<UserContentManager>> {
         self.inner().user_content_manager.clone()
+    }
+
+    /// Asynchronously take a screenshot of the [`WebView`] contents, given a `rect` or the whole
+    /// viewport, if no `rect` is given.
+    pub fn take_screenshot(
+        &self,
+        rect: Option<WebViewRect>,
+        callback: impl FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static,
+    ) {
+        self.inner()
+            .servo
+            .paint()
+            .request_screenshot(self.id(), rect, Box::new(callback));
     }
 
     /// Evaluate the specified string of JavaScript code. Once execution is complete or an error
@@ -631,34 +607,6 @@ impl WebView {
             script.to_string(),
             Box::new(callback),
         );
-    }
-
-    /// Asynchronously take a screenshot of the [`WebView`] contents, given a `rect` or the whole
-    /// viewport, if no `rect` is given.
-    ///
-    /// This method will wait until the [`WebView`] is ready before the screenshot is taken.
-    /// This includes waiting for:
-    ///
-    ///  - all frames to fire their `load` event.
-    ///  - all render blocking elements, such as stylesheets included via the `<link>`
-    ///    element, to stop blocking the rendering.
-    ///  - all images to be loaded and displayed.
-    ///  - all web fonts are loaded.
-    ///  - the `reftest-wait` and `test-wait` classes have been removed from the root element.
-    ///  - the rendering is up-to-date
-    ///
-    /// Once all these conditions are met and the rendering does not have any pending frames
-    /// to render, the provided `callback` will be called with the results of the screenshot
-    /// operation.
-    pub fn take_screenshot(
-        &self,
-        rect: Option<WebViewRect>,
-        callback: impl FnOnce(Result<RgbaImage, ScreenshotCaptureError>) + 'static,
-    ) {
-        self.inner()
-            .servo
-            .paint()
-            .request_screenshot(self.id(), rect, Box::new(callback));
     }
 
     pub(crate) fn set_history(self, new_back_forward_list: Vec<BrowserUrl>, new_index: usize) {
@@ -781,7 +729,6 @@ impl WebViewTrait for ServoRendererWebView {
 pub struct WebViewBuilder {
     servo: Servo,
     physical_size: Size2D<u32, DevicePixel>,
-    rendering_context: Option<Rc<dyn RenderingContext>>,
     delegate: Rc<dyn WebViewDelegate>,
     url: Option<BrowserUrl>,
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
@@ -794,7 +741,6 @@ impl WebViewBuilder {
         Self {
             servo: servo.clone(),
             physical_size: Size2D::new(physical_size.width, physical_size.height),
-            rendering_context: None,
             url: None,
             hidpi_scale_factor: Scale::new(1.0),
             delegate: Rc::new(DefaultWebViewDelegate),
@@ -811,11 +757,6 @@ impl WebViewBuilder {
         let mut builder = Self::new(servo, physical_size);
         builder.create_new_webview_responder = Some(responder);
         builder
-    }
-
-    pub fn rendering_context(mut self, rendering_context: Rc<dyn RenderingContext>) -> Self {
-        self.rendering_context = Some(rendering_context);
-        self
     }
 
     pub fn delegate(mut self, delegate: Rc<dyn WebViewDelegate>) -> Self {

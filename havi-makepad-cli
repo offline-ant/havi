@@ -8,7 +8,8 @@
 Thin wrapper around makepad-ui-cli that adds HAVI-specific socket discovery
 (HAVI_MAKEPAD_SOCKET env var) and description text.
 
-Connects to the Unix domain socket created by `mach-havi run --control`.
+Connects to the Unix domain socket created automatically by desktop
+`mach-havi run`.
 Sends StudioToApp JSON lines, reads AppToStudio JSON lines.
 
 All coordinates are in Makepad window space (0,0 = top-left of window).

@@ -28,8 +28,6 @@ files = [
 directories = [
     # Test have expectations in them, causing tidy to fail.
     "./support/crown/tests",
-    # Upstream
-    "./support/android/apk",
     "./tests/wpt/harness",
     "./tests/wpt/tests",
     "./tests/wpt/mozilla/tests/mozilla/referrer-policy",

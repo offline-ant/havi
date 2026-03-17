@@ -842,23 +842,13 @@ def _run_desktop(args: argparse.Namespace) -> int:
 
     cmd = [str(binary)]
     extra = list(getattr(args, "extra", None) or [])
-    if getattr(args, "app_open", False):
+    if not getattr(args, "reuse", False):
         extra = [arg for arg in extra if arg != "--foreground"]
-    elif "--foreground" not in extra:
         extra.insert(0, "--foreground")
     if extra:
         cmd.extend(extra)
 
-    socket_path = getattr(args, "makepad_socket_path", None)
-    if socket_path:
-        env["HAVI_MAKEPAD_SOCKET"] = socket_path
-
-    return run_desktop_makepad_socket(
-        cmd,
-        env,
-        HAVI_ROOT,
-        socket_path=socket_path,
-    )
+    return run_desktop_makepad_socket(cmd, env, HAVI_ROOT)
 
 
 def _run_android(args: argparse.Namespace) -> int:
@@ -1029,12 +1019,8 @@ def run(topdir: str) -> int:
 
     # run (desktop, default)
     _add_release_flag(p_run)
-    p_run.add_argument("--foreground", action="store_true",
-                       help="Run in foreground mode (default)")
-    p_run.add_argument("--app-open", action="store_true",
-                       help="Run in app-open mode for single-instance state/app-open behavior")
-    p_run.add_argument("--makepad-socket-path", default=None,
-                       help="Explicit Unix socket path (default: random in /tmp)")
+    p_run.add_argument("--reuse", action="store_true",
+                       help="Reuse an existing single-instance app when available")
     p_run.set_defaults(func=cmd_run)
 
     # run android

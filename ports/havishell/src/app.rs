@@ -2,7 +2,6 @@ use crossbeam_channel::Sender;
 use euclid::Scale;
 use havi_protocols::credentials::global_credential_store;
 use makepad_widgets::event::VideoSource as PlatformVideoSource;
-use makepad_widgets::makepad_platform::gl_render_bridge::GlApi;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::*;
@@ -1356,8 +1355,6 @@ pub struct App {
     clipboard_state: Option<Rc<ClipboardState>>,
     #[rust]
     servo: Option<servo::Servo>,
-    #[rust]
-    rendering_context: Option<Rc<servo::MakepadRenderingContext>>,
     #[rust]
     next_frame: NextFrame,
     #[rust]

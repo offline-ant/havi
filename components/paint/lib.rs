@@ -16,7 +16,7 @@ use profile_traits::{mem, time};
 #[cfg(feature = "webxr")]
 use webxr::WebXrRegistry;
 
-pub use crate::paint::{Paint, WebRenderDebugOption};
+pub use crate::paint::Paint;
 
 #[macro_use]
 mod tracing;

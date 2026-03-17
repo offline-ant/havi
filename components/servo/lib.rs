@@ -43,10 +43,6 @@ pub use servo_media::player::context::{
 // This API should probably not be exposed in this way. Instead there should be a fully
 // fleshed out public domains API if we want to expose it.
 pub use net_traits::pub_domains::is_reg_domain;
-pub use paint::WebRenderDebugOption;
-pub use paint_api::gl_device;
-pub use paint_api::rendering_context;
-pub use paint_api::rendering_context::{MakepadRenderingContext, RenderingContext};
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
 pub use resources;

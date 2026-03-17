@@ -1298,8 +1298,7 @@ pub enum JavaScriptEvaluationError {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum ScreenshotCaptureError {
-    /// The screenshot request failed to read the screenshot image from the `WebView`'s
-    /// `RenderingContext`.
+    /// The screenshot request failed to read the screenshot image.
     CouldNotReadImage,
     /// The WebView that this screenshot request was made for no longer exists.
     WebViewDoesNotExist,

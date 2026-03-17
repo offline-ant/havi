@@ -1,23 +1,18 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
-
 //! Shared chunk reassembly logic for HPPR.
 //!
-//! Used by both the protocol handler (servoshell) and the resource thread (net)
+//! Used by both embedder protocol handlers and the resource thread (net)
 //! to fetch chunk blobs via EXCHANGE and reassemble them with ChunkLoader.
-
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use hppr_client::ViaSpec;
 use hppr_client::ExchangeItem;
 use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer};
 use hppr_packet::chunk::ChunkManifest;
 use hppr_packet::chunk_loader::{ChunkLoader, LoaderConfig};
-
 use crate::hppr_pool::HpprAsyncState;
-
 /// Batch fetch chunk blobs via EXCHANGE, then reassemble with ChunkLoader.
 ///
 /// Tries repo first, then route for missing blobs (when endpoint != repo).
@@ -31,9 +26,7 @@ pub async fn batch_reassemble_chunks(
     if all_hashes.is_empty() {
         return Ok(Vec::new());
     }
-
     let mut blobs = fetch_chunk_blobs(hppr_state, endpoint, is_repo, &all_hashes).await?;
-
     let config = LoaderConfig {
         cache_capacity: 0,
         prefetch_ahead: 0,
@@ -48,7 +41,6 @@ pub async fn batch_reassemble_chunks(
         })
         .map_err(|e| format!("chunk reassembly: {e}"))
 }
-
 /// Fetch chunk blobs by hash via EXCHANGE (repo first, route fallback).
 ///
 /// Returns a hash->data map. Auto-caches route-fetched blobs to home repo.
@@ -61,12 +53,10 @@ pub async fn fetch_chunk_blobs(
     if hashes.is_empty() {
         return Ok(HashMap::new());
     }
-
     let items: Vec<ExchangeItem> = hashes
         .iter()
         .map(|h| ExchangeItem::Need(format!("////{h}")))
         .collect();
-
     // EXCHANGE on repo
     let repo_target = &hppr_state.default_target;
     let mut repo_pooled = hppr_state
@@ -78,12 +68,10 @@ pub async fn fetch_chunk_blobs(
         .send(IoRequest::Exchange { items: items.clone() })
         .await
         .map_err(|e| format!("chunk exchange (repo): {e}"))?;
-
     let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();
     if let ResponseKind::Exchange(result) = repo_resp.kind {
         parse_exchange_into_blobs(&result.received, &mut blobs)?;
     }
-
     // Route fallback for missing hashes
     let missing: Vec<&str> = hashes
         .iter()
@@ -121,10 +109,8 @@ pub async fn fetch_chunk_blobs(
             parse_exchange_into_blobs(&result.received, &mut blobs)?;
         }
     }
-
     Ok(blobs)
 }
-
 /// Parse EXCHANGE received packets into hash -> data map.
 ///
 /// For B-type hashes, stores blob data. For P-type hashes, stores raw packet

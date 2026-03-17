@@ -14,8 +14,9 @@ All coordinates are in Makepad window space (0,0 = top-left of window).
 For webview-level interaction (JS eval, DOM, page coordinates), use
 havi-devtools-cli.
 
-Start HAVI with `./mach-havi run --makepad-socket` to enable the event socket.
-The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
+Start HAVI with `./mach-havi run` on desktop. The Makepad event socket is
+enabled automatically and the socket path is printed as
+`HAVI_MAKEPAD_SOCKET=<path>`.
 
 ## Global options
 
@@ -69,7 +70,7 @@ The socket path is printed as `HAVI_MAKEPAD_SOCKET=<path>`.
 Communication uses Makepad's `StudioToApp` / `AppToStudio` JSON
 serialization over the Unix socket. Each message is one JSON line.
 
-`mach-havi --makepad-socket` relays between the socket and HAVI's stdin/stdout.
+`mach-havi run` relays between the socket and HAVI's stdin/stdout on desktop.
 Multiple clients can connect simultaneously.
 
 ## Examples

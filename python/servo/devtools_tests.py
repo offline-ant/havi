@@ -150,19 +150,19 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def __init__(self, methodName="runTest"):
         super().__init__(methodName)
-        self.servoshell = None
+        self.browser_process = None
 
     # Watcher tests
 
     def test_watcher_returns_same_breakpoint_list_actor_every_time(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
         with Devtools.connect() as devtools:
             response1 = devtools.watcher.get_breakpoint_list_actor()
             response2 = devtools.watcher.get_breakpoint_list_actor()
             self.assertEqual(response1["breakpointList"]["actor"], response2["breakpointList"]["actor"])
 
     def test_breakpoint_pause(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/debugger/loop.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/debugger/loop.html")
         with Devtools.connect() as devtools:
             thread_actor = devtools.targets[0]["threadActor"]
             devtools.client.send_receive({"to": thread_actor, "type": "attach"})
@@ -220,7 +220,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(paused_data.get("why", {}).get("type"), "breakpoint")
 
     def test_frame_scoped_eval(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/debugger/frame_scoped.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/debugger/frame_scoped.html")
         with Devtools.connect() as devtools:
             thread_actor = devtools.targets[0]["threadActor"]
             console_actor = devtools.targets[0]["consoleActor"]
@@ -258,7 +258,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(eval_result.get("result"), 42)
 
     def test_breakpoint_at_invalid_entry_point_does_not_crash(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/debugger/loop.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/debugger/loop.html")
         with Devtools.connect() as devtools:
             breakpoint_list = devtools.watcher.get_breakpoint_list_actor()
             response = devtools.client.send_receive(
@@ -275,7 +275,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("from", response)
 
     def test_manual_pause(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/debugger/loop.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/debugger/loop.html")
         with Devtools.connect() as devtools:
             thread_actor = devtools.targets[0]["threadActor"]
             devtools.client.send_receive({"to": thread_actor, "type": "attach"})
@@ -315,7 +315,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
     # Worker script sources can be external or blob.
 
     def test_sources_list(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test.html")
         self.assert_sources_list(
             Counter(
                 [
@@ -334,39 +334,39 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_data_no_scripts(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
         self.assert_sources_list(Counter([frozen_multiset()]))
 
     # Sources list for `introductionType` = `inlineScript` and `srcScript`
 
     def test_sources_list_with_data_empty_inline_classic_script(self):
-        self.run_servoshell(url="data:text/html,<script></script>")
+        self.run_browser_process(url="data:text/html,<script></script>")
         self.assert_sources_list(Counter([frozen_multiset()]))
 
     def test_sources_list_with_data_inline_classic_script(self):
-        self.run_servoshell(url="data:text/html,<script>;</script>")
+        self.run_browser_process(url="data:text/html,<script>;</script>")
         self.assert_sources_list(
             Counter([frozen_multiset([Source("inlineScript", "data:text/html,<script>;</script>")])])
         )
 
     def test_sources_list_with_data_external_classic_script(self):
-        self.run_servoshell(url=f'data:text/html,<script src="{self.base_urls[0]}/sources/classic.js"></script>')
+        self.run_browser_process(url=f'data:text/html,<script src="{self.base_urls[0]}/sources/classic.js"></script>')
         self.assert_sources_list(
             Counter([frozen_multiset([Source("srcScript", f"{self.base_urls[0]}/sources/classic.js")])])
         )
 
     def test_sources_list_with_data_empty_inline_module_script(self):
-        self.run_servoshell(url="data:text/html,<script type=module></script>")
+        self.run_browser_process(url="data:text/html,<script type=module></script>")
         self.assert_sources_list(Counter([frozen_multiset()]))
 
     def test_sources_list_with_data_inline_module_script(self):
-        self.run_servoshell(url="data:text/html,<script type=module>;</script>")
+        self.run_browser_process(url="data:text/html,<script type=module>;</script>")
         self.assert_sources_list(
             Counter([frozen_multiset([Source("inlineScript", "data:text/html,<script type=module>;</script>")])])
         )
 
     def test_sources_list_with_data_external_module_script(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test_sources_list_with_data_external_module_script.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test_sources_list_with_data_external_module_script.html")
         self.assert_sources_list(
             Counter([frozen_multiset([Source("srcScript", f"{self.base_urls[0]}/sources/module.js")])])
         )
@@ -374,7 +374,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
     # Sources list for `introductionType` = `importedModule`
 
     def test_sources_list_with_static_import_module(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test_sources_list_with_static_import_module.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test_sources_list_with_static_import_module.html")
         self.assert_sources_list(
             Counter(
                 [
@@ -392,7 +392,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_dynamic_import_module(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test_sources_list_with_dynamic_import_module.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test_sources_list_with_dynamic_import_module.html")
         self.assert_sources_list(
             Counter(
                 [
@@ -412,7 +412,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
     # Sources list for `introductionType` = `Worker`
 
     def test_sources_list_with_classic_worker(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test_sources_list_with_classic_worker.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test_sources_list_with_classic_worker.html")
         self.assert_sources_list(
             Counter(
                 [
@@ -434,7 +434,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_module_worker(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test_sources_list_with_module_worker.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test_sources_list_with_module_worker.html")
         self.assert_sources_list(
             Counter(
                 [
@@ -457,7 +457,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
     # Sources list for `introductionType` set to values that require `displayURL` (`//# sourceURL`)
 
     def test_sources_list_with_injected_script_write_and_display_url(self):
-        self.run_servoshell(
+        self.run_browser_process(
             url='data:text/html,<script>document.write("<script>//%23 sourceURL=http://test</scr"+"ipt>")</script>'
         )
         self.assert_sources_list(
@@ -477,7 +477,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_injected_script_write_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>document.write("<script>1</scr"+"ipt>")</script>')
+        self.run_browser_process(url='data:text/html,<script>document.write("<script>1</scr"+"ipt>")</script>')
         self.assert_sources_list(
             Counter(
                 [
@@ -495,7 +495,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_sources_list_with_injected_script_append_and_display_url(self):
         script = 's=document.createElement("script");s.append("//%23 sourceURL=http://test");document.body.append(s)'
-        self.run_servoshell(url=f"data:text/html,<body><script>{script}</script>")
+        self.run_browser_process(url=f"data:text/html,<body><script>{script}</script>")
         self.assert_sources_list(
             Counter(
                 [
@@ -514,7 +514,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_sources_list_with_injected_script_append_but_no_display_url(self):
         script = 's=document.createElement("script");s.append("1");document.body.append(s)'
-        self.run_servoshell(url=f"data:text/html,<body><script>{script}</script>")
+        self.run_browser_process(url=f"data:text/html,<body><script>{script}</script>")
         self.assert_sources_list(
             Counter(
                 [
@@ -531,7 +531,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_eval_and_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>eval("//%23 sourceURL=http://test")</script>')
+        self.run_browser_process(url='data:text/html,<script>eval("//%23 sourceURL=http://test")</script>')
         self.assert_sources_list(
             Counter(
                 [
@@ -548,13 +548,13 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_eval_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>eval("1")</script>')
+        self.run_browser_process(url='data:text/html,<script>eval("1")</script>')
         self.assert_sources_list(
             Counter([frozen_multiset([Source("inlineScript", 'data:text/html,<script>eval("1")</script>')])])
         )
 
     def test_sources_list_with_debugger_eval_and_display_url(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
         with Devtools.connect() as devtools:
             console = WebConsoleActor(devtools.client, devtools.targets[0]["consoleActor"])
             evaluation_result = Future()
@@ -572,7 +572,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_sources_list_with_debugger_eval_but_no_display_url(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
         with Devtools.connect() as devtools:
             console = WebConsoleActor(devtools.client, devtools.targets[0]["consoleActor"])
             evaluation_result = Future()
@@ -588,7 +588,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assert_sources_list(Counter([frozen_multiset([])]), devtools=devtools)
 
     def test_sources_list_with_function_and_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>new Function("//%23 sourceURL=http://test")</script>')
+        self.run_browser_process(url='data:text/html,<script>new Function("//%23 sourceURL=http://test")</script>')
         self.assert_sources_list(
             Counter(
                 [
@@ -606,7 +606,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_function_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>new Function("1")</script>')
+        self.run_browser_process(url='data:text/html,<script>new Function("1")</script>')
         self.assert_sources_list(
             Counter(
                 [
@@ -621,7 +621,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_sources_list_with_javascript_url_and_display_url(self):
         # “1” prefix is a workaround for <https://github.com/servo/servo/issues/38547>
-        self.run_servoshell(
+        self.run_browser_process(
             url='data:text/html,<a href="javascript:1//%23 sourceURL=http://test"></a><script>document.querySelector("a").click()</script>'
         )
         self.assert_sources_list(
@@ -641,12 +641,12 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_javascript_url_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<a href="javascript:1"></a>')
+        self.run_browser_process(url='data:text/html,<a href="javascript:1"></a>')
         self.assert_sources_list(Counter([frozen_multiset([])]))
 
     @unittest.expectedFailure
     def test_sources_list_with_event_handler_and_display_url(self):
-        self.run_servoshell(url='data:text/html,<a onclick="//%23 sourceURL=http://test"></a>')
+        self.run_browser_process(url='data:text/html,<a onclick="//%23 sourceURL=http://test"></a>')
         self.assert_sources_list(
             Counter(
                 [
@@ -660,12 +660,12 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_event_handler_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<a onclick="1"></a>')
+        self.run_browser_process(url='data:text/html,<a onclick="1"></a>')
         self.assert_sources_list(Counter([frozen_multiset([])]))
 
     @unittest.expectedFailure
     def test_sources_list_with_dom_timer_and_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>setTimeout("//%23 sourceURL=http://test",0)</script>')
+        self.run_browser_process(url='data:text/html,<script>setTimeout("//%23 sourceURL=http://test",0)</script>')
         self.assert_sources_list(
             Counter(
                 [
@@ -680,13 +680,13 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.expectedFailure
     def test_sources_list_with_dom_timer_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<script>setTimeout("1",0)</script>')
+        self.run_browser_process(url='data:text/html,<script>setTimeout("1",0)</script>')
         self.assert_sources_list(Counter([frozen_multiset([])]))
 
     # Sources list for scripts with `displayURL` (`//# sourceURL`), despite not being required by `introductionType`
 
     def test_sources_list_with_inline_script_and_display_url(self):
-        self.run_servoshell(url="data:text/html,<script>//%23 sourceURL=http://test</script>")
+        self.run_browser_process(url="data:text/html,<script>//%23 sourceURL=http://test</script>")
         self.assert_sources_list(
             Counter(
                 [
@@ -701,7 +701,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     # Extra test case for situation where `//# sourceURL` can’t be parsed with page url as base.
     def test_sources_list_with_inline_script_but_invalid_display_url(self):
-        self.run_servoshell(url="data:text/html,<script>//%23 sourceURL=test</script>")
+        self.run_browser_process(url="data:text/html,<script>//%23 sourceURL=test</script>")
         self.assert_sources_list(
             Counter(
                 [
@@ -715,7 +715,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_sources_list_with_inline_script_but_no_display_url(self):
-        self.run_servoshell(url="data:text/html,<script>1</script>")
+        self.run_browser_process(url="data:text/html,<script>1</script>")
         self.assert_sources_list(
             Counter(
                 [
@@ -732,7 +732,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.expectedFailure
     def test_sources_list_with_iframe_srcdoc_and_display_url(self):
-        self.run_servoshell(url='data:text/html,<iframe srcdoc="<script>//%23 sourceURL=http://test</script>">')
+        self.run_browser_process(url='data:text/html,<iframe srcdoc="<script>//%23 sourceURL=http://test</script>">')
         self.assert_sources_list(
             Counter(
                 [
@@ -747,7 +747,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.expectedFailure
     def test_sources_list_with_iframe_srcdoc_but_no_display_url(self):
-        self.run_servoshell(url='data:text/html,<iframe srcdoc="<script>1</script>">')
+        self.run_browser_process(url='data:text/html,<iframe srcdoc="<script>1</script>">')
         self.assert_sources_list(
             Counter(
                 [
@@ -763,7 +763,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.expectedFailure
     def test_sources_list_with_iframe_srcdoc_multiple_inline_scripts(self):
-        self.run_servoshell(
+        self.run_browser_process(
             url='data:text/html,<iframe srcdoc="<script>//%23 sourceURL=http://test</script><script>2</script>">'
         )
         self.assert_sources_list(
@@ -784,21 +784,21 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_source_content_inline_script(self):
         script_tag = "<script>console.log('Hello, world!')</script>"
-        self.run_servoshell(url=f"data:text/html,{script_tag}")
+        self.run_browser_process(url=f"data:text/html,{script_tag}")
         self.assert_source_content(Source("inlineScript", f"data:text/html,{script_tag}"), script_tag)
 
     def test_source_content_external_script(self):
-        self.run_servoshell(url=f'data:text/html,<script src="{self.base_urls[0]}/sources/classic.js"></script>')
+        self.run_browser_process(url=f'data:text/html,<script src="{self.base_urls[0]}/sources/classic.js"></script>')
         expected_content = 'console.log("external classic");\n'
         self.assert_source_content(Source("srcScript", f"{self.base_urls[0]}/sources/classic.js"), expected_content)
 
     def test_source_content_html_file(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources/test.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources/test.html")
         expected_content = open(self.get_test_path("sources/test.html")).read()
         self.assert_source_content(Source("inlineScript", f"{self.base_urls[0]}/sources/test.html"), expected_content)
 
     def test_source_content_with_inline_module_import_external(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources_content_with_inline_module_import_external/test.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources_content_with_inline_module_import_external/test.html")
         path = "sources_content_with_inline_module_import_external/test.html"
         expected_content = open(self.get_test_path(path)).read()
         self.assert_source_content(Source("inlineScript", f"{self.base_urls[0]}/{path}"), expected_content)
@@ -807,34 +807,34 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
     # (innerHTML has a fast path for values that don’t contain b'&' | b'\0' | b'<' | b'\r')
     def test_source_content_inline_script_with_inner_html(self):
         script_tag = '<div id="el"></div><script>el.innerHTML="<p>test"</script>'
-        self.run_servoshell(url=f"data:text/html,{script_tag}")
+        self.run_browser_process(url=f"data:text/html,{script_tag}")
         self.assert_source_content(Source("inlineScript", f"data:text/html,{script_tag}"), script_tag)
 
     # Test case that uses outerHTML and would actually need the HTML parser
     # (innerHTML has a fast path for values that don’t contain b'&' | b'\0' | b'<' | b'\r')
     def test_source_content_inline_script_with_outer_html(self):
         script_tag = '<div id="el"></div><script>el.outerHTML="<p>test"</script>'
-        self.run_servoshell(url=f"data:text/html,{script_tag}")
+        self.run_browser_process(url=f"data:text/html,{script_tag}")
         self.assert_source_content(Source("inlineScript", f"data:text/html,{script_tag}"), script_tag)
 
     # Test case that uses DOMParser and would actually need the HTML parser
     # (innerHTML has a fast path for values that don’t contain b'&' | b'\0' | b'<' | b'\r')
     def test_source_content_inline_script_with_domparser(self):
         script_tag = '<script>(new DOMParser).parseFromString("<p>test","text/html")</script>'
-        self.run_servoshell(url=f"data:text/html,{script_tag}")
+        self.run_browser_process(url=f"data:text/html,{script_tag}")
         self.assert_source_content(Source("inlineScript", f"data:text/html,{script_tag}"), script_tag)
 
     # Test case that uses XMLHttpRequest#responseXML and would actually need the HTML parser
     # (innerHTML has a fast path for values that don’t contain b'&' | b'\0' | b'<' | b'\r')
     def test_source_content_inline_script_with_responsexml(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources_content_with_responsexml/test.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources_content_with_responsexml/test.html")
         expected_content = open(self.get_test_path("sources_content_with_responsexml/test.html")).read()
         self.assert_source_content(
             Source("inlineScript", f"{self.base_urls[0]}/sources_content_with_responsexml/test.html"), expected_content
         )
 
     def test_source_breakable_lines_and_positions(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test.html")
         self.assert_source_breakable_lines_and_positions(
             Source("inlineScript", f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test.html"),
             [4, 5, 6, 7],
@@ -847,7 +847,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_source_breakable_lines_and_positions_with_functions(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test_with_functions.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test_with_functions.html")
         self.assert_source_breakable_lines_and_positions(
             Source(
                 "inlineScript", f"{self.base_urls[0]}/sources_breakable_lines_and_positions/test_with_functions.html"
@@ -864,7 +864,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_console_log_object_with_object_preview(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/console/log_object.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/console/log_object.html")
 
         result = self.evaluate_and_capture_console_log_output("log_object();")["arguments"][0]
 
@@ -898,13 +898,13 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_console_log_booleans(self):
         script_tag = "<script>let log_booleans = () => console.log(true, false, !false, !true);</script>"
-        self.run_servoshell(url=f"data:text/html,{script_tag}")
+        self.run_browser_process(url=f"data:text/html,{script_tag}")
 
         result = self.evaluate_and_capture_console_log_output("log_booleans();")
         self.assertEquals(result["arguments"], [True, False, True, False])
 
     def test_inspector_event_listeners(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/event_listeners.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/inspector/event_listeners.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -919,7 +919,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assert_event_listeners(div, None, devtools)
 
     def test_inspector_attribute_modifications_affect_dom(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -957,7 +957,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEquals(walker.children(body)[0]["attrs"], [{"name": "foo", "value": "baz"}])
 
     def test_inspector_notices_attribute_mutation_from_javascript(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -996,7 +996,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_console_actor_can_handle_self_referential_objects(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
 
         js = open(self.get_test_path("console/log_object_containing_itself.js")).read()
         self.evaluate_and_capture_console_log_output(js)
@@ -1006,7 +1006,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         # a console notification (meaning we got *something*).
 
     def test_console_actor_log_window_object(self):
-        self.run_servoshell(url="data:text/html,")
+        self.run_browser_process(url="data:text/html,")
 
         self.evaluate_and_capture_console_log_output("console.log(window);")
 
@@ -1015,7 +1015,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         # a console notification (meaning we got *something*).
 
     def test_inspector_doesnt_crash_when_attribute_on_element_it_doesnt_know_about_is_mutated(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/inspector/demo_dom.html")
         with Devtools.connect() as devtools:
             inspector = InspectorActor(devtools.client, devtools.targets[0]["inspectorActor"])
             walker = WalkerActor(devtools.client, inspector.get_walker()["actor"])
@@ -1052,7 +1052,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
         # pipelines and script threads. It does not exercise the full exchange of messages required
         # for the Firefox toolbox to successfully refresh its inspector panel.
 
-        self.run_servoshell(url=f"{self.base_urls[0]}/tab/page1.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/tab/page1.html")
         with Devtools.connect() as devtools:
             nav_done = Future()
 
@@ -1088,7 +1088,7 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEquals(title_node["node"]["inlineTextChild"].get("nodeValue"), "Page 2")
 
     def test_navigation(self):
-        self.run_servoshell(url=f"{self.base_urls[0]}/tab/page1.html")
+        self.run_browser_process(url=f"{self.base_urls[0]}/tab/page1.html")
         with Devtools.connect() as devtools:
             for message_data, target_path in [
                 ({"type": "navigateTo", "url": f"{self.base_urls[0]}/tab/page2.html"}, "/tab/page2.html"),
@@ -1148,13 +1148,13 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
             thread.start()
         cls.base_urls = [base_url.result(1) for base_url in base_urls]
 
-    # Sets `servoshell`.
-    def run_servoshell(self, *, url):
+    # Sets `browser_process`.
+    def run_browser_process(self, *, url):
         # Change this setting if you want to debug Servo.
         os.environ["RUST_LOG"] = "error,devtools=warn"
 
-        # Run servoshell.
-        self.servoshell = subprocess.Popen([f"{DevtoolsTests.servo_binary}", "--headless", "--devtools=6080", url])
+        # Run the browser process.
+        self.browser_process = subprocess.Popen([f"{DevtoolsTests.servo_binary}", "--headless", "--devtools=6080", url])
 
         sleep_per_try = 1 / 8  # seconds
         remaining_tries = 5 / sleep_per_try  # 5 seconds
@@ -1174,15 +1174,15 @@ class DevtoolsTests(unittest.IsolatedAsyncioTestCase):
                 continue
 
     def tearDown(self):
-        # Terminate servoshell, but do not stop the web servers.
-        if self.servoshell is not None:
-            self.servoshell.terminate()
+        # Terminate the browser process, but do not stop the web servers.
+        if self.browser_process is not None:
+            self.browser_process.terminate()
             try:
-                self.servoshell.wait(timeout=3)
+                self.browser_process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                print("Warning: servoshell did not terminate", file=sys.stderr)
-                self.servoshell.kill()
-            self.servoshell = None
+                print("Warning: browser process did not terminate", file=sys.stderr)
+                self.browser_process.kill()
+            self.browser_process = None
 
     @classmethod
     def tearDownClass(cls):

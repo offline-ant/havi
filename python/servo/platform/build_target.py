@@ -6,7 +6,6 @@
 # <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 # option. This file may not be copied, modified, or distributed
 # except according to those terms.
-
 from typing import TypeGuard
 import errno
 import json
@@ -17,41 +16,30 @@ import shutil
 import subprocess
 import sys
 from enum import Enum
-
 from os import path
 from packaging.version import parse as parse_version
 from typing import Any, Optional
-
 import servo.platform
 import servo.util as util
-
-
 class SanitizerKind(Enum):
     NONE = 0
     ASAN = 1
     TSAN = 2
-
     # Apparently enums don't always compare across modules, so we define
     # helper methods.
     def is_asan(self) -> bool:
         return self is self.ASAN
-
     def is_tsan(self) -> bool:
         return self is self.TSAN
-
     # Returns true if no sanitizer is enabled.
     def is_none(self) -> bool:
         return self is self.NONE
-
     # Returns true if a sanitizer is enabled.
     def is_some(self) -> bool:
         return not self.is_none()
-
-
 class BuildTarget(object):
     def __init__(self, target_triple: str) -> None:
         self.target_triple = target_triple
-
     @staticmethod
     def from_triple(target_triple: Optional[str]) -> "BuildTarget":
         host_triple = servo.platform.host_triple()
@@ -63,31 +51,21 @@ class BuildTarget(object):
             elif target_triple != host_triple:
                 raise Exception(f"Unknown build target {target_triple}")
         return BuildTarget(host_triple)
-
     def triple(self) -> str:
         return self.target_triple
-
     def binary_name(self) -> str:
         return f"havi{servo.platform.get().executable_suffix()}"
-
     def configure_build_environment(self, env: dict[str, str], config: dict[str, Any], topdir: pathlib.Path) -> None:
         pass
-
     def is_cross_build(self) -> bool:
         return False
-
     def needs_packaging(self) -> bool:
         return False
-
-
 class CrossBuildTarget(BuildTarget):
     def is_cross_build(self) -> bool:
         return True
-
-
 class AndroidTarget(CrossBuildTarget):
     DEFAULT_TRIPLE = "aarch64-linux-android"
-
     def ndk_configuration(self) -> dict[str, str]:
         target = self.triple()
         config = {}
@@ -122,22 +100,18 @@ class AndroidTarget(CrossBuildTarget):
             config["toolchain_name"] = "x86_64-linux-android30"
         else:
             raise Exception(f"Unknown android target {target}")
-
         return config
-
     def configure_build_environment(self, env: dict[str, str], config: dict[str, Any], topdir: pathlib.Path) -> None:
         # Paths to Android build tools:
         if config["android"]["sdk"]:
             env["ANDROID_SDK_ROOT"] = config["android"]["sdk"]
         if config["android"]["ndk"]:
             env["ANDROID_NDK_ROOT"] = config["android"]["ndk"]
-
         toolchains = path.join(topdir, "android-toolchains")
         for kind in ["sdk", "ndk"]:
             default = os.path.join(toolchains, kind)
             if os.path.isdir(default):
                 env.setdefault(f"ANDROID_{kind.upper()}_ROOT", default)
-
         if "IN_NIX_SHELL" in env and ("ANDROID_NDK_ROOT" not in env or "ANDROID_SDK_ROOT" not in env):
             print("Please set SERVO_ANDROID_BUILD=1 when starting the Nix shell to include the Android SDK/NDK.")
             sys.exit(1)
@@ -147,14 +121,11 @@ class AndroidTarget(CrossBuildTarget):
         if "ANDROID_SDK_ROOT" not in env:
             print("Please set the ANDROID_SDK_ROOT environment variable.")
             sys.exit(1)
-
         ndk_configuration = self.ndk_configuration()
         android_platform = ndk_configuration["platform"]
         android_toolchain_name = ndk_configuration["toolchain_name"]
         android_lib = ndk_configuration["lib"]
-
         android_api = android_platform.replace("android-", "")
-
         # Check if the NDK version is 28
         if not os.path.isfile(path.join(env["ANDROID_NDK_ROOT"], "source.properties")):
             print("ANDROID_NDK should have file `source.properties`.")
@@ -165,16 +136,13 @@ class AndroidTarget(CrossBuildTarget):
             if lines[1].split(" = ")[1].split(".")[0] != "28":
                 print("Servo currently only supports NDK r28.")
                 sys.exit(1)
-
         # Android builds also require having the gcc bits on the PATH and various INCLUDE
         # path munging if you do not want to install a standalone NDK. See:
         # https://dxr.mozilla.org/mozilla-central/source/build/autoconf/android.m4#139-161
         os_type = platform.system().lower()
         if os_type not in ["linux", "darwin"]:
             raise Exception("Android cross builds are only supported on Linux and macOS.")
-
         llvm_prebuilt = path.join(env["ANDROID_NDK_ROOT"], "toolchains", "llvm", "prebuilt")
-
         cpu_type = platform.machine().lower()
         host_suffix = "unknown"
         if cpu_type in ["i386", "i486", "i686", "i768", "x86"]:
@@ -195,16 +163,12 @@ class AndroidTarget(CrossBuildTarget):
                 print("Please open an issue with the above information")
                 raise Exception("Can't determine LLVM prebuilt directory.")
         host = os_type + "-" + host_suffix
-
         host_cc = env.get("HOST_CC") or shutil.which("clang")
         host_cxx = env.get("HOST_CXX") or shutil.which("clang++")
-
         llvm_toolchain = path.join(llvm_prebuilt, host)
         env["PATH"] = env["PATH"] + ":" + path.join(llvm_toolchain, "bin")
-
         def to_ndk_bin(prog: str) -> str:
             return path.join(llvm_toolchain, "bin", prog)
-
         # This workaround is due to an issue in the x86_64 Android NDK that introduces
         # an undefined reference to the symbol '__extendsftf2'.
         # See https://github.com/termux/termux-packages/issues/8029#issuecomment-1369150244
@@ -217,10 +181,8 @@ class AndroidTarget(CrossBuildTarget):
             ).stdout
             env["RUSTFLAGS"] = env.get("RUSTFLAGS", "")
             env["RUSTFLAGS"] += f"-C link-arg={libclangrt_filename}"
-
         assert host_cc
         assert host_cxx
-
         env["RUST_TARGET"] = self.triple()
         env["HOST_CC"] = host_cc
         env["HOST_CXX"] = host_cxx
@@ -229,20 +191,17 @@ class AndroidTarget(CrossBuildTarget):
         env["TARGET_CC"] = to_ndk_bin("clang")
         env["TARGET_CPP"] = to_ndk_bin("clang") + " -E"
         env["TARGET_CXX"] = to_ndk_bin("clang++")
-
         env["TARGET_AR"] = to_ndk_bin("llvm-ar")
         env["TARGET_RANLIB"] = to_ndk_bin("llvm-ranlib")
         env["TARGET_OBJCOPY"] = to_ndk_bin("llvm-objcopy")
         env["TARGET_YASM"] = to_ndk_bin("yasm")
         env["TARGET_STRIP"] = to_ndk_bin("llvm-strip")
         env["RUST_FONTCONFIG_DLOPEN"] = "on"
-
         env["LIBCLANG_PATH"] = path.join(llvm_toolchain, "lib")
         env["CLANG_PATH"] = to_ndk_bin("clang")
         env["BINDGEN_EXTRA_CLANG_ARGS"] = (
             f"--target={android_toolchain_name} --sysroot={path.join(llvm_toolchain, 'sysroot')}"
         )
-
         # A cheat-sheet for some of the build errors caused by getting the search path wrong...
         #
         # fatal error: 'limits' file not found
@@ -256,53 +215,41 @@ class AndroidTarget(CrossBuildTarget):
         # even for C++ builds, so the C flags need to line up with the C++ flags.
         env["TARGET_CFLAGS"] = env.get("TARGET_CFLAGS", "") + " " + "--target=" + android_toolchain_name
         env["TARGET_CXXFLAGS"] = env.get("TARGET_CXXFLAGS", "") + " " + "--target=" + android_toolchain_name
-
         # These two variables are needed for the mozjs compilation.
         env["ANDROID_API_LEVEL"] = android_api
         env["ANDROID_NDK_HOME"] = env["ANDROID_NDK_ROOT"]
-
         # The two variables set below are passed by our custom
-        # support/android/toolchain.cmake to the NDK's CMake toolchain file
+        # the Android toolchain file to the NDK's CMake toolchain file
         env["ANDROID_ABI"] = android_lib
         env["ANDROID_PLATFORM"] = android_platform
         env["NDK_CMAKE_TOOLCHAIN_FILE"] = path.join(
             env["ANDROID_NDK_ROOT"], "build", "cmake", "android.toolchain.cmake"
         )
         env["CMAKE_TOOLCHAIN_FILE"] = path.join(topdir, "support", "android", "toolchain.cmake")
-
         # Set output dir for gradle aar files
         env["AAR_OUT_DIR"] = path.join(topdir, "target", "android", "aar")
         if not os.path.exists(env["AAR_OUT_DIR"]):
             os.makedirs(env["AAR_OUT_DIR"])
-
         env["TARGET_PKG_CONFIG_SYSROOT_DIR"] = path.join(llvm_toolchain, "sysroot")
-
     def binary_name(self) -> str:
-        return "libservoshell.so"
-
+        return "libhavi.so"
     def is_cross_build(self) -> bool:
         return True
-
     def needs_packaging(self) -> bool:
         return True
-
     def get_package_path(self, build_type_directory: str) -> str:
         base_path = util.get_target_dir()
         base_path = path.join(base_path, "android", self.triple())
         apk_name = "servoapp.apk"
         return path.join(base_path, build_type_directory, apk_name)
-
-
 class OpenHarmonyTarget(CrossBuildTarget):
     DEFAULT_TRIPLE = "aarch64-unknown-linux-ohos"
-
     def configure_build_environment(self, env: dict[str, str], config: dict[str, Any], topdir: pathlib.Path) -> None:
         # Paths to OpenHarmony SDK and build tools:
         # Note: `OHOS_SDK_NATIVE` is the CMake variable name the `hvigor` build-system
         # uses for the native directory of the SDK, so we use the same name to be consistent.
         if "OHOS_SDK_NATIVE" not in env and config["ohos"]["ndk"]:
             env["OHOS_SDK_NATIVE"] = config["ohos"]["ndk"]
-
         if "OHOS_SDK_NATIVE" not in env:
             print(
                 "Please set the OHOS_SDK_NATIVE environment variable to the location of the `native` directory "
@@ -310,13 +257,10 @@ class OpenHarmonyTarget(CrossBuildTarget):
                 file=sys.stderr,
             )
             sys.exit(1)
-
         ndk_root = pathlib.Path(env["OHOS_SDK_NATIVE"])
-
         if not ndk_root.is_dir():
             print(f"OHOS_SDK_NATIVE is not set to a valid directory: `{ndk_root}`", file=sys.stderr)
             sys.exit(1)
-
         ndk_root = ndk_root.resolve()
         package_info = ndk_root.joinpath("oh-uni-package.json")
         try:
@@ -333,7 +277,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
         except (OSError, json.JSONDecodeError) as e:
             print(f"Failed to read metadata information from {package_info}", file=sys.stderr)
             print(f"Exception: {e}", file=sys.stderr)
-
         llvm_toolchain = ndk_root.joinpath("llvm")
         llvm_bin = llvm_toolchain.joinpath("bin")
         ohos_sysroot = ndk_root.joinpath("sysroot")
@@ -350,7 +293,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
         # POSIX paths, since otherwise the backslashes in windows paths may be interpreted as
         # escapes and lead to errors.
         ohos_sysroot_posix = ohos_sysroot.as_posix()
-
         # Note: We don't use the `<target_triple>-clang` wrappers on purpose, since
         # a) the OH 4.0 SDK does not have them yet AND
         # b) the wrappers in the newer SDKs are bash scripts, which can cause problems
@@ -364,7 +306,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
             if not llvm_prog.is_file():
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), llvm_prog)
             return llvm_bin.joinpath(prog).as_posix()
-
         # CC and CXX should already be set to appropriate host compilers by `build_env()`
         env["HOST_CC"] = env["CC"]
         env["HOST_CXX"] = env["CXX"]
@@ -373,7 +314,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
         env["TARGET_READELF"] = to_sdk_llvm_bin("llvm-readelf")
         env["TARGET_OBJCOPY"] = to_sdk_llvm_bin("llvm-objcopy")
         env["TARGET_STRIP"] = to_sdk_llvm_bin("llvm-strip")
-
         target_triple = self.triple()
         rust_target_triple = str(target_triple).replace("-", "_")
         ndk_clang = to_sdk_llvm_bin("clang")
@@ -387,14 +327,12 @@ class OpenHarmonyTarget(CrossBuildTarget):
         env[f"CXX_{clang_target_triple_underscore}"] = ndk_clangxx
         # rustc linker
         env[f"CARGO_TARGET_{rust_target_triple.upper()}_LINKER"] = ndk_clang
-
         link_args = [
             "-fuse-ld=lld",
             f"--target={clang_target_triple}",
             f"--sysroot={ohos_sysroot_posix}",
             "-Wl,--build-id",
         ]
-
         env["HOST_CFLAGS"] = ""
         env["HOST_CXXFLAGS"] = ""
         ohos_cflags = [
@@ -407,11 +345,9 @@ class OpenHarmonyTarget(CrossBuildTarget):
         if clang_target_triple.startswith("armv7-"):
             ohos_cflags.extend(["-march=armv7-a", "-mfloat-abi=softfp", "-mtune=generic-armv7-a", "-mthumb"])
         ohos_cflags_str = " ".join(ohos_cflags)
-
         env["TARGET_CFLAGS"] = env.get("TARGET_CFLAGS", "") + " " + ohos_cflags_str
         env["TARGET_CPPFLAGS"] = env.get("TARGET_CPPFLAGS", "") + " " + "-D__MUSL__"
         env["TARGET_CXXFLAGS"] = env.get("TARGET_CXXFLAGS", "") + " " + ohos_cflags_str
-
         # CMake related flags
         env["CMAKE"] = ndk_root.joinpath("build-tools", "cmake", "bin", "cmake").as_posix()
         cmake_toolchain_file = ndk_root.joinpath("build", "cmake", "ohos.toolchain.cmake")
@@ -423,7 +359,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
             )
         env[f"CMAKE_C_COMPILER_{rust_target_triple}"] = ndk_clang
         env[f"CMAKE_CXX_COMPILER_{rust_target_triple}"] = ndk_clangxx
-
         # pkg-config
         pkg_config_path = "{}:{}".format(
             ohos_sysroot.joinpath("usr", "lib", "pkgconfig").as_posix(),
@@ -431,7 +366,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
         )
         env[f"PKG_CONFIG_SYSROOT_DIR_{rust_target_triple}"] = ohos_sysroot_posix
         env[f"PKG_CONFIG_PATH_{rust_target_triple}"] = pkg_config_path
-
         # bindgen / libclang-sys
         env["LIBCLANG_PATH"] = path.join(llvm_toolchain, "lib")
         env["CLANG_PATH"] = ndk_clangxx
@@ -440,7 +374,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
         bindgen_extra_clangs_args = env.get(bindgen_extra_clangs_args_var, "")
         bindgen_extra_clangs_args = bindgen_extra_clangs_args + " " + ohos_cflags_str
         env[bindgen_extra_clangs_args_var] = bindgen_extra_clangs_args
-
         sanitizer: SanitizerKind = config["build"]["sanitizer"]
         san_compile_flags = []
         if sanitizer.is_some():
@@ -454,7 +387,6 @@ class OpenHarmonyTarget(CrossBuildTarget):
             # Use the clangrt from the NDK to use the same library for both C++ and Rust.
             env["RUSTFLAGS"] += " -Zexternal-clangrt"
             san_compile_flags.append("-fno-omit-frame-pointer")
-
         # On OpenHarmony we add some additional flags when asan is enabled
         if sanitizer.is_asan():
             libasan_so_path = libclang_arch.joinpath("libclang_rt.asan.so")
@@ -472,9 +404,7 @@ class OpenHarmonyTarget(CrossBuildTarget):
                     "-Wl,--no-whole-archive",
                 ]
             )
-
             san_compile_flags.extend(["-fsanitize=address", "-shared-libasan", "-fsanitize-recover=address"])
-
             arch_asan_ignore_list = lib_clang_version_dir.joinpath("share", "asan_ignorelist.txt")
             if arch_asan_ignore_list.exists():
                 san_compile_flags.append("-fsanitize-system-ignorelist=" + str(arch_asan_ignore_list))
@@ -483,40 +413,30 @@ class OpenHarmonyTarget(CrossBuildTarget):
         elif sanitizer.is_tsan():
             libtsan_so_path = libclang_arch.joinpath("libclang_rt.tsan.so")
             builtins_path = libclang_arch.joinpath("libclang_rt.builtins.a")
-
             link_args.extend(
                 ["-fsanitize=thread", "--rtlib=compiler-rt", "-shared-libsan", str(libtsan_so_path), str(builtins_path)]
             )
             san_compile_flags.append("-shared-libsan")
-
         link_args = [f"-Clink-arg={arg}" for arg in link_args]
         env["RUSTFLAGS"] += " " + " ".join(link_args)
         env["TARGET_CFLAGS"] += " " + " ".join(san_compile_flags)
         env["TARGET_CXXFLAGS"] += " " + " ".join(san_compile_flags)
-
     def binary_name(self) -> str:
-        return "libservoshell.so"
-
+        return "libhavi.so"
     def needs_packaging(self) -> bool:
         return True
-
     def get_package_path(self, build_type_directory: str, flavor: Optional[str] = None) -> str:
         base_path = util.get_target_dir()
         base_path = path.join(base_path, "openharmony", self.triple())
-        hap_name = "servoshell-default-signed.hap"
+        hap_name = "havi-default-signed.hap"
         if not flavor:
             flavor = "default"
         build_output_path = path.join("entry", "build", flavor, "outputs", "default")
         return path.join(base_path, build_type_directory, build_output_path, hap_name)
-
     def abi_string(self) -> str:
         abi_map = {"aarch64-unknown-linux-ohos": "arm64-v8a", "x86_64-unknown-linux-ohos": "x86_64"}
         return abi_map[self.triple()]
-
-
 def is_android(target: BuildTarget) -> TypeGuard[AndroidTarget]:
     return isinstance(target, AndroidTarget)
-
-
 def is_openharmony(target: BuildTarget) -> TypeGuard[OpenHarmonyTarget]:
     return isinstance(target, OpenHarmonyTarget)
