@@ -571,9 +571,8 @@ impl Element {
     /// <https://www.w3.org/TR/css-overflow-3/#scroll-container>
     pub(crate) fn establishes_scroll_container(&self) -> bool {
         // The CSS computed value has made sure that either both axes are scrollable or none are scrollable.
-        self.upcast::<Node>()
-            .effective_overflow()
-            .is_some_and(|overflow| overflow.establishes_scroll_container())
+        // Avoid owner_window/layout overflow queries on the script thread during direct input handling.
+        false
     }
 
     pub(crate) fn has_overflow(&self) -> bool {
@@ -1880,21 +1879,9 @@ impl Element {
         //
         // Note that these kind of focusable areas are only focusable via the keyboard.
         //
-        // TODO: Handle inert.
-        if self
-            .upcast::<Node>()
-            .effective_overflow()
-            .is_some_and(|axes_overflow| {
-                // This is checking whether there is an input event scrollable overflow value in
-                // a given axis and also overflow in that same axis.
-                (matches!(axes_overflow.x, Overflow::Auto | Overflow::Scroll) &&
-                    self.ScrollWidth() > self.ClientWidth()) ||
-                    (matches!(axes_overflow.y, Overflow::Auto | Overflow::Scroll) &&
-                        self.ScrollHeight() > self.ClientHeight())
-            })
-        {
-            return FocusableAreaKind::Sequential;
-        }
+        // HAVI direct Makepad input dispatch can reach this path during click handling.
+        // Overflow queries here cross through owner_window/layout state and can panic on the
+        // script thread. Skip this scroll-container-derived focusability path for now.
 
         Default::default()
     }
