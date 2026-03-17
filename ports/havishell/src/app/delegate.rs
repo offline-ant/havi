@@ -411,6 +411,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         });
         SignalToUI::set_ui_signal();
     }
+
 }
 
 // ---------------------------------------------------------------------------

@@ -59,19 +59,19 @@ pub struct SystemFontService {
     port: GenericReceiver<SystemFontServiceMessage>,
     local_families: FontStore,
     paint_api: CrossProcessPaintApi,
-    // keys already have the IdNamespace for webrender
-    webrender_fonts: HashMap<(FontIdentifier, PainterId), FontKey>,
+    // keys already have the render key namespace
+    font_keys_by_font_and_painter: HashMap<(FontIdentifier, PainterId), FontKey>,
     font_instances: HashMap<FontInstancesMapKey, FontInstanceKey>,
     generic_fonts: ResolvedGenericFontFamilies,
 
     /// This is an optimization that allows the [`SystemFontService`] to send font data to
-    /// `Paint` asynchronously for creating WebRender fonts, while immediately
+    /// `Paint` asynchronously for creating render font resources, while immediately
     /// returning a font key for that data. Once the free keys are exhausted, the
     /// [`SystemFontService`] will fetch a new batch.
     /// TODO: We currently do not delete the free keys if a `WebView` is removed.
     free_font_keys: FxHashMap<PainterId, Vec<FontKey>>,
 
-    /// This is an optimization that allows the [`SystemFontService`] to create WebRender font
+    /// This is an optimization that allows the [`SystemFontService`] to create render font
     /// instances in `Paint` asynchronously, while immediately returning a font
     /// instance key for the instance. Once the free keys are exhausted, the
     /// [`SystemFontService`] will fetch a new batch.
@@ -93,7 +93,7 @@ impl SystemFontService {
                     port: receiver,
                     local_families: Default::default(),
                     paint_api,
-                    webrender_fonts: HashMap::new(),
+                    font_keys_by_font_and_painter: HashMap::new(),
                     font_instances: HashMap::new(),
                     generic_fonts: Default::default(),
                     free_font_keys: Default::default(),
@@ -267,9 +267,9 @@ impl SystemFontService {
         self.fetch_font_keys_if_needed(painter_id);
 
         let paint_api = &self.paint_api;
-        let webrender_fonts = &mut self.webrender_fonts;
+        let font_keys_by_font_and_painter = &mut self.font_keys_by_font_and_painter;
 
-        let font_key = *webrender_fonts
+        let font_key = *font_keys_by_font_and_painter
             .entry((identifier.clone(), painter_id))
             .or_insert_with(|| {
                 let font_key = self

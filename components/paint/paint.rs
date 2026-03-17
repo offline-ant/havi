@@ -21,7 +21,7 @@ use image::RgbaImage;
 use ipc_channel::ipc;
 use log::{debug, warn};
 use smallvec::SmallVec;
-use paint_api::{PaintMessage, WebRenderExternalImageIdManager, WebViewTrait};
+use paint_api::{ExternalImageIdRegistry, PaintMessage, WebViewTrait};
 use profile_traits::mem::{
     ProcessReports, ProfilerRegistration, Report, ReportKind,
 };
@@ -38,6 +38,7 @@ use webrender_api::{ExternalScrollId, FontInstanceKey, FontKey, ImageKey};
 
 use crate::InitialPaintState;
 use crate::screenshot::ScreenshotTaker;
+use crate::src_bridge::ScreenshotBridge;
 use crate::touch::TouchHandler;
 
 
@@ -61,6 +62,12 @@ pub struct Paint {
     /// Current physical viewport size per webview.
     viewport_sizes: RefCell<HashMap<WebViewId, Size2D<u32, DevicePixel>>>,
 
+    /// Embedder-facing webview handles keyed by id.
+    webviews: RefCell<HashMap<WebViewId, Box<dyn WebViewTrait>>>,
+
+    /// Webviews with a newly generated frame pending embedder notification.
+    pending_frame_notifications: RefCell<FxHashSet<WebViewId>>,
+
     /// Tracks whether we are in the process of shutting down.
     shutdown_state: Rc<Cell<ShutdownState>>,
 
@@ -70,8 +77,8 @@ pub struct Paint {
     /// The channel on which messages can be sent to the constellation.
     pub(crate) embedder_to_constellation_sender: Sender<EmbedderToConstellationMessage>,
 
-    /// The [`WebRenderExternalImageIdManager`] used to generate new `ExternalImageId`s.
-    webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+    /// The [`ExternalImageIdRegistry`] used to generate new `ExternalImageId`s.
+    external_image_id_registry: ExternalImageIdRegistry,
 
     /// The channel on which messages can be sent to the time profiler.
     time_profiler_chan: profile_time::ProfilerChan,
@@ -81,6 +88,9 @@ pub struct Paint {
 
     /// Screenshot taker.
     screenshot_taker: ScreenshotTaker,
+
+    /// Shared screenshot bridge to the embedder UI.
+    screenshot_bridge: ScreenshotBridge,
 
     /// Page zoom per webview.
     page_zooms: RefCell<HashMap<WebViewId, f32>>,
@@ -128,7 +138,7 @@ impl Paint {
             PaintMessage::CollectMemoryReport,
         );
 
-        let webrender_external_image_id_manager = WebRenderExternalImageIdManager::default();
+        let external_image_id_registry = ExternalImageIdRegistry::default();
 
         // TODO: WebXR init needs rework after WebGL removal
         #[cfg(feature = "webxr")]
@@ -138,13 +148,16 @@ impl Paint {
 
         Rc::new(RefCell::new(Paint {
             viewport_sizes: Default::default(),
+            webviews: Default::default(),
+            pending_frame_notifications: Default::default(),
             shutdown_state: state.shutdown_state,
             paint_receiver: state.receiver,
             embedder_to_constellation_sender: state.embedder_to_constellation_sender.clone(),
-            webrender_external_image_id_manager,
+            external_image_id_registry,
             time_profiler_chan: state.time_profiler_chan,
             _mem_profiler_registration: registration,
             screenshot_taker: Default::default(),
+            screenshot_bridge: state.screenshot_bridge,
             page_zooms: Default::default(),
             hidpi_scale_factors: Default::default(),
             #[cfg(feature = "webxr")]
@@ -164,8 +177,8 @@ impl Paint {
         self.image_store.clone()
     }
 
-    pub fn webrender_external_image_id_manager(&self) -> WebRenderExternalImageIdManager {
-        self.webrender_external_image_id_manager.clone()
+    pub fn external_image_id_registry(&self) -> ExternalImageIdRegistry {
+        self.external_image_id_registry.clone()
     }
 
     pub fn webxr_running(&self) -> bool {
@@ -189,10 +202,6 @@ impl Paint {
         self.webgpu_image_map.get_or_init(Default::default).clone()
     }
 
-    pub fn webviews_needing_repaint(&self) -> Vec<WebViewId> {
-        // TODO(havi-render): Repaint tracking via Makepad redraw signals.
-        Vec::new()
-    }
 
     pub fn finish_shutting_down(&self) {
         while self.paint_receiver.try_recv().is_ok() {}
@@ -230,15 +239,26 @@ impl Paint {
             },
             PaintMessage::SetThrottled(..) => {},
             PaintMessage::PipelineExited(..) => {},
-            PaintMessage::ScrollNodeByDelta(..) => {
-                // TODO(havi-render): Scroll via havi-render.
-            },
-            PaintMessage::ScrollViewportByDelta(..) => {
-                // TODO(havi-render): Scroll via havi-render.
+            PaintMessage::ScrollViewportByDelta(webview_id, delta) => {
+                self.apply_scroll_delta(webview_id, delta);
             },
             PaintMessage::UpdateEpoch { .. } => {},
-            PaintMessage::GenerateFrame(..) => {
-                // TODO(havi-render): Trigger Makepad redraw.
+            PaintMessage::GenerateFrame(painter_ids) => {
+                let webviews = self.webviews.borrow();
+                let mut pending = self.pending_frame_notifications.borrow_mut();
+                for painter_id in painter_ids {
+                    let webview_ids: Vec<_> = webviews
+                        .keys()
+                        .copied()
+                        .filter(|webview_id| PainterId::from(*webview_id) == painter_id)
+                        .collect();
+                    for webview_id in webview_ids {
+                        if let Some(webview) = webviews.get(&webview_id) {
+                            webview.set_animating(true);
+                            pending.insert(webview_id);
+                        }
+                    }
+                }
             },
             PaintMessage::GenerateImageKey(webview_id, result_sender) => {
                 self.handle_generate_image_key(webview_id, result_sender);
@@ -282,9 +302,7 @@ impl Paint {
                 );
             },
             PaintMessage::Viewport(..) => {},
-            PaintMessage::ScreenshotReadinessReponse(..) => {
-                // TODO(havi-render): Wire screenshot via Makepad.
-            },
+            PaintMessage::ScreenshotReadinessReponse(..) => {},
             PaintMessage::SendLCPCandidate(..) => {},
             PaintMessage::EnableLCPCalculation(..) => {},
         }
@@ -292,10 +310,12 @@ impl Paint {
 
     pub fn remove_webview(&mut self, webview_id: WebViewId) {
         self.viewport_sizes.borrow_mut().remove(&webview_id);
+        self.webviews.borrow_mut().remove(&webview_id);
         self.page_zooms.borrow_mut().remove(&webview_id);
         self.hidpi_scale_factors.borrow_mut().remove(&webview_id);
         self.root_scroll_offsets.borrow_mut().remove(&webview_id);
         self.webview_pipelines.borrow_mut().remove(&webview_id);
+        self.screenshot_taker.fail_webview(webview_id);
         // TODO(havi-render): Clean up webview state.
     }
 
@@ -346,9 +366,11 @@ impl Paint {
         let physical_size = (viewport_details.size * viewport_details.hidpi_scale_factor)
             .to_u32()
             .cast_unit();
+        let webview_id = webview.id();
         self.viewport_sizes
             .borrow_mut()
-            .insert(webview.id(), physical_size);
+            .insert(webview_id, physical_size);
+        self.webviews.borrow_mut().insert(webview_id, webview);
         // TODO(havi-render): Register webview with Makepad renderer.
     }
 
@@ -417,9 +439,6 @@ impl Paint {
         *self.page_zooms.borrow().get(&webview_id).unwrap_or(&1.0)
     }
 
-    /// Render. TODO(havi-render): This is now a no-op; Makepad draws directly.
-    pub fn render(&self, _webview_id: WebViewId) {}
-
     /// Get the message receiver for this [`Paint`].
     pub fn receiver(&self) -> &RoutedReceiver<PaintMessage> {
         &self.paint_receiver
@@ -436,15 +455,18 @@ impl Paint {
     }
 
     #[servo_tracing::instrument(skip_all)]
-    pub fn perform_updates(&self) -> bool {
+    pub fn perform_updates(&self) -> Vec<WebViewId> {
         if self.shutdown_state() == ShutdownState::FinishedShuttingDown {
-            return false;
+            return Vec::new();
         }
+
+        self.screenshot_taker
+            .fulfill_completed(&self.screenshot_bridge);
 
         #[cfg(feature = "webxr")]
         self.webxr_main_thread.borrow_mut().run_one_frame();
 
-        self.shutdown_state() != ShutdownState::FinishedShuttingDown
+        self.pending_frame_notifications.borrow_mut().drain().collect()
     }
 
     pub fn notify_input_event(&self, _webview_id: WebViewId, event: InputEventAndId) {
@@ -508,8 +530,10 @@ impl Paint {
         let device_rect = rect.map(|r| {
             r.as_device_rect(self.device_pixels_per_page_pixel(webview_id))
         });
-        self.screenshot_taker
-            .request_screenshot(webview_id, device_rect, callback);
+        let request_id = self
+            .screenshot_taker
+            .request_screenshot(&self.screenshot_bridge, webview_id, device_rect, callback);
+        self.screenshot_bridge.push_request(request_id, webview_id);
     }
 
     pub fn notify_input_event_handled(

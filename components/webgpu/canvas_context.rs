@@ -13,7 +13,7 @@ use base::generic_channel::GenericSender;
 use euclid::default::Size2D;
 use log::warn;
 use paint_api::{
-    CrossProcessPaintApi, ExternalImageSource, SerializableImageData, WebRenderExternalImageApi,
+    CrossProcessPaintApi, ExternalImageProvider, ExternalImageSource, SerializableImageData,
 };
 use pixels::{SharedSnapshot, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use rustc_hash::FxHashMap;
@@ -321,7 +321,7 @@ impl WebGpuExternalImages {
     }
 }
 
-impl WebRenderExternalImageApi for WebGpuExternalImages {
+impl ExternalImageProvider for WebGpuExternalImages {
     fn lock(&mut self, id: u64) -> (ExternalImageSource<'_>, Size2D<i32>) {
         let id = WebGPUContextId(id);
         let presentation = {
@@ -391,7 +391,7 @@ impl PresentationStagingBuffer {
 
 /// The embedder process-side representation of what is the `GPUCanvasContext` in script.
 pub struct ContextData {
-    /// The [`ImageKey`] of the WebRender image associated with this context.
+    /// The [`ImageKey`] of the render image associated with this context.
     image_key: Option<ImageKey>,
     /// The current size of this context.
     size: DeviceIntSize,
@@ -464,7 +464,7 @@ impl ContextData {
     }
 
     /// Destroy the context that this [`ContextData`] represents,
-    /// freeing all of its buffers, and deleting the associated WebRender image.
+    /// freeing all of its buffers, and deleting the associated render image.
     fn destroy(
         mut self,
         script_sender: &GenericSender<WebGPUMsg>,
@@ -633,7 +633,7 @@ impl crate::WGPU {
     }
 
     /// Read the texture to the staging buffer, map it to CPU memory, and update the
-    /// image in WebRender when complete.
+    /// render image when complete.
     pub(crate) fn present(
         &self,
         context_id: WebGPUContextId,

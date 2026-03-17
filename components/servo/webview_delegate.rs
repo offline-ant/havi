@@ -15,8 +15,8 @@ use embedder_traits::{
     EmbedderControlResponse, FilePickerRequest, FilterPattern, HpprControlRequest,
     HpprControlResponse, InputEventId, InputEventResult, InputMethodType, LoadStatus,
     MediaSessionEvent, NewWebViewDetails, Notification, PermissionFeature, PromptResponse,
-    RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup, SimpleDialogRequest, TraversalId,
-    WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
+    RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup, SimpleDialogRequest,
+    TraversalId, WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
 };
 use dpi::PhysicalSize;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;

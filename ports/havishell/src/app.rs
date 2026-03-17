@@ -13,8 +13,8 @@ use media::ResolvedMediaAsset;
 use servo::protocol_handler::ProtocolRegistry;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::Once;
 use std::sync::mpsc;
 
@@ -1545,6 +1545,9 @@ pub struct App {
     /// Timer for splash screen timeout (3 seconds max during pylon boot).
     #[rust]
     splash_timeout: Timer,
+
+    #[rust]
+    pending_screenshot_callbacks: HashMap<u64, (WebViewId, u64)>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.

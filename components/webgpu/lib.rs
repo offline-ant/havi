@@ -15,14 +15,14 @@ mod wgpu_thread;
 
 use std::borrow::Cow;
 
-use paint_api::{CrossProcessPaintApi, WebRenderExternalImageIdManager};
+use paint_api::{CrossProcessPaintApi, ExternalImageIdRegistry};
 use servo_config::pref;
 
 pub mod canvas_context;
 
 pub fn start_webgpu_thread(
     paint_api: CrossProcessPaintApi,
-    webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+    external_image_id_registry: ExternalImageIdRegistry,
     wgpu_image_map: WebGpuExternalImageMap,
 ) -> Option<(WebGPU, GenericReceiver<WebGPUMsg>)> {
     if !pref!(dom_webgpu_enabled) {
@@ -53,7 +53,7 @@ pub fn start_webgpu_thread(
                 sender_clone,
                 script_sender,
                 paint_api,
-                webrender_external_image_id_manager,
+                external_image_id_registry,
                 wgpu_image_map,
             )
             .run();

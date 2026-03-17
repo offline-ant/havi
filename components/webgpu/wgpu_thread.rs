@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use base::generic_channel::{GenericReceiver, GenericSender, GenericSharedMemory};
 use base::id::PipelineId;
 use log::{info, warn};
-use paint_api::{CrossProcessPaintApi, WebRenderExternalImageIdManager, WebRenderImageHandlerType};
+use paint_api::{CrossProcessPaintApi, ExternalImageHandlerType, ExternalImageIdRegistry};
 use rustc_hash::FxHashMap;
 use servo_config::pref;
 use webgpu_traits::{
@@ -103,7 +103,7 @@ pub(crate) struct WGPU {
     /// (this is also reused for invalidation of command buffers)
     error_command_encoders: FxHashMap<id::CommandEncoderId, String>,
     pub(crate) paint_api: CrossProcessPaintApi,
-    pub(crate) webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+    pub(crate) external_image_id_registry: ExternalImageIdRegistry,
     pub(crate) wgpu_image_map: WebGpuExternalImageMap,
     /// Provides access to poller thread
     pub(crate) poller: Poller,
@@ -119,7 +119,7 @@ impl WGPU {
         sender: GenericSender<WebGPURequest>,
         script_sender: GenericSender<WebGPUMsg>,
         paint_api: CrossProcessPaintApi,
-        webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+        external_image_id_registry: ExternalImageIdRegistry,
         wgpu_image_map: WebGpuExternalImageMap,
     ) -> Self {
         let backend_pref = pref!(dom_webgpu_wgpu_backend);
@@ -148,7 +148,7 @@ impl WGPU {
             devices: Arc::new(Mutex::new(FxHashMap::default())),
             error_command_encoders: FxHashMap::default(),
             paint_api,
-            webrender_external_image_id_manager,
+            external_image_id_registry,
             wgpu_image_map,
             compute_passes: FxHashMap::default(),
             render_passes: FxHashMap::default(),
@@ -496,8 +496,8 @@ impl WGPU {
                         sender,
                     } => {
                         let id = self
-                            .webrender_external_image_id_manager
-                            .next_id(WebRenderImageHandlerType::WebGpu);
+                            .external_image_id_registry
+                            .next_id(ExternalImageHandlerType::WebGpu);
                         let context_id = WebGPUContextId(id.0);
 
                         if let Err(error) = sender.send(context_id) {
@@ -539,7 +539,7 @@ impl WGPU {
                     },
                     WebGPURequest::DestroyContext { context_id } => {
                         self.destroy_context(context_id);
-                        self.webrender_external_image_id_manager
+                        self.external_image_id_registry
                             .remove(&ExternalImageId(context_id.0));
                     },
                     WebGPURequest::CreateTexture {

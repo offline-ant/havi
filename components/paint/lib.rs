@@ -12,6 +12,7 @@ use constellation_traits::EmbedderToConstellationMessage;
 use crossbeam_channel::Sender;
 use embedder_traits::{EventLoopWaker, ShutdownState};
 use paint_api::{PaintMessage, PaintProxy};
+use crate::src_bridge::ScreenshotBridge;
 use profile_traits::{mem, time};
 #[cfg(feature = "webxr")]
 use webxr::WebXrRegistry;
@@ -23,6 +24,7 @@ mod tracing;
 
 mod paint;
 mod screenshot;
+pub mod src_bridge;
 mod touch;
 
 /// Data used to initialize the `Paint` subsystem.
@@ -43,6 +45,8 @@ pub struct InitialPaintState {
     /// An [`EventLoopWaker`] used in order to wake up the embedder when it is
     /// time to paint.
     pub event_loop_waker: Box<dyn EventLoopWaker>,
+    /// Shared screenshot bridge between Paint and the embedder UI.
+    pub screenshot_bridge: ScreenshotBridge,
     /// If WebXR is enabled, a [`WebXrRegistry`] to register WebXR threads.
     #[cfg(feature = "webxr")]
     pub webxr_registry: Box<dyn WebXrRegistry>,

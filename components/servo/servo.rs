@@ -53,7 +53,7 @@ use net::image_cache::ImageCacheFactoryImpl;
 use net::protocols::ProtocolRegistry;
 use net::resource_thread::new_resource_threads;
 use net_traits::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
-use paint::{InitialPaintState, Paint};
+use paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
 use paint_api::{CrossProcessPaintApi, PaintMessage, PaintProxy};
 use profile::{mem as profile_mem, system_reporter, time as profile_time};
 use profile_traits::mem::{MemoryReportResult, ProfilerMsg, Reporter};
@@ -106,6 +106,7 @@ struct ServoInner {
     /// A struct that tracks ongoing JavaScript evaluations and is responsible for
     /// calling the callback when the evaluation is complete.
     javascript_evaluator: Rc<RefCell<JavaScriptEvaluator>>,
+    screenshot_bridge: ScreenshotBridge,
     /// Tracks whether we are in the process of shutting down, or have shut down.
     /// This is shared with `WebView`s and the `ServoRenderer`.
     shutdown_state: Rc<Cell<ShutdownState>>,
@@ -159,8 +160,13 @@ impl ServoInner {
                 .borrow()
                 .notify_error(ServoError::LostConnectionWithBackend);
         }
-        self.paint.borrow_mut().perform_updates();
-        self.send_new_frame_ready_messages();
+        let webviews_needing_new_frame = self.paint.borrow_mut().perform_updates();
+        for webview in webviews_needing_new_frame
+            .iter()
+            .filter_map(|webview_id| self.get_webview_handle(*webview_id))
+        {
+            webview.delegate().notify_new_frame_ready(webview);
+        }
         self.handle_delegate_errors();
         self.clean_up_destroyed_webview_handles();
         if self.shutdown_state.get() == ShutdownState::FinishedShuttingDown {
@@ -189,15 +195,6 @@ impl ServoInner {
         } else {
             log::error!("No select operation registered for {index:?}");
             None
-        }
-    }
-    fn send_new_frame_ready_messages(&self) {
-        let webviews_needing_repaint = self.paint.borrow().webviews_needing_repaint();
-        for webview in webviews_needing_repaint
-            .iter()
-            .filter_map(|webview_id| self.get_webview_handle(*webview_id))
-        {
-            webview.delegate().notify_new_frame_ready(webview);
         }
     }
     fn handle_delegate_errors(&self) {
@@ -754,6 +751,7 @@ impl Servo {
         // The `Paint` coordinates with the client window to create the final
         // rendered page and display it somewhere.
         let shutdown_state = Rc::new(Cell::new(ShutdownState::NotShuttingDown));
+        let screenshot_bridge = ScreenshotBridge::default();
         let paint = Paint::new(InitialPaintState {
             paint_proxy: paint_proxy.clone(),
             receiver: paint_receiver,
@@ -762,6 +760,7 @@ impl Servo {
             mem_profiler_chan: mem_profiler_chan.clone(),
             shutdown_state: shutdown_state.clone(),
             event_loop_waker,
+            screenshot_bridge: screenshot_bridge.clone(),
             #[cfg(feature = "webxr")]
             webxr_registry: builder.webxr_registry,
         });
@@ -819,6 +818,7 @@ impl Servo {
             javascript_evaluator: Rc::new(RefCell::new(JavaScriptEvaluator::new(
                 constellation_proxy.clone(),
             ))),
+            screenshot_bridge,
             constellation_proxy,
             embedder_receiver,
             net_embedder_receiver,
@@ -833,6 +833,10 @@ impl Servo {
     }
     pub fn set_delegate(&self, delegate: Rc<dyn ServoDelegate>) {
         *self.0.delegate.borrow_mut() = delegate;
+    }
+
+    pub fn paint_screenshot_bridge(&self) -> ScreenshotBridge {
+        self.0.screenshot_bridge.clone()
     }
     /// Formerly initialized GL accelerated media playback. Now a no-op; video uses Makepad
     /// platform-native playback instead.
@@ -1001,7 +1005,7 @@ fn create_constellation(
         webxr_registry: Some(paint.webxr_main_thread_registry()),
         #[cfg(not(feature = "webxr"))]
         webxr_registry: None,
-        webrender_external_image_id_manager: paint.webrender_external_image_id_manager(),
+        external_image_id_registry: paint.external_image_id_registry(),
         #[cfg(feature = "webgpu")]
         wgpu_image_map: paint.webgpu_image_map(),
         async_runtime,

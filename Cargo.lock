@@ -3122,6 +3122,7 @@ dependencies = [
  "havi-render",
  "havi-types",
  "hppr-client",
+ "image",
  "keyboard-types",
  "layout_api",
  "libservo",
@@ -3134,6 +3135,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+ "webrender_api",
 ]
 
 [[package]]

@@ -416,52 +416,41 @@ impl App {
         self.next_frame = cx.new_next_frame();
 
         // Control mode. KEEP existing stdin/stdout behavior when
-        // HAVI_MAKEPAD_EVENTS is set. Add optional single-controller connect
-        // mode through MAKEPAD_CONNECT.
+        // HAVI_MAKEPAD_EVENTS is set.
         // Skip when running inside Makepad Studio's RunView — stdin is already
         // used by the Studio WebSocket protocol.
-        if !cx.in_makepad_studio {
-            if let Ok(addr) = std::env::var("MAKEPAD_CONNECT") {
-                if !addr.is_empty() {
-                    if let Err(err) = Cx::connect_studio_tcp(&addr) {
-                        eprintln!("[havi-makepad-connect] {err}");
-                    } else {
-                        cx.in_makepad_studio = true;
+        if !cx.in_makepad_studio && std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() {
+            Cx::set_studio_stdout_mode(true);
+            cx.in_makepad_studio = true;
+
+            let (tx, rx) = mpsc::channel();
+            Cx::set_control_channel(rx);
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let stdin = std::io::stdin();
+                let reader = std::io::BufReader::new(stdin.lock());
+                for line in reader.lines() {
+                    let Ok(line) = line else { break };
+                    if line.is_empty() {
+                        continue;
+                    }
+                    match StudioToApp::deserialize_json(&line) {
+                        Ok(msg) => {
+                            if tx.send(msg).is_err() {
+                                break;
+                            }
+                            SignalToUI::set_ui_signal();
+                        },
+                        Err(e) => {
+                            eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
+                        },
                     }
                 }
-            } else if std::env::var("HAVI_MAKEPAD_EVENTS").is_ok() {
-                Cx::set_studio_stdout_mode(true);
-                cx.in_makepad_studio = true;
+            });
 
-                let (tx, rx) = mpsc::channel();
-                Cx::set_control_channel(rx);
-                std::thread::spawn(move || {
-                    use std::io::BufRead;
-                    let stdin = std::io::stdin();
-                    let reader = std::io::BufReader::new(stdin.lock());
-                    for line in reader.lines() {
-                        let Ok(line) = line else { break };
-                        if line.is_empty() {
-                            continue;
-                        }
-                        match StudioToApp::deserialize_json(&line) {
-                            Ok(msg) => {
-                                if tx.send(msg).is_err() {
-                                    break;
-                                }
-                                SignalToUI::set_ui_signal();
-                            },
-                            Err(e) => {
-                                eprintln!("[havi-makepad-events] parse error: {:?} for: {}", e, line);
-                            },
-                        }
-                    }
-                });
-
-                use std::io::Write;
-                let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
-                let _ = std::io::stdout().flush();
-            }
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(b"{\"ReadyToStart\":null}\n");
+            let _ = std::io::stdout().flush();
         }
     }
 

@@ -216,7 +216,7 @@ impl Drop for LayoutThread {
         // TODO(havi-render): Release font resources via new font management path.
         let (_keys, _instance_keys) = self
             .font_context
-            .collect_unused_webrender_resources(true /* all */);
+            .collect_unused_render_resources(true /* all */);
     }
 }
 

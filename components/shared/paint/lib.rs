@@ -38,9 +38,9 @@ use serde::{Deserialize, Serialize};
 pub use webrender_api::ExternalImageSource;
 use webrender_api::units::{DevicePixel, LayoutVector2D, TexelRect};
 use webrender_api::{
-    ExternalImage, ExternalImageData, ExternalImageHandler, ExternalImageId, ExternalScrollId,
+    ExternalImage, ExternalImageData, ExternalImageHandler, ExternalImageId,
     FontInstanceFlags, FontInstanceKey, FontKey, ImageData, ImageDescriptor, ImageKey,
-    NativeFontHandle, PipelineId as WebRenderPipelineId,
+    NativeFontHandle,
 };
 
 use crate::largest_contentful_paint_candidate::LCPCandidate;
@@ -94,15 +94,6 @@ pub enum PaintMessage {
     /// they have fully shut it down, to avoid recreating it due to any subsequent
     /// messages.
     PipelineExited(WebViewId, PipelineId, PipelineExitSource),
-    /// Scroll the given node ([`ExternalScrollId`]) by the provided delta. This
-    /// will only adjust the node's scroll position and will *not* do panning in
-    /// the pinch zoom viewport.
-    ScrollNodeByDelta(
-        WebViewId,
-        WebRenderPipelineId,
-        LayoutVector2D,
-        ExternalScrollId,
-    ),
     /// Scroll the WebView's viewport by the given delta. This will also do panning
     /// in the pinch zoom viewport if possible and the remaining delta will be used
     /// to scroll the root layer.
@@ -154,7 +145,7 @@ pub enum PaintMessage {
         FontInstanceFlags,
         Vec<FontVariation>,
     ),
-    /// Remove the given font resources from our WebRender instance.
+    /// Remove the given font resources from the render backend.
     RemoveFonts(PainterId, Vec<FontKey>, Vec<FontInstanceKey>),
     /// Measure the current memory usage associated with `Paint`.
     /// The report must be sent on the provided channel once it's complete.
@@ -190,7 +181,7 @@ pub struct CompositionPipeline {
     pub webview_id: WebViewId,
 }
 
-/// A mechanism to send messages from ScriptThread to the parent process' WebRender instance.
+/// A mechanism to send messages from ScriptThread to the parent process paint subsystem.
 #[derive(Clone, Deserialize, MallocSizeOf, Serialize)]
 pub struct CrossProcessPaintApi(GenericCallback<PaintMessage>);
 
@@ -220,26 +211,6 @@ impl CrossProcessPaintApi {
         })
         .unwrap();
         Self(callback)
-    }
-
-    /// Scroll the given node ([`ExternalScrollId`]) by the provided delta. This
-    /// will only adjust the node's scroll position and will *not* do panning in
-    /// the pinch zoom viewport.
-    pub fn scroll_node_by_delta(
-        &self,
-        webview_id: WebViewId,
-        pipeline_id: WebRenderPipelineId,
-        delta: LayoutVector2D,
-        scroll_id: ExternalScrollId,
-    ) {
-        if let Err(error) = self.0.send(PaintMessage::ScrollNodeByDelta(
-            webview_id,
-            pipeline_id,
-            delta,
-            scroll_id,
-        )) {
-            warn!("Error scrolling node: {error}");
-        }
     }
 
     /// Scroll the WebView's viewport by the given delta. This will also do panning
@@ -458,40 +429,39 @@ impl CrossProcessPaintApi {
     }
 }
 
-/// This trait is used as a bridge between the different GL clients
-/// in Servo that handles WebRender ExternalImages and the WebRender
-/// ExternalImageHandler API.
-//
-/// This trait is used to notify lock/unlock messages and get the
-/// required info that WR needs.
-pub trait WebRenderExternalImageApi {
+/// This trait bridges external image producers with the render backend's
+/// `ExternalImageHandler` API.
+///
+/// It is used to notify lock/unlock messages and provide the image data needed
+/// by the render backend.
+pub trait ExternalImageProvider {
     fn lock(&mut self, id: u64) -> (ExternalImageSource<'_>, UntypedSize2D<i32>);
     fn unlock(&mut self, id: u64);
 }
 
-/// Type of WebRender External Image Handler.
+/// Type of external image handler.
 #[derive(Clone, Copy)]
-pub enum WebRenderImageHandlerType {
+pub enum ExternalImageHandlerType {
     Media,
     WebGpu,
 }
 
-/// List of WebRender external images to be shared among all external image
-/// consumers (WebGL, Media, WebGPU).
+/// Registry of external images shared among all external image consumers
+/// (Media, WebGPU).
 /// It ensures that external image identifiers are unique.
 #[derive(Default)]
-struct WebRenderExternalImageIdManagerInner {
+struct ExternalImageIdRegistryInner {
     /// Map of all generated external images.
-    external_images: FxHashMap<ExternalImageId, WebRenderImageHandlerType>,
+    external_images: FxHashMap<ExternalImageId, ExternalImageHandlerType>,
     /// Id generator for the next external image identifier.
     next_image_id: u64,
 }
 
 #[derive(Default, Clone)]
-pub struct WebRenderExternalImageIdManager(Arc<RwLock<WebRenderExternalImageIdManagerInner>>);
+pub struct ExternalImageIdRegistry(Arc<RwLock<ExternalImageIdRegistryInner>>);
 
-impl WebRenderExternalImageIdManager {
-    pub fn next_id(&mut self, handler_type: WebRenderImageHandlerType) -> ExternalImageId {
+impl ExternalImageIdRegistry {
+    pub fn next_id(&mut self, handler_type: ExternalImageHandlerType) -> ExternalImageId {
         let mut inner = self.0.write();
         inner.next_image_id += 1;
         let key = ExternalImageId(inner.next_image_id);
@@ -503,25 +473,25 @@ impl WebRenderExternalImageIdManager {
         self.0.write().external_images.remove(key);
     }
 
-    pub fn get(&self, key: &ExternalImageId) -> Option<WebRenderImageHandlerType> {
+    pub fn get(&self, key: &ExternalImageId) -> Option<ExternalImageHandlerType> {
         self.0.read().external_images.get(key).cloned()
     }
 }
 
-/// WebRender External Image Handler implementation.
-pub struct WebRenderExternalImageHandlers {
+/// External image handler implementation.
+pub struct ExternalImageHandlers {
     /// Media player handler.
-    media_handler: Option<Box<dyn WebRenderExternalImageApi>>,
+    media_handler: Option<Box<dyn ExternalImageProvider>>,
     /// WebGPU handler.
-    webgpu_handler: Option<Box<dyn WebRenderExternalImageApi>>,
-    /// A [`WebRenderExternalImageIdManager`] responsible for creating new [`ExternalImageId`]s.
+    webgpu_handler: Option<Box<dyn ExternalImageProvider>>,
+    /// An [`ExternalImageIdRegistry`] responsible for creating new [`ExternalImageId`]s.
     /// This is shared with the WebGPU and hardware-accelerated media threads and
-    /// all other instances of [`WebRenderExternalImageHandlers`] -- one per WebRender instance.
-    id_manager: WebRenderExternalImageIdManager,
+    /// all other instances of [`ExternalImageHandlers`] in the process.
+    id_manager: ExternalImageIdRegistry,
 }
 
-impl WebRenderExternalImageHandlers {
-    pub fn new(id_manager: WebRenderExternalImageIdManager) -> Self {
+impl ExternalImageHandlers {
+    pub fn new(id_manager: ExternalImageIdRegistry) -> Self {
         Self {
             media_handler: Default::default(),
             webgpu_handler: Default::default(),
@@ -529,27 +499,25 @@ impl WebRenderExternalImageHandlers {
         }
     }
 
-    pub fn id_manager(&self) -> WebRenderExternalImageIdManager {
+    pub fn id_manager(&self) -> ExternalImageIdRegistry {
         self.id_manager.clone()
     }
 
     pub fn set_handler(
         &mut self,
-        handler: Box<dyn WebRenderExternalImageApi>,
-        handler_type: WebRenderImageHandlerType,
+        handler: Box<dyn ExternalImageProvider>,
+        handler_type: ExternalImageHandlerType,
     ) {
         match handler_type {
-            WebRenderImageHandlerType::Media => self.media_handler = Some(handler),
-            WebRenderImageHandlerType::WebGpu => self.webgpu_handler = Some(handler),
+            ExternalImageHandlerType::Media => self.media_handler = Some(handler),
+            ExternalImageHandlerType::WebGpu => self.webgpu_handler = Some(handler),
         }
     }
 }
 
-impl ExternalImageHandler for WebRenderExternalImageHandlers {
-    /// Lock the external image. Then, WR could start to read the
-    /// image content.
-    /// The WR client should not change the image content until the
-    /// unlock() call.
+impl ExternalImageHandler for ExternalImageHandlers {
+    /// Lock the external image so the render backend can read its content.
+    /// The producer should not change the image content until `unlock()` is called.
     fn lock(
         &mut self,
         key: ExternalImageId,
@@ -561,7 +529,7 @@ impl ExternalImageHandler for WebRenderExternalImageHandlers {
             .get(&key)
             .expect("Tried to get unknown external image");
         match handler_type {
-            WebRenderImageHandlerType::Media => {
+            ExternalImageHandlerType::Media => {
                 let (source, size) = self.media_handler.as_mut().unwrap().lock(key.0);
                 let texture_id = match source {
                     ExternalImageSource::NativeTexture(b) => b,
@@ -572,7 +540,7 @@ impl ExternalImageHandler for WebRenderExternalImageHandlers {
                     source: ExternalImageSource::NativeTexture(texture_id),
                 }
             },
-            WebRenderImageHandlerType::WebGpu => {
+            ExternalImageHandlerType::WebGpu => {
                 let (source, size) = self.webgpu_handler.as_mut().unwrap().lock(key.0);
                 ExternalImage {
                     uv: TexelRect::new(0.0, size.height as f32, size.width as f32, 0.0),
@@ -582,16 +550,15 @@ impl ExternalImageHandler for WebRenderExternalImageHandlers {
         }
     }
 
-    /// Unlock the external image. The WR should not read the image
-    /// content after this call.
+    /// Unlock the external image after the render backend is done reading it.
     fn unlock(&mut self, key: ExternalImageId, _channel_index: u8) {
         let handler_type = self
             .id_manager()
             .get(&key)
             .expect("Tried to get unknown external image");
         match handler_type {
-            WebRenderImageHandlerType::Media => self.media_handler.as_mut().unwrap().unlock(key.0),
-            WebRenderImageHandlerType::WebGpu => {
+            ExternalImageHandlerType::Media => self.media_handler.as_mut().unwrap().unlock(key.0),
+            ExternalImageHandlerType::WebGpu => {
                 self.webgpu_handler.as_mut().unwrap().unlock(key.0)
             },
         };
@@ -599,7 +566,7 @@ impl ExternalImageHandler for WebRenderExternalImageHandlers {
 }
 
 #[derive(Deserialize, Serialize)]
-/// Serializable image updates that must be performed by WebRender.
+/// Serializable image updates that must be performed by the render backend.
 pub enum ImageUpdate {
     /// Register a new image.
     AddImage(
@@ -650,10 +617,10 @@ impl Debug for ImageUpdate {
 #[derive(Debug, Deserialize, Serialize)]
 /// Serialized `ImageData`.
 pub enum SerializableImageData {
-    /// A simple series of bytes, provided by the embedding and owned by WebRender.
+    /// A simple series of bytes, provided by the embedding and owned by the render backend.
     /// The format is stored out-of-band, currently in ImageDescriptor.
     Raw(GenericSharedMemory),
-    /// An image owned by the embedding, and referenced by WebRender. This may
+    /// An image owned by the embedding, and referenced by the render backend. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
 }

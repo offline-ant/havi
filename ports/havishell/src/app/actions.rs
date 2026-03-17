@@ -546,6 +546,37 @@ impl MatchEvent for App {
             }
         }
 
+        for result in cx.drain_capture_results() {
+            if let Some((_webview_id, _request_id)) =
+                self.pending_screenshot_callbacks.remove(&result.request_id)
+            {
+                if let Some(image) = servo::RgbaImage::from_raw(result.width, result.height, result.rgba) {
+                    if let Some(servo) = &self.servo {
+                        servo.paint_screenshot_bridge().push_result(_request_id, image);
+                    }
+                }
+            }
+        }
+
+        if let Some(servo) = &self.servo {
+            for request in servo.paint_screenshot_bridge().drain_requests() {
+                if self
+                    .tabs
+                    .get(self.active_tab_idx)
+                    .map(|tab| tab.webview_id == request.webview_id)
+                    .unwrap_or(false)
+                {
+                    let capture_request_id = cx.request_capture(
+                        makepad_widgets::makepad_platform::CaptureSource::Framebuffer,
+                    );
+                    self.pending_screenshot_callbacks
+                        .insert(capture_request_id, (request.webview_id, request.request_id));
+                    self.next_frame = cx.new_next_frame();
+                    cx.redraw_all();
+                }
+            }
+        }
+
         // Handle Servo actions (Wake + WebView delegate events)
         for action in actions {
             match action.downcast_ref::<MakepadServoAction>() {

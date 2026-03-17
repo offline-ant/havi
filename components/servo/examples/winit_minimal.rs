@@ -107,9 +107,7 @@ impl ApplicationHandler<WakerEvent> for App {
                 event_loop.exit();
             },
             WindowEvent::RedrawRequested => {
-                if let Self::Running(state) = self {
-                    state.webviews.borrow().last().unwrap().paint();
-                }
+                if let Self::Running(_state) = self {}
             },
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Self::Running(state) = self {

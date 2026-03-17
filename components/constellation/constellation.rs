@@ -150,8 +150,8 @@ use net::image_cache::ImageCacheFactoryImpl;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{self, AsyncRuntime, ResourceThreads, exit_fetch_thread, start_fetch_thread};
 use paint_api::{
-    PaintMessage, PaintProxy, PinchZoomInfos, PipelineExitSource, SendableFrameTree,
-    WebRenderExternalImageIdManager,
+    ExternalImageIdRegistry, PaintMessage, PaintProxy, PinchZoomInfos, PipelineExitSource,
+    SendableFrameTree,
 };
 use profile_traits::mem::ProfilerMsg;
 use profile_traits::{mem, time};
@@ -223,12 +223,12 @@ struct MessagePortInfo {
 }
 
 #[cfg(feature = "webgpu")]
-/// WebRender related objects required by WebGPU threads
-struct WebRenderWGPU {
-    /// List of Webrender external images
-    webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+/// Render bridge state required by WebGPU threads.
+struct WebGpuRenderBridge {
+    /// Registry of external images shared with WebGPU.
+    external_image_id_registry: ExternalImageIdRegistry,
 
-    /// WebGPU data that supplied to Webrender for rendering
+    /// WebGPU image data supplied to the render backend.
     wgpu_image_map: WebGpuExternalImageMap,
 }
 
@@ -385,9 +385,9 @@ pub struct Constellation<STF, SWF> {
     /// memory profiler thread.
     pub(crate) mem_profiler_chan: mem::ProfilerChan,
 
-    /// WebRender related objects required by WebGPU threads
+    /// Render bridge state required by WebGPU threads.
     #[cfg(feature = "webgpu")]
-    webrender_wgpu: WebRenderWGPU,
+    webgpu_render_bridge: WebGpuRenderBridge,
 
     /// A map of message-port Id to info.
     message_ports: FxHashMap<MessagePortId, MessagePortInfo>,
@@ -547,8 +547,8 @@ pub struct InitialConstellationState {
     /// A channel to the memory profiler thread.
     pub mem_profiler_chan: mem::ProfilerChan,
 
-    /// A [`WebRenderExternalImageIdManager`] used to lazily start up the WebGPU threads.
-    pub webrender_external_image_id_manager: WebRenderExternalImageIdManager,
+    /// An [`ExternalImageIdRegistry`] used to lazily start up the WebGPU threads.
+    pub external_image_id_registry: ExternalImageIdRegistry,
 
     /// The XR device registry
     pub webxr_registry: Option<webxr_api::Registry>,
@@ -646,8 +646,8 @@ where
                 PipelineNamespace::install(PipelineNamespaceId(1));
 
                 #[cfg(feature = "webgpu")]
-                let webrender_wgpu = WebRenderWGPU {
-                    webrender_external_image_id_manager: state.webrender_external_image_id_manager,
+                let webgpu_render_bridge = WebGpuRenderBridge {
+                    external_image_id_registry: state.external_image_id_registry,
                     wgpu_image_map: state.wgpu_image_map,
                 };
 
@@ -698,7 +698,7 @@ where
                     webdriver_load_status_sender: None,
                     document_states: Default::default(),
                     #[cfg(feature = "webgpu")]
-                    webrender_wgpu,
+                    webgpu_render_bridge,
                     shutting_down: false,
                     handled_warnings: VecDeque::new(),
                     random_pipeline_closure: random_pipeline_closure_probability.map(|probability| {
@@ -2111,10 +2111,10 @@ where
         let webgpu_chan = match browsing_context_group.webgpus.entry(host) {
             Entry::Vacant(v) => start_webgpu_thread(
                 self.paint_proxy.cross_process_paint_api.clone(),
-                self.webrender_wgpu
-                    .webrender_external_image_id_manager
+                self.webgpu_render_bridge
+                    .external_image_id_registry
                     .clone(),
-                self.webrender_wgpu.wgpu_image_map.clone(),
+                self.webgpu_render_bridge.wgpu_image_map.clone(),
             )
             .map(|webgpu| {
                 let msg = ScriptThreadMessage::SetWebGPUPort(webgpu.1);

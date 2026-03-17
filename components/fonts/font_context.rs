@@ -89,13 +89,13 @@ pub struct FontContext {
 
     web_fonts: CrossThreadFontStore,
 
-    /// A collection of WebRender [`FontKey`]s generated for the web fonts that this
+    /// A collection of render [`FontKey`]s generated for the web fonts that this
     /// [`FontContext`] controls.
-    webrender_font_keys: RwLock<HashMap<FontIdentifier, FontKey>>,
+    render_font_keys: RwLock<HashMap<FontIdentifier, FontKey>>,
 
-    /// A collection of WebRender [`FontInstanceKey`]s generated for the web fonts that
+    /// A collection of render [`FontInstanceKey`]s generated for the web fonts that
     /// this [`FontContext`] controls.
-    webrender_font_instance_keys: RwLock<HashMap<FontParameters, FontInstanceKey>>,
+    render_font_instance_keys: RwLock<HashMap<FontParameters, FontInstanceKey>>,
 
     /// The data for each web font [`FontIdentifier`]. This data might be used by more than one
     /// [`FontTemplate`] as each identifier refers to a URL.
@@ -158,8 +158,8 @@ impl FontContext {
             fonts: Default::default(),
             resolved_font_groups: Default::default(),
             web_fonts: Default::default(),
-            webrender_font_keys: RwLock::default(),
-            webrender_font_instance_keys: RwLock::default(),
+            render_font_keys: RwLock::default(),
+            render_font_instance_keys: RwLock::default(),
             have_removed_web_fonts: AtomicBool::new(false),
             font_data: RwLock::default(),
         }
@@ -376,7 +376,7 @@ impl FontContext {
             .get_font_data(&identifier)
             .expect("Web font should have associated font data");
         let font_key = *self
-            .webrender_font_keys
+            .render_font_keys
             .write()
             .entry(identifier.clone())
             .or_insert_with(|| {
@@ -396,7 +396,7 @@ impl FontContext {
             flags,
         };
         *self
-            .webrender_font_instance_keys
+            .render_font_instance_keys
             .write()
             .entry(entry_key)
             .or_insert_with(|| {
@@ -588,7 +588,7 @@ pub trait FontContextWebFontMethods {
         font_template: FontTemplate,
     );
     fn remove_all_web_fonts_from_stylesheet(&self, stylesheet: &DocumentStyleSheet);
-    fn collect_unused_webrender_resources(&self, all: bool)
+    fn collect_unused_render_resources(&self, all: bool)
     -> (Vec<FontKey>, Vec<FontInstanceKey>);
 }
 
@@ -663,21 +663,21 @@ impl FontContextWebFontMethods for Arc<FontContext> {
         // of resolved font groups.
         font_groups.clear();
 
-        // Ensure that we clean up any WebRender resources on the next display list update.
+        // Ensure that we clean up any render resources on the next display list update.
         self.have_removed_web_fonts.store(true, Ordering::Relaxed);
     }
 
-    fn collect_unused_webrender_resources(
+    fn collect_unused_render_resources(
         &self,
         all: bool,
     ) -> (Vec<FontKey>, Vec<FontInstanceKey>) {
         if all {
-            let mut webrender_font_keys = self.webrender_font_keys.write();
-            let mut webrender_font_instance_keys = self.webrender_font_instance_keys.write();
+            let mut render_font_keys = self.render_font_keys.write();
+            let mut render_font_instance_keys = self.render_font_instance_keys.write();
             self.have_removed_web_fonts.store(false, Ordering::Relaxed);
             return (
-                webrender_font_keys.drain().map(|(_, key)| key).collect(),
-                webrender_font_instance_keys
+                render_font_keys.drain().map(|(_, key)| key).collect(),
+                render_font_instance_keys
                     .drain()
                     .map(|(_, key)| key)
                     .collect(),
@@ -693,11 +693,11 @@ impl FontContextWebFontMethods for Arc<FontContext> {
         let mut font_data = self.font_data.write();
         let _fonts = self.fonts.write();
         let _font_groups = self.resolved_font_groups.write();
-        let mut webrender_font_keys = self.webrender_font_keys.write();
-        let mut webrender_font_instance_keys = self.webrender_font_instance_keys.write();
+        let mut render_font_keys = self.render_font_keys.write();
+        let mut render_font_instance_keys = self.render_font_instance_keys.write();
 
         let mut unused_identifiers: HashSet<FontIdentifier> =
-            webrender_font_keys.keys().cloned().collect();
+            render_font_keys.keys().cloned().collect();
         for templates in web_fonts.families.values() {
             templates.for_all_identifiers(|identifier| {
                 unused_identifiers.remove(identifier);
@@ -709,7 +709,7 @@ impl FontContextWebFontMethods for Arc<FontContext> {
         self.have_removed_web_fonts.store(false, Ordering::Relaxed);
 
         let mut removed_keys: FxHashSet<FontKey> = FxHashSet::default();
-        webrender_font_keys.retain(|identifier, font_key| {
+        render_font_keys.retain(|identifier, font_key| {
             if unused_identifiers.contains(identifier) {
                 removed_keys.insert(*font_key);
                 false
@@ -719,7 +719,7 @@ impl FontContextWebFontMethods for Arc<FontContext> {
         });
 
         let mut removed_instance_keys: HashSet<FontInstanceKey> = HashSet::new();
-        webrender_font_instance_keys.retain(|font_param, instance_key| {
+        render_font_instance_keys.retain(|font_param, instance_key| {
             if removed_keys.contains(&font_param.font_key) {
                 removed_instance_keys.insert(*instance_key);
                 false

@@ -572,11 +572,6 @@ impl WebView {
             ));
     }
 
-    /// Trigger paint-side work for this [`WebView`].
-    pub fn paint(&self) {
-        self.inner().servo.paint().render(self.id());
-    }
-
     /// Get the [`UserContentManager`] associated with this [`WebView`].
     pub fn user_content_manager(&self) -> Option<Rc<UserContentManager>> {
         self.inner().user_content_manager.clone()
