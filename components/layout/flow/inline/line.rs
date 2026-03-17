@@ -686,12 +686,13 @@ impl LineItemLayout<'_, '_> {
                 }
             };
 
-        // Since alignment of absolutes in inlines is currently always `start`, the size of
-        // of the static position rectangle does not matter.
         let containing_block = self.containing_block();
         let static_position_rect = LogicalRect {
             start_corner: initial_start_corner,
-            size: LogicalVec2::zero(),
+            size: LogicalVec2 {
+                inline: containing_block.size.inline,
+                block: Au::zero(),
+            },
         }
         .as_physical(Some(containing_block));
 

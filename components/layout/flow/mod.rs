@@ -2190,15 +2190,17 @@ impl<'container> PlacementState<'container> {
                 }
             },
             Fragment::AbsoluteOrFixedPositioned(fragment) => {
-                // The alignment of absolutes in block flow layout is always "start", so the size of
-                // the static position rectangle does not matter.
+                let inline_cb_size = self.containing_block.size.inline;
                 fragment.borrow_mut().original_static_position_rect = LogicalRect {
                     start_corner: LogicalVec2 {
                         block: (self.current_margin.solve() +
                             self.current_block_direction_position),
                         inline: Au::zero(),
                     },
-                    size: LogicalVec2::zero(),
+                    size: LogicalVec2 {
+                        inline: inline_cb_size,
+                        block: Au::zero(),
+                    },
                 }
                 .as_physical(Some(self.containing_block));
             },

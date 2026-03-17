@@ -229,6 +229,10 @@ impl Fragment {
 
     pub(crate) fn cumulative_box_area_rect(&self, area: BoxAreaType) -> Option<PhysicalRect<Au>> {
         match self {
+            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
+                let hoisted = hoisted.borrow();
+                hoisted.fragment.as_ref()?.cumulative_box_area_rect(area)
+            }
             Fragment::Box(fragment) | Fragment::Float(fragment) => Some(match area {
                 BoxAreaType::Content => fragment.borrow().cumulative_content_box_rect(),
                 BoxAreaType::Padding => fragment.borrow().cumulative_padding_box_rect(),
@@ -239,7 +243,6 @@ impl Fragment {
                 Some(fragment.offset_by_containing_block(&fragment.base.rect))
             },
             Fragment::Text(_) |
-            Fragment::AbsoluteOrFixedPositioned(_) |
             Fragment::Image(_) |
             Fragment::IFrame(_) => None,
         }
@@ -247,6 +250,13 @@ impl Fragment {
 
     pub(crate) fn client_rect(&self) -> Rect<i32, CSSPixel> {
         let rect = match self {
+            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
+                let hoisted = hoisted.borrow();
+                let Some(fragment) = hoisted.fragment.as_ref() else {
+                    return Rect::zero();
+                };
+                return fragment.client_rect();
+            }
             Fragment::Box(fragment) | Fragment::Float(fragment) => {
                 // https://drafts.csswg.org/cssom-view/#dom-element-clienttop
                 // " If the element has no associated CSS layout box or if the

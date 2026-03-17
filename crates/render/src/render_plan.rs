@@ -15,7 +15,7 @@ pub(crate) struct NodeRenderSemantics {
 
 impl NodeRenderSemantics {
     pub(crate) fn requires_compositor(self) -> bool {
-        self.has_perspective || self.has_true_3d_transform || self.preserve_3d
+        self.has_true_3d_transform || self.preserve_3d
     }
 
     pub(crate) fn participation(self) -> RenderParticipation {
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn perspective_only_boxes_use_compositor_flat_group() {
+    fn perspective_only_boxes_stay_on_direct_2d_path() {
         let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
         servo_arc::Arc::make_mut(&mut style)
             .mutate_box()
@@ -242,16 +242,11 @@ mod tests {
         let fragments = [base_box(13, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
         let node = semantics.get(&13).copied().unwrap();
-        assert_eq!(
-            node.participation(),
-            RenderParticipation::Compositor {
-                group: CompositorGroupMode::Flat,
-            }
-        );
+        assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
     #[test]
-    fn perspective_with_2d_translate_uses_compositor_flat_group() {
+    fn perspective_with_2d_translate_stays_on_direct_2d_path() {
         let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
         let box_style = servo_arc::Arc::make_mut(&mut style).mutate_box();
         box_style.set_perspective(style::values::generics::box_::Perspective::Length(NonNegativeLength::new(600.0)));
@@ -263,12 +258,7 @@ mod tests {
         let fragments = [base_box(14, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
         let node = semantics.get(&14).copied().unwrap();
-        assert_eq!(
-            node.participation(),
-            RenderParticipation::Compositor {
-                group: CompositorGroupMode::Flat,
-            }
-        );
+        assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
     #[test]

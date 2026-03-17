@@ -354,21 +354,22 @@ pub fn process_resolved_style_request(
 
     let resolve_for_fragment = |fragment: &Fragment| {
         let (content_rect, margins, padding, specific_layout_info) = match fragment {
+            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
+                let hoisted = hoisted.borrow();
+                let Some(Fragment::Box(box_fragment)) = hoisted.fragment.as_ref() else {
+                    return computed_style(Some(fragment));
+                };
+                let box_fragment = box_fragment.borrow();
+                let content_rect = box_fragment.base.rect;
+                let margins = box_fragment.margin;
+                let padding = box_fragment.padding;
+                let specific_layout_info = box_fragment.specific_layout_info().cloned();
+                (content_rect, margins, padding, specific_layout_info)
+            },
             Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => {
                 let box_fragment = box_fragment.borrow();
                 if style.get_box().position != Position::Static {
-                    let resolved_insets = || box_fragment.calculate_resolved_insets_if_positioned();
                     match longhand_id {
-                        LonghandId::Top => return resolved_insets().top.to_css_string(),
-                        LonghandId::Right => {
-                            return resolved_insets().right.to_css_string();
-                        },
-                        LonghandId::Bottom => {
-                            return resolved_insets().bottom.to_css_string();
-                        },
-                        LonghandId::Left => {
-                            return resolved_insets().left.to_css_string();
-                        },
                         LonghandId::Transform => {
                             // If we can compute the string do it, but otherwise fallback to a cruder serialization
                             // of the value.
@@ -420,6 +421,9 @@ pub fn process_resolved_style_request(
             },
             LonghandId::Height if resolved_size_should_be_used_value(fragment) => {
                 content_rect.size.height
+            },
+            LonghandId::Top | LonghandId::Right | LonghandId::Bottom | LonghandId::Left => {
+                return computed_style(Some(fragment));
             },
             LonghandId::MarginBottom => margins.bottom,
             LonghandId::MarginTop => margins.top,
@@ -707,7 +711,16 @@ pub fn process_offset_parent_query(
         .fragments_for_pseudo(None)
         .first()
         .cloned()?;
-    let mut border_box = fragment.cumulative_box_area_rect(BoxAreaType::Border)?;
+    let mut border_box = match &fragment {
+        Fragment::AbsoluteOrFixedPositioned(hoisted) => {
+            let hoisted = hoisted.borrow();
+            match hoisted.fragment.as_ref() {
+                Some(fragment) => fragment.cumulative_box_area_rect(BoxAreaType::Border)?,
+                None => return None,
+            }
+        }
+        _ => fragment.cumulative_box_area_rect(BoxAreaType::Border)?,
+    };
 
     // 2.  If the offsetParent of the element is null return the x-coordinate of the left
     //     border edge of the first CSS layout box associated with the element, relative to

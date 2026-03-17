@@ -191,7 +191,14 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         let mut entry_frame_id = None;
 
         if let Some(owner_origin) = self.box_origins.get(&(std::ptr::from_ref(owner_fragment) as usize)).copied() {
+            eprintln!("[FRAME_BUILD] SC owner node={:?} owner_origin=({},{}) border_rect=({},{} {}x{})",
+                owner_node_id, owner_origin.x, owner_origin.y,
+                owner_fragment.border_rect().origin.x.to_f32_px(),
+                owner_fragment.border_rect().origin.y.to_f32_px(),
+                owner_fragment.border_rect().size.width.to_f32_px(),
+                owner_fragment.border_rect().size.height.to_f32_px());
             if let Some(spec) = reference_frame_spec(owner_fragment, owner_origin) {
+                eprintln!("[FRAME_BUILD] -> Created reference frame for node={:?} mode={:?}", owner_node_id, spec.mode);
                 let frame_id = self.frame_tree.push_child_frame(
                     visual.frame_id,
                     FrameKey::NodeReferenceFrame(frame_key_id),
@@ -202,14 +209,14 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 entry_frame_id = Some(frame_id);
                 visual.frame_id = frame_id;
                 match spec.mode {
-                    crate::reference_frame::ReferenceFrameMode::AnchoredTransform => {
-                        if let Some(origin_basis) = spec.origin_basis {
-                            visual.origin_basis = origin_basis;
-                        }
-                    }
+                    crate::reference_frame::ReferenceFrameMode::AnchoredTransform => {}
                     crate::reference_frame::ReferenceFrameMode::PerspectiveOnlyIsolation => {}
                 }
+            } else {
+                eprintln!("[FRAME_BUILD] -> NO reference frame for node={:?}", owner_node_id);
             }
+        } else {
+            eprintln!("[FRAME_BUILD] SC owner node={:?} NOT FOUND in box_origins!", owner_node_id);
         }
 
         if let Some(mat) = fragment_sticky_translation(owner_fragment, None, self.viewport_size) {
@@ -326,6 +333,14 @@ fn collect_fragment_origins(
     origins.insert(std::ptr::from_ref(fragment) as usize, containing_block_origin);
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
+            let node_id = bf.base.tag.map(|t| t.node.0).unwrap_or(0);
+            let pos = bf.base.style.get_box().position;
+            eprintln!("[ORIGINS] Box node={} pos={:?} cb_origin=({},{}) content_rect=({},{} {}x{}) ptr={}",
+                node_id, pos,
+                containing_block_origin.x, containing_block_origin.y,
+                bf.content_rect().origin.x.to_f32_px(), bf.content_rect().origin.y.to_f32_px(),
+                bf.content_rect().size.width.to_f32_px(), bf.content_rect().size.height.to_f32_px(),
+                std::ptr::from_ref(bf) as usize);
             box_origins.insert(std::ptr::from_ref(bf) as usize, containing_block_origin);
             let rect = bf.content_rect();
             let child_origin = dvec2(

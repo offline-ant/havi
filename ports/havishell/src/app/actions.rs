@@ -748,6 +748,13 @@ impl MatchEvent for App {
                             self.tabs[idx].webview.load(parsed);
                             self.tabs[idx].url = parsed_url.clone();
                             if idx == self.active_tab_idx {
+                                let shared = layout_api::shared_fragment_tree_for(*webview_id);
+                                let scroll = layout_api::shared_scroll_state_for(*webview_id);
+                                let selection = layout_api::shared_document_selection_for(*webview_id);
+                                let images = self.servo.as_ref().unwrap().image_store();
+                                self.ui
+                                    .servo_web_view(cx, ids!(web_view))
+                                    .set_shared_fragments(shared, scroll, selection, images);
                                 self.ui.text_input(cx, ids!(url_input)).set_text(cx, &parsed_url);
                             }
                             self.sync_tab_bar(cx);
