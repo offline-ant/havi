@@ -3,7 +3,7 @@
 ## Synopsis
 
 ```bash
-havi [--path <dir>] [--home <via>] [URL]
+havi [--path <dir>] [--home <via>] [--screenshot <output.png>] [URL]
 ```
 
 Launches the HAVI browser.
@@ -19,6 +19,8 @@ and exits.
 
 - `--path <dir>` — config directory (default: `~/.config/HAVI`)
 - `--home <via>` — remote hpprd endpoint (starts pylon in remote mode)
+- `--screenshot <output.png>` — launch normally using `HAVI_URL`, capture the
+  rendered webview content as PNG, write it, and exit
 
 ## Runtime Configuration
 
@@ -32,6 +34,7 @@ Environment variables:
   - `unix+<path>`
   - `path:<dir>`
 - `HAVI_URL` — override startup URL
+- `HAVI_SCREENSHOT` — internal env used by `--screenshot <output.png>`
 - `HAVI_DEVTOOLS` — enable DevTools server (`<port>` or `<host>:<port>`)
 - `HAVI_MAKEPAD_EVENTS` — enable Makepad event injection
   (JSON lines over stdin/stdout)

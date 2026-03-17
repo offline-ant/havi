@@ -252,9 +252,12 @@ impl App {
         }
         self.start_navigation_done = true;
 
+        // Hide splash screen first so content_area has its final startup geometry.
+        self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
+        self.sync_content_size_from_host_rect(cx);
+
         // Create the first webview if none exists yet (splash screen path).
         if self.tabs.is_empty() {
-            self.sync_content_size_from_host_rect(cx);
             if let Some(webview) = self.create_webview(&self.start_url) {
                 let webview_id = webview.id();
                 let shared = layout_api::shared_fragment_tree_for(webview_id);
@@ -290,13 +293,13 @@ impl App {
             }
         }
 
-        // Hide splash screen, show chrome.
-        self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
+        // Splash is already hidden above. Show chrome.
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, &self.start_url);
         self.sync_toolbar_state(cx);
         self.sync_tab_bar(cx);
+        self.maybe_start_screenshot_capture(cx);
     }
 
     pub(super) fn apply_menu_dock(&self, cx: &mut Cx) {
@@ -546,18 +549,6 @@ impl MatchEvent for App {
             }
         }
 
-        for result in cx.drain_capture_results() {
-            if let Some((_webview_id, _request_id)) =
-                self.pending_screenshot_callbacks.remove(&result.request_id)
-            {
-                if let Some(image) = servo::RgbaImage::from_raw(result.width, result.height, result.rgba) {
-                    if let Some(servo) = &self.servo {
-                        servo.paint_screenshot_bridge().push_result(_request_id, image);
-                    }
-                }
-            }
-        }
-
         if let Some(servo) = &self.servo {
             for request in servo.paint_screenshot_bridge().drain_requests() {
                 if self
@@ -613,6 +604,18 @@ impl MatchEvent for App {
                         {
                             log!("[havi] failed to persist history entry: {}", e);
                         }
+                    }
+                },
+                Some(MakepadServoAction::LoadStatusChanged { webview_id, status }) => {
+                    let webview_id = *webview_id;
+                    let status = *status;
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map_or(false, |t| t.webview_id == webview_id)
+                        && status == servo::LoadStatus::Complete
+                    {
+                        self.maybe_start_screenshot_capture(cx);
                     }
                 },
                 Some(MakepadServoAction::NewFrameReady { webview_id }) => {
@@ -871,6 +874,8 @@ impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         if let Event::Shutdown = event {
             crate::app::runtime::remove_state_file();
+            self.servo = None;
+            return;
         }
 
         // Lazy init servo on first event
@@ -1018,6 +1023,21 @@ impl AppMain for App {
 
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
+            self.update_screenshot_mode(cx);
+            self.handle_screenshot_capture_results(cx);
+            for result in cx.drain_capture_results() {
+                if let Some((_webview_id, _request_id)) =
+                    self.pending_screenshot_callbacks.remove(&result.request_id)
+                {
+                    if let Some(image) =
+                        servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
+                    {
+                        if let Some(servo) = &self.servo {
+                            servo.paint_screenshot_bridge().push_result(_request_id, image);
+                        }
+                    }
+                }
+            }
             // Drain pylon events and update status dot
             {
                 let mut status_changed = false;

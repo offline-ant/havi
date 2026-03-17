@@ -91,6 +91,7 @@ fn main() {
         let mut i = 1;
         let mut force_no_pylon = false;
         let mut force_external_pylon = false;
+        let mut screenshot_path: Option<String> = None;
 
         while i < args.len() {
             match args[i].as_str() {
@@ -118,8 +119,21 @@ fn main() {
                     force_external_pylon = true;
                     i += 1;
                 },
+                "--screenshot" => {
+                    if let Some(v) = args.get(i + 1) {
+                        screenshot_path = Some(v.clone());
+                        i += 2;
+                    } else {
+                        eprintln!("missing value for --screenshot <output.png>");
+                        std::process::exit(2);
+                    }
+                },
                 _ => i += 1,
             }
+        }
+
+        if let Some(path) = screenshot_path {
+            std::env::set_var("HAVI_SCREENSHOT", path);
         }
 
         let pylon_mode = if force_no_pylon {

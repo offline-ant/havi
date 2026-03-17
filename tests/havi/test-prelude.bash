@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # test-prelude.bash - Minimal test infrastructure
 #
-# Provides: repo daemon lifecycle, port allocation, run_js_tests
-# All assertions are in JavaScript (test.js) - bash only handles infrastructure.
+# Provides: repo daemon lifecycle, port allocation, screenshot + JS result test helpers.
 #
 # shellcheck disable=SC2034
 
@@ -56,6 +55,7 @@ HPPR_PORT=""
 DEVTOOLS_PORT=""
 SECRET_KEY=""
 SIGNING_KEY=""
+HAVI_DEVTOOLS_ENABLED="1"
 
 REMOTE_REPO=""
 REMOTE_PORT=""
@@ -448,29 +448,8 @@ setup_remote_ring2() {
 # Servo
 # ============================================================================
 
-start_servo() {
-    local page="$1"
-    DEVTOOLS_PORT=$(get_port)
-    log "Starting Servo (devtools: $DEVTOOLS_PORT)..."
-
-    local havi_bin="$HAVI_ROOT/target/debug/havi"
-    if [[ ! -x "$havi_bin" ]]; then
-        log "Building havi..."
-        cargo build -q --manifest-path "$HAVI_ROOT/ports/havishell/Cargo.toml"
-    fi
-
-    cd "$HAVI_ROOT"
-
-    setsid env \
-        HAVI_HOME="tcp+127.0.0.1:$HPPR_PORT" \
-        HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT" \
-        HAVI_URL="$page" \
-        "$havi_bin" &
-    SERVO_PID=$!
-
-    export HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT"
-
-    # Wait for devtools to respond
+wait_for_devtools() {
+    [[ "${HAVI_DEVTOOLS_ENABLED:-1}" == "1" ]] || return 0
     log "Waiting for Servo devtools..."
     for _ in {1..80}; do
         if "$HAVI_ROOT/havi-devtools-cli" --timeout 2 eval "true" 2>/dev/null | grep -q '"ok"'; then
@@ -482,41 +461,77 @@ start_servo() {
     fail "Servo devtools not ready"
 }
 
+start_servo() {
+    local page="$1"
+    local havi_bin="$HAVI_ROOT/target/debug/havi"
+    if [[ ! -x "$havi_bin" ]]; then
+        log "Building havi..."
+        cargo build -q --manifest-path "$HAVI_ROOT/ports/havishell/Cargo.toml"
+    fi
+
+    cd "$HAVI_ROOT"
+
+    local -a env_args=(
+        HAVI_HOME="tcp+127.0.0.1:$HPPR_PORT"
+        HAVI_URL="$page"
+    )
+    if [[ "${HAVI_DEVTOOLS_ENABLED:-1}" == "1" ]]; then
+        DEVTOOLS_PORT=$(get_port)
+        env_args+=(HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT")
+        export HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT"
+        log "Starting Servo (devtools: $DEVTOOLS_PORT)..."
+    else
+        DEVTOOLS_PORT=""
+        unset HAVI_DEVTOOLS || true
+        log "Starting Servo..."
+    fi
+
+    setsid env "${env_args[@]}" "$havi_bin" &
+    SERVO_PID=$!
+
+    wait_for_devtools
+}
+
 # ============================================================================
 # Test Runner (THE ONLY TEST LOGIC IN BASH)
 # ============================================================================
 
-run_js_tests() {
+wait_for_js_results() {
     local timeout="${1:-15}"
     local debugtool="$HAVI_ROOT/havi-devtools-cli"
-
-    log "Running JS tests (timeout: ${timeout}s)..."
 
     for _ in $(seq 1 $((timeout * 10))); do
         local result
         result=$("$debugtool" --timeout 3 eval "JSON.stringify(window.testResults)" 2>/dev/null | \
             jq -r 'select(.ok == true) | .value' | tail -1) || true
-
         if [[ -n "$result" && "$result" != "null" && "$result" != "undefined" ]]; then
-            local failed passed
-            failed=$(echo "$result" | jq -r '.failed')
-            passed=$(echo "$result" | jq -r '.passed')
-
-            # Print individual results
-            echo "$result" | jq -r '.results[]' >&2
-
-            log "Passed: $passed, Failed: $failed"
-
-            if [[ "$failed" == "0" ]]; then
-                log "PASS"
-                return 0
-            else
-                fail "$failed test(s) failed"
-            fi
+            printf '%s\n' "$result"
+            return 0
         fi
         sleep 0.1
     done
-    fail "Tests did not complete within ${timeout}s"
+    return 1
+}
+
+run_js_tests() {
+    local timeout="${1:-15}"
+
+    log "Running JS tests (timeout: ${timeout}s)..."
+    local result
+    result=$(wait_for_js_results "$timeout") || fail "Tests did not complete within ${timeout}s"
+
+    local failed passed
+    failed=$(echo "$result" | jq -r '.failed')
+    passed=$(echo "$result" | jq -r '.passed')
+
+    echo "$result" | jq -r '.results[]' >&2
+    log "Passed: $passed, Failed: $failed"
+
+    if [[ "$failed" == "0" ]]; then
+        log "PASS"
+        return 0
+    fi
+    fail "$failed test(s) failed"
 }
 
 # ============================================================================

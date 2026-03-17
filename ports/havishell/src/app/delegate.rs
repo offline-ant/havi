@@ -37,6 +37,11 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         url: String,
     },
+    /// A webview load status changed.
+    LoadStatusChanged {
+        webview_id: WebViewId,
+        status: servo::LoadStatus,
+    },
     /// A webview has new content to paint.
     NewFrameReady {
         webview_id: WebViewId,
@@ -114,6 +119,11 @@ impl std::fmt::Debug for MakepadServoAction {
                 .debug_struct("UrlChanged")
                 .field("webview_id", webview_id)
                 .field("url", url)
+                .finish(),
+            Self::LoadStatusChanged { webview_id, status } => f
+                .debug_struct("LoadStatusChanged")
+                .field("webview_id", webview_id)
+                .field("status", status)
                 .finish(),
             Self::NewFrameReady { webview_id } => f
                 .debug_struct("NewFrameReady")
@@ -326,6 +336,14 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
             webview_id: webview.id(),
             url: url.to_string(),
         });
+    }
+
+    fn notify_load_status_changed(&self, webview: servo::WebView, status: servo::LoadStatus) {
+        Cx::post_action(MakepadServoAction::LoadStatusChanged {
+            webview_id: webview.id(),
+            status,
+        });
+        SignalToUI::set_ui_signal();
     }
 
     fn notify_new_frame_ready(&self, webview: servo::WebView) {

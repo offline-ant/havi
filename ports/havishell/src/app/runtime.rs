@@ -122,6 +122,12 @@ impl App {
 
         let pylon_mode = pylon_mode_from_env();
         self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());
+        self.screenshot_mode = std::env::var("HAVI_SCREENSHOT")
+            .ok()
+            .filter(|path| !path.is_empty())
+            .map(|path| super::screenshot::ScreenshotMode::WaitingForLoad {
+                output_path: path.into(),
+            });
         self.start_navigation_done = pylon_mode == PylonMode::None;
 
         // Startup state machine: Booting -> Ready/Failed.
@@ -304,15 +310,10 @@ impl App {
         let mut preferences = servo::Preferences::default();
         preferences.set_value("viewport_meta_enabled", servo::PrefValue::Bool(true));
 
-        // Enable devtools. HAVI_DEVTOOLS env var overrides the listen address
-        // (e.g. "6080" or "127.0.0.1:6080"). In debug builds, devtools defaults
-        // to port 0 (OS-assigned) so the effective port is printed at startup.
+        // Enable devtools only when explicitly requested.
         if let Ok(devtools_addr) = std::env::var("HAVI_DEVTOOLS") {
             preferences.devtools_server_enabled = true;
             preferences.devtools_server_listen_address = devtools_addr;
-        } else if cfg!(debug_assertions) {
-            preferences.devtools_server_enabled = true;
-            preferences.devtools_server_listen_address = "0".to_string();
         }
 
         self.clipboard_state = Some(ClipboardState::new());
@@ -363,6 +364,7 @@ impl App {
                 state.push(("HAVI_DEVTOOLS".to_string(), bind));
             }
             write_state_file(&state);
+            self.maybe_start_screenshot_capture(cx);
         } else {
             // Pylon booting — show splash screen, start 3s timeout.
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);

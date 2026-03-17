@@ -3125,6 +3125,7 @@ dependencies = [
  "image",
  "keyboard-types",
  "layout_api",
+ "libc",
  "libservo",
  "log",
  "makepad-media",

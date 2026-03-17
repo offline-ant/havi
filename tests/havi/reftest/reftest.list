@@ -1,0 +1,3 @@
+== cases/block-basic.html refs/block-basic-ref.html
+== cases/inline-whitespace.html refs/inline-whitespace-ref.html
+== cases/stacking-order.html refs/stacking-order-ref.html

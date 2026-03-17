@@ -28,6 +28,7 @@ mod input_handling;
 mod navigation;
 mod pylon_menu;
 mod runtime;
+mod screenshot;
 mod tabs;
 
 use camera::CameraState;
@@ -1548,6 +1549,9 @@ pub struct App {
 
     #[rust]
     pending_screenshot_callbacks: HashMap<u64, (WebViewId, u64)>,
+
+    #[rust]
+    screenshot_mode: Option<screenshot::ScreenshotMode>,
 }
 
 /// Maximum number of idle frames before stopping the frame loop.

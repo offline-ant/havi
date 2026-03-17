@@ -48,6 +48,7 @@ crossbeam-channel = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 serde_json = { workspace = true }
 image = { workspace = true }
+libc = "0.2"
 webrender_api = { workspace = true }
 media = { path = "../../components/media/media-thread" }
 

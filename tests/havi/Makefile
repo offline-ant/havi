@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 TESTS := $(sort $(wildcard *-test.sh))
+REFTEST := reftest.py
 LOG_DIR := $(shell mktemp -d /tmp/havi-tests.XXXXXX)
 PASS_DIR := $(LOG_DIR)/.pass
 FAIL_DIR := $(LOG_DIR)/.fail
@@ -9,9 +10,9 @@ FAIL_DIR := $(LOG_DIR)/.fail
 HAVI_ROOT := $(abspath ../..)
 _ := $(shell $(HAVI_ROOT)/havi-devtools-cli --help >/dev/null 2>&1 || true)
 
-.PHONY: test $(TESTS) summary
+.PHONY: test $(TESTS) $(REFTEST) summary
 
-test: $(TESTS)
+test: $(TESTS) $(REFTEST)
 	@echo ""
 	@echo "--- Results (logs: $(LOG_DIR)) ---"
 	@pass=$$(ls $(PASS_DIR) 2>/dev/null | wc -l); \
@@ -30,6 +31,16 @@ $(TESTS): | $(PASS_DIR) $(FAIL_DIR)
 	else \
 		echo "  FAIL  $@  (log: $(LOG_DIR)/$@.log)"; \
 		touch $(FAIL_DIR)/$@; \
+	fi
+
+$(REFTEST): | $(PASS_DIR) $(FAIL_DIR)
+	@echo "  START $@"
+	@if ./$(REFTEST) > $(LOG_DIR)/$(REFTEST).log 2>&1; then \
+		echo "  PASS  $(REFTEST)"; \
+		touch $(PASS_DIR)/$(REFTEST); \
+	else \
+		echo "  FAIL  $(REFTEST)  (log: $(LOG_DIR)/$(REFTEST).log)"; \
+		touch $(FAIL_DIR)/$(REFTEST); \
 	fi
 
 $(PASS_DIR) $(FAIL_DIR):

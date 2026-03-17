@@ -103,6 +103,9 @@ Environment variables:
 
 - `HAVI_HOME` — remote hpprd endpoint override
 - `HAVI_CONFIG` — config directory override
+- `HAVI_URL` — startup URL override
+- `HAVI_SCREENSHOT` — internal screenshot output path set by
+  `--screenshot <output.png>`
 
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
@@ -124,6 +127,10 @@ Current host policy:
 
 Desktop `./mach-havi run` enables the Makepad event socket automatically and
 prints `HAVI_MAKEPAD_SOCKET=<path>` for `havi-makepad-cli`.
+
+`havi --screenshot <output.png>` still uses normal startup behavior. Select the
+page with `HAVI_URL`, let HAVI render the first page, capture the rendered
+webview content only, write a PNG, and exit.
 
 HAVI also exposes pylon controls through `havi:///services`.
 
