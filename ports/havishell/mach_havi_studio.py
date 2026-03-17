@@ -40,6 +40,19 @@ def run_studio(
     return subprocess.call(cmd, env=env, cwd=str(makepad_root))
 
 
+def _cleanup_stale_socket(sock_path: str) -> None:
+    state_path = f"{sock_path}.state"
+    if not os.path.exists(sock_path):
+        return
+    if os.path.exists(state_path):
+        return
+    try:
+        os.unlink(sock_path)
+        print(f"# [mach-havi] removed stale socket {sock_path}")
+    except FileNotFoundError:
+        pass
+
+
 def run_desktop_makepad_socket(
     cmd: list[str],
     env: dict[str, str],
@@ -54,6 +67,7 @@ def run_desktop_makepad_socket(
     import tempfile
 
     sock_path = os.path.join(tempfile.gettempdir(), f"havi-makepad-{os.getpid()}.sock")
+    _cleanup_stale_socket(sock_path)
 
     # Tell HAVI to use stdin/stdout event injection mode.
     env["HAVI_MAKEPAD_EVENTS"] = "1"

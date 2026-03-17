@@ -24,6 +24,7 @@ pub(super) fn write_state_file(lines: &[(String, String)]) {
         return;
     };
     let state_path = std::path::PathBuf::from(format!("{}.state", socket_path.display()));
+    let _ = std::fs::remove_file(&state_path);
     if let Some(parent) = state_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -50,6 +51,8 @@ impl App {
         if self.initialized {
             return;
         }
+
+        remove_state_file();
 
         // Wait until the window geometry is populated by the platform layer.
         // On Android, dpi_factor and inner_size are set asynchronously:
