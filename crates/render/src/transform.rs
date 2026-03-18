@@ -131,6 +131,7 @@ pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
     bh: f32,
+    flatten_3d: bool,
 ) -> Option<Mat4f> {
     let box_style = computed.get_box();
     let has_transform = !box_style.transform.0.is_empty()
@@ -142,7 +143,7 @@ pub(crate) fn compute_css_reference_frame_matrix(
     }
 
     let matrix = compute_css_self_transform_3d(computed, bw, bh)?;
-    let matrix = if is_3d_matrix(&matrix) {
+    let matrix = if flatten_3d && is_3d_matrix(&matrix) {
         flatten_3d_reference_frame_to_2d(&matrix, bw, bh)?
     } else {
         matrix

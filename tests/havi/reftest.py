@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import html.parser
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -117,8 +118,21 @@ def slice_cases(cases: list[ReftestCase], offset: int, limit: int) -> list[Refte
     return cases[offset:offset + limit]
 
 
-def render_page(havi_bin: Path, page: Path, output: Path) -> None:
-    env = dict(**__import__("os").environ)
+def build_havi(havi_root: Path) -> None:
+    result = subprocess.run(
+        ["./mach-havi", "build"],
+        cwd=havi_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.returncode == 0:
+        return
+    raise SystemExit(result.stdout or "HAVI build failed")
+
+
+def render_page(havi_bin: Path, page: Path, output: Path, log_path: Path) -> None:
+    env = dict(os.environ)
     env["HAVI_URL"] = page.resolve().as_uri()
     result = subprocess.run(
         [str(havi_bin), "--no-pylon", "--screenshot", str(output)],
@@ -127,6 +141,7 @@ def render_page(havi_bin: Path, page: Path, output: Path) -> None:
         stderr=subprocess.STDOUT,
         text=True,
     )
+    log_path.write_text(result.stdout or "", encoding="utf-8")
     if result.returncode == 0 and output.is_file():
         return
     raise SystemExit(result.stdout or f"render failed for {page}")
@@ -139,10 +154,10 @@ def compare_images(test_png: Path, ref_png: Path, diff_png: Path) -> tuple[bool,
         if test_rgba.size != ref_rgba.size:
             return False, f"size mismatch: {test_rgba.size} vs {ref_rgba.size}"
 
-        diff = ImageChops.difference(test_rgba, ref_rgba)
-        if diff.getbbox() is None:
+        if test_rgba.tobytes() == ref_rgba.tobytes():
             return True, ""
 
+        diff = ImageChops.difference(test_rgba, ref_rgba)
         diff.save(diff_png)
         return False, "pixel mismatch"
 
@@ -159,17 +174,21 @@ def run_case(havi_bin: Path, artifacts_dir: Path, case: ReftestCase) -> tuple[bo
     test_png = artifacts_dir / f"{stem}-test.png"
     ref_png = artifacts_dir / f"{stem}-ref.png"
     diff_png = artifacts_dir / f"{stem}-diff.png"
-    for path in (test_png, ref_png, diff_png):
+    test_log = artifacts_dir / f"{stem}-test.log"
+    ref_log = artifacts_dir / f"{stem}-ref.log"
+    for path in (test_png, ref_png, diff_png, test_log, ref_log):
         path.unlink(missing_ok=True)
 
-    render_page(havi_bin, case.test_path, test_png)
-    render_page(havi_bin, case.ref_path, ref_png)
+    render_page(havi_bin, case.test_path, test_png, test_log)
+    render_page(havi_bin, case.ref_path, ref_png, ref_log)
     equal, reason = compare_images(test_png, ref_png, diff_png)
     passed = equal if case.operator == "==" else not equal
     if passed:
         test_png.unlink(missing_ok=True)
         ref_png.unlink(missing_ok=True)
         diff_png.unlink(missing_ok=True)
+        test_log.unlink(missing_ok=True)
+        ref_log.unlink(missing_ok=True)
         return True, ""
 
     if not diff_png.exists() and test_png.exists() and ref_png.exists():
@@ -216,12 +235,15 @@ def main() -> int:
         "--havi-bin",
         default=Path(__file__).resolve().parents[2] / "target" / "debug" / "havi",
         type=Path,
-        help="Path to havi binary",
+        help="Path to HAVI binary",
     )
     args = parser.parse_args()
 
     if args.manifest is None and args.wpt_test is None and args.wpt_manifest is None:
         args.manifest = Path(__file__).with_name("reftest").joinpath("reftest.list")
+
+    havi_root = Path(__file__).resolve().parents[2]
+    build_havi(havi_root)
 
     all_cases = load_cases(args.manifest, args.wpt_test, args.wpt_manifest)
     cases = slice_cases(all_cases, args.offset, args.limit)
@@ -242,10 +264,12 @@ def main() -> int:
             print(f"  artifacts: {args.artifacts_dir / (stem + '-test.png')}")
             print(f"             {args.artifacts_dir / (stem + '-ref.png')}")
             print(f"             {args.artifacts_dir / (stem + '-diff.png')}")
+            print(f"             {args.artifacts_dir / (stem + '-test.log')}")
+            print(f"             {args.artifacts_dir / (stem + '-ref.log')}")
 
     if failed:
         print(f"{failed}/{len(cases)} reftests failed")
-        print("Advice: inspect the failing test source, reference source, and PNG artifacts manually to confirm whether the reftest itself is correct before treating the result as an engine bug.")
+        print("Advice: inspect the failing test source, reference source, PNG artifacts, and saved HAVI logs manually to confirm whether the reftest itself is correct before treating the result as an engine bug.")
         return 1
     print(f"All {len(cases)} reftests passed")
     return 0

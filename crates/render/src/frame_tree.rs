@@ -23,7 +23,6 @@ pub(crate) enum FrameKind {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FrameMatrix {
-    pub local: Mat4f,
     pub world: Mat4f,
     pub world_inverse: Mat4f,
 }
@@ -71,12 +70,6 @@ impl<'a> FrameTree<'a> {
         self.root
     }
 
-    pub(crate) fn set_root_transform(&mut self, world: Mat4f) {
-        self.frames[self.root].matrix.local = world;
-        self.frames[self.root].matrix.world = world;
-        self.frames[self.root].matrix.world_inverse = world.invert();
-    }
-
     pub(crate) fn frame(&self, id: FrameId) -> &RenderFrame<'a> {
         &self.frames[id]
     }
@@ -88,7 +81,6 @@ impl<'a> FrameTree<'a> {
             kind: FrameKind::Root,
             owner_node_id: None,
             matrix: FrameMatrix {
-                local: identity,
                 world: identity,
                 world_inverse: identity,
             },
@@ -115,7 +107,6 @@ impl<'a> FrameTree<'a> {
             kind,
             owner_node_id,
             matrix: FrameMatrix {
-                local,
                 world,
                 world_inverse,
             },

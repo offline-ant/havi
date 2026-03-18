@@ -333,9 +333,51 @@ fn render_nav(active: &str) -> String {
     format!(r#"<nav class="nav"><ul>{}</ul></nav>"#, links.join("\n"))
 }
 
+/// Format a Unix timestamp as a human-readable time diff relative to now.
+fn format_time_diff(ts_unix: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let secs = (now - ts_unix).max(0);
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        let m = secs / 60;
+        format!("{}m ago", m)
+    } else if secs < 86400 {
+        let h = secs / 3600;
+        format!("{}h ago", h)
+    } else if secs < 7 * 86400 {
+        let d = secs / 86400;
+        format!("{}d ago", d)
+    } else {
+        // Format as YYYY-MM-DD using days since Unix epoch
+        let days = ts_unix / 86400;
+        let (y, m, d) = unix_days_to_ymd(days as i32);
+        format!("{:04}-{:02}-{:02}", y, m, d)
+    }
+}
+
+/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
+fn unix_days_to_ymd(z: i32) -> (i32, u32, u32) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m as u32, d as u32)
+}
+
 /// Render the dashboard page.
 fn render_dashboard() -> String {
-    let history_rows = global_state_db().list_history(100).unwrap_or_default();
+    let history_rows = global_state_db().list_history(10).unwrap_or_default();
 
     let history_html = if history_rows.is_empty() {
         "<p class=\"empty\">No history yet.</p>".to_string()
@@ -359,7 +401,7 @@ fn render_dashboard() -> String {
                     </div>"#,
                     url = url,
                     title = title,
-                    ts = row.ts_unix,
+                    ts = format_time_diff(row.ts_unix),
                 )
             })
             .collect();

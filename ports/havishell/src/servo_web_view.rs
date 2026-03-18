@@ -348,7 +348,6 @@ impl Widget for ServoWebView {
                 .map(|s| s.get())
                 .unwrap_or_default();
             let scroll_y = scroll_state.scroll_y;
-            let origin = dvec2(rect.pos.x, rect.pos.y - scroll_y);
             let viewport_top = scroll_y as f32;
             let viewport_bottom = (scroll_y + rect.size.y) as f32;
 
@@ -369,7 +368,6 @@ impl Widget for ServoWebView {
             havi_render::render_fragments_clipped(
                 cx,
                 self.cached_sc_tree.as_ref().unwrap(),
-                origin,
                 viewport_top,
                 viewport_bottom,
                 &mut self.draw_content_bg,
@@ -398,10 +396,7 @@ impl Widget for ServoWebView {
                                 .rects
                                 .iter()
                                 .map(|r| makepad_widgets::Rect {
-                                    pos: dvec2(
-                                        rect.pos.x + r.origin.x as f64,
-                                        rect.pos.y + r.origin.y as f64,
-                                    ),
+                                    pos: dvec2(r.origin.x as f64, r.origin.y as f64),
                                     size: dvec2(r.size.width as f64, r.size.height as f64),
                                 })
                                 .collect(),

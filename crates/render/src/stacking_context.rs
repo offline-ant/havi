@@ -260,13 +260,6 @@ fn build_for_fragment<'a>(
 ) {
     match fragment {
         Fragment::Box(bf) => {
-            let node_id = bf.base.tag.map(|t| t.node.0).unwrap_or(0);
-            let pos = bf.base.style.get_box().position;
-            let has_transform = !bf.base.style.get_box().transform.0.is_empty();
-            eprintln!("[SC_BUILD] Fragment::Box node={} pos={:?} has_transform={} rect=({},{} {}x{})",
-                node_id, pos, has_transform,
-                bf.base.rect.origin.x.to_f32_px(), bf.base.rect.origin.y.to_f32_px(),
-                bf.base.rect.size.width.to_f32_px(), bf.base.rect.size.height.to_f32_px());
             build_for_box(fragment, bf, false, stacking_context);
         }
         Fragment::Float(bf) => {

@@ -169,7 +169,6 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
 pub fn render_fragments(
     cx: &mut Cx2d,
     fragments: &[Fragment],
-    origin: DVec2,
     draw_bg: &mut DrawColor,
     draw_text: &mut DrawText,
     draw_text_bold: &mut DrawText,
@@ -189,8 +188,9 @@ pub fn render_fragments(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let sc = stacking_context::build_stacking_context_tree(fragments);
-    let viewport_size = cx.turtle().rect().size;
-    let scene = frame_builder::build_scene(&sc, fragments, scroll_state, origin, viewport_size);
+    let widget_rect = cx.turtle().rect();
+    let viewport_size = widget_rect.size;
+    let scene = frame_builder::build_scene(&sc, fragments, scroll_state, dvec2(0.0, 0.0), viewport_size);
     frame_draw_lists.clear();
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
@@ -225,7 +225,6 @@ pub fn render_fragments(
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     cached_tree: &CachedStackingContextTree,
-    origin: DVec2,
     viewport_top: f32,
     viewport_bottom: f32,
     draw_bg: &mut DrawColor,
@@ -246,15 +245,21 @@ pub fn render_fragments_clipped(
     draw_filter_image: &mut DrawFilterImage,
     image_overrides: &havi_types::ImageOverrides,
 ) {
+    let widget_rect = cx.turtle().rect();
+    // scroll_origin is page-relative: (0, -viewport_top) offsets fragment
+    // coordinates so the visible slice of the page maps to (0,0)-(w,h).
+    // The widget's window position is handled by begin_page_root_turtle in
+    // paint_frame_direct_2d, not baked into item coordinates here.
+    let scroll_origin = dvec2(0.0, -(viewport_top as f64));
     let viewport_size = dvec2(
-        cx.turtle().rect().size.x,
+        widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
     );
     let scene = frame_builder::build_scene(
         cached_tree.tree(),
         cached_tree.fragments(),
         scroll_state,
-        origin,
+        scroll_origin,
         viewport_size,
     );
     frame_draw_lists.clear();

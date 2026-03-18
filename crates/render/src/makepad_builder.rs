@@ -181,25 +181,15 @@ fn paint_compositor_surface(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let frame = frame_tree.frame(surface_root_frame_id);
-    eprintln!("[SURFACE] root_frame={} owner={:?} local=({:.2},{:.2}) world=({:.2},{:.2}) parent_space_root={:?}",
-        surface_root_frame_id,
-        frame.owner_node_id,
-        frame.matrix.local.v[12], frame.matrix.local.v[13],
-        frame.matrix.world.v[12], frame.matrix.world.v[13],
-        parent_space_root_frame_id);
     let Some(local_bounds) = frame_subtree_bounds_in_space(
         frame_tree,
         compositor_scene,
         surface_root_frame_id,
         surface_root_frame_id,
     ) else {
-        eprintln!("[SURFACE] root_frame={} no local bounds", surface_root_frame_id);
         return;
     };
-    eprintln!("[SURFACE] root_frame={} bounds pos=({:.2},{:.2}) size=({:.2},{:.2})", surface_root_frame_id, local_bounds.pos.x, local_bounds.pos.y, local_bounds.size.x, local_bounds.size.y);
     if local_bounds.size.x <= 0.0 || local_bounds.size.y <= 0.0 {
-        eprintln!("[SURFACE] root_frame={} skipped due to non-positive size", surface_root_frame_id);
         return;
     }
 
@@ -241,10 +231,6 @@ fn paint_compositor_surface(
         &frame_transform,
         &translation_matrix(local_bounds.pos.x as f32, local_bounds.pos.y as f32),
     );
-    eprintln!("[SURFACE] root_frame={} quad_transform=({:.2},{:.2}) frame_transform=({:.2},{:.2})",
-        surface_root_frame_id,
-        quad.transform.v[12], quad.transform.v[13],
-        frame_transform.v[12], frame_transform.v[13]);
     quad.opacity = parent_opacity.clamp(0.0, 1.0);
     quad.depth_write = true;
     runtime.compositor.draw_quad(cx, &quad);
@@ -289,12 +275,17 @@ fn paint_frame_direct_2d(
         })
         .draw_list
         .begin_always(cx);
+    // Open a page-root turtle for this DrawList so that draw_clip is written
+    // in page-relative space (origin = (0,0)). view_transform carries only
+    // the CSS transform; the turtle clip is a no-op for in-bounds items.
+    let pass_size = cx.current_pass_size();
+    cx.begin_page_root_turtle(dvec2(0.0, 0.0), pass_size, Layout::default());
     state
         .frame_draw_lists
         .get_mut(&frame.key)
         .unwrap()
         .draw_list
-        .set_view_transform_self_only(cx.cx, &frame_transform_in_space(frame_tree, space_root_frame_id, frame_id));
+        .set_view_transform_self_only(cx.cx, &frame.matrix.world);
     paint_frame_with_effects(
         cx,
         frame_tree,
@@ -308,6 +299,7 @@ fn paint_frame_direct_2d(
         state,
         parent_opacity,
     );
+    cx.end_pass_sized_turtle();
     state
         .frame_draw_lists
         .get_mut(&frame.key)
