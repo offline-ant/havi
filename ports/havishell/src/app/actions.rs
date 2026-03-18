@@ -562,9 +562,37 @@ impl MatchEvent for App {
                         .view(cx, ids!(web_view_texture))
                         .cached_texture_id();
                     eprintln!("[screenshot-debug] texture_id={:?}", texture_id);
+                    // SCREENSHOT CAPTURE FOR SERVO WEBVIEW CONTENT MUST COME FROM THE CACHED
+                    // WEBVIEW TEXTURE.
+                    // DO NOT EVER SWAP THIS FOR FRAMEBUFFER.
+                    // FRAMEBUFFER CAPTURE INCLUDES HAVI SHELL CHROME AND IS THE WRONG DATA
+                    // SOURCE FOR DEVTOOLS / WEBVIEW SCREENSHOTS.
+                    // THE CORRECT FIX IS TO MAKE THE TEXTURE CAPTURE PATH RETURN THE WEBVIEW
+                    // CONTENT WITH THE RIGHT BOUNDS, ORIGIN, AND ALPHA SEMANTICS.
                     let source = match texture_id {
-                        Some(id) => makepad_widgets::makepad_platform::CaptureSource::Texture(id),
-                        None => makepad_widgets::makepad_platform::CaptureSource::Framebuffer,
+                        Some(id) => {
+                            let rect = self.ui.view(cx, ids!(web_view_texture)).area().rect(cx);
+                            let width = (rect.size.x * self.dpi_factor).round().max(1.0) as u32;
+                            let height = (rect.size.y * self.dpi_factor).round().max(1.0) as u32;
+                            eprintln!(
+                                "[screenshot-debug] request texture rect {}x{} dpi={} logical={}x{}",
+                                width,
+                                height,
+                                self.dpi_factor,
+                                rect.size.x,
+                                rect.size.y,
+                            );
+                            makepad_widgets::makepad_platform::CaptureSource::TextureRect {
+                                texture_id: id,
+                                width,
+                                height,
+                                flip_y: true,
+                            }
+                        }
+                        None => {
+                            eprintln!("[screenshot-debug] missing cached texture for webview screenshot request");
+                            continue;
+                        }
                     };
                     let capture_request_id = cx.request_capture(source);
                     self.pending_screenshot_callbacks
