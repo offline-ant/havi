@@ -444,9 +444,13 @@ script_mod! {
                         width: Fill height: Fill
                         flow: Overlay
 
-                        web_view := ServoWebView{
-                            width: Fill
-                            height: Fill
+                        web_view_texture := View{
+                            width: Fill height: Fill
+                            texture_caching: true
+                            web_view := ServoWebView{
+                                width: Fill
+                                height: Fill
+                            }
                         }
 
                         // Context menu rendered in popup window (see context_menu.rs)
