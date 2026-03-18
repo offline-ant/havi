@@ -1005,4 +1005,11 @@ impl App {
             .servo_web_view(cx, ids!(web_view))
             .set_shared_fragments(shared, scroll, selection, images);
     }
+
+    pub(super) fn focus_active_webview(&self, cx: &mut Cx) {
+        let area = self.ui.servo_web_view(cx, ids!(web_view)).area();
+        if !area.is_empty() && !cx.has_key_focus(area) {
+            cx.set_key_focus(area);
+        }
+    }
 }

@@ -347,6 +347,7 @@ impl App {
                 self.active_tab_idx = 0;
                 // Wire shared fragment tree for direct Makepad rendering.
                 self.attach_active_render_state(cx);
+                self.focus_active_webview(cx);
             }
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
             self.ui

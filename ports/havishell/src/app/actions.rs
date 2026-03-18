@@ -272,6 +272,7 @@ impl App {
                 self.active_tab_idx = 0;
                 self.attach_active_render_state(cx);
                 self.activate_tab_webview(0);
+                self.focus_active_webview(cx);
                 #[cfg(any(target_os = "android", target_os = "ios"))]
                 {
                     self.pending_clipboard_menu = None;
@@ -626,6 +627,7 @@ impl MatchEvent for App {
                         .map_or(false, |t| t.webview_id == webview_id)
                         && status == servo::LoadStatus::Complete
                     {
+                        self.focus_active_webview(cx);
                         self.maybe_start_screenshot_capture(cx);
                     }
                 },
@@ -768,6 +770,7 @@ impl MatchEvent for App {
                             self.tabs[idx].url = parsed_url.clone();
                             if idx == self.active_tab_idx {
                                 self.attach_active_render_state(cx);
+                                self.focus_active_webview(cx);
                                 self.ui.text_input(cx, ids!(url_input)).set_text(cx, &parsed_url);
                             }
                             self.sync_tab_bar(cx);
@@ -921,6 +924,7 @@ impl AppMain for App {
                     self.active_tab_idx = self.tabs.len() - 1;
                     self.attach_active_render_state(cx);
                     self.activate_tab_webview(self.active_tab_idx);
+                    self.focus_active_webview(cx);
                     #[cfg(any(target_os = "android", target_os = "ios"))]
                     {
                         self.pending_clipboard_menu = None;
