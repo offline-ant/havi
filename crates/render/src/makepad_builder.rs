@@ -101,6 +101,16 @@ pub(crate) fn paint_scene(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
+    let pass_size = cx.current_pass_size();
+    state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
+    state.draw_bg.draw_abs(
+        cx,
+        Rect {
+            pos: dvec2(0.0, 0.0),
+            size: pass_size,
+        },
+    );
+
     let mut runtime = CompositorRuntime::new(cx.cx);
     paint_frame_target(
         cx,
