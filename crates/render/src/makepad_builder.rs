@@ -276,11 +276,25 @@ fn paint_frame_direct_2d(
         })
         .draw_list
         .begin_always(cx);
-    // Open a page-root turtle for this DrawList so that draw_clip is written
-    // in page-relative space (origin = (0,0)). view_transform carries only
-    // the CSS transform; the turtle clip is a no-op for in-bounds items.
     let pass_size = cx.current_pass_size();
-    cx.begin_page_root_turtle(dvec2(0.0, 0.0), pass_size, Layout::default());
+    let turtle_origin;
+    let turtle_size;
+    if frame_id == frame_tree.root {
+        turtle_origin = dvec2(0.0, 0.0);
+        turtle_size = pass_size;
+    } else {
+        // Transform the viewport rectangle into the frame's local coordinate space
+        // so that the Makepad turtle clip doesn't restrict content that would be
+        // visible after the CSS transform is applied.
+        let viewport = Rect { pos: dvec2(0.0, 0.0), size: pass_size };
+        let local_viewport = crate::makepad_clip::transform_rect(
+            &frame.matrix.world_inverse,
+            viewport,
+        );
+        turtle_origin = local_viewport.pos;
+        turtle_size = local_viewport.size;
+    };
+    cx.begin_page_root_turtle(turtle_origin, turtle_size, Layout::default());
     state
         .frame_draw_lists
         .get_mut(&frame.key)
