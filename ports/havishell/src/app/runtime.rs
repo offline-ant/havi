@@ -511,6 +511,8 @@ impl App {
     /// Main update method called each frame. Spins Servo's event loop and
     /// optionally does the expensive paint + readback cycle.
     pub(super) fn update_servo_and_texture(&mut self, cx: &mut Cx) {
+        self.check_resize(cx);
+
         // Always spin the event loop to process Servo's internal messages.
         // This is lightweight when there's nothing to do.
         if let Some(servo) = &self.servo {
@@ -548,9 +550,6 @@ impl App {
                 self.sync_tab_bar(cx);
             }
         }
-
-        // Check for widget resize
-        self.check_resize(cx);
 
         // Reset idle counter when new content is available.
         if self.needs_paint {

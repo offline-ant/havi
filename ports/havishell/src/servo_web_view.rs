@@ -307,6 +307,7 @@ impl Widget for ServoWebView {
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
         let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
             self.shared_fragments.as_ref().and_then(|sf| sf.get());
+        let peek_rect = cx.peek_walk_turtle(walk);
 
         // Detect fragment tree replacement (navigation) and clear image textures.
         let frag_ptr = fragments.as_ref().map_or(0, |f| Arc::as_ptr(f) as usize);
@@ -319,8 +320,6 @@ impl Widget for ServoWebView {
 
         // Peek at the walk rect BEFORE begin() so we know our expected
         // dimensions even if the inner turtle hasn't resolved sizes yet.
-        let peek_rect = cx.peek_walk_turtle(walk);
-
         self.draw_bg.begin(cx, walk, Layout::default());
         // All fragment rendering uses draw_abs (absolute positioning), which
         // doesn't expand the turtle. Mark the full rect as used so
