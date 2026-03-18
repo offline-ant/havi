@@ -557,40 +557,21 @@ impl MatchEvent for App {
                     .map(|tab| tab.webview_id == request.webview_id)
                     .unwrap_or(false)
                 {
-                    let texture_id = self
-                        .ui
-                        .view(cx, ids!(web_view_texture))
-                        .cached_texture_id();
-                    eprintln!("[screenshot-debug] texture_id={:?}", texture_id);
                     // SCREENSHOT CAPTURE FOR SERVO WEBVIEW CONTENT MUST COME FROM THE CACHED
-                    // WEBVIEW TEXTURE.
+                    // WEBVIEW SURFACE.
                     // DO NOT EVER SWAP THIS FOR FRAMEBUFFER.
                     // FRAMEBUFFER CAPTURE INCLUDES HAVI SHELL CHROME AND IS THE WRONG DATA
                     // SOURCE FOR DEVTOOLS / WEBVIEW SCREENSHOTS.
-                    // THE CORRECT FIX IS TO MAKE THE TEXTURE CAPTURE PATH RETURN THE WEBVIEW
-                    // CONTENT WITH THE RIGHT BOUNDS, ORIGIN, AND ALPHA SEMANTICS.
-                    let source = match texture_id {
-                        Some(id) => {
-                            let rect = self.ui.view(cx, ids!(web_view_texture)).area().rect(cx);
-                            let width = (rect.size.x * self.dpi_factor).round().max(1.0) as u32;
-                            let height = (rect.size.y * self.dpi_factor).round().max(1.0) as u32;
-                            eprintln!(
-                                "[screenshot-debug] request texture rect {}x{} dpi={} logical={}x{}",
-                                width,
-                                height,
-                                self.dpi_factor,
-                                rect.size.x,
-                                rect.size.y,
-                            );
-                            makepad_widgets::makepad_platform::CaptureSource::TextureRect {
-                                texture_id: id,
-                                width,
-                                height,
-                                flip_y: true,
-                            }
-                        }
-                        None => {
-                            eprintln!("[screenshot-debug] missing cached texture for webview screenshot request");
+                    // THE CORRECT PATH IS CACHED-VIEW CAPTURE, SO HAVI REQUESTS CAPTURE FROM
+                    // THE CACHED WEBVIEW SURFACE WITHOUT TOUCHING TEXTURE OR FRAMEBUFFER
+                    // PLUMBING.
+                    let source = match self
+                        .ui
+                        .view(cx, ids!(web_view_texture))
+                        .cached_capture_source()
+                    {
+                        Ok(source) => source,
+                        Err(_) => {
                             continue;
                         }
                     };
@@ -1065,9 +1046,6 @@ impl AppMain for App {
                 if let Some((_webview_id, request_id)) =
                     self.pending_screenshot_callbacks.remove(&result.request_id)
                 {
-                    eprintln!("[screenshot-debug] capture result: {}x{}, data_len={}, nonzero={}",
-                        result.width, result.height, result.rgba.len(),
-                        result.rgba.iter().filter(|&&b| b != 0).count());
                     if let Some(image) =
                         servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {
