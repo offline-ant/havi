@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
 use crate::compositor_scene::CompositorScene;
-use crate::reference_frame::reference_frame_spec;
+use crate::reference_frame::reference_frame_matrix;
 use crate::render_plan::{collect_owner_render_semantics, NodeRenderSemantics, RenderPlan};
 use crate::stacking_context::{PaintItem, StackingContext, StackingContextContent, StackingContextSection};
 use havi_types::fragment_tree::BoxFragment;
@@ -18,7 +18,6 @@ pub(crate) struct BuildContext {
     pub frame_id: FrameId,
     pub clip_id: ClipId,
     pub local_origin: DVec2,
-    pub origin_basis: DVec2,
 }
 
 pub(crate) struct BuiltScene<'a> {
@@ -103,11 +102,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 let item_cx = BuildContext {
                     frame_id: cx.frame_id,
                     clip_id: cx.clip_id,
-                    local_origin: dvec2(
-                        cx.local_origin.x + containing_block_origin.x - cx.origin_basis.x,
-                        cx.local_origin.y + containing_block_origin.y - cx.origin_basis.y,
-                    ),
-                    origin_basis: cx.origin_basis,
+                    local_origin: cx.local_origin + containing_block_origin,
                 };
                 self.build_fragment_into_scene(fragment, *section, item_cx);
             }
@@ -165,7 +160,6 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 frame_id,
                 clip_id,
                 local_origin: dvec2(0.0, 0.0),
-                origin_basis: dvec2(0.0, 0.0),
             },
         );
     }
@@ -196,20 +190,16 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
                 .map(|semantics| !semantics.requires_compositor())
                 .unwrap_or(true);
-            if let Some(spec) = reference_frame_spec(owner_fragment, owner_origin, flatten_3d) {
+            if let Some(matrix) = reference_frame_matrix(owner_fragment, owner_origin, flatten_3d) {
                 let frame_id = self.frame_tree.push_child_frame(
                     visual.frame_id,
                     FrameKey::NodeReferenceFrame(frame_key_id),
                     FrameKind::ReferenceFrame,
                     owner_node_id,
-                    spec.matrix,
+                    matrix,
                 );
                 entry_frame_id = Some(frame_id);
                 visual.frame_id = frame_id;
-                match spec.mode {
-                    crate::reference_frame::ReferenceFrameMode::AnchoredTransform => {}
-                    crate::reference_frame::ReferenceFrameMode::PerspectiveOnlyIsolation => {}
-                }
             }
         }
 
@@ -274,9 +264,6 @@ pub(crate) fn build_scene<'a>(
     let mut clip_tree = ClipTree::new();
     let root_id = frame_tree.root_id();
     let owner_semantics = collect_owner_render_semantics(fragments);
-    // scroll_origin carries the widget's window position plus the scroll
-    // offset so that page-relative item positions map to the correct window
-    // coordinates.
     SceneBuilder {
         frame_tree: &mut frame_tree,
         clip_tree: &mut clip_tree,
@@ -292,7 +279,6 @@ pub(crate) fn build_scene<'a>(
             frame_id: root_id,
             clip_id: ClipId::INVALID,
             local_origin: scroll_origin,
-            origin_basis: dvec2(0.0, 0.0),
         },
     );
     let render_plan = RenderPlan::build(&frame_tree, owner_semantics);
@@ -592,20 +578,18 @@ mod tests {
         })
     }
 
-    /// Verify that a CSS translate creates a reference frame whose world
-    /// matrix correctly positions items in page space.
+    /// CSS translate creates a reference frame whose world matrix places
+    /// items at the correct page-space position.
     ///
-    /// Layout: body box at rect=(8,8 1264x100), child at rect=(0,0 100x100)
-    /// with translate: 100px 100px. The child's containing-block origin is
-    /// (8,8) from body content_rect. CSS translate(100,100) anchored at (8,8)
-    /// composes to T(100,100). Items have local_origin=(8,8) in page space.
-    /// Drawing position: world*(local_origin) = T(100,100)*(8,8) = (108,108)
-    /// in page space; scroll_origin shifts that to window space.
+    /// Layout: body at (8,8), child at (0,0) with translate(100px,100px).
+    /// The child's containing-block origin is (8,8). The reference frame
+    /// matrix is T(anchor) * T(100,100) * T(-anchor) where anchor=(8,8),
+    /// which simplifies to T(100,100). The item keeps its absolute
+    /// local_origin=(8,8). Draw position = T(100,100) * (8,8) = (108,108).
     #[test]
-    fn translate_reference_frame_world_matches_static_offset() {
+    fn translate_reference_frame_positions_correctly() {
         use app_units::Au;
         let child = translated_box(2, 0.0, 0.0, 100.0, 100.0);
-        // Body-like parent: content_rect at (8,8) via rect origin.
         let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
         let parent = Fragment::Box(BoxFragment {
             base: BaseFragment::new(
@@ -625,27 +609,14 @@ mod tests {
         let fragments = [parent];
         let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
-            &sc,
-            &fragments,
-            &crate::ScrollState::default(),
-            dvec2(0.0, 0.0),
-            dvec2(1280.0, 800.0),
+            &sc, &fragments, &crate::ScrollState::default(),
+            dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
         );
 
-        // Find the reference frame for node 2
-        let ref_frame = scene
-            .frame_tree
-            .frames
-            .iter()
+        let ref_frame = scene.frame_tree.frames.iter()
             .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2))
-            .expect("should have a reference frame for the translated box");
+            .expect("reference frame for translated box");
 
-        // scroll_origin=(0,0), so local_origin = containing_block_origin = (8,8).
-        // anchor = border_origin_absolute(div, (8,8)) = (8,8) in page space.
-        // compose_reference_frame_transform(anchor=(8,8), T(100,100)):
-        //   T(8,8) * T(100,100) * T(-8,-8) = T(100,100).
-        // ref_frame.matrix.world = identity * T(100,100) = T(100,100).
-        // Page-space draw position = T(100,100) * (8,8) = (108,108).
         let item = ref_frame.items.first().expect("frame should have items");
         let draw_pos = ref_frame.matrix.world.transform_vec4(
             vec4f(item.local_origin.x as f32, item.local_origin.y as f32, 0.0, 1.0),
@@ -653,9 +624,121 @@ mod tests {
 
         assert!(
             (draw_pos.x - 108.0).abs() < 0.5 && (draw_pos.y - 108.0).abs() < 0.5,
-            "world*(local_origin) = ({:.1},{:.1}) should be (108,108), local_origin=({:.1},{:.1})",
+            "draw position = ({:.1},{:.1}), expected (108,108)",
             draw_pos.x, draw_pos.y,
-            item.local_origin.x, item.local_origin.y
+        );
+    }
+
+    /// CSS rotate(90deg) on an abspos element positions correctly.
+    ///
+    /// Layout: body(8,8) > PositioningFragment(0,0) > div(100,100 150x100)
+    /// with rotate:90deg. The div's absolute border-box is at (108,108).
+    /// Rotation center (transform-origin 50% 50%) = (108+75, 108+50) = (183,158).
+    ///
+    /// Rotating the four corners 90° around (183,158):
+    ///   (108,108) → (233,83)    (258,108) → (233,233)
+    ///   (108,208) → (133,83)    (258,208) → (133,233)
+    /// Bounding box: (133,83)..(233,233).
+    #[test]
+    fn rotate_90deg_abspos_positions_correctly() {
+        use app_units::Au;
+        use style::values::generics::transform::GenericRotate;
+
+        let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
+        {
+            let s = servo_arc::Arc::make_mut(&mut style);
+            s.mutate_box().set_position(ComputedPosition::Absolute);
+            s.mutate_box().rotate = GenericRotate::Rotate(
+                style::values::computed::Angle::from_degrees(90.0),
+            );
+        }
+
+        let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
+        let green_box = Fragment::Box(BoxFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(2)),
+                style.to_arc(),
+                make_rect(100.0, 100.0, 150.0, 100.0),
+            ),
+            children: Vec::new(),
+            padding: sides,
+            border: sides,
+            margin: sides,
+            baselines: Baselines::default(),
+            block_level_info: None,
+            background_images: Vec::new(),
+        });
+
+        let positioning = Fragment::Positioning(havi_types::PositioningFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::anonymous(),
+                initial_style(),
+                make_rect(0.0, 0.0, 1280.0, 800.0),
+            ),
+            children: vec![green_box],
+        });
+
+        let body = Fragment::Box(BoxFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(1)),
+                initial_style(),
+                make_rect(8.0, 8.0, 1264.0, 100.0),
+            ),
+            children: vec![positioning],
+            padding: sides,
+            border: sides,
+            margin: sides,
+            baselines: Baselines::default(),
+            block_level_info: None,
+            background_images: Vec::new(),
+        });
+
+        let fragments = [body];
+        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let scene = build_scene(
+            &sc, &fragments, &crate::ScrollState::default(),
+            dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
+        );
+
+        let ref_frame = scene.frame_tree.frames.iter()
+            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2))
+            .expect("reference frame for rotated box");
+
+        let item = ref_frame.items.first().expect("frame should have items");
+
+        // The draw coordinates are local_origin + border_rect.origin.
+        // border_rect = (100,100 150x100) relative to containing block.
+        let draw_x = item.local_origin.x + 100.0;
+        let draw_y = item.local_origin.y + 100.0;
+        let w = 150.0_f64;
+        let h = 100.0_f64;
+
+        let corners = [
+            (draw_x, draw_y), (draw_x + w, draw_y),
+            (draw_x, draw_y + h), (draw_x + w, draw_y + h),
+        ];
+
+        let world = &ref_frame.matrix.world;
+        let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+        let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for (cx, cy) in corners {
+            let p = world.transform_vec4(vec4f(cx as f32, cy as f32, 0.0, 1.0));
+            let px = (p.x / p.w) as f64;
+            let py = (p.y / p.w) as f64;
+            min_x = min_x.min(px);
+            min_y = min_y.min(py);
+            max_x = max_x.max(px);
+            max_y = max_y.max(py);
+        }
+
+        let tolerance = 1.0;
+        assert!(
+            (min_x - 133.0).abs() < tolerance
+                && (min_y - 83.0).abs() < tolerance
+                && (max_x - 233.0).abs() < tolerance
+                && (max_y - 233.0).abs() < tolerance,
+            "bounding box = ({min_x:.1},{min_y:.1})..({max_x:.1},{max_y:.1}), \
+             expected (133,83)..(233,233)",
         );
     }
 

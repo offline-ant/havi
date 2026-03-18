@@ -3,7 +3,7 @@ use ::image::{DynamicImage, RgbaImage};
 use std::io::Write;
 use std::path::PathBuf;
 
-const SCREENSHOT_SETTLE_FRAMES: u8 = 1;
+const SCREENSHOT_SETTLE_FRAMES: u8 = 3;
 
 #[derive(Clone, Debug)]
 pub(super) enum ScreenshotMode {

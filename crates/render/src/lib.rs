@@ -165,63 +165,12 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
     f
 }
 
-/// Draw all fragments from a layout result onto a Makepad 2D context.
-pub fn render_fragments(
-    cx: &mut Cx2d,
-    fragments: &[Fragment],
-    draw_bg: &mut DrawColor,
-    draw_text: &mut DrawText,
-    draw_text_bold: &mut DrawText,
-    draw_text_mono: &mut DrawText,
-    draw_image: &mut DrawImage,
-    texture_cache: &mut TextureCache,
-    scroll_state: &ScrollState,
-    draw_rounded_bg: &mut DrawRoundedColor,
-    draw_box_shadow: &mut DrawBoxShadow,
-    draw_gradient: &mut DrawGradient,
-    draw_video_yuv: &mut DrawVideoYuv,
-    selection: Option<&SelectionHighlight>,
-    frame_draw_lists: &mut FrameDrawListState,
-    opacity_state: &mut OpacityState,
-    filter_state: &mut FilterState,
-    draw_filter_image: &mut DrawFilterImage,
-    image_overrides: &havi_types::ImageOverrides,
-) {
-    let sc = stacking_context::build_stacking_context_tree(fragments);
-    let widget_rect = cx.turtle().rect();
-    let viewport_size = widget_rect.size;
-    let scene = frame_builder::build_scene(&sc, fragments, scroll_state, dvec2(0.0, 0.0), viewport_size);
-    frame_draw_lists.clear();
-    let mut state = makepad_builder::MakepadDrawState {
-        draw_bg,
-        draw_text,
-        draw_text_bold,
-        draw_text_mono,
-        draw_image,
-        texture_cache,
-        draw_rounded_bg,
-        draw_box_shadow,
-        draw_gradient,
-        draw_video_yuv,
-        selection,
-        opacity_state,
-        filter_state,
-        draw_filter_image,
-        frame_draw_lists,
-        image_overrides,
-    };
-    makepad_builder::paint_scene(
-        cx,
-        &scene.frame_tree,
-        &scene.clip_tree,
-        &scene.render_plan,
-        &scene.compositor_scene,
-        &mut state,
-        1.0,
-    );
-}
-
 /// Draw fragments with viewport clipping, using a pre-built stacking context tree.
+///
+/// The widget renders into its own texture (via Makepad's `texture_caching`),
+/// so `cx.turtle().rect().pos` is `(0,0)` in the texture's coordinate space.
+/// `viewport_top` controls the scroll offset: fragments are placed at
+/// `(0, -viewport_top)` so the visible page slice maps to the texture origin.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     cached_tree: &CachedStackingContextTree,
@@ -246,10 +195,7 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    // scroll_origin offsets fragment coordinates so the visible slice of the
-    // page maps to the widget's window position. widget_rect.pos places items
-    // at the widget origin; the negative viewport_top scrolls the page.
-    let scroll_origin = dvec2(widget_rect.pos.x, widget_rect.pos.y - viewport_top as f64);
+    let scroll_origin = dvec2(0.0, -(viewport_top as f64));
     let viewport_size = dvec2(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,

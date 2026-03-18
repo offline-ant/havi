@@ -6,36 +6,24 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 
 use crate::transform::compute_css_reference_frame_matrix;
 
-/// Structural reference-frame mode used by the renderer.
+/// Compute the reference-frame world matrix for a box fragment, if any.
 ///
-/// HAVI supports ordinary 2D reference frames directly. When CSS produces a
-/// true 3D or perspective matrix, the renderer falls back to a flattened 2D
-/// approximation from `transform.rs`. Pure `perspective` owners without a
-/// transform still establish a structural isolation boundary, but do not rebase
-/// descendant local coordinates to the border-box anchor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ReferenceFrameMode {
-    /// The subtree uses an anchored transform, including flattened 3D fallback.
-    AnchoredTransform,
-    /// The subtree needs structural isolation only.
-    PerspectiveOnlyIsolation,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ReferenceFrameSpec {
-    pub mode: ReferenceFrameMode,
-    pub matrix: Mat4f,
-}
-
-pub(crate) fn reference_frame_spec(
+/// A reference frame is created when a box has a CSS transform or perspective.
+/// The returned matrix is `T(anchor) * css_transform * T(-anchor)`, where
+/// `anchor` is the box's border-box origin in absolute page coordinates and
+/// `css_transform` already has `transform-origin` baked in via `change_basis`.
+///
+/// This matches the WebRender model: items inside the reference frame keep
+/// their absolute page-space coordinates, and the `T(-anchor)` converts them
+/// to frame-local coordinates before the CSS transform is applied.
+///
+/// Pure `perspective` owners (no transform) get an identity matrix — they
+/// establish structural isolation only.
+pub(crate) fn reference_frame_matrix(
     bf: &BoxFragment,
     current_origin: DVec2,
     flatten_3d: bool,
-) -> Option<ReferenceFrameSpec> {
-    let border_rect = bf.border_rect();
-    let bw = border_rect.size.width.to_f32_px();
-    let bh = border_rect.size.height.to_f32_px();
-    let anchor = border_origin_absolute(bf, current_origin);
+) -> Option<Mat4f> {
     let style = &bf.base.style;
     let presence = transform_presence(style);
 
@@ -43,19 +31,17 @@ pub(crate) fn reference_frame_spec(
         return None;
     }
 
+    // Pure perspective (no transform): structural isolation with identity matrix.
     if !presence.has_transform && presence.has_perspective {
-        return Some(ReferenceFrameSpec {
-            mode: ReferenceFrameMode::PerspectiveOnlyIsolation,
-            matrix: Mat4f::identity(),
-        });
+        return Some(Mat4f::identity());
     }
 
+    let border_rect = bf.border_rect();
+    let bw = border_rect.size.width.to_f32_px();
+    let bh = border_rect.size.height.to_f32_px();
+    let anchor = border_origin_absolute(bf, current_origin);
     let css_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d)?;
-    let composed = compose_reference_frame_transform(anchor, css_matrix);
-    Some(ReferenceFrameSpec {
-        mode: ReferenceFrameMode::AnchoredTransform,
-        matrix: composed,
-    })
+    Some(compose_reference_frame_transform(anchor, css_matrix))
 }
 
 pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) -> DVec2 {
@@ -66,8 +52,11 @@ pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) ->
     )
 }
 
+/// Compose a CSS transform (with transform-origin baked in) into a world-space
+/// matrix anchored at the element's border-box origin.
+///
+/// Result: `T(anchor) * transform * T(-anchor)`
 fn compose_reference_frame_transform(anchor: DVec2, transform: Mat4f) -> Mat4f {
-    // T(anchor) * transform * T(-anchor)
     let t_pos = translation_matrix(anchor.x as f32, anchor.y as f32);
     let t_neg = translation_matrix(-(anchor.x as f32), -(anchor.y as f32));
     Mat4f::mul(&t_pos, &Mat4f::mul(&transform, &t_neg))
