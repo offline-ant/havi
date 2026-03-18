@@ -1,6 +1,7 @@
 use havi_types::{Fragment, ImageFragment};
 use makepad_widgets::makepad_draw::ImageBuffer;
 use makepad_widgets::*;
+use style::computed_values::visibility::T as Visibility;
 
 use crate::DrawVideoYuv;
 
@@ -15,6 +16,10 @@ pub(crate) fn paint_fragment_item(
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
+    if item.fragment.base().style.get_inherited_box().visibility != Visibility::Visible {
+        return;
+    }
+
     match item.fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => match item.section {
             crate::stacking_context::StackingContextSection::OwnBackgroundsAndBorders
