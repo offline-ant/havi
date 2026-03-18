@@ -1,9 +1,19 @@
 //! Element box rendering: backgrounds, borders, outlines, box shadows, gradients.
+//!
+//! Background layer geometry (size, position, repeat, origin, clip) follows the
+//! CSS Backgrounds spec and is ported from servo-mainline's display list builder.
 
 use servo_arc::Arc;
 use makepad_widgets::*;
 use style::color::{AbsoluteColor, ColorSpace};
 use style::properties::ComputedValues;
+use style::values::computed::LengthPercentage;
+use style::values::computed::background::BackgroundSize;
+use style::computed_values::background_clip::single_value::T as Clip;
+use style::computed_values::background_origin::single_value::T as Origin;
+use style::values::specified::background::{
+    BackgroundRepeat as RepeatXY, BackgroundRepeatKeyword as Repeat,
+};
 
 use crate::color::{inherited_color, resolve_color};
 use crate::shaders::{DrawBoxShadow, DrawGradient, DrawRoundedColor};
@@ -36,6 +46,243 @@ pub(crate) fn resolve_border_radii(computed: &ComputedValues) -> BorderRadii {
         bl: resolve(&border.border_bottom_left_radius.0.width.0),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Background layer geometry (per CSS Backgrounds spec)
+// ---------------------------------------------------------------------------
+
+/// Resolved geometry for one background layer.
+struct BackgroundLayerGeom {
+    /// Origin and size of the area to draw into (window coords).
+    bounds_x: f64,
+    bounds_y: f64,
+    bounds_w: f32,
+    bounds_h: f32,
+    /// Size of one tile (the gradient/image is rendered at this size).
+    tile_w: f32,
+    tile_h: f32,
+}
+
+/// Insets from the border rect to a sub-rect (padding or content).
+struct BoxInsets {
+    top: f32,
+    right: f32,
+    bottom: f32,
+    left: f32,
+}
+
+/// Compute border and padding insets from computed style.
+fn resolve_insets(computed: &ComputedValues) -> (BoxInsets, BoxInsets) {
+    use style::values::specified::border::BorderStyle;
+    let b = computed.get_border();
+    let bw = |style: BorderStyle, width: style::values::computed::BorderSideWidth| -> f32 {
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden) { 0.0 }
+        else { width.0.to_f32_px().max(0.0) }
+    };
+    let border = BoxInsets {
+        top: bw(b.clone_border_top_style(), b.clone_border_top_width()),
+        right: bw(b.clone_border_right_style(), b.clone_border_right_width()),
+        bottom: bw(b.clone_border_bottom_style(), b.clone_border_bottom_width()),
+        left: bw(b.clone_border_left_style(), b.clone_border_left_width()),
+    };
+    let p = computed.get_padding();
+    let padding = BoxInsets {
+        top: p.padding_top.0.to_length().map_or(0.0, |l| l.px()),
+        right: p.padding_right.0.to_length().map_or(0.0, |l| l.px()),
+        bottom: p.padding_bottom.0.to_length().map_or(0.0, |l| l.px()),
+        left: p.padding_left.0.to_length().map_or(0.0, |l| l.px()),
+    };
+    (border, padding)
+}
+
+/// Sub-rect of the border rect: (x, y, w, h).
+fn sub_rect(
+    x: f64, y: f64, w: f32, h: f32,
+    border: &BoxInsets, padding: &BoxInsets,
+    which: Origin,
+) -> (f64, f64, f32, f32) {
+    match which {
+        Origin::BorderBox => (x, y, w, h),
+        Origin::PaddingBox => (
+            x + border.left as f64,
+            y + border.top as f64,
+            (w - border.left - border.right).max(0.0),
+            (h - border.top - border.bottom).max(0.0),
+        ),
+        Origin::ContentBox => (
+            x + (border.left + padding.left) as f64,
+            y + (border.top + padding.top) as f64,
+            (w - border.left - border.right - padding.left - padding.right).max(0.0),
+            (h - border.top - border.bottom - padding.top - padding.bottom).max(0.0),
+        ),
+    }
+}
+
+/// Clip equivalent: Clip and Origin have the same variants.
+fn clip_to_origin(clip: Clip) -> Origin {
+    match clip {
+        Clip::BorderBox => Origin::BorderBox,
+        Clip::PaddingBox => Origin::PaddingBox,
+        Clip::ContentBox => Origin::ContentBox,
+    }
+}
+
+fn get_cyclic<T>(values: &[T], index: usize) -> &T {
+    &values[index % values.len()]
+}
+
+/// Compute per-layer background geometry following the CSS Backgrounds spec.
+/// `(x, y, w, h)` is the border rect in window coordinates.
+/// `natural_w/h` are the intrinsic dimensions of an image (None for gradients).
+fn layout_background_layer(
+    computed: &ComputedValues,
+    layer_index: usize,
+    x: f64, y: f64, w: f32, h: f32,
+    border: &BoxInsets, padding: &BoxInsets,
+    natural_w: Option<f32>, natural_h: Option<f32>,
+) -> Option<BackgroundLayerGeom> {
+    let bg = computed.get_background();
+
+    let origin = *get_cyclic(&bg.background_origin.0, layer_index);
+    let clip = *get_cyclic(&bg.background_clip.0, layer_index);
+
+    let (pos_x, pos_y, pos_w, pos_h) = sub_rect(x, y, w, h, border, padding, origin);
+    let (paint_x, paint_y, paint_w, paint_h) = sub_rect(x, y, w, h, border, padding, clip_to_origin(clip));
+
+    // background-size
+    let mut tile_w;
+    let mut tile_h;
+    match get_cyclic(&bg.background_size.0, layer_index) {
+        BackgroundSize::Contain | BackgroundSize::Cover => {
+            tile_w = pos_w;
+            tile_h = pos_h;
+            if let (Some(nw), Some(nh)) = (natural_w, natural_h) {
+                if nw > 0.0 && nh > 0.0 {
+                    let ratio = nw / nh;
+                    let pos_ratio = pos_w / pos_h;
+                    let fit_width = match get_cyclic(&bg.background_size.0, layer_index) {
+                        BackgroundSize::Contain => pos_ratio <= ratio,
+                        _ => pos_ratio > ratio,
+                    };
+                    if fit_width {
+                        tile_h = tile_w / ratio;
+                    } else {
+                        tile_w = tile_h * ratio;
+                    }
+                }
+            }
+        }
+        BackgroundSize::ExplicitSize { width, height } => {
+            let mut ew = width.non_auto().map(|lp| {
+                lp.0.to_used_value(app_units::Au::from_f32_px(pos_w)).to_f32_px()
+            });
+            let mut eh = height.non_auto().map(|lp| {
+                lp.0.to_used_value(app_units::Au::from_f32_px(pos_h)).to_f32_px()
+            });
+            if ew.is_none() && eh.is_none() {
+                ew = natural_w;
+                eh = natural_h;
+            }
+            match (ew, eh) {
+                (Some(tw), Some(th)) => { tile_w = tw; tile_h = th; }
+                (Some(tw), None) => {
+                    tile_w = tw;
+                    tile_h = if let (Some(nw), Some(nh)) = (natural_w, natural_h) {
+                        if nw > 0.0 { tw * nh / nw } else { pos_h }
+                    } else {
+                        natural_h.unwrap_or(pos_h)
+                    };
+                }
+                (None, Some(th)) => {
+                    tile_h = th;
+                    tile_w = if let (Some(nw), Some(nh)) = (natural_w, natural_h) {
+                        if nh > 0.0 { th * nw / nh } else { pos_w }
+                    } else {
+                        natural_w.unwrap_or(pos_w)
+                    };
+                }
+                (None, None) => {
+                    // Both auto, no natural sizes: contain
+                    tile_w = pos_w;
+                    tile_h = pos_h;
+                }
+            }
+        }
+    }
+
+    if tile_w <= 0.0 || tile_h <= 0.0 {
+        return None;
+    }
+
+    let RepeatXY(repeat_x, repeat_y) = *get_cyclic(&bg.background_repeat.0, layer_index);
+    let rx = layout_1d(
+        &mut tile_w, repeat_x,
+        get_cyclic(&bg.background_position_x.0, layer_index),
+        paint_x as f32 - pos_x as f32, paint_w, pos_w,
+    );
+    let ry = layout_1d(
+        &mut tile_h, repeat_y,
+        get_cyclic(&bg.background_position_y.0, layer_index),
+        paint_y as f32 - pos_y as f32, paint_h, pos_h,
+    );
+
+    Some(BackgroundLayerGeom {
+        bounds_x: pos_x + rx.origin as f64,
+        bounds_y: pos_y + ry.origin as f64,
+        bounds_w: rx.size,
+        bounds_h: ry.size,
+        tile_w,
+        tile_h,
+    })
+}
+
+struct Layout1DResult {
+    origin: f32,
+    size: f32,
+}
+
+/// Per-axis background layout following CSS Backgrounds spec.
+fn layout_1d(
+    tile_size: &mut f32,
+    mut repeat: Repeat,
+    position: &LengthPercentage,
+    painting_area_origin: f32,
+    painting_area_size: f32,
+    positioning_area_size: f32,
+) -> Layout1DResult {
+    if let Repeat::Round = repeat {
+        if positioning_area_size > 0.0 {
+            *tile_size = positioning_area_size / (positioning_area_size / *tile_size).round().max(1.0);
+        }
+    }
+    let mut pos = position
+        .to_used_value(app_units::Au::from_f32_px(positioning_area_size - *tile_size))
+        .to_f32_px();
+    let mut tile_spacing = 0.0;
+    if let Repeat::Space = repeat {
+        let count = (positioning_area_size / *tile_size).floor();
+        if count >= 2.0 {
+            pos = 0.0;
+            tile_spacing = (positioning_area_size - *tile_size * count) / (count - 1.0);
+        } else {
+            repeat = Repeat::NoRepeat;
+        }
+    }
+    match repeat {
+        Repeat::Repeat | Repeat::Round | Repeat::Space => {
+            let stride = *tile_size + tile_spacing;
+            let offset = pos - painting_area_origin;
+            let origin = pos - stride * (offset / stride).ceil();
+            let end = painting_area_origin + painting_area_size;
+            Layout1DResult { origin, size: end - origin }
+        }
+        Repeat::NoRepeat => {
+            Layout1DResult { origin: pos, size: *tile_size }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 pub(crate) fn draw_element_box(
     cx: &mut Cx2d,
@@ -128,10 +375,22 @@ fn draw_background_images(
 ) {
     use style::values::computed::image::Image;
     let bg = computed.get_background();
-    for image in bg.background_image.0.iter().rev() {
+    let (border_insets, padding_insets) = resolve_insets(computed);
+    // Reverse: CSS lists topmost layer first, we paint bottommost first.
+    for (index, image) in bg.background_image.0.iter().enumerate().rev() {
         match image {
             Image::Gradient(ref gradient) => {
-                draw_css_gradient(cx, gradient, x, y, w, h, current_abs, draw_gradient, opacity);
+                // Gradients have no intrinsic size.
+                let Some(layer) = layout_background_layer(
+                    computed, index, x, y, w, h,
+                    &border_insets, &padding_insets, None, None,
+                ) else { continue };
+                draw_css_gradient(
+                    cx, gradient,
+                    layer.bounds_x, layer.bounds_y, layer.bounds_w, layer.bounds_h,
+                    layer.tile_w, layer.tile_h,
+                    current_abs, draw_gradient, opacity,
+                );
             }
             Image::Url(_) => {
                 // URL images are resolved during fragment conversion and stored
@@ -144,8 +403,13 @@ fn draw_background_images(
 
 /// Draw resolved CSS background-image: url() images for a box fragment.
 /// Called from makepad_builder after draw_element_box.
+///
+/// `url_layer_indices` maps each entry in `background_images` to its CSS layer index
+/// (position in `background-image`). This is needed to look up the correct
+/// `background-size`, `background-position`, etc. for each url() layer.
 pub(crate) fn draw_background_url_images(
     cx: &mut Cx2d,
+    computed: &ComputedValues,
     background_images: &[havi_types::BackgroundImage],
     x: f64, y: f64, w: f32, h: f32,
     draw_image: &mut DrawImage,
@@ -153,12 +417,28 @@ pub(crate) fn draw_background_url_images(
     opacity: f32,
 ) {
     use makepad_widgets::makepad_draw::ImageBuffer;
+    use style::values::computed::image::Image;
+
+    let bg = computed.get_background();
+    let (border_insets, padding_insets) = resolve_insets(computed);
+
+    // Build mapping: for each url() image in order, find its CSS layer index.
+    let url_indices: Vec<usize> = bg.background_image.0.iter().enumerate()
+        .filter_map(|(i, img)| if matches!(img, Image::Url(_)) { Some(i) } else { None })
+        .collect();
 
     for (i, img) in background_images.iter().enumerate() {
         if img.width == 0 || img.height == 0 || img.pixels.is_empty() {
             continue;
         }
-        // Use a synthetic cache key based on position + index to avoid re-uploading.
+        let layer_index = url_indices.get(i).copied().unwrap_or(0);
+        let natural_w = Some(img.width as f32);
+        let natural_h = Some(img.height as f32);
+        let Some(layer) = layout_background_layer(
+            computed, layer_index, x, y, w, h,
+            &border_insets, &padding_insets, natural_w, natural_h,
+        ) else { continue };
+
         let cache_key = (x.to_bits() as usize)
             .wrapping_mul(31)
             .wrapping_add(y.to_bits() as usize)
@@ -181,21 +461,29 @@ pub(crate) fn draw_background_url_images(
         });
         draw_image.draw_vars.set_texture(0, &entry.texture);
         draw_image.opacity = opacity;
-        // Default: cover the element's padding box (same as background-size: auto).
-        // TODO: Support background-size, background-position, background-repeat.
-        draw_image.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
+        draw_image.draw_abs(cx, Rect {
+            pos: dvec2(layer.bounds_x, layer.bounds_y),
+            size: dvec2(layer.tile_w as f64, layer.tile_h as f64),
+        });
     }
 }
 
+/// Draw a CSS gradient into the given bounds.
+/// `(x, y, _bw, _bh)` is the drawing bounds (may include tiling).
+/// `(tw, th)` is the tile size (the gradient is defined over this size).
 fn draw_css_gradient(
     cx: &mut Cx2d,
     gradient: &style::values::computed::image::Gradient,
-    x: f64, y: f64, w: f32, h: f32,
+    x: f64, y: f64, _bw: f32, _bh: f32,
+    tw: f32, th: f32,
     current_abs: &AbsoluteColor, draw_gradient: &mut DrawGradient, opacity: f32,
 ) {
     use style::values::computed::image::{Gradient as G, LineDirection};
     use style::values::generics::image::GradientFlags;
-    let rect = Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) };
+    // The gradient is defined over the tile size; we draw at bounds size.
+    // For no-repeat, bounds == tile. For repeat, bounds > tile.
+    // Currently the shader does not tile, so we draw a single tile.
+    let rect = Rect { pos: dvec2(x, y), size: dvec2(tw as f64, th as f64) };
 
     match gradient {
         G::Linear { items, direction, flags, .. } => {
@@ -218,38 +506,38 @@ fn draw_css_gradient(
                     (hx / len, vy / len)
                 }
             };
-            let grad_len = (w * dx).abs() + (h * dy).abs();
+            let grad_len = (tw * dx).abs() + (th * dy).abs();
             if grad_len < 0.001 { return; }
             let half = grad_len / 2.0;
             draw_gradient.grad_type = 0.0;
             draw_gradient.repeating = if flags.contains(GradientFlags::REPEATING) { 1.0 } else { 0.0 };
-            draw_gradient.param0 = 0.5 - (dx * half) / w;
-            draw_gradient.param1 = 0.5 - (dy * half) / h;
-            draw_gradient.param2 = 0.5 + (dx * half) / w;
-            draw_gradient.param3 = 0.5 + (dy * half) / h;
+            draw_gradient.param0 = 0.5 - (dx * half) / tw;
+            draw_gradient.param1 = 0.5 - (dy * half) / th;
+            draw_gradient.param2 = 0.5 + (dx * half) / tw;
+            draw_gradient.param3 = 0.5 + (dy * half) / th;
             set_gradient_stops(draw_gradient, items, grad_len, current_abs, opacity);
             draw_gradient.draw_abs(cx, rect);
         }
         G::Radial { items, shape, position, flags, .. } => {
-            let cx_pos = position.horizontal.to_used_value(app_units::Au::from_f32_px(w)).to_f32_px();
-            let cy_pos = position.vertical.to_used_value(app_units::Au::from_f32_px(h)).to_f32_px();
-            let (rx, ry) = resolve_radial_shape(shape, w, h, cx_pos, cy_pos);
+            let cx_pos = position.horizontal.to_used_value(app_units::Au::from_f32_px(tw)).to_f32_px();
+            let cy_pos = position.vertical.to_used_value(app_units::Au::from_f32_px(th)).to_f32_px();
+            let (rx, ry) = resolve_radial_shape(shape, tw, th, cx_pos, cy_pos);
             draw_gradient.grad_type = 1.0;
             draw_gradient.repeating = if flags.contains(GradientFlags::REPEATING) { 1.0 } else { 0.0 };
-            draw_gradient.param0 = cx_pos / w;
-            draw_gradient.param1 = cy_pos / h;
-            draw_gradient.param2 = rx / w;
-            draw_gradient.param3 = ry / h;
+            draw_gradient.param0 = cx_pos / tw;
+            draw_gradient.param1 = cy_pos / th;
+            draw_gradient.param2 = rx / tw;
+            draw_gradient.param3 = ry / th;
             set_gradient_stops(draw_gradient, items, rx, current_abs, opacity);
             draw_gradient.draw_abs(cx, rect);
         }
         G::Conic { angle, position, items, flags, .. } => {
-            let cx_pos = position.horizontal.to_used_value(app_units::Au::from_f32_px(w)).to_f32_px();
-            let cy_pos = position.vertical.to_used_value(app_units::Au::from_f32_px(h)).to_f32_px();
+            let cx_pos = position.horizontal.to_used_value(app_units::Au::from_f32_px(tw)).to_f32_px();
+            let cy_pos = position.vertical.to_used_value(app_units::Au::from_f32_px(th)).to_f32_px();
             draw_gradient.grad_type = 2.0;
             draw_gradient.repeating = if flags.contains(GradientFlags::REPEATING) { 1.0 } else { 0.0 };
-            draw_gradient.param0 = cx_pos / w;
-            draw_gradient.param1 = cy_pos / h;
+            draw_gradient.param0 = cx_pos / tw;
+            draw_gradient.param1 = cy_pos / th;
             draw_gradient.param2 = angle.radians();
             draw_gradient.param3 = 0.0;
             set_conic_gradient_stops(draw_gradient, items, current_abs, opacity);

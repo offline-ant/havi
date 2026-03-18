@@ -41,6 +41,7 @@ pub(crate) fn paint_fragment_item(
                 if !bf.background_images.is_empty() {
                     crate::background::draw_background_url_images(
                         cx,
+                        &bf.base.style,
                         &bf.background_images,
                         bx,
                         by,
