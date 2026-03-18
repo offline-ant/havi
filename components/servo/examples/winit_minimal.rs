@@ -35,7 +35,7 @@ struct AppState {
 }
 
 impl ::servo::WebViewDelegate for AppState {
-    fn notify_new_frame_ready(&self, _: WebView) {
+    fn notify_new_frame_ready(&self, _: WebView, _: webrender_api::PipelineId) {
         self.window.request_redraw();
     }
 }

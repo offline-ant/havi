@@ -335,16 +335,9 @@ impl App {
             let initial_url_str = self.start_url.clone();
             if let Some(webview) = self.create_webview(&initial_url_str) {
                 let webview_id = webview.id();
-                // Wire shared fragment tree for direct Makepad rendering.
-                let shared = layout_api::shared_fragment_tree_for(webview_id);
-                let scroll = layout_api::shared_scroll_state_for(webview_id);
-                let selection = layout_api::shared_document_selection_for(webview_id);
-                let images = self.servo.as_ref().unwrap().image_store();
-                self.ui
-                    .servo_web_view(cx, ids!(web_view))
-                    .set_shared_fragments(shared, scroll, selection, images);
                 self.tabs.push(TabInfo {
                     webview_id,
+                    root_pipeline_id: None,
                     webview,
                     title: title_from_url(&initial_url_str),
                     url: initial_url_str.clone(),
@@ -352,6 +345,8 @@ impl App {
                     watch: Default::default(),
                 });
                 self.active_tab_idx = 0;
+                // Wire shared fragment tree for direct Makepad rendering.
+                self.attach_active_render_state(cx);
             }
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
             self.ui

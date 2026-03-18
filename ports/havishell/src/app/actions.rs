@@ -260,15 +260,9 @@ impl App {
         if self.tabs.is_empty() {
             if let Some(webview) = self.create_webview(&self.start_url) {
                 let webview_id = webview.id();
-                let shared = layout_api::shared_fragment_tree_for(webview_id);
-                let scroll = layout_api::shared_scroll_state_for(webview_id);
-                let selection = layout_api::shared_document_selection_for(webview_id);
-                let images = self.servo.as_ref().unwrap().image_store();
-                self.ui
-                    .servo_web_view(cx, ids!(web_view))
-                    .set_shared_fragments(shared, scroll, selection, images);
                 self.tabs.push(TabInfo {
                     webview_id,
+                    root_pipeline_id: None,
                     webview,
                     title: title_from_url(&self.start_url),
                     url: self.start_url.clone(),
@@ -276,6 +270,7 @@ impl App {
                     watch: Default::default(),
                 });
                 self.active_tab_idx = 0;
+                self.attach_active_render_state(cx);
                 self.activate_tab_webview(0);
                 #[cfg(any(target_os = "android", target_os = "ios"))]
                 {
@@ -634,18 +629,23 @@ impl MatchEvent for App {
                         self.maybe_start_screenshot_capture(cx);
                     }
                 },
-                Some(MakepadServoAction::NewFrameReady { webview_id }) => {
+                Some(MakepadServoAction::NewFrameReady {
+                    webview_id,
+                    pipeline_id,
+                }) => {
                     let webview_id = *webview_id;
+                    let pipeline_id = *pipeline_id;
                     // Only repaint if the active webview has new content
-                    if self
-                        .tabs
-                        .get(self.active_tab_idx)
-                        .map_or(false, |t| t.webview_id == webview_id)
-                    {
-                        self.needs_paint = true;
-                        self.idle_frames = 0;
-                        self.next_frame = cx.new_next_frame();
-                        cx.redraw_all();
+                    if let Some(idx) = self.tab_index_for_webview(webview_id) {
+                        self.tabs[idx].root_pipeline_id = Some(pipeline_id);
+                        if idx == self.active_tab_idx {
+                            self.active_root_pipeline_id = Some(pipeline_id);
+                            self.attach_active_render_state(cx);
+                            self.needs_paint = true;
+                            self.idle_frames = 0;
+                            self.next_frame = cx.new_next_frame();
+                            cx.redraw_all();
+                        }
                     }
                 },
                 Some(MakepadServoAction::CursorChanged { webview_id, cursor }) => {
@@ -767,13 +767,7 @@ impl MatchEvent for App {
                             self.tabs[idx].webview.load(parsed);
                             self.tabs[idx].url = parsed_url.clone();
                             if idx == self.active_tab_idx {
-                                let shared = layout_api::shared_fragment_tree_for(*webview_id);
-                                let scroll = layout_api::shared_scroll_state_for(*webview_id);
-                                let selection = layout_api::shared_document_selection_for(*webview_id);
-                                let images = self.servo.as_ref().unwrap().image_store();
-                                self.ui
-                                    .servo_web_view(cx, ids!(web_view))
-                                    .set_shared_fragments(shared, scroll, selection, images);
+                                self.attach_active_render_state(cx);
                                 self.ui.text_input(cx, ids!(url_input)).set_text(cx, &parsed_url);
                             }
                             self.sync_tab_bar(cx);
@@ -915,15 +909,9 @@ impl AppMain for App {
             for url in items {
                 if let Some(webview) = self.create_webview(url) {
                     let webview_id = webview.id();
-                    let shared = layout_api::shared_fragment_tree_for(webview_id);
-                    let scroll = layout_api::shared_scroll_state_for(webview_id);
-                    let selection = layout_api::shared_document_selection_for(webview_id);
-                    let images = self.servo.as_ref().unwrap().image_store();
-                    self.ui
-                        .servo_web_view(cx, ids!(web_view))
-                        .set_shared_fragments(shared, scroll, selection, images);
                     self.tabs.push(TabInfo {
                         webview_id,
+                        root_pipeline_id: None,
                         webview,
                         title: title_from_url(url),
                         url: url.clone(),
@@ -931,6 +919,7 @@ impl AppMain for App {
                         watch: Default::default(),
                     });
                     self.active_tab_idx = self.tabs.len() - 1;
+                    self.attach_active_render_state(cx);
                     self.activate_tab_webview(self.active_tab_idx);
                     #[cfg(any(target_os = "android", target_os = "ios"))]
                     {

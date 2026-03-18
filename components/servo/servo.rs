@@ -161,11 +161,16 @@ impl ServoInner {
                 .notify_error(ServoError::LostConnectionWithBackend);
         }
         let webviews_needing_new_frame = self.paint.borrow_mut().perform_updates();
+        let paint = self.paint.borrow();
+        let pipeline_map = paint.webview_pipelines();
         for webview in webviews_needing_new_frame
             .iter()
             .filter_map(|webview_id| self.get_webview_handle(*webview_id))
         {
-            webview.delegate().notify_new_frame_ready(webview);
+            let Some(&pipeline_id) = pipeline_map.get(&webview.id()) else {
+                continue;
+            };
+            webview.delegate().notify_new_frame_ready(webview, pipeline_id.into());
         }
         self.handle_delegate_errors();
         self.clean_up_destroyed_webview_handles();

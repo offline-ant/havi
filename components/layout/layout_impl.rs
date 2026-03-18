@@ -178,6 +178,9 @@ pub struct LayoutThread {
     /// Shared container for exposing fragments to the embedding layer.
     shared_fragments: layout_api::SharedFragmentTree,
 
+    /// Shared container for exposing fragments by pipeline to the embedding layer.
+    shared_fragments_by_pipeline: layout_api::SharedFragmentTree,
+
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
     // image data, or an error if the image cache failed to load/decode the image.
@@ -197,6 +200,9 @@ pub struct LayoutThread {
 
     /// Shared scroll state for the embedding layer (Makepad).
     shared_scroll_state: layout_api::SharedScrollState,
+
+    /// Shared scroll state by pipeline for direct render consumers.
+    shared_scroll_state_by_pipeline: layout_api::SharedScrollState,
 
     /// Whether accessibility is active in this layout.
     /// (Note: this is a temporary field which will be replaced with an optional accessibility tree member.)
@@ -623,12 +629,14 @@ impl Layout for LayoutThread {
             let viewport_h = viewport_size.height.to_f64_px();
             let content_h = self.content_height();
             let element_offsets = self.build_element_offsets_from(&offsets, root_scroll_id);
-            self.shared_scroll_state.set(layout_api::ScrollStateData {
+            let shared = layout_api::ScrollStateData {
                 scroll_y: offset.y as f64,
                 content_height: content_h,
                 viewport_height: viewport_h,
                 element_offsets,
-            });
+            };
+            self.shared_scroll_state.set(shared.clone());
+            self.shared_scroll_state_by_pipeline.set(shared);
         }
     }
 
@@ -776,6 +784,24 @@ impl LayoutThread {
         LayoutVector2D::new(offset.x.max(0.0), offset.y.clamp(0.0, max_y))
     }
 
+    fn publish_shared_scroll_state(&self) {
+        let root_scroll_id = self.id.root_scroll_id();
+        let offsets = self.scroll_offsets.borrow();
+        let scroll_y = offsets.get(&root_scroll_id).map(|o| o.y as f64).unwrap_or(0.0);
+        let viewport_size = self.stylist.device().au_viewport_size();
+        let viewport_h = viewport_size.height.to_f64_px();
+        let content_h = self.content_height();
+        let element_offsets = self.build_element_offsets_from(&offsets, root_scroll_id);
+        let shared = layout_api::ScrollStateData {
+            scroll_y,
+            content_height: content_h,
+            viewport_height: viewport_h,
+            element_offsets,
+        };
+        self.shared_scroll_state.set(shared.clone());
+        self.shared_scroll_state_by_pipeline.set(shared);
+    }
+
     fn new(config: LayoutConfig) -> LayoutThread {
         let mut font = Font::initial_values();
         let default_font_size = pref!(fonts_default_size);
@@ -815,13 +841,15 @@ impl LayoutThread {
             fragment_tree: Default::default(),
             rendered_fragments: Default::default(),
             shared_fragments: config.shared_fragments.clone(),
+            shared_fragments_by_pipeline: config.shared_fragments_by_pipeline.clone(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
             user_stylesheets: config.user_stylesheets,
             accessibility_active: Cell::new(config.accessibility_active),
             scroll_offsets: Default::default(),
-            shared_scroll_state: layout_api::shared_scroll_state_for(config.webview_id),
+            shared_scroll_state: config.shared_scroll_state.clone(),
+            shared_scroll_state_by_pipeline: config.shared_scroll_state_by_pipeline.clone(),
         }
     }
 
@@ -961,7 +989,8 @@ impl LayoutThread {
                     );
                     let converted = Arc::new(converted);
                     *self.rendered_fragments.borrow_mut() = Some(converted.clone());
-                    self.shared_fragments.set(converted);
+                    self.shared_fragments.set(converted.clone());
+                    self.shared_fragments_by_pipeline.set(converted);
                 }
             }
 
@@ -1232,7 +1261,10 @@ impl LayoutThread {
         let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments, image_resolver);
         let converted = Arc::new(converted);
         *self.rendered_fragments.borrow_mut() = Some(converted.clone());
-        self.shared_fragments.set(converted);
+        self.shared_fragments.set(converted.clone());
+        self.shared_fragments_by_pipeline.set(converted);
+
+        self.publish_shared_scroll_state();
 
         if self.debug.style_tree {
             println!(
@@ -1253,8 +1285,11 @@ impl LayoutThread {
         layout_context.style_context.stylist.rule_tree().maybe_gc();
 
         let mut iframe_sizes = layout_context.iframe_sizes.lock();
+        // havi-render bypasses display list construction but still needs frame
+        // generation so that Paint/Servo notifies the embedder about new content.
+        // Setting BuiltDisplayList signals script_thread to call generate_frame().
         (
-            ReflowPhasesRun::RanLayout,
+            ReflowPhasesRun::RanLayout | ReflowPhasesRun::BuiltDisplayList,
             std::mem::take(&mut *iframe_sizes),
         )
     }
@@ -1305,17 +1340,22 @@ impl LayoutThread {
             let content_h = self.content_height();
             // Rebuild full state including element offsets.
             let element_offsets = self.build_element_offsets();
-            self.shared_scroll_state.set(layout_api::ScrollStateData {
+            let shared = layout_api::ScrollStateData {
                 scroll_y: clamped.y as f64,
                 content_height: content_h,
                 viewport_height: viewport_h,
                 element_offsets,
-            });
+            };
+            self.shared_scroll_state.set(shared.clone());
+            self.shared_scroll_state_by_pipeline.set(shared);
         } else {
             // Non-root: update just this element's offset.
             // The ExternalScrollId inner value is the OpaqueNode id for FragmentBody.
             let node_id = external_scroll_id.0 as usize;
-            self.shared_scroll_state.set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
+            self.shared_scroll_state
+                .set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
+            self.shared_scroll_state_by_pipeline
+                .set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
         }
 
         true

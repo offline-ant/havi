@@ -177,6 +177,10 @@ impl Paint {
         self.image_store.clone()
     }
 
+    pub fn webview_pipelines(&self) -> std::cell::Ref<'_, HashMap<WebViewId, PipelineId>> {
+        self.webview_pipelines.borrow()
+    }
+
     pub fn external_image_id_registry(&self) -> ExternalImageIdRegistry {
         self.external_image_id_registry.clone()
     }

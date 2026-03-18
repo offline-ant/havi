@@ -3255,6 +3255,9 @@ impl ScriptThread {
         self.paint_api
             .pipeline_exited(webview_id, pipeline_id, PipelineExitSource::Script);
 
+        layout_api::remove_shared_fragment_tree_for_pipeline(pipeline_id);
+        layout_api::remove_shared_scroll_state_for_pipeline(pipeline_id);
+
         self.devtools_state.notify_pipeline_exited(pipeline_id);
 
         debug!("{pipeline_id}: Finished pipeline exit");
@@ -3457,6 +3460,13 @@ impl ScriptThread {
             theme: incomplete.theme,
             accessibility_active: self.accessibility_active.get(),
             shared_fragments: layout_api::shared_fragment_tree_for(incomplete.webview_id),
+            shared_fragments_by_pipeline: layout_api::shared_fragment_tree_for_pipeline(
+                incomplete.pipeline_id,
+            ),
+            shared_scroll_state: layout_api::shared_scroll_state_for(incomplete.webview_id),
+            shared_scroll_state_by_pipeline: layout_api::shared_scroll_state_for_pipeline(
+                incomplete.pipeline_id,
+            ),
         };
 
         // Create the window and document objects.

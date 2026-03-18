@@ -12,6 +12,7 @@ use media::controller::{
 use media::ResolvedMediaAsset;
 use servo::protocol_handler::ProtocolRegistry;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
+use webrender_api::PipelineId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::rc::Rc;
@@ -868,6 +869,8 @@ pub struct App {
     tabs: Vec<TabInfo>,
     #[rust]
     active_tab_idx: usize,
+    #[rust]
+    active_root_pipeline_id: Option<PipelineId>,
     /// Cached ScriptObjectRef for the tab_template View. Extracted once from
     /// tab_bar children so the template widget is never kept as a hidden child
     /// (which caused ghost DrawQuad rendering artifacts on Linux/OpenGL).
@@ -972,3 +975,34 @@ const MAX_IDLE_FRAMES: u32 = 10;
 /// If the finger moves more than this distance from the initial touch point,
 /// the gesture is treated as a scroll; otherwise it's a tap (click).
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
+
+impl App {
+    pub(super) fn current_render_fragments(&self) -> layout_api::SharedFragmentTree {
+        if let Some(pipeline_id) = self.active_root_pipeline_id {
+            return layout_api::shared_fragment_tree_for_pipeline(pipeline_id.into());
+        }
+        let tab = &self.tabs[self.active_tab_idx];
+        layout_api::shared_fragment_tree_for(tab.webview_id)
+    }
+
+    pub(super) fn current_render_scroll_state(&self) -> layout_api::SharedScrollState {
+        if let Some(pipeline_id) = self.active_root_pipeline_id {
+            return layout_api::shared_scroll_state_for_pipeline(pipeline_id.into());
+        }
+        let tab = &self.tabs[self.active_tab_idx];
+        layout_api::shared_scroll_state_for(tab.webview_id)
+    }
+
+    pub(super) fn attach_active_render_state(&self, cx: &mut Cx) {
+        let Some(tab) = self.tabs.get(self.active_tab_idx) else {
+            return;
+        };
+        let shared = self.current_render_fragments();
+        let scroll = self.current_render_scroll_state();
+        let selection = layout_api::shared_document_selection_for(tab.webview_id);
+        let images = self.servo.as_ref().unwrap().image_store();
+        self.ui
+            .servo_web_view(cx, ids!(web_view))
+            .set_shared_fragments(shared, scroll, selection, images);
+    }
+}

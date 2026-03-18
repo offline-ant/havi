@@ -45,6 +45,7 @@ pub enum MakepadServoAction {
     /// A webview has new content to paint.
     NewFrameReady {
         webview_id: WebViewId,
+        pipeline_id: webrender_api::PipelineId,
     },
     /// The cursor should change for a webview.
     CursorChanged {
@@ -125,9 +126,13 @@ impl std::fmt::Debug for MakepadServoAction {
                 .field("webview_id", webview_id)
                 .field("status", status)
                 .finish(),
-            Self::NewFrameReady { webview_id } => f
+            Self::NewFrameReady {
+                webview_id,
+                pipeline_id,
+            } => f
                 .debug_struct("NewFrameReady")
                 .field("webview_id", webview_id)
+                .field("pipeline_id", pipeline_id)
                 .finish(),
             Self::CursorChanged { webview_id, cursor } => f
                 .debug_struct("CursorChanged")
@@ -346,9 +351,14 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         SignalToUI::set_ui_signal();
     }
 
-    fn notify_new_frame_ready(&self, webview: servo::WebView) {
+    fn notify_new_frame_ready(
+        &self,
+        webview: servo::WebView,
+        pipeline_id: webrender_api::PipelineId,
+    ) {
         Cx::post_action(MakepadServoAction::NewFrameReady {
             webview_id: webview.id(),
+            pipeline_id,
         });
     }
 

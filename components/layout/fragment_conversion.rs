@@ -4,9 +4,11 @@
 
 //! Converts layout's internal fragment types to `havi_types::Fragment` for rendering.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use app_units::Au;
+use base::id::PipelineId;
 
 use fonts_traits::FontIdentifier;
 use crate::context::ImageResolver;
@@ -17,30 +19,52 @@ pub(crate) fn convert_fragments(
     fragments: &[LayoutFragment],
     image_resolver: &Arc<ImageResolver>,
 ) -> Vec<havi_types::Fragment> {
+    let mut visited_pipelines = HashSet::new();
+    convert_fragments_with_iframes(fragments, image_resolver, &mut visited_pipelines)
+}
+
+fn convert_fragments_with_iframes(
+    fragments: &[LayoutFragment],
+    image_resolver: &Arc<ImageResolver>,
+    visited_pipelines: &mut HashSet<PipelineId>,
+) -> Vec<havi_types::Fragment> {
     fragments
         .iter()
-        .filter_map(|f| convert_fragment(f, image_resolver))
+        .filter_map(|f| convert_fragment(f, image_resolver, visited_pipelines))
         .collect()
 }
 
 fn convert_fragment(
     fragment: &LayoutFragment,
     image_resolver: &Arc<ImageResolver>,
+    visited_pipelines: &mut HashSet<PipelineId>,
 ) -> Option<havi_types::Fragment> {
     match fragment {
         LayoutFragment::Box(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Box(convert_box_fragment(&f, image_resolver)))
+            Some(havi_types::Fragment::Box(convert_box_fragment(
+                &f,
+                image_resolver,
+                visited_pipelines,
+            )))
         },
         LayoutFragment::Float(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Float(convert_box_fragment(&f, image_resolver)))
+            Some(havi_types::Fragment::Float(convert_box_fragment(
+                &f,
+                image_resolver,
+                visited_pipelines,
+            )))
         },
         LayoutFragment::Positioning(arc) => {
             let f = arc.borrow();
             Some(havi_types::Fragment::Positioning(havi_types::PositioningFragment {
                 base: convert_base_fragment(&f.base),
-                children: convert_fragments(&f.children, image_resolver),
+                children: convert_fragments_with_iframes(
+                    &f.children,
+                    image_resolver,
+                    visited_pipelines,
+                ),
             }))
         },
         LayoutFragment::Text(arc) => {
@@ -114,10 +138,12 @@ fn convert_fragment(
         },
         LayoutFragment::IFrame(arc) => {
             let f = arc.borrow();
+            let (child_fragments, child_content_height) =
+                resolve_iframe_child_fragments(f.pipeline_id, visited_pipelines);
             Some(havi_types::Fragment::IFrame(havi_types::IFrameFragment {
                 base: convert_base_fragment(&f.base),
-                child_fragments: Arc::new(Vec::new()),
-                child_content_height: 0.0,
+                child_fragments,
+                child_content_height,
             }))
         },
         LayoutFragment::AbsoluteOrFixedPositioned(_) => None,
@@ -171,6 +197,7 @@ fn convert_base_fragment(
 fn convert_box_fragment(
     f: &crate::fragment_tree::BoxFragment,
     image_resolver: &Arc<ImageResolver>,
+    visited_pipelines: &mut HashSet<PipelineId>,
 ) -> havi_types::BoxFragment {
     let block_level_info = f.block_level_layout_info.as_ref().map(|info| {
         Box::new(havi_types::BlockLevelLayoutInfo {
@@ -190,7 +217,11 @@ fn convert_box_fragment(
 
     havi_types::BoxFragment {
         base: convert_base_fragment(&f.base),
-        children: convert_fragments(&f.children, image_resolver),
+        children: convert_fragments_with_iframes(
+            &f.children,
+            image_resolver,
+            visited_pipelines,
+        ),
         padding: f.padding,
         border: f.border,
         margin: f.margin,
@@ -204,6 +235,25 @@ fn convert_box_fragment(
 }
 
 /// Resolve CSS background-image: url() values to pixel data.
+fn resolve_iframe_child_fragments(
+    pipeline_id: PipelineId,
+    visited_pipelines: &mut HashSet<PipelineId>,
+) -> (Arc<Vec<havi_types::Fragment>>, f32) {
+    if !visited_pipelines.insert(pipeline_id) {
+        return (Arc::new(Vec::new()), 0.0);
+    }
+
+    let fragments = layout_api::shared_fragment_tree_for_pipeline(pipeline_id)
+        .get()
+        .unwrap_or_else(|| Arc::new(Vec::new()));
+    let child_content_height = layout_api::shared_scroll_state_for_pipeline(pipeline_id)
+        .get()
+        .content_height as f32;
+
+    visited_pipelines.remove(&pipeline_id);
+    (fragments, child_content_height)
+}
+
 fn resolve_background_images(
     style: &style::properties::ComputedValues,
     node: Option<style::dom::OpaqueNode>,

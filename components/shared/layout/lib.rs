@@ -71,6 +71,10 @@ impl SharedFragmentTree {
         *self.0.write() = Some(fragments);
     }
 
+    pub fn clear(&self) {
+        *self.0.write() = None;
+    }
+
     pub fn get(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
         self.0.read().clone()
     }
@@ -152,9 +156,19 @@ static FRAGMENT_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
+/// Global registry of shared fragment trees, keyed by PipelineId.
+static PIPELINE_FRAGMENT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<PipelineId, SharedFragmentTree>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
 /// Global registry of shared scroll states, keyed by WebViewId.
 static SCROLL_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
+/// Global registry of shared scroll states, keyed by PipelineId.
+static PIPELINE_SCROLL_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<PipelineId, SharedScrollState>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
 /// Global registry of document selection states, keyed by WebViewId.
@@ -172,9 +186,29 @@ pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
         .clone()
 }
 
+/// Get or create a SharedFragmentTree for a given PipelineId.
+pub fn shared_fragment_tree_for_pipeline(id: PipelineId) -> SharedFragmentTree {
+    PIPELINE_FRAGMENT_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
 /// Get or create a SharedScrollState for a given WebViewId.
 pub fn shared_scroll_state_for(id: WebViewId) -> SharedScrollState {
     SCROLL_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
+/// Get or create a SharedScrollState for a given PipelineId.
+pub fn shared_scroll_state_for_pipeline(id: PipelineId) -> SharedScrollState {
+    PIPELINE_SCROLL_REGISTRY
         .lock()
         .unwrap()
         .entry(id)
@@ -197,9 +231,19 @@ pub fn remove_shared_fragment_tree(id: WebViewId) {
     FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
 }
 
+/// Remove a SharedFragmentTree when a pipeline is destroyed.
+pub fn remove_shared_fragment_tree_for_pipeline(id: PipelineId) {
+    PIPELINE_FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
+}
+
 /// Remove a SharedScrollState when a WebView is destroyed.
 pub fn remove_shared_scroll_state(id: WebViewId) {
     SCROLL_REGISTRY.lock().unwrap().remove(&id);
+}
+
+/// Remove a SharedScrollState when a pipeline is destroyed.
+pub fn remove_shared_scroll_state_for_pipeline(id: PipelineId) {
+    PIPELINE_SCROLL_REGISTRY.lock().unwrap().remove(&id);
 }
 
 pub trait GenericLayoutDataTrait: Any + MallocSizeOfTrait {
@@ -380,6 +424,9 @@ pub struct LayoutConfig {
     pub theme: Theme,
     pub accessibility_active: bool,
     pub shared_fragments: SharedFragmentTree,
+    pub shared_fragments_by_pipeline: SharedFragmentTree,
+    pub shared_scroll_state: SharedScrollState,
+    pub shared_scroll_state_by_pipeline: SharedScrollState,
 }
 
 pub struct PropertyRegistration {

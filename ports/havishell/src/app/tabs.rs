@@ -2,10 +2,10 @@ use euclid::Scale;
 use makepad_widgets::turtle::RowAlign;
 use makepad_widgets::*;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
+use webrender_api::PipelineId;
 use std::rc::Rc;
 
 use super::{App, HaviWebViewDelegate, shadow_button_text, watch_button_text};
-use crate::servo_web_view::ServoWebViewWidgetRefExt;
 
 const TAB_MIN_WIDTH: f64 = 120.0;
 const TAB_MAX_WIDTH: f64 = 220.0;
@@ -32,6 +32,7 @@ pub(super) fn next_tab_live_id() -> LiveId {
 
 pub(super) struct TabInfo {
     pub(super) webview_id: WebViewId,
+    pub(super) root_pipeline_id: Option<PipelineId>,
     pub(super) webview: servo::WebView,
     pub(super) title: String,
     pub(super) url: String,
@@ -308,6 +309,7 @@ impl App {
         watch.set_settings(watch_settings);
         self.tabs[self.active_tab_idx] = TabInfo {
             webview_id,
+            root_pipeline_id: None,
             webview,
             title,
             url: url.clone(),
@@ -316,13 +318,7 @@ impl App {
         };
 
         self.activate_tab_webview(self.active_tab_idx);
-        let shared = layout_api::shared_fragment_tree_for(webview_id);
-        let scroll = layout_api::shared_scroll_state_for(webview_id);
-        let selection = layout_api::shared_document_selection_for(webview_id);
-        let images = self.servo.as_ref().unwrap().image_store();
-        self.ui
-            .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared, scroll, selection, images);
+        self.attach_active_render_state(cx);
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.sync_toolbar_state(cx);
         self.needs_paint = true;
@@ -336,15 +332,9 @@ impl App {
             return;
         };
         let webview_id = webview.id();
-        let shared = layout_api::shared_fragment_tree_for(webview_id);
-        let scroll = layout_api::shared_scroll_state_for(webview_id);
-        let selection = layout_api::shared_document_selection_for(webview_id);
-        let images = self.servo.as_ref().unwrap().image_store();
-        self.ui
-            .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared, scroll, selection, images);
         self.tabs.push(TabInfo {
             webview_id,
+            root_pipeline_id: None,
             webview,
             title: title_from_url(HOME_URL),
             url: HOME_URL.to_string(),
@@ -353,6 +343,7 @@ impl App {
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
+        self.attach_active_render_state(cx);
         self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
@@ -386,6 +377,7 @@ impl App {
             self.active_tab_idx -= 1;
         }
         // Activate the now-current tab
+        self.active_root_pipeline_id = self.tabs[self.active_tab_idx].root_pipeline_id;
         self.activate_tab_webview(self.active_tab_idx);
         self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -395,6 +387,7 @@ impl App {
             cx.hide_clipboard_actions();
             cx.hide_selection_handles();
         }
+        self.attach_active_render_state(cx);
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.sync_toolbar_state(cx);
@@ -408,6 +401,7 @@ impl App {
             return;
         }
         self.active_tab_idx = idx;
+        self.active_root_pipeline_id = self.tabs[idx].root_pipeline_id;
         self.activate_tab_webview(idx);
         self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -417,14 +411,7 @@ impl App {
             cx.hide_clipboard_actions();
             cx.hide_selection_handles();
         }
-        let wv_id = self.tabs[idx].webview_id;
-        let shared = layout_api::shared_fragment_tree_for(wv_id);
-        let scroll = layout_api::shared_scroll_state_for(wv_id);
-        let selection = layout_api::shared_document_selection_for(wv_id);
-        let images = self.servo.as_ref().unwrap().image_store();
-        self.ui
-            .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared, scroll, selection, images);
+        self.attach_active_render_state(cx);
         let url = self.tabs[idx].url.clone();
         self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
         self.sync_toolbar_state(cx);

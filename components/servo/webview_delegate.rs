@@ -914,7 +914,12 @@ pub trait WebViewDelegate {
     /// favicon [`Image`] can accessed via [`WebView::favicon`].
     fn notify_favicon_changed(&self, _webview: WebView) {}
     /// Notify the embedder that it needs to present a new frame.
-    fn notify_new_frame_ready(&self, _webview: WebView) {}
+    fn notify_new_frame_ready(
+        &self,
+        _webview: WebView,
+        _pipeline_id: webrender_api::PipelineId,
+    ) {
+    }
     /// The navigation history of this [`WebView`] has changed. The navigation history is represented
     /// as a `Vec<BrowserUrl>` and `_current` denotes the current index in the history. New navigations,
     /// back navigation, and forward navigation modify this index.
