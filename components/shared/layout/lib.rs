@@ -1095,16 +1095,24 @@ impl AnimatingImages {
     }
 }
 
-struct ThreadStateRestorer;
+struct ThreadStateRestorer {
+    needs_restore: bool,
+}
 
 impl ThreadStateRestorer {
     fn new() -> Self {
         #[cfg(debug_assertions)]
         {
+            let current = thread_state::get();
+            if current.contains(ThreadState::LAYOUT) {
+                return Self { needs_restore: false };
+            }
             thread_state::exit(ThreadState::SCRIPT);
             thread_state::enter(ThreadState::LAYOUT);
+            return Self { needs_restore: true };
         }
-        Self
+        #[cfg(not(debug_assertions))]
+        Self { needs_restore: false }
     }
 }
 
@@ -1112,8 +1120,10 @@ impl Drop for ThreadStateRestorer {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         {
-            thread_state::exit(ThreadState::LAYOUT);
-            thread_state::enter(ThreadState::SCRIPT);
+            if self.needs_restore {
+                thread_state::exit(ThreadState::LAYOUT);
+                thread_state::enter(ThreadState::SCRIPT);
+            }
         }
     }
 }
