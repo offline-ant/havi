@@ -470,8 +470,10 @@ impl Layout for LayoutThread {
 
     #[servo_tracing::instrument(skip_all)]
     fn query_scrolling_area(&self, node: Option<TrustedNodeAddress>) -> Rect<i32, CSSPixel> {
-        let node = node.map(|node| unsafe { ServoLayoutNode::new(&node).to_threadsafe() });
-        process_node_scroll_area_request(node, self.fragment_tree.borrow().clone())
+        with_layout_state(|| {
+            let node = node.map(|node| unsafe { ServoLayoutNode::new(&node).to_threadsafe() });
+            process_node_scroll_area_request(node, self.fragment_tree.borrow().clone())
+        })
     }
 
     #[servo_tracing::instrument(skip_all)]

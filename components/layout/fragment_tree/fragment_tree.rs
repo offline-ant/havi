@@ -135,9 +135,15 @@ impl FragmentTree {
     }
 
     pub(crate) fn scrollable_overflow(&self) -> PhysicalRect<Au> {
-        self.scrollable_overflow
-            .get()
-            .expect("Should only call `scrollable_overflow()` after calculating overflow")
+        match self.scrollable_overflow.get() {
+            Some(overflow) => overflow,
+            None => {
+                self.calculate_scrollable_overflow();
+                self.scrollable_overflow
+                    .get()
+                    .expect("scrollable overflow must be available after calculation")
+            },
+        }
     }
 
     /// Calculate the scrollable overflow / scrolling area for this [`FragmentTree`] according

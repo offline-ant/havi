@@ -11,6 +11,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use embedder_traits::{EmbedderMsg, EmbedderProxy};
 use image::ImageEncoder;
+use image::RgbaImage;
 use image::codecs::png::PngEncoder;
 use malloc_size_of_derive::MallocSizeOf;
 use serde_json::{Map, Value};
@@ -43,6 +44,22 @@ impl ScreenshotActor {
             active_webview,
             webviews_by_browser_id,
         }
+    }
+
+    fn flatten_over_white(mut image: RgbaImage) -> RgbaImage {
+        for pixel in image.pixels_mut() {
+            let alpha = pixel[3] as u32;
+            if alpha == 255 {
+                continue;
+            }
+            let inv_alpha = 255 - alpha;
+            for channel in 0..3 {
+                let src = pixel[channel] as u32;
+                pixel[channel] = ((src * alpha + 255 * inv_alpha + 127) / 255) as u8;
+            }
+            pixel[3] = 255;
+        }
+        image
     }
 }
 
@@ -101,6 +118,7 @@ impl Actor for ScreenshotActor {
                 let result = rx.recv_timeout(Duration::from_secs(5));
                 match result {
                     Ok(Ok(image)) => {
+                        let image = Self::flatten_over_white(image);
                         let width = image.width();
                         let height = image.height();
                         let mut png_bytes = Vec::new();

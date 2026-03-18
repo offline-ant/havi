@@ -88,9 +88,14 @@ def run_desktop_makepad_socket(
         stripped = line.strip()
         if stripped.startswith("HAVI_DEVTOOLS=") and not devtools_addr:
             devtools_addr.append(stripped.split("=", 1)[1])
-        if stripped.startswith("PYLON_BIND=") and not pylon_bind:
+            print(stripped)
+            sys.stdout.flush()
+        elif stripped.startswith("PYLON_BIND=") and not pylon_bind:
             pylon_bind.append(stripped.split("=", 1)[1])
-        print(line, file=sys.stderr)
+            print(stripped)
+            sys.stdout.flush()
+        else:
+            print(line, file=sys.stderr)
 
     def on_ready() -> None:
         dt = devtools_addr[0] if devtools_addr else ""
