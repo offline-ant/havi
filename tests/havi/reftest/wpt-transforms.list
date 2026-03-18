@@ -1,5 +1,7 @@
 # Curated WPT transform/layout reftests for HAVI.
-# Paths are absolute because the source WPT tree lives in experiment/servo-mainline.
+# Paths are absolute because reftest.py reads WPT files directly from
+# experiment/servo-mainline/tests/wpt/tests. No copy into havi/tests/havi is
+# required. Add more absolute WPT test paths here to expand coverage.
 # Each listed test file is parsed for rel=match and rel=mismatch links.
 
 /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/css/css-transforms/translate.html

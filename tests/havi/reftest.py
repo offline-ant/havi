@@ -66,6 +66,10 @@ def parse_manifest(path: Path) -> list[ReftestCase]:
 
 
 def parse_wpt_links(test_path: Path) -> list[ReftestCase]:
+    # WPT input files are read in place. They can live anywhere, including the
+    # shared source tree under experiment/servo-mainline/tests/wpt/tests. The
+    # runner resolves rel=match and rel=mismatch references relative to the test
+    # file location, so no local copy into havi/tests/havi is required.
     parser = LinkParser()
     parser.feed(test_path.read_text(encoding="utf-8", errors="ignore"))
     cases: list[ReftestCase] = []
