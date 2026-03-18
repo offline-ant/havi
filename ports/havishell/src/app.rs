@@ -43,6 +43,7 @@ use crate::servo_web_view::{ServoWebView, ServoWebViewAction, ServoWebViewWidget
 
 script_mod! {
     use mod.prelude.widgets.*
+    use mod.widgets.CachedView
     use mod.widgets.ServoWebView
 
     // Define the App and its UI layout
@@ -444,9 +445,8 @@ script_mod! {
                         width: Fill height: Fill
                         flow: Overlay
 
-                        web_view_texture := View{
+                        web_view_texture := CachedView{
                             width: Fill height: Fill
-                            texture_caching: true
                             web_view := ServoWebView{
                                 width: Fill
                                 height: Fill

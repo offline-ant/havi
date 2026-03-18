@@ -561,6 +561,7 @@ impl MatchEvent for App {
                         .ui
                         .view(cx, ids!(web_view_texture))
                         .cached_texture_id();
+                    eprintln!("[screenshot-debug] texture_id={:?}", texture_id);
                     let source = match texture_id {
                         Some(id) => makepad_widgets::makepad_platform::CaptureSource::Texture(id),
                         None => makepad_widgets::makepad_platform::CaptureSource::Framebuffer,
@@ -1035,6 +1036,9 @@ impl AppMain for App {
                 if let Some((_webview_id, request_id)) =
                     self.pending_screenshot_callbacks.remove(&result.request_id)
                 {
+                    eprintln!("[screenshot-debug] capture result: {}x{}, data_len={}, nonzero={}",
+                        result.width, result.height, result.rgba.len(),
+                        result.rgba.iter().filter(|&&b| b != 0).count());
                     if let Some(image) =
                         servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {

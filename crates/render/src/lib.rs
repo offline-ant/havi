@@ -167,10 +167,9 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
 
 /// Draw fragments with viewport clipping, using a pre-built stacking context tree.
 ///
-/// The widget renders into its own texture (via Makepad's `texture_caching`),
-/// so `cx.turtle().rect().pos` is `(0,0)` in the texture's coordinate space.
-/// `viewport_top` controls the scroll offset: fragments are placed at
-/// `(0, -viewport_top)` so the visible page slice maps to the texture origin.
+/// Fragment coordinates are page-relative (starting at 0,0). In a cached
+/// texture pass the widget rect still carries the parent-space offset, so the
+/// scene origin stays at x=0 and only subtracts `viewport_top` on y.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     cached_tree: &CachedStackingContextTree,

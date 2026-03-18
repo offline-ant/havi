@@ -133,8 +133,9 @@ fn paint_frame_target(
 ) {
     let frame_surface_id = compositor_scene.frame_surface(frame_id);
     let redirects_to_surface = frame_surface_id.is_some() && frame_surface_id != active_surface_id;
+    let participation = render_plan.frame_participation(frame_id);
 
-    match render_plan.frame_participation(frame_id) {
+    match participation {
         RenderParticipation::Compositor { .. } if redirects_to_surface => {
             paint_compositor_surface(
                 cx,
