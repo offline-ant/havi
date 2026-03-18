@@ -1,5 +1,6 @@
 use super::*;
 use super::navigation::parse_navigation_url;
+use ::image::imageops;
 
 use havi_protocols::credentials::global_credential_store;
 use havi_protocols::resolve;
@@ -1032,8 +1033,21 @@ impl AppMain for App {
                     if let Some(image) =
                         servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {
+                        // Crop the framebuffer capture to the webview widget rect,
+                        // excluding shell chrome (tab bar, URL bar).
+                        let web_rect = self.ui.servo_web_view(cx, ids!(web_view)).area().rect(cx);
+                        let dpi = self.dpi_factor;
+                        let x = (web_rect.pos.x * dpi).round() as u32;
+                        let y = (web_rect.pos.y * dpi).round() as u32;
+                        let w = ((web_rect.size.x * dpi).round() as u32).min(image.width().saturating_sub(x));
+                        let h = ((web_rect.size.y * dpi).round() as u32).min(image.height().saturating_sub(y));
+                        let cropped = if w > 0 && h > 0 && (x > 0 || y > 0 || w < image.width() || h < image.height()) {
+                            imageops::crop_imm(&image, x, y, w, h).to_image()
+                        } else {
+                            image
+                        };
                         if let Some(servo) = &self.servo {
-                            servo.paint_screenshot_bridge().push_result(_request_id, image);
+                            servo.paint_screenshot_bridge().push_result(_request_id, cropped);
                         }
                     }
                 }

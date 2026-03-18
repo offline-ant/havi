@@ -246,11 +246,10 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    // scroll_origin is page-relative: (0, -viewport_top) offsets fragment
-    // coordinates so the visible slice of the page maps to (0,0)-(w,h).
-    // The widget's window position is handled by begin_page_root_turtle in
-    // paint_frame_direct_2d, not baked into item coordinates here.
-    let scroll_origin = dvec2(0.0, -(viewport_top as f64));
+    // scroll_origin offsets fragment coordinates so the visible slice of the
+    // page maps to the widget's window position. widget_rect.pos places items
+    // at the widget origin; the negative viewport_top scrolls the page.
+    let scroll_origin = dvec2(widget_rect.pos.x, widget_rect.pos.y - viewport_top as f64);
     let viewport_size = dvec2(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,

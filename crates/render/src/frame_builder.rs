@@ -274,13 +274,9 @@ pub(crate) fn build_scene<'a>(
     let mut clip_tree = ClipTree::new();
     let root_id = frame_tree.root_id();
     let owner_semantics = collect_owner_render_semantics(fragments);
-    // All coordinates are page-relative (origin = (0,0) in page space).
-    // The widget's window position is handled by begin_page_root_turtle in
-    // the caller, which sets the turtle origin and draw_clip to the widget
-    // rect. view_transform carries only the CSS transform; draw_clip
-    // clamping is a no-op for items within the page bounds.
-    // scroll_origin encodes the scroll offset as (0, -viewport_top) so
-    // that page-relative item positions map to the correct visible region.
+    // scroll_origin carries the widget's window position plus the scroll
+    // offset so that page-relative item positions map to the correct window
+    // coordinates.
     SceneBuilder {
         frame_tree: &mut frame_tree,
         clip_tree: &mut clip_tree,
@@ -604,7 +600,7 @@ mod tests {
     /// (8,8) from body content_rect. CSS translate(100,100) anchored at (8,8)
     /// composes to T(100,100). Items have local_origin=(8,8) in page space.
     /// Drawing position: world*(local_origin) = T(100,100)*(8,8) = (108,108)
-    /// in page space; begin_page_root_turtle shifts that to window space.
+    /// in page space; scroll_origin shifts that to window space.
     #[test]
     fn translate_reference_frame_world_matches_static_offset() {
         use app_units::Au;
