@@ -875,6 +875,7 @@ impl AppMain for App {
         crate::makepad_widgets::script_mod(vm);
         havi_render::shaders::script_mod(vm);
         crate::servo_web_view::script_mod(vm);
+        crate::register_script_modules(vm);
         self::script_mod(vm)
     }
 
