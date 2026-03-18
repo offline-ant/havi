@@ -141,6 +141,18 @@ fn collect_box_render_semantics(
     let Some(node_id) = bf.base.tag.map(|tag| tag.node.0) else {
         return;
     };
+    let pseudo_key = match bf.base.style.pseudo() {
+        Some(style::selector_parser::PseudoElement::Before) => 1,
+        Some(style::selector_parser::PseudoElement::After) => 2,
+        Some(style::selector_parser::PseudoElement::Marker) => 3,
+        Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
+        Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
+        Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
+        Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
+        Some(_) => 15,
+        None => 0,
+    };
+    let node_id = (node_id << 8) ^ pseudo_key;
     let border_rect = bf.border_rect();
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();

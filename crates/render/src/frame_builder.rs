@@ -181,7 +181,20 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         };
 
         let frame_key_id = frame_key_id_for_box(owner_fragment);
-        let owner_node_id = owner_fragment.base.tag.map(|tag| tag.node.0);
+        let owner_node_id = owner_fragment.base.tag.map(|tag| {
+            let pseudo_key = match owner_fragment.base.style.pseudo() {
+                Some(style::selector_parser::PseudoElement::Before) => 1,
+                Some(style::selector_parser::PseudoElement::After) => 2,
+                Some(style::selector_parser::PseudoElement::Marker) => 3,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
+                Some(_) => 15,
+                None => 0,
+            };
+            (tag.node.0 << 8) ^ pseudo_key
+        });
         let mut visual = cx;
         let mut entry_frame_id = None;
 
@@ -540,7 +553,7 @@ mod tests {
             .frame_tree
             .frames
             .iter()
-            .find(|frame| frame.kind == FrameKind::ScrollFrame && frame.owner_node_id == Some(7))
+            .find(|frame| frame.kind == FrameKind::ScrollFrame && frame.owner_node_id == Some(7 << 8))
             .unwrap();
         assert_eq!(scene.frame_tree.frame(scene.frame_tree.root).items[0].local_origin, dvec2(0.0, 0.0));
         assert_eq!(scroll_frame.clip_id, ClipId(0));
@@ -614,7 +627,7 @@ mod tests {
         );
 
         let ref_frame = scene.frame_tree.frames.iter()
-            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2))
+            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2 << 8))
             .expect("reference frame for translated box");
 
         let item = ref_frame.items.first().expect("frame should have items");
@@ -701,7 +714,7 @@ mod tests {
         );
 
         let ref_frame = scene.frame_tree.frames.iter()
-            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2))
+            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2 << 8))
             .expect("reference frame for rotated box");
 
         let item = ref_frame.items.first().expect("frame should have items");
