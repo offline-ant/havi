@@ -1,3 +1,5 @@
+include!(concat!(env!("OUT_DIR"), "/build_id.rs"));
+
 fn havi_socket_path() -> std::path::PathBuf {
     let app_name = "havi";
 
@@ -8,7 +10,7 @@ fn havi_socket_path() -> std::path::PathBuf {
                 .join("Library")
                 .join("Application Support")
                 .join(app_name)
-                .join("app.sock");
+                .join(format!("app-{}.sock", BUILD_ID));
         }
     }
 
@@ -18,7 +20,7 @@ fn havi_socket_path() -> std::path::PathBuf {
             if !xdg.is_empty() {
                 return std::path::PathBuf::from(xdg)
                     .join(app_name)
-                    .join("app.sock");
+                    .join(format!("app-{}.sock", BUILD_ID));
             }
         }
         if let Some(home) = std::env::var_os("HOME") {
@@ -26,16 +28,16 @@ fn havi_socket_path() -> std::path::PathBuf {
                 .join(".local")
                 .join("state")
                 .join(app_name)
-                .join("app.sock");
+                .join(format!("app-{}.sock", BUILD_ID));
         }
     }
 
     #[cfg(windows)]
     {
-        return std::env::temp_dir().join("dev.makepad.havi.port");
+        return std::env::temp_dir().join(format!("makepad-dev.makepad.havi-{}.port", BUILD_ID));
     }
 
-    std::env::temp_dir().join("dev.makepad.havi.sock")
+    std::env::temp_dir().join(format!("dev.makepad.havi-{}.sock", BUILD_ID))
 }
 
 fn havi_state_file_path() -> std::path::PathBuf {
@@ -150,16 +152,24 @@ fn main() {
 
     let url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());
     let items = [url.as_str()];
-    if let havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Secondary =
-        havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance(
-            "dev.makepad.havi",
-            &items,
-        )
-    {
-        if let Ok(state) = std::fs::read_to_string(havi_state_file_path()) {
-            print!("{}", state);
-        }
-        return;
+    match havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance_with_build(
+        "dev.makepad.havi",
+        BUILD_ID,
+        &items,
+    ) {
+        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Secondary => {
+            if let Ok(state) = std::fs::read_to_string(havi_state_file_path()) {
+                print!("{}", state);
+            }
+            return;
+        },
+        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::DifferentBuild => {
+            eprintln!(
+                "another HAVI instance is already running from a different build; refusing to start"
+            );
+            std::process::exit(1);
+        },
+        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Primary => {}
     }
 
     havishell::app::app_main()

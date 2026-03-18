@@ -12,8 +12,9 @@ Launches the HAVI browser.
   `hppr-sandbox://`, `hppr-browse://`, `hppr-editor://`, `havi://`).
 - If `URL` is omitted, HAVI opens `havi:///`.
 
-If another HAVI instance is already running, sends the URL to it via IPC
-and exits.
+If another HAVI instance from the same build is already running, sends the
+URL to it via IPC and exits. If a different HAVI build is already running,
+HAVI refuses to start.
 
 ## CLI Flags
 
@@ -85,9 +86,14 @@ that invocation into pylon dispatch so service CLI behavior stays consistent.
 
 ## Single-Instance
 
-HAVI listens on `<config-dir>/havi.sock` (Unix socket). A second `havi`
-invocation detects the running instance, sends the URL, and exits. The
-running instance opens a new tab.
+HAVI uses a build-specific single-instance endpoint plus a stable active
+pointer in the config/runtime directory. A second `havi` invocation reuses the
+running instance only when it matches the same build identity. The running
+instance opens the URL in a new tab.
+
+If the active instance belongs to a different HAVI build, startup is denied.
+This prevents different binaries from silently sharing the same local state,
+files, or database.
 
 ## Startup Output
 
