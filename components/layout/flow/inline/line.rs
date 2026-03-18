@@ -535,13 +535,13 @@ impl LineItemLayout<'_, '_> {
     }
 
     fn layout_text_run(&mut self, text_item: TextRunLineItem) {
-        if text_item.text.is_empty() {
+        if text_item.glyphs.is_empty() {
             return;
         }
 
         let mut number_of_justification_opportunities = 0;
         let mut inline_advance = text_item
-            .text
+            .glyphs
             .iter()
             .map(|glyph_store| {
                 number_of_justification_opportunities += glyph_store.total_word_separators();
@@ -580,11 +580,12 @@ impl LineItemLayout<'_, '_> {
                     text_item.inline_styles.style.clone().into(),
                     PhysicalRect::zero(),
                 ),
+                text: text_item.text,
                 selected_style: text_item.inline_styles.selected.clone(),
                 font_metrics: text_item.font_metrics,
                 font_key: text_item.font_key,
                 font: text_item.font.clone(),
-                glyphs: text_item.text,
+                glyphs: text_item.glyphs,
                 justification_adjustment: self.justification_adjustment,
                 offsets: text_item.offsets,
             })),
@@ -813,7 +814,8 @@ pub(crate) struct TextRunOffsets {
 pub(super) struct TextRunLineItem {
     pub base_fragment_info: BaseFragmentInfo,
     pub inline_styles: SharedInlineStyles,
-    pub text: Vec<std::sync::Arc<GlyphStore>>,
+    pub text: String,
+    pub glyphs: Vec<std::sync::Arc<GlyphStore>>,
     pub font_metrics: Arc<FontMetrics>,
     pub font_key: FontInstanceKey,
     pub font: FontRef,
@@ -838,15 +840,15 @@ impl TextRunLineItem {
         }
 
         let index_of_last_non_whitespace = self
-            .text
+            .glyphs
             .iter()
             .rev()
             .position(|glyph| !glyph.is_whitespace())
-            .map(|offset_from_end| self.text.len() - offset_from_end);
+            .map(|offset_from_end| self.glyphs.len() - offset_from_end);
 
         let first_whitespace_index = index_of_last_non_whitespace.unwrap_or(0);
         *whitespace_trimmed += self
-            .text
+            .glyphs
             .drain(first_whitespace_index..)
             .map(|glyph| glyph.total_advance())
             .sum();
@@ -868,19 +870,19 @@ impl TextRunLineItem {
         }
 
         let index_of_first_non_whitespace = self
-            .text
+            .glyphs
             .iter()
             .position(|glyph| !glyph.is_whitespace())
-            .unwrap_or(self.text.len());
+            .unwrap_or(self.glyphs.len());
 
         *whitespace_trimmed += self
-            .text
+            .glyphs
             .drain(0..index_of_first_non_whitespace)
             .map(|glyph| glyph.total_advance())
             .sum();
 
         // Only keep going if we only encountered whitespace.
-        self.text.is_empty()
+        self.glyphs.is_empty()
     }
 
     pub(crate) fn merge_if_possible(
@@ -893,7 +895,7 @@ impl TextRunLineItem {
         if self.font_key != new_font_key || self.bidi_level != new_bidi_level {
             return false;
         }
-        self.text.push(new_glyph_store.clone());
+        self.glyphs.push(new_glyph_store.clone());
 
         assert_eq!(self.offsets.is_some(), new_offsets.is_some());
         if let (Some(new_offsets), Some(existing_offsets)) = (new_offsets, self.offsets.as_mut()) {

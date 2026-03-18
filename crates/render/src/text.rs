@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use havi_fonts::FontHandle;
-use havi_types::ShapedGlyph;
+use havi_platform_fonts::font_for_codepoint;
+use havi_types::{ShapedGlyph, TextFragment};
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::text::font::FontId;
 use makepad_widgets::makepad_draw::text::geom::Point as TextPoint;
@@ -22,6 +23,7 @@ thread_local! {
     /// Maps (path, index) → Makepad FontId for fonts registered during this session.
     static REGISTERED_FONTS: RefCell<HashMap<(PathBuf, u32), FontId>> = RefCell::new(HashMap::new());
     static NEXT_FONT_ID: RefCell<u64> = RefCell::new(0x1000_0000);
+    static FALLBACK_FONT_FOR_CHAR: RefCell<HashMap<char, Option<FontHandle>>> = RefCell::new(HashMap::new());
 }
 
 /// Ensure a font handle is registered with Makepad and return its FontId.
@@ -193,7 +195,7 @@ fn draw_text_at(
         if let Some(ref handle) = tf.font_handle {
             if let Some(font_id) = ensure_font_registered(cx, handle, tf.font_data.as_ref()) {
                 let family_id = ensure_font_family(cx, font_id);
-                draw_positioned_glyphs_with_font(cx, draw_text, &tf.glyphs, font_size, x, y,
+                draw_positioned_glyphs_with_font(cx, draw_text, tf, font_size, x, y,
                     baseline_ascent_px, color, family_id);
                 return;
             }
@@ -238,7 +240,7 @@ fn decoration_color(computed: &ComputedValues, inherited: Vec4f) -> Vec4f {
 fn draw_positioned_glyphs_with_font(
     cx: &mut Cx2d,
     dt: &mut DrawText,
-    glyphs: &[ShapedGlyph],
+    tf: &TextFragment,
     font_size_px: f32,
     x: f64,
     y: f64,
@@ -260,22 +262,83 @@ fn draw_positioned_glyphs_with_font(
         }
     };
 
-    let mut rasterized_glyphs = Vec::with_capacity(glyphs.len());
+    let mut rasterized_glyphs = Vec::with_capacity(tf.glyphs.len());
     let mut pen_x = x as f32;
+    let mut text_offset = 0usize;
 
-    for glyph in glyphs {
+    for glyph in &tf.glyphs {
         let gx = pen_x + glyph.x_offset.to_f32_px();
         let gy = baseline_y + glyph.y_offset.to_f32_px();
-        if let Some(rasterized) = font_rc.rasterize_glyph(glyph.glyph_id as u16, dpxs_per_em) {
+
+        if glyph.glyph_id == 0 {
+            if let Some((fallback_rasterized, fallback_size_px)) =
+                rasterize_fallback_glyph(cx, tf, glyph, text_offset, dpxs_per_em)
+            {
+                rasterized_glyphs.push((TextPoint::new(gx, gy), fallback_size_px, fallback_rasterized));
+            } else if let Some(rasterized) = font_rc.rasterize_glyph(glyph.glyph_id as u16, dpxs_per_em) {
+                rasterized_glyphs.push((TextPoint::new(gx, gy), font_size_px, rasterized));
+            }
+        } else if let Some(rasterized) = font_rc.rasterize_glyph(glyph.glyph_id as u16, dpxs_per_em) {
             rasterized_glyphs.push((TextPoint::new(gx, gy), font_size_px, rasterized));
+        } else if let Some((fallback_rasterized, fallback_size_px)) =
+            rasterize_fallback_glyph(cx, tf, glyph, text_offset, dpxs_per_em)
+        {
+            rasterized_glyphs.push((TextPoint::new(gx, gy), fallback_size_px, fallback_rasterized));
         }
+
         pen_x += glyph.advance.to_f32_px();
+        text_offset += glyph.char_count as usize;
     }
 
     if !rasterized_glyphs.is_empty() {
         dt.color = color;
         dt.draw_rasterized_glyphs_abs(cx, &rasterized_glyphs, color);
     }
+}
+
+fn fallback_font_for_char(codepoint: char) -> Option<FontHandle> {
+    FALLBACK_FONT_FOR_CHAR.with(|cache| {
+        if let Some(handle) = cache.borrow().get(&codepoint).cloned() {
+            return handle;
+        }
+
+        let handle = font_for_codepoint(codepoint).map(|(path, index)| FontHandle { path, index });
+        cache.borrow_mut().insert(codepoint, handle.clone());
+        handle
+    })
+}
+
+fn rasterize_fallback_glyph(
+    cx: &mut Cx2d,
+    tf: &TextFragment,
+    glyph: &ShapedGlyph,
+    text_offset: usize,
+    dpxs_per_em: f32,
+) -> Option<(makepad_widgets::makepad_draw::text::rasterizer::RasterizedGlyph, f32)> {
+    let ch = tf.text.chars().skip(text_offset).next()?;
+    if glyph.char_count == 0 {
+        return None;
+    }
+
+    let fallback_handle = fallback_font_for_char(ch)?;
+    let fallback_font_id = ensure_font_registered(cx, &fallback_handle, None)?;
+    let fallback_family_id = ensure_font_family(cx, fallback_font_id);
+
+    let fonts_rc = cx.cx.get_global::<Rc<RefCell<makepad_widgets::makepad_draw::text::fonts::Fonts>>>().clone();
+    let fallback_font_rc = {
+        let mut fonts = fonts_rc.borrow_mut();
+        let family = fonts.get_or_load_font_family(fallback_family_id);
+        match family.fonts().first() {
+            Some(f) => f.clone(),
+            None => return None,
+        }
+    };
+
+    let fallback_data = std::fs::read(&fallback_handle.path).ok()?;
+    let fallback_face = rustybuzz::Face::from_slice(&fallback_data, fallback_handle.index)?;
+    let glyph_id = fallback_face.glyph_index(ch)?;
+    let rasterized = fallback_font_rc.rasterize_glyph(glyph_id.0, dpxs_per_em)?;
+    Some((rasterized, tf.font_size_px))
 }
 
 fn draw_positioned_glyphs(

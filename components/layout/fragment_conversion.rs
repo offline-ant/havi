@@ -81,6 +81,7 @@ fn convert_fragment(
                             advance: g.advance(),
                             x_offset: offset.map_or(Au(0), |o| o.x),
                             y_offset: offset.map_or(Au(0), |o| o.y),
+                            char_count: g.character_count() as u32,
                         }
                     })
                 })
@@ -88,7 +89,7 @@ fn convert_fragment(
 
             Some(havi_types::Fragment::Text(havi_types::TextFragment {
                 base: convert_base_fragment(&f.base),
-                text: String::new(),
+                text: f.text.clone(),
                 font_size_px,
                 glyphs,
                 baseline_ascent: f.font_metrics.ascent,

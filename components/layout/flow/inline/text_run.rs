@@ -136,6 +136,7 @@ impl TextRunSegment {
     fn layout_into_line_items(
         &self,
         text_run: &TextRun,
+        formatting_context_text: &str,
         mut soft_wrap_policy: SegmentStartSoftWrapPolicy,
         ifc: &mut InlineFormattingContextLayout,
     ) {
@@ -172,8 +173,16 @@ impl TextRunSegment {
                     character_range: character_range_start..new_character_range_end,
                 });
 
+            let text_run_text = &formatting_context_text[text_run.text_range.clone()];
+            let run_text: String = text_run_text
+                .chars()
+                .skip(character_range_start - self.character_range.start)
+                .take(run.character_count())
+                .collect();
+
             ifc.push_glyph_store_to_unbreakable_segment(
                 run.clone(),
+                &run_text,
                 text_run,
                 &self.font,
                 self.bidi_level,
@@ -590,7 +599,7 @@ impl TextRun {
         };
 
         for segment in self.shaped_text.iter() {
-            segment.layout_into_line_items(self, soft_wrap_policy, ifc);
+            segment.layout_into_line_items(self, &ifc.ifc.text_content, soft_wrap_policy, ifc);
             soft_wrap_policy = SegmentStartSoftWrapPolicy::FollowLinebreaker;
         }
     }

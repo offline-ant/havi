@@ -36,7 +36,7 @@ pub enum GenericFamily {
 mod linux;
 
 #[cfg(target_os = "linux")]
-pub use linux::{default_generic_family, system_font_faces, system_font_families};
+pub use linux::{default_generic_family, font_for_codepoint, system_font_faces, system_font_families};
 
 #[cfg(target_os = "android")]
 mod android;

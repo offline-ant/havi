@@ -92,6 +92,8 @@ pub struct ShapedGlyph {
     pub x_offset: Au,
     /// Shaping y-offset.
     pub y_offset: Au,
+    /// Number of source text characters this glyph covers (for fallback lookup).
+    pub char_count: u32,
 }
 
 /// A text run fragment.

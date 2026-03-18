@@ -545,7 +545,7 @@ impl LineUnderConstruction {
             .filter_map(|item| match item {
                 LineItem::TextRun(_, text_run) => Some(
                     text_run
-                        .text
+                        .glyphs
                         .iter()
                         .map(|glyph_store| glyph_store.total_word_separators())
                         .sum::<usize>(),
@@ -1568,6 +1568,7 @@ impl InlineFormattingContextLayout<'_> {
     fn push_glyph_store_to_unbreakable_segment(
         &mut self,
         glyph_store: Arc<GlyphStore>,
+        text: &str,
         text_run: &TextRun,
         font: &FontRef,
         bidi_level: Level,
@@ -1635,7 +1636,8 @@ impl InlineFormattingContextLayout<'_> {
         self.push_line_item_to_unbreakable_segment(LineItem::TextRun(
             current_inline_box_identifier,
             TextRunLineItem {
-                text: vec![glyph_store],
+                text: text.to_string(),
+                glyphs: vec![glyph_store],
                 base_fragment_info: text_run.base_fragment_info,
                 inline_styles: text_run.inline_styles.clone(),
                 font_metrics: font_metrics.clone(),

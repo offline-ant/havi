@@ -3,17 +3,19 @@ use std::path::PathBuf;
 use std::ptr;
 
 use fontconfig_sys::constants::{
-    FC_FAMILY, FC_FILE, FC_FONTFORMAT, FC_INDEX, FC_SLANT, FC_SLANT_ITALIC, FC_SLANT_OBLIQUE,
-    FC_WEIGHT, FC_WEIGHT_BOLD, FC_WEIGHT_EXTRABLACK, FC_WEIGHT_REGULAR, FC_WIDTH,
-    FC_WIDTH_CONDENSED, FC_WIDTH_EXPANDED, FC_WIDTH_EXTRACONDENSED, FC_WIDTH_EXTRAEXPANDED,
-    FC_WIDTH_NORMAL, FC_WIDTH_SEMICONDENSED, FC_WIDTH_SEMIEXPANDED, FC_WIDTH_ULTRACONDENSED,
-    FC_WIDTH_ULTRAEXPANDED,
+    FC_CHARSET, FC_FAMILY, FC_FILE, FC_FONTFORMAT, FC_INDEX, FC_SLANT, FC_SLANT_ITALIC,
+    FC_SLANT_OBLIQUE, FC_WEIGHT, FC_WEIGHT_BOLD, FC_WEIGHT_EXTRABLACK, FC_WEIGHT_REGULAR,
+    FC_WIDTH, FC_WIDTH_CONDENSED, FC_WIDTH_EXPANDED, FC_WIDTH_EXTRACONDENSED,
+    FC_WIDTH_EXTRAEXPANDED, FC_WIDTH_NORMAL, FC_WIDTH_SEMICONDENSED, FC_WIDTH_SEMIEXPANDED,
+    FC_WIDTH_ULTRACONDENSED, FC_WIDTH_ULTRAEXPANDED,
 };
 use fontconfig_sys::{
-    FcChar8, FcConfigGetCurrent, FcConfigGetFonts, FcConfigSubstitute, FcDefaultSubstitute,
-    FcFontMatch, FcFontSetDestroy, FcFontSetList, FcMatchPattern, FcNameParse, FcObjectSetAdd,
-    FcObjectSetCreate, FcObjectSetDestroy, FcPattern, FcPatternAddString, FcPatternCreate,
-    FcPatternDestroy, FcPatternGetInteger, FcPatternGetString, FcResultMatch, FcSetSystem,
+    FcChar8, FcCharSetAddChar, FcCharSetCreate, FcCharSetDestroy, FcConfigGetCurrent,
+    FcConfigGetFonts, FcConfigSubstitute, FcDefaultSubstitute, FcFontMatch, FcFontSetDestroy,
+    FcFontSetList, FcGetVersion, FcMatchPattern, FcNameParse, FcObjectSetAdd,
+    FcObjectSetCreate, FcObjectSetDestroy, FcPattern, FcPatternAddCharSet, FcPatternAddString,
+    FcPatternCreate, FcPatternDestroy, FcPatternGetInteger, FcPatternGetString, FcResultMatch,
+    FcSetSystem,
 };
 use libc::{c_char, c_int};
 
@@ -90,7 +92,7 @@ pub fn system_font_families() -> Vec<String> {
     let mut families = Vec::new();
     unsafe {
         let config = FcConfigGetCurrent();
-        let font_set = FcConfigGetFonts(config, FcSetSystem);
+        let font_set = fontconfig_sys::FcConfigGetFonts(config, FcSetSystem);
         for i in 0..((*font_set).nfont as isize) {
             let font = (*font_set).fonts.offset(i);
             let mut format: *mut FcChar8 = ptr::null_mut();
@@ -258,4 +260,60 @@ pub fn default_generic_family(generic: GenericFamily) -> String {
         GenericFamily::Fantasy => "Impact",
     }
     .to_owned()
+}
+
+/// Find a system font file containing the given Unicode codepoint.
+pub fn font_for_codepoint(codepoint: char) -> Option<(PathBuf, u32)> {
+    unsafe {
+        let _ = FcGetVersion();
+        let config = FcConfigGetCurrent();
+        let pattern = FcPatternCreate();
+        if pattern.is_null() {
+            return None;
+        }
+
+        let charset = FcCharSetCreate();
+        if charset.is_null() {
+            FcPatternDestroy(pattern);
+            return None;
+        }
+
+        if FcCharSetAddChar(charset, codepoint as u32) == 0 ||
+            FcPatternAddCharSet(pattern, FC_CHARSET.as_ptr() as *mut c_char, charset) == 0
+        {
+            FcCharSetDestroy(charset);
+            FcPatternDestroy(pattern);
+            return None;
+        }
+
+        FcConfigSubstitute(config, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+
+        let mut result = 0;
+        let matched = FcFontMatch(config, pattern, &mut result);
+
+        let path_and_index = if !matched.is_null() && result == FcResultMatch {
+            let mut path: *mut FcChar8 = ptr::null_mut();
+            let mut index: c_int = 0;
+            if FcPatternGetString(matched, FC_FILE.as_ptr() as *mut c_char, 0, &mut path) == FcResultMatch &&
+                FcPatternGetInteger(matched, FC_INDEX.as_ptr() as *mut c_char, 0, &mut index) == FcResultMatch
+            {
+                CStr::from_ptr(path as *const c_char)
+                    .to_str()
+                    .ok()
+                    .map(|path| (PathBuf::from(path), index as u32))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if !matched.is_null() {
+            FcPatternDestroy(matched);
+        }
+        FcCharSetDestroy(charset);
+        FcPatternDestroy(pattern);
+        path_and_index
+    }
 }
