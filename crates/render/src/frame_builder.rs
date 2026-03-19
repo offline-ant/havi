@@ -780,6 +780,82 @@ mod tests {
     }
 
     #[test]
+    fn reference_frame_rotated_bounds_extend_outside_local_viewport() {
+        use app_units::Au;
+        use style::values::generics::transform::GenericRotate;
+
+        let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
+        {
+            let s = servo_arc::Arc::make_mut(&mut style);
+            s.mutate_box().set_position(ComputedPosition::Absolute);
+            s.mutate_box().rotate = GenericRotate::Rotate(
+                style::values::computed::Angle::from_degrees(90.0),
+            );
+        }
+
+        let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
+        let green_box = Fragment::Box(BoxFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(2)),
+                style.to_arc(),
+                make_rect(100.0, 100.0, 150.0, 100.0),
+            ),
+            children: Vec::new(),
+            padding: sides,
+            border: sides,
+            margin: sides,
+            baselines: Baselines::default(),
+            block_level_info: None,
+            background_images: Vec::new(),
+        });
+
+        let positioning = Fragment::Positioning(havi_types::PositioningFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::anonymous(),
+                initial_style(),
+                make_rect(0.0, 0.0, 1280.0, 800.0),
+            ),
+            children: vec![green_box],
+        });
+
+        let body = Fragment::Box(BoxFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::new(OpaqueNode(1)),
+                initial_style(),
+                make_rect(8.0, 8.0, 1264.0, 100.0),
+            ),
+            children: vec![positioning],
+            padding: sides,
+            border: sides,
+            margin: sides,
+            baselines: Baselines::default(),
+            block_level_info: None,
+            background_images: Vec::new(),
+        });
+
+        let fragments = [body];
+        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let scene = build_scene(
+            &sc, &fragments, &crate::ScrollState::default(),
+            dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
+        );
+
+        let ref_frame = scene.frame_tree.frames.iter()
+            .find(|f| f.kind == FrameKind::ReferenceFrame && f.owner_node_id == Some(2 << 8))
+            .expect("reference frame for rotated box");
+
+        let item = ref_frame.items.first().expect("frame should have items");
+        let local_rect = Rect {
+            pos: dvec2(item.local_origin.x + 100.0, item.local_origin.y + 100.0),
+            size: dvec2(150.0, 100.0),
+        };
+        let world_rect = crate::makepad_clip::transform_rect(&ref_frame.matrix.world, local_rect);
+
+        assert!(world_rect.pos.y < local_rect.pos.y, "rotated bounds should extend above local rect");
+        assert!(world_rect.size.y > local_rect.size.y, "rotated bounds should extend outside untransformed local height");
+    }
+
+    #[test]
     fn iframe_child_fragments_get_nested_origins() {
         let child_fragments = Arc::new(vec![plain_box(2, 5.0, 6.0, vec![plain_box(3, 7.0, 8.0, Vec::new())])]);
         let iframe = Fragment::IFrame(IFrameFragment {

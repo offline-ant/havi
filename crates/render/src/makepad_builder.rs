@@ -287,24 +287,16 @@ fn paint_frame_direct_2d(
         .draw_list
         .begin_always(cx);
     let pass_size = cx.current_pass_size();
-    let turtle_origin;
-    let turtle_size;
     if frame_id == frame_tree.root {
-        turtle_origin = dvec2(0.0, 0.0);
-        turtle_size = pass_size;
+        cx.begin_page_root_turtle(dvec2(0.0, 0.0), pass_size, Layout::default());
     } else {
-        // Transform the viewport rectangle into the frame's local coordinate space
-        // so that the Makepad turtle clip doesn't restrict content that would be
-        // visible after the CSS transform is applied.
-        let viewport = Rect { pos: dvec2(0.0, 0.0), size: pass_size };
-        let local_viewport = crate::makepad_clip::transform_rect(
-            &frame.matrix.world_inverse,
-            viewport,
-        );
-        turtle_origin = local_viewport.pos;
-        turtle_size = local_viewport.size;
-    };
-    cx.begin_page_root_turtle(turtle_origin, turtle_size, Layout::default());
+        // Draw-list view transforms already map frame-local geometry into world
+        // space. Root-turtle clipping happens before that transform in Makepad,
+        // so deriving a local clip from the inverse-transformed viewport clips
+        // rotated/skewed content to an axis-aligned local box. Use an unclipped
+        // root turtle here and let explicit clip chains handle CSS overflow.
+        cx.begin_unclipped_root_turtle(pass_size, Layout::default());
+    }
     state
         .frame_draw_lists
         .get_mut(&frame.key)
@@ -324,7 +316,11 @@ fn paint_frame_direct_2d(
         state,
         parent_opacity,
     );
-    cx.end_pass_sized_turtle();
+    if frame_id == frame_tree.root {
+        cx.end_pass_sized_turtle();
+    } else {
+        cx.end_pass_sized_turtle_no_clip();
+    }
     state
         .frame_draw_lists
         .get_mut(&frame.key)
