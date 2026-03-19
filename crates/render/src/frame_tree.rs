@@ -1,5 +1,6 @@
-use havi_types::Fragment;
 use makepad_widgets::*;
+
+use crate::paint_items::PaintSource;
 
 pub(crate) type FrameId = usize;
 
@@ -28,8 +29,8 @@ pub(crate) struct FrameMatrix {
 }
 
 pub(crate) struct FramePaintItem<'a> {
-    pub fragment: &'a Fragment,
-    pub section: crate::stacking_context::StackingContextSection,
+    pub source: PaintSource<'a>,
+    pub section: crate::layout_stacking_context::StackingContextSection,
     pub local_origin: DVec2,
     pub clip_id: crate::clip_tree::ClipId,
 }
@@ -130,14 +131,14 @@ impl<'a> FrameTree<'a> {
     pub(crate) fn push_item(
         &mut self,
         frame: FrameId,
-        fragment: &'a Fragment,
-        section: crate::stacking_context::StackingContextSection,
+        source: PaintSource<'a>,
+        section: crate::layout_stacking_context::StackingContextSection,
         local_origin: DVec2,
         clip_id: crate::clip_tree::ClipId,
     ) {
         let item_index = self.frames[frame].items.len();
         self.frames[frame].items.push(FramePaintItem {
-            fragment,
+            source,
             section,
             local_origin,
             clip_id,

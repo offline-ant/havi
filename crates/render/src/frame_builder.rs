@@ -4,8 +4,12 @@ use crate::clip_tree::{ClipId, ClipTree};
 use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
 use crate::compositor_scene::CompositorScene;
 use crate::reference_frame::reference_frame_matrix;
+use crate::layout_stacking_context::{
+    build_stacking_context_tree, LayoutPaintItem, LayoutStackingContext,
+    LayoutStackingContextContent, StackingContextSection,
+};
+use crate::paint_items::PaintSource;
 use crate::render_plan::{collect_owner_render_semantics, NodeRenderSemantics, RenderPlan};
-use crate::stacking_context::{PaintItem, StackingContext, StackingContextContent, StackingContextSection};
 use havi_types::fragment_tree::BoxFragment;
 use havi_types::{Fragment, IFrameFragment};
 use makepad_widgets::*;
@@ -60,7 +64,7 @@ struct SceneBuilder<'tree, 'a> {
 }
 
 impl<'tree, 'a> SceneBuilder<'tree, 'a> {
-    fn build_stacking_context_into_scene(&mut self, sc: &StackingContext<'a>, cx: BuildContext) {
+    fn build_stacking_context_into_scene(&mut self, sc: &LayoutStackingContext<'a>, cx: BuildContext) {
         let mut scx = self.contexts_for_stacking_context(sc, cx);
         if let Some(frame_id) = scx.entry_frame_id {
             self.frame_tree.append_child_frame(cx.frame_id, frame_id);
@@ -70,11 +74,11 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 
     fn build_paint_item_into_scene(
         &mut self,
-        item: PaintItem<'a, '_>,
+        item: LayoutPaintItem<'a, '_>,
         scx: &mut StackingContextBuildState<'a>,
     ) {
         match item {
-            PaintItem::Content(content) => {
+            LayoutPaintItem::Content(content) => {
                 let build_cx = if uses_visual_context(content, scx.owner_fragment) {
                     scx.visual_cx
                 } else {
@@ -83,17 +87,17 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 };
                 self.build_content_into_scene(content, build_cx);
             }
-            PaintItem::ChildStackingContext(child) => {
+            LayoutPaintItem::ChildStackingContext(child) => {
                 scx.ensure_descendant_frame_entry(self.frame_tree);
                 self.build_stacking_context_into_scene(child, scx.descendant_cx);
             }
-            PaintItem::Outline => {}
+            LayoutPaintItem::Outline => {}
         }
     }
 
-    fn build_content_into_scene(&mut self, content: &StackingContextContent<'a>, cx: BuildContext) {
+    fn build_content_into_scene(&mut self, content: &LayoutStackingContextContent<'a>, cx: BuildContext) {
         match content {
-            StackingContextContent::Fragment { section, fragment } => {
+            LayoutStackingContextContent::Fragment { section, fragment } => {
                 let containing_block_origin = self
                     .fragment_origins
                     .get(&(std::ptr::from_ref(*fragment) as usize))
@@ -104,26 +108,40 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     clip_id: cx.clip_id,
                     local_origin: cx.local_origin + containing_block_origin,
                 };
-                self.build_fragment_into_scene(fragment, *section, item_cx);
+                self.build_fragment_into_scene(PaintSource::Direct(fragment), *section, item_cx);
             }
-            StackingContextContent::AtomicInlineStackingContainer { .. } => {}
+            LayoutStackingContextContent::HoistedFragment { section, placeholder, fragment } => {
+                let containing_block_origin = self
+                    .fragment_origins
+                    .get(&(std::ptr::from_ref(*placeholder) as usize))
+                    .copied()
+                    .unwrap_or(dvec2(0.0, 0.0));
+                let item_cx = BuildContext {
+                    frame_id: cx.frame_id,
+                    clip_id: cx.clip_id,
+                    local_origin: cx.local_origin + containing_block_origin,
+                };
+                let _ = placeholder;
+                self.build_fragment_into_scene(PaintSource::Hoisted(fragment), *section, item_cx);
+            }
+            LayoutStackingContextContent::AtomicInlineStackingContainer { .. } => {}
         }
     }
 
     fn build_fragment_into_scene(
         &mut self,
-        fragment: &'a Fragment,
+        source: PaintSource<'a>,
         section: StackingContextSection,
         cx: BuildContext,
     ) {
-        match fragment {
+        match source.fragment() {
             Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) | Fragment::Image(_) => {
                 self.frame_tree
-                    .push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
+                    .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
             }
             Fragment::IFrame(iframe) => {
                 self.frame_tree
-                    .push_item(cx.frame_id, fragment, section, cx.local_origin, cx.clip_id);
+                    .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
                 self.build_iframe_into_scene(iframe, cx);
             }
             Fragment::Positioning(_) => {}
@@ -153,7 +171,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         );
         self.frame_tree.set_clip(frame_id, clip_id);
         self.frame_tree.append_child_frame(cx.frame_id, frame_id);
-        let child_sc = crate::stacking_context::build_stacking_context_tree(&iframe.child_fragments);
+        let child_sc = build_stacking_context_tree(&iframe.child_fragments);
         self.build_stacking_context_into_scene(
             &child_sc,
             BuildContext {
@@ -166,7 +184,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 
     fn contexts_for_stacking_context(
         &mut self,
-        sc: &StackingContext<'a>,
+        sc: &LayoutStackingContext<'a>,
         cx: BuildContext,
     ) -> StackingContextBuildState<'a> {
         let Some(owner_fragment) = sc.initializing_fragment else {
@@ -267,7 +285,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 }
 
 pub(crate) fn build_scene<'a>(
-    sc: &StackingContext<'a>,
+    sc: &LayoutStackingContext<'a>,
     fragments: &'a [Fragment],
     scroll_state: &crate::ScrollState,
     scroll_origin: DVec2,
@@ -359,21 +377,28 @@ fn collect_fragment_origins(
 }
 
 fn uses_visual_context(
-    content: &StackingContextContent<'_>,
+    content: &LayoutStackingContextContent<'_>,
     owner_fragment: Option<&BoxFragment>,
 ) -> bool {
     let Some(owner_fragment) = owner_fragment else {
         return false;
     };
     match content {
-        StackingContextContent::Fragment { fragment, section } => match fragment {
+        LayoutStackingContextContent::Fragment { fragment, section } => match fragment {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 std::ptr::eq(bf, owner_fragment)
                     && *section == StackingContextSection::OwnBackgroundsAndBorders
             }
             _ => false,
         },
-        StackingContextContent::AtomicInlineStackingContainer { .. } => false,
+        LayoutStackingContextContent::HoistedFragment { fragment, section, .. } => match fragment {
+            Fragment::Box(bf) | Fragment::Float(bf) => {
+                std::ptr::eq(bf, owner_fragment)
+                    && *section == StackingContextSection::OwnBackgroundsAndBorders
+            }
+            _ => false,
+        },
+        LayoutStackingContextContent::AtomicInlineStackingContainer { .. } => false,
     }
 }
 
@@ -544,7 +569,7 @@ mod tests {
     fn build_scene_creates_scroll_frame_for_scroll_container() {
         let fragment = scroll_box(7);
         let fragments = [fragment];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc,
             &fragments,
@@ -566,7 +591,7 @@ mod tests {
     fn build_scene_creates_descendant_clip_frame_for_hidden_overflow_container() {
         let fragment = overflow_box(8, style::values::specified::Overflow::Hidden);
         let fragments = [fragment];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc,
             &fragments,
@@ -644,7 +669,7 @@ mod tests {
         });
 
         let fragments = [parent];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc, &fragments, &crate::ScrollState::default(),
             dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
@@ -731,7 +756,7 @@ mod tests {
         });
 
         let fragments = [body];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc, &fragments, &crate::ScrollState::default(),
             dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
@@ -834,7 +859,7 @@ mod tests {
         });
 
         let fragments = [body];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc, &fragments, &crate::ScrollState::default(),
             dvec2(0.0, 0.0), dvec2(1280.0, 800.0),
@@ -856,6 +881,39 @@ mod tests {
     }
 
     #[test]
+    fn positioned_placeholder_uses_placeholder_origin_once() {
+        use crate::paint_items::PaintSource;
+
+        let abspos = plain_box(2, 40.0, 50.0, Vec::new());
+        let positioning = Fragment::Positioning(havi_types::PositioningFragment {
+            base: BaseFragment::new(
+                BaseFragmentInfo::anonymous(),
+                initial_style(),
+                make_rect(10.0, 20.0, 300.0, 200.0),
+            ),
+            children: vec![abspos],
+        });
+        let root = plain_box(1, 8.0, 9.0, vec![positioning]);
+        let fragments = [root];
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
+        let scene = build_scene(
+            &sc,
+            &fragments,
+            &crate::ScrollState::default(),
+            dvec2(0.0, 0.0),
+            dvec2(800.0, 600.0),
+        );
+
+        let root_items = &scene.frame_tree.frame(scene.frame_tree.root).items;
+        let hoisted_items: Vec<_> = root_items
+            .iter()
+            .filter(|item| matches!(item.source, PaintSource::Hoisted(..)))
+            .collect();
+        assert_eq!(hoisted_items.len(), 1);
+        assert_eq!(hoisted_items[0].local_origin, dvec2(18.0, 29.0));
+    }
+
+    #[test]
     fn iframe_child_fragments_get_nested_origins() {
         let child_fragments = Arc::new(vec![plain_box(2, 5.0, 6.0, vec![plain_box(3, 7.0, 8.0, Vec::new())])]);
         let iframe = Fragment::IFrame(IFrameFragment {
@@ -868,7 +926,7 @@ mod tests {
             child_content_height: 150.0,
         });
         let fragments = [iframe];
-        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let sc = crate::layout_stacking_context::build_stacking_context_tree(&fragments);
         let scene = build_scene(
             &sc,
             &fragments,

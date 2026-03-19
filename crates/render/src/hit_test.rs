@@ -45,7 +45,7 @@ fn hit_test_frame_reverse(
                     continue;
                 }
                 if hit_test_item_local(item, point_local) {
-                    if let Some(tag) = item.fragment.tag() {
+                    if let Some(tag) = item.source.fragment().tag() {
                         return Some(tag.node);
                     }
                 }
@@ -126,7 +126,7 @@ fn hit_test_item_local(
     item: &crate::frame_tree::FramePaintItem<'_>,
     point_local: DVec2,
 ) -> bool {
-    let rect = match item.fragment {
+    let rect = match item.source.fragment() {
         Fragment::Box(bf) | Fragment::Float(bf) => bf.border_rect(),
         Fragment::Text(tf) => tf.base.rect,
         Fragment::Image(img) => img.base.rect,
@@ -215,10 +215,10 @@ mod tests {
         let clips = ClipTree::new();
         let a = make_box(1, 0.0, 0.0, 100.0, 100.0);
         let b = make_box(2, 0.0, 0.0, 100.0, 100.0);
-        frames.push_item(frames.root, &a, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
+        frames.push_item(frames.root, crate::paint_items::PaintSource::Direct(&a), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
         let child = frames.push_child_frame(frames.root, FrameKey::NodeReferenceFrame(2), FrameKind::ReferenceFrame, Some(2), translation(10.0, 0.0));
         frames.append_child_frame(frames.root, child);
-        frames.push_item(child, &b, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
+        frames.push_item(child, crate::paint_items::PaintSource::Direct(&b), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
 
         assert_eq!(hit_test(&frames, &clips, dvec2(20.0, 20.0)), Some(OpaqueNode(2)));
         assert_eq!(hit_test(&frames, &clips, dvec2(5.0, 5.0)), Some(OpaqueNode(1)));
@@ -230,7 +230,7 @@ mod tests {
         let mut clips = ClipTree::new();
         let fragment = make_box(3, 0.0, 0.0, 100.0, 100.0);
         let clip_id = clips.push_rect(frames.root, ClipId::INVALID, Rect { pos: dvec2(10.0, 10.0), size: dvec2(20.0, 20.0) });
-        frames.push_item(frames.root, &fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), clip_id);
+        frames.push_item(frames.root, crate::paint_items::PaintSource::Direct(&fragment), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), clip_id);
 
         assert_eq!(hit_test(&frames, &clips, dvec2(15.0, 15.0)), Some(OpaqueNode(3)));
         assert_eq!(hit_test(&frames, &clips, dvec2(5.0, 5.0)), None);
@@ -241,19 +241,19 @@ mod tests {
         let mut frames = FrameTree::new();
         let mut clips = ClipTree::new();
         let outer_fragment = make_box(10, 0.0, 0.0, 200.0, 200.0);
-        frames.push_item(frames.root, &outer_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
+        frames.push_item(frames.root, crate::paint_items::PaintSource::Direct(&outer_fragment), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), ClipId::INVALID);
         let outer_clip = clips.push_rect(frames.root, ClipId::INVALID, Rect { pos: dvec2(0.0, 0.0), size: dvec2(200.0, 200.0) });
         let outer_scroll = frames.push_child_frame(frames.root, FrameKey::NodeScrollFrame(10), FrameKind::ScrollFrame, Some(10), Mat4f::identity());
         frames.set_clip(outer_scroll, outer_clip);
         frames.append_child_frame(frames.root, outer_scroll);
-        frames.push_item(outer_scroll, &outer_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), outer_clip);
+        frames.push_item(outer_scroll, crate::paint_items::PaintSource::Direct(&outer_fragment), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(0.0, 0.0), outer_clip);
 
         let inner_fragment = make_box(20, 20.0, 20.0, 50.0, 50.0);
         let inner_clip = clips.push_rect(outer_scroll, outer_clip, Rect { pos: dvec2(20.0, 20.0), size: dvec2(50.0, 50.0) });
         let inner_scroll = frames.push_child_frame(outer_scroll, FrameKey::NodeScrollFrame(20), FrameKind::ScrollFrame, Some(20), Mat4f::identity());
         frames.set_clip(inner_scroll, inner_clip);
         frames.append_child_frame(outer_scroll, inner_scroll);
-        frames.push_item(inner_scroll, &inner_fragment, crate::stacking_context::StackingContextSection::Foreground, dvec2(20.0, 20.0), inner_clip);
+        frames.push_item(inner_scroll, crate::paint_items::PaintSource::Direct(&inner_fragment), crate::layout_stacking_context::StackingContextSection::Foreground, dvec2(20.0, 20.0), inner_clip);
 
         assert_eq!(find_scroll_container(&frames, &clips, dvec2(30.0, 30.0)), Some(OpaqueNode(20)));
         assert_eq!(find_scroll_container(&frames, &clips, dvec2(5.0, 5.0)), Some(OpaqueNode(10)));

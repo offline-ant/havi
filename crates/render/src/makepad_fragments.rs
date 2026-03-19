@@ -16,15 +16,16 @@ pub(crate) fn paint_fragment_item(
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
-    if item.fragment.base().style.get_inherited_box().visibility != Visibility::Visible {
+    let fragment = item.source.fragment();
+    if fragment.base().style.get_inherited_box().visibility != Visibility::Visible {
         return;
     }
 
-    match item.fragment {
+    match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => match item.section {
-            crate::stacking_context::StackingContextSection::OwnBackgroundsAndBorders
-            | crate::stacking_context::StackingContextSection::DescendantBackgroundsAndBorders
-            | crate::stacking_context::StackingContextSection::Foreground => {
+            crate::layout_stacking_context::StackingContextSection::OwnBackgroundsAndBorders
+            | crate::layout_stacking_context::StackingContextSection::DescendantBackgroundsAndBorders
+            | crate::layout_stacking_context::StackingContextSection::Foreground => {
                 let border_rect = bf.border_rect();
                 let bx = item.local_origin.x + border_rect.origin.x.to_f32_px() as f64;
                 let by = item.local_origin.y + border_rect.origin.y.to_f32_px() as f64;
@@ -58,10 +59,10 @@ pub(crate) fn paint_fragment_item(
                     );
                 }
             }
-            crate::stacking_context::StackingContextSection::Outline => {}
+            crate::layout_stacking_context::StackingContextSection::Outline => {}
         },
         Fragment::Text(text_fragment) => {
-            if item.section != crate::stacking_context::StackingContextSection::Foreground {
+            if item.section != crate::layout_stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = text_fragment.base.rect;
@@ -80,7 +81,7 @@ pub(crate) fn paint_fragment_item(
             );
         }
         Fragment::Image(img) => {
-            if item.section != crate::stacking_context::StackingContextSection::Foreground {
+            if item.section != crate::layout_stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = img.base.rect;
@@ -99,7 +100,7 @@ pub(crate) fn paint_fragment_item(
             );
         }
         Fragment::IFrame(iframe) => {
-            if item.section != crate::stacking_context::StackingContextSection::Foreground {
+            if item.section != crate::layout_stacking_context::StackingContextSection::Foreground {
                 return;
             }
             let rect = iframe.base.rect;

@@ -1,23 +1,35 @@
 //! Render layout fragments using Makepad's native draw pipeline.
 //!
-//! Builds a stacking context tree from fragments (CSS 2.1 Appendix E) and walks
-//! it in correct paint order, emitting Makepad draw calls.
+//! Architecture boundary:
+//! - layout owns the full fragment tree semantics, including hoisted
+//!   `AbsoluteOrFixedPositioned` placeholders
+//! - render constructs stacking contexts and paint order from those semantics
+//! - Makepad-specific extraction happens only when final paint items are emitted
+//!
+//! The historical full-tree conversion into a simplified render fragment tree is
+//! removed from the active paint-order path. Leaf extraction still uses
+//! `havi_types` payloads where Makepad rendering needs concrete text/image/iframe
+//! data, but stacking-context construction and frame building now preserve
+//! semantic fragment ordering until final paint emission.
 
 mod background;
 mod clip_tree;
 mod compositor_scene;
 mod frame_builder;
 mod frame_tree;
+mod fragment_source;
 mod hit_test;
+mod layout_adapter;
 mod makepad_builder;
 mod makepad_clip;
 mod makepad_effects;
 mod makepad_fragments;
+mod paint_items;
 mod reference_frame;
 mod render_plan;
 pub mod shaders;
 pub mod video_texture_map;
-pub(crate) mod stacking_context;
+pub(crate) mod layout_stacking_context;
 mod text;
 mod transform;
 
@@ -43,8 +55,8 @@ pub(crate) mod color {
 
 use std::collections::HashMap;
 
-use havi_types::Fragment;
 use havi_types::fragment_tree::BoxFragment;
+use havi_types::Fragment;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::Texture;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
@@ -53,7 +65,7 @@ use style::computed_values::overflow_x::T as ComputedOverflow;
 pub use shaders::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
-pub use stacking_context::CachedStackingContextTree;
+pub use fragment_source::CachedFragmentSource;
 
 /// Cache for image textures, keyed by OpaqueNode id.
 /// Each entry tracks the texture and the byte-range hash used to create it,
@@ -179,7 +191,7 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
 /// viewport scroll offset is always subtracted from y.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
-    cached_tree: &CachedStackingContextTree,
+    cached_fragments: &CachedFragmentSource,
     viewport_top: f32,
     viewport_bottom: f32,
     draw_bg: &mut DrawColor,
@@ -209,9 +221,11 @@ pub fn render_fragments_clipped(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
     );
+    let layout_source = layout_adapter::LayoutFragmentSource::new(cached_fragments.fragments_arc().clone());
+    let semantic_tree = layout_stacking_context::build_stacking_context_tree(layout_source.fragments());
     let scene = frame_builder::build_scene(
-        cached_tree.tree(),
-        cached_tree.fragments(),
+        &semantic_tree,
+        layout_source.fragments(),
         scroll_state,
         scroll_origin,
         viewport_size,

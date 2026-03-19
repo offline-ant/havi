@@ -154,11 +154,9 @@ pub struct ServoWebView {
     /// fragment tree is replaced (navigation) so GPU caches can be cleared.
     #[rust]
     last_fragment_ptr: usize,
-    /// Cached stacking context tree, rebuilt only when the fragment Arc changes.
-    /// The tree borrows from `cached_sc_fragments`; the Arc keeps data alive.
-    /// SAFETY: `cached_sc_tree` must be dropped/cleared before `cached_sc_fragments`.
+    /// Cached fragment source, rebuilt only when the fragment Arc changes.
     #[rust]
-    cached_sc_tree: Option<havi_render::CachedStackingContextTree>,
+    cached_fragment_source: Option<havi_render::CachedFragmentSource>,
 
     /// Shared scroll state from layout. When set, scroll offset and content
     /// height are read from here instead of local estimates.
@@ -315,7 +313,7 @@ impl Widget for ServoWebView {
             self.last_fragment_ptr = frag_ptr;
             self.texture_cache.0.clear();
             // Invalidate cached stacking context tree — will be rebuilt below.
-            self.cached_sc_tree = None;
+            self.cached_fragment_source = None;
         }
 
         // Peek at the walk rect BEFORE begin() so we know our expected
@@ -331,12 +329,12 @@ impl Widget for ServoWebView {
         if let Some(ref frags) = fragments {
             // Rebuild stacking context tree only when fragments change.
             let needs_rebuild = self
-                .cached_sc_tree
+                .cached_fragment_source
                 .as_ref()
                 .map_or(true, |c| !c.is_valid_for(frags));
             if needs_rebuild {
-                self.cached_sc_tree =
-                    Some(havi_render::CachedStackingContextTree::new(frags.clone()));
+                self.cached_fragment_source =
+                    Some(havi_render::CachedFragmentSource::new(frags.clone()));
             }
 
             let rect = cx.turtle().rect();
@@ -366,7 +364,7 @@ impl Widget for ServoWebView {
 
             havi_render::render_fragments_clipped(
                 cx,
-                self.cached_sc_tree.as_ref().unwrap(),
+                self.cached_fragment_source.as_ref().unwrap(),
                 viewport_top,
                 viewport_bottom,
                 &mut self.draw_content_bg,

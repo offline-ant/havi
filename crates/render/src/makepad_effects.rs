@@ -10,7 +10,7 @@ use crate::{CssFilters, FilterPass, OpacityPass};
 pub(crate) fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> (f32, CssFilters) {
     let frame = frame_tree.frame(frame_id);
     for item in &frame.items {
-        match item.fragment {
+        match item.source.fragment() {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 return (bf.base.style.get_effects().opacity, crate::resolve_css_filters(&bf.base.style));
             }

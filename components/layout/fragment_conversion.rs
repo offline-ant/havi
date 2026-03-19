@@ -2,7 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Converts layout's internal fragment types to `havi_types::Fragment` for rendering.
+//! Converts layout's internal fragment types to `havi_types::Fragment` leaf payloads.
+//!
+//! This module is compatibility glue, not the render architecture boundary.
+//! Render paint ordering must preserve layout fragment semantics until stacking
+//! contexts and paint items are finalized. The helpers here remain for leaf data
+//! extraction and embedder sharing while the semantic render path is migrated.
 
 use std::collections::HashSet;
 use std::sync::Arc;

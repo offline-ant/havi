@@ -506,7 +506,7 @@ fn frame_owner_bounds_in_space(
 }
 
 fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
-    match item.fragment {
+    match item.source.fragment() {
         havi_types::Fragment::Box(bf) | havi_types::Fragment::Float(bf) => {
             let rect = bf.border_rect();
             Some(Rect {
