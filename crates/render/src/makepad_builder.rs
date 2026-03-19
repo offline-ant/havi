@@ -134,6 +134,18 @@ fn paint_frame_target(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
+    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    DEPTH.with(|d| {
+        let depth = d.get() + 1;
+        d.set(depth);
+        if depth % 200 == 0 {
+            eprintln!("[makepad-builder] paint_frame_target depth={} frame_id={} total_frames={}", depth, frame_id, frame_tree.frames.len());
+        }
+        if depth > 2000 {
+            eprintln!("[makepad-builder] ABORTING paint_frame_target depth={} — likely infinite recursion", depth);
+            std::process::abort();
+        }
+    });
     let frame_surface_id = compositor_scene.frame_surface(frame_id);
     let redirects_to_surface = frame_surface_id.is_some() && frame_surface_id != active_surface_id;
     let participation = render_plan.frame_participation(frame_id);
@@ -172,6 +184,7 @@ fn paint_frame_target(
             );
         }
     }
+    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn paint_compositor_surface(
@@ -289,14 +302,13 @@ fn paint_frame_direct_2d(
         return;
     }
 
-    state
+    let frame_draw_list = state
         .frame_draw_lists
         .entry(frame.key)
         .or_insert_with(|| FrameDrawList {
             draw_list: DrawList2d::new(cx.cx),
-        })
-        .draw_list
-        .begin_always(cx);
+        });
+    frame_draw_list.draw_list.begin_always(cx);
     // Draw-list view transforms already map frame-local geometry into world
     // space. Root-turtle clipping happens before that transform in Makepad,
     // so deriving a local clip from the inverse-transformed viewport clips

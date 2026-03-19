@@ -113,6 +113,18 @@ fn collect_fragment_render_semantics(
     fragment: &Fragment,
     semantics: &mut HashMap<usize, NodeRenderSemantics>,
 ) {
+    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    DEPTH.with(|d| {
+        let depth = d.get() + 1;
+        d.set(depth);
+        if depth % 500 == 0 {
+            eprintln!("[render-plan] collect_fragment_render_semantics depth={}", depth);
+        }
+        if depth > 5000 {
+            eprintln!("[render-plan] ABORTING collect_fragment_render_semantics depth={}", depth);
+            std::process::abort();
+        }
+    });
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
             collect_box_render_semantics(bf, semantics);
@@ -125,9 +137,7 @@ fn collect_fragment_render_semantics(
                 collect_fragment_render_semantics(child, semantics);
             }
         }
-        Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            collect_fragment_render_semantics(resolved, semantics);
-        }
+        Fragment::AbsoluteOrFixedPositioned { .. } => {}
         Fragment::IFrame(iframe) => {
             for child in iframe.child_fragments.iter() {
                 collect_fragment_render_semantics(child, semantics);
@@ -135,6 +145,7 @@ fn collect_fragment_render_semantics(
         }
         Fragment::Text(_) | Fragment::Image(_) => {}
     }
+    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn collect_box_render_semantics(

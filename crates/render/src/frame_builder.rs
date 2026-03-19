@@ -65,11 +65,20 @@ struct SceneBuilder<'tree, 'a> {
 
 impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     fn build_stacking_context_into_scene(&mut self, sc: &LayoutStackingContext<'a>, cx: BuildContext) {
+        thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+        DEPTH.with(|d| {
+            let depth = d.get() + 1;
+            d.set(depth);
+            if depth % 500 == 0 {
+                eprintln!("[frame-builder] build_stacking_context_into_scene depth={} frames={}", depth, self.frame_tree.frames.len());
+            }
+        });
         let mut scx = self.contexts_for_stacking_context(sc, cx);
         if let Some(frame_id) = scx.entry_frame_id {
             self.frame_tree.append_child_frame(cx.frame_id, frame_id);
         }
         sc.paint_in_order(&mut |item| self.build_paint_item_into_scene(item, &mut scx));
+        DEPTH.with(|d| d.set(d.get() - 1));
     }
 
     fn build_paint_item_into_scene(
@@ -156,7 +165,6 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
             },
         );
         self.frame_tree.set_clip(frame_id, clip_id);
-        self.frame_tree.append_child_frame(cx.frame_id, frame_id);
         let child_sc = build_stacking_context_tree(&iframe.child_fragments);
         self.build_stacking_context_into_scene(
             &child_sc,
@@ -330,6 +338,18 @@ fn collect_fragment_origins(
     origins: &mut HashMap<usize, DVec2>,
     box_origins: &mut HashMap<usize, DVec2>,
 ) {
+    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    DEPTH.with(|d| {
+        let depth = d.get() + 1;
+        d.set(depth);
+        if depth % 500 == 0 {
+            eprintln!("[frame-builder] collect_fragment_origins depth={}", depth);
+        }
+        if depth > 5000 {
+            eprintln!("[frame-builder] ABORTING collect_fragment_origins depth={} — likely infinite recursion", depth);
+            std::process::abort();
+        }
+    });
     origins.insert(std::ptr::from_ref(fragment) as usize, containing_block_origin);
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
@@ -353,9 +373,7 @@ fn collect_fragment_origins(
                 collect_fragment_origins(child, child_origin, origins, box_origins);
             }
         }
-        Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            collect_fragment_origins(resolved, containing_block_origin, origins, box_origins);
-        }
+        Fragment::AbsoluteOrFixedPositioned { .. } => {}
         Fragment::IFrame(iframe) => {
             for child in iframe.child_fragments.iter() {
                 collect_fragment_origins(child, dvec2(0.0, 0.0), origins, box_origins);
@@ -363,6 +381,7 @@ fn collect_fragment_origins(
         }
         Fragment::Text(_) | Fragment::Image(_) => {}
     }
+    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn uses_visual_context(

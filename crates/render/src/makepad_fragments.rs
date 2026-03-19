@@ -65,15 +65,6 @@ pub(crate) fn paint_fragment_item(
             if item.section != crate::layout_stacking_context::StackingContextSection::Foreground {
                 return;
             }
-            eprintln!("[render-paint] text node={:?} origin=({:.1},{:.1}) rect=({:.1},{:.1},{:.1},{:.1}) text={:?}",
-                text_fragment.base.tag.map(|t| t.node.0),
-                item.local_origin.x,
-                item.local_origin.y,
-                text_fragment.base.rect.origin.x.to_f32_px(),
-                text_fragment.base.rect.origin.y.to_f32_px(),
-                text_fragment.base.rect.size.width.to_f32_px(),
-                text_fragment.base.rect.size.height.to_f32_px(),
-                text_fragment.text);
             let rect = text_fragment.base.rect;
             draw_text_run(
                 cx,

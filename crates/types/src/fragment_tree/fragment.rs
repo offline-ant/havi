@@ -24,7 +24,9 @@ pub enum Fragment {
     /// A positioning wrapper (anonymous, carries children with relative offsets).
     Positioning(PositioningFragment),
     /// Placeholder for a hoisted absolute/fixed fragment, preserving original tree order.
-    AbsoluteOrFixedPositioned { resolved: Box<Fragment> },
+    ///
+    /// The referenced fragment is stored elsewhere in the converted fragment tree.
+    AbsoluteOrFixedPositioned { hoisted_id: usize },
     /// An iframe (nested browsing context). Carries a reference to the child
     /// document's fragment tree, rendered as a nested draw call.
     IFrame(IFrameFragment),
@@ -37,7 +39,9 @@ impl Fragment {
             Fragment::Text(f) => &f.base,
             Fragment::Image(f) => &f.base,
             Fragment::Positioning(f) => &f.base,
-            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.base(),
+            Fragment::AbsoluteOrFixedPositioned { .. } => {
+                panic!("AbsoluteOrFixedPositioned placeholders do not own a BaseFragment")
+            }
             Fragment::IFrame(f) => &f.base,
         }
     }
@@ -48,28 +52,36 @@ impl Fragment {
             Fragment::Text(f) => &mut f.base,
             Fragment::Image(f) => &mut f.base,
             Fragment::Positioning(f) => &mut f.base,
-            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.base_mut(),
+            Fragment::AbsoluteOrFixedPositioned { .. } => {
+                panic!("AbsoluteOrFixedPositioned placeholders do not own a BaseFragment")
+            }
             Fragment::IFrame(f) => &mut f.base,
         }
     }
 
     pub fn tag(&self) -> Option<super::Tag> {
-        self.base().tag
+        match self {
+            Fragment::AbsoluteOrFixedPositioned { .. } => None,
+            _ => self.base().tag,
+        }
     }
 
     pub fn opaque_node(&self) -> Option<super::OpaqueNode> {
-        self.base().tag.map(|tag| tag.node)
+        self.tag().map(|tag| tag.node)
     }
 
     pub fn content_rect(&self) -> PhysicalRect<Au> {
-        self.base().rect
+        match self {
+            Fragment::AbsoluteOrFixedPositioned { .. } => PhysicalRect::zero(),
+            _ => self.base().rect,
+        }
     }
 
     pub fn children(&self) -> Option<&[Fragment]> {
         match self {
             Fragment::Box(f) | Fragment::Float(f) => Some(&f.children),
             Fragment::Positioning(f) => Some(&f.children),
-            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.children(),
+            Fragment::AbsoluteOrFixedPositioned { .. } => None,
             Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => None,
         }
     }
