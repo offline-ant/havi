@@ -233,7 +233,31 @@ fn build_fragment<'a>(
         Fragment::AbsoluteOrFixedPositioned { resolved } => {
             build_fragment(resolved, BuildMode::IncludeHoisted, stacking_context);
         }
-        Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => {
+        Fragment::Text(tf) => {
+            if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                eprintln!("[render-sc] skip text do_not_paint node={:?} text={:?}", tf.base.tag.map(|t| t.node.0), tf.text);
+                return;
+            }
+            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
+                section: StackingContextSection::Foreground,
+                fragment,
+            });
+        }
+        Fragment::Image(img) => {
+            if img.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                eprintln!("[render-sc] skip image do_not_paint node={:?}", img.base.tag.map(|t| t.node.0));
+                return;
+            }
+            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
+                section: StackingContextSection::Foreground,
+                fragment,
+            });
+        }
+        Fragment::IFrame(iframe) => {
+            if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                eprintln!("[render-sc] skip iframe do_not_paint node={:?}", iframe.base.tag.map(|t| t.node.0));
+                return;
+            }
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::Foreground,
                 fragment,
