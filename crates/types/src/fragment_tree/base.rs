@@ -78,6 +78,10 @@ bitflags! {
         const IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT = 1 << 0;
         /// `<br>` element.
         const IS_BR_ELEMENT = 1 << 1;
+        /// Widget element. Widgets are atomic when inline-level.
+        const IS_WIDGET = 1 << 2;
+        /// Replaced element or wrapper created for one.
+        const IS_REPLACED = 1 << 4;
         /// Skip painting backgrounds/borders/shadow (table wrappers, hidden empty cells).
         const DO_NOT_PAINT = 1 << 7;
         /// Root element.

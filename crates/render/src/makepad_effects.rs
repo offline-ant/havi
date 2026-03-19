@@ -10,14 +10,14 @@ use crate::{CssFilters, FilterPass, OpacityPass};
 pub(crate) fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> (f32, CssFilters) {
     let frame = frame_tree.frame(frame_id);
     for item in &frame.items {
-        match item.source.fragment() {
+        match item.source {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 return (bf.base.style.get_effects().opacity, crate::resolve_css_filters(&bf.base.style));
             }
             Fragment::IFrame(iframe) => {
                 return (iframe.base.style.get_effects().opacity, crate::resolve_css_filters(&iframe.base.style));
             }
-            _ => {}
+            Fragment::AbsoluteOrFixedPositioned { .. } | Fragment::Positioning(_) | Fragment::Text(_) | Fragment::Image(_) => {}
         }
     }
     (1.0, CssFilters::identity())

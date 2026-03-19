@@ -297,6 +297,13 @@ pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
                     br.origin.y.to_f32_px() as f64 + br.size.height.to_f32_px() as f64,
                 )
             }
+            Fragment::AbsoluteOrFixedPositioned { resolved } => {
+                let cr = resolved.content_rect();
+                (
+                    cr.origin.x.to_f32_px() as f64 + cr.size.width.to_f32_px() as f64,
+                    cr.origin.y.to_f32_px() as f64 + cr.size.height.to_f32_px() as f64,
+                )
+            }
             _ => {
                 let cr = child.content_rect();
                 (

@@ -152,7 +152,14 @@ fn convert_fragment(
                 child_content_height,
             }))
         },
-        LayoutFragment::AbsoluteOrFixedPositioned(_) => None,
+        LayoutFragment::AbsoluteOrFixedPositioned(arc) => {
+            let shared = arc.borrow();
+            let resolved = shared.fragment.as_ref()?;
+            let converted = convert_fragment(resolved, image_resolver, visited_pipelines)?;
+            Some(havi_types::Fragment::AbsoluteOrFixedPositioned {
+                resolved: Box::new(converted),
+            })
+        },
     }
 }
 
@@ -178,6 +185,18 @@ fn convert_base_fragment(
         .contains(crate::fragment_tree::FragmentFlags::IS_BR_ELEMENT)
     {
         flags |= havi_types::FragmentFlags::IS_BR_ELEMENT;
+    }
+    if base
+        .flags
+        .contains(crate::fragment_tree::FragmentFlags::IS_WIDGET)
+    {
+        flags |= havi_types::FragmentFlags::IS_WIDGET;
+    }
+    if base
+        .flags
+        .contains(crate::fragment_tree::FragmentFlags::IS_REPLACED)
+    {
+        flags |= havi_types::FragmentFlags::IS_REPLACED;
     }
     if base
         .flags

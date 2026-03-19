@@ -23,6 +23,8 @@ pub enum Fragment {
     Image(ImageFragment),
     /// A positioning wrapper (anonymous, carries children with relative offsets).
     Positioning(PositioningFragment),
+    /// Placeholder for a hoisted absolute/fixed fragment, preserving original tree order.
+    AbsoluteOrFixedPositioned { resolved: Box<Fragment> },
     /// An iframe (nested browsing context). Carries a reference to the child
     /// document's fragment tree, rendered as a nested draw call.
     IFrame(IFrameFragment),
@@ -35,6 +37,7 @@ impl Fragment {
             Fragment::Text(f) => &f.base,
             Fragment::Image(f) => &f.base,
             Fragment::Positioning(f) => &f.base,
+            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.base(),
             Fragment::IFrame(f) => &f.base,
         }
     }
@@ -45,6 +48,7 @@ impl Fragment {
             Fragment::Text(f) => &mut f.base,
             Fragment::Image(f) => &mut f.base,
             Fragment::Positioning(f) => &mut f.base,
+            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.base_mut(),
             Fragment::IFrame(f) => &mut f.base,
         }
     }
@@ -65,6 +69,7 @@ impl Fragment {
         match self {
             Fragment::Box(f) | Fragment::Float(f) => Some(&f.children),
             Fragment::Positioning(f) => Some(&f.children),
+            Fragment::AbsoluteOrFixedPositioned { resolved } => resolved.children(),
             Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => None,
         }
     }

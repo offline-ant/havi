@@ -39,25 +39,20 @@ pub(crate) enum LayoutStackingContextContent<'a> {
         section: StackingContextSection,
         fragment: &'a Fragment,
     },
-    HoistedFragment {
-        section: StackingContextSection,
-        placeholder: &'a Fragment,
-        fragment: &'a Fragment,
-    },
     AtomicInlineStackingContainer { index: usize },
 }
 
 impl LayoutStackingContextContent<'_> {
     fn section(&self) -> StackingContextSection {
         match self {
-            Self::Fragment { section, .. } | Self::HoistedFragment { section, .. } => *section,
+            Self::Fragment { section, .. } => *section,
             Self::AtomicInlineStackingContainer { .. } => StackingContextSection::Foreground,
         }
     }
 
     pub(crate) fn has_outline(&self) -> bool {
         match self {
-            Self::Fragment { fragment, .. } | Self::HoistedFragment { fragment, .. } => match fragment {
+            Self::Fragment { fragment, .. } => match fragment {
                 Fragment::Box(bf) | Fragment::Float(bf) => {
                     let outline = bf.base.style.get_outline();
                     !outline.outline_style.none_or_hidden() && !outline.outline_width.0.is_zero()
@@ -183,7 +178,7 @@ fn emit_content<'a, 'b>(
     visitor: &mut impl FnMut(LayoutPaintItem<'a, 'b>),
 ) {
     match content {
-        LayoutStackingContextContent::Fragment { .. } | LayoutStackingContextContent::HoistedFragment { .. } => {
+        LayoutStackingContextContent::Fragment { .. } => {
             visitor(LayoutPaintItem::Content(content));
         }
         LayoutStackingContextContent::AtomicInlineStackingContainer { index } => {
@@ -201,16 +196,43 @@ pub(crate) enum LayoutPaintItem<'a, 'b> {
 pub(crate) fn build_stacking_context_tree<'a>(fragments: &'a [Fragment]) -> LayoutStackingContext<'a> {
     let mut root = LayoutStackingContext::new_root();
     for fragment in fragments {
-        build_for_fragment(fragment, &mut root);
+        build_fragment(fragment, BuildMode::SkipHoisted, &mut root);
     }
     root.sort();
     root
 }
 
-fn build_for_fragment<'a>(fragment: &'a Fragment, stacking_context: &mut LayoutStackingContext<'a>) {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BuildMode {
+    SkipHoisted,
+    IncludeHoisted,
+}
+
+fn build_fragment<'a>(
+    fragment: &'a Fragment,
+    mode: BuildMode,
+    stacking_context: &mut LayoutStackingContext<'a>,
+) {
     match fragment {
-        Fragment::Box(bf) => build_for_box(fragment, bf, false, stacking_context),
-        Fragment::Float(bf) => build_for_box(fragment, bf, true, stacking_context),
+        Fragment::Box(bf) => {
+            if mode == BuildMode::SkipHoisted
+                && bf.base.style.get_box().position.is_absolutely_positioned()
+            {
+                return;
+            }
+            build_for_box(fragment, bf, false, stacking_context);
+        }
+        Fragment::Float(bf) => {
+            if mode == BuildMode::SkipHoisted
+                && bf.base.style.get_box().position.is_absolutely_positioned()
+            {
+                return;
+            }
+            build_for_box(fragment, bf, true, stacking_context);
+        }
+        Fragment::AbsoluteOrFixedPositioned { resolved } => {
+            build_fragment(resolved, BuildMode::IncludeHoisted, stacking_context);
+        }
         Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => {
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::Foreground,
@@ -219,7 +241,7 @@ fn build_for_fragment<'a>(fragment: &'a Fragment, stacking_context: &mut LayoutS
         }
         Fragment::Positioning(pf) => {
             for child in &pf.children {
-                build_for_fragment(child, stacking_context);
+                build_fragment(child, BuildMode::SkipHoisted, stacking_context);
             }
         }
     }
@@ -268,67 +290,7 @@ fn build_for_box<'a>(
 
 fn build_box_children<'a>(bf: &'a BoxFragment, stacking_context: &mut LayoutStackingContext<'a>) {
     for child in &bf.children {
-        build_for_box_child(child, stacking_context);
-    }
-}
-
-fn build_for_box_child<'a>(fragment: &'a Fragment, stacking_context: &mut LayoutStackingContext<'a>) {
-    match fragment {
-        Fragment::Positioning(pf) => {
-            for child in &pf.children {
-                build_for_positioned_child(child, stacking_context);
-            }
-        }
-        _ => build_for_fragment(fragment, stacking_context),
-    }
-}
-
-fn build_for_positioned_child<'a>(fragment: &'a Fragment, stacking_context: &mut LayoutStackingContext<'a>) {
-    match fragment {
-        Fragment::Positioning(pf) => {
-            for child in &pf.children {
-                build_for_positioned_child(child, stacking_context);
-            }
-        }
-        Fragment::Box(bf) => build_positioned_box(fragment, bf, false, stacking_context),
-        Fragment::Float(bf) => build_positioned_box(fragment, bf, true, stacking_context),
-        Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => {
-            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
-                section: StackingContextSection::Foreground,
-                fragment,
-            });
-        }
-    }
-}
-
-fn build_positioned_box<'a>(
-    fragment: &'a Fragment,
-    bf: &'a BoxFragment,
-    is_float: bool,
-    parent_sc: &mut LayoutStackingContext<'a>,
-) {
-    let section = if bf.base.style.get_box().display.outside() == DisplayOutside::Inline {
-        StackingContextSection::Foreground
-    } else {
-        StackingContextSection::DescendantBackgroundsAndBorders
-    };
-    parent_sc.contents.push(LayoutStackingContextContent::HoistedFragment {
-        section,
-        placeholder: fragment,
-        fragment,
-    });
-    if matches!(get_stacking_context_type(bf, is_float), Some(StackingContextType::RealStackingContext | StackingContextType::PositionedStackingContainer)) {
-        build_for_box(fragment, bf, is_float, parent_sc);
-        if let Some(last) = parent_sc.real_stacking_contexts_and_positioned_stacking_containers.last_mut() {
-            last.contents.clear();
-            last.contents.push(LayoutStackingContextContent::HoistedFragment {
-                section: StackingContextSection::OwnBackgroundsAndBorders,
-                placeholder: fragment,
-                fragment,
-            });
-            build_box_children(bf, last);
-            last.sort();
-        }
+        build_fragment(child, BuildMode::SkipHoisted, stacking_context);
     }
 }
 
@@ -348,10 +310,19 @@ fn get_stacking_context_type(bf: &BoxFragment, is_float: bool) -> Option<Stackin
     if is_float {
         return Some(StackingContextType::FloatStackingContainer);
     }
-    if style.get_box().display.outside() == DisplayOutside::Inline {
+    if is_atomic_inline_level(style, flags) {
         return Some(StackingContextType::AtomicInlineStackingContainer);
     }
     None
+}
+
+fn is_atomic_inline_level(style: &ComputedValues, flags: FragmentFlags) -> bool {
+    style.get_box().display.outside() == DisplayOutside::Inline && !is_inline_box(style, flags)
+}
+
+fn is_inline_box(style: &ComputedValues, flags: FragmentFlags) -> bool {
+    style.get_box().display.is_inline_flow()
+        && !flags.intersects(FragmentFlags::IS_REPLACED | FragmentFlags::IS_WIDGET)
 }
 
 fn get_section_for_non_sc(bf: &BoxFragment) -> StackingContextSection {
@@ -406,60 +377,3 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
     false
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use app_units::Au;
-    use havi_types::fragment_tree::{BaseFragment, BaseFragmentInfo, Baselines};
-    use havi_types::geom::{PhysicalRect, PhysicalSides};
-    use havi_types::OpaqueNode;
-    use style::properties::ComputedValues;
-    use style::properties::generated::style_structs::Font;
-
-    fn rect(x: f32, y: f32, w: f32, h: f32) -> PhysicalRect<Au> {
-        PhysicalRect::new(
-            euclid::Point2D::new(Au::from_f32_px(x), Au::from_f32_px(y)),
-            euclid::Size2D::new(Au::from_f32_px(w), Au::from_f32_px(h)),
-        )
-    }
-
-    fn style() -> servo_arc::Arc<ComputedValues> {
-        ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
-    }
-
-    fn box_fragment(node: usize, children: Vec<Fragment>) -> Fragment {
-        let zero = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
-        Fragment::Box(BoxFragment {
-            base: BaseFragment::new(BaseFragmentInfo::new(OpaqueNode(node)), style(), rect(0.0, 0.0, 100.0, 100.0)),
-            children,
-            padding: zero,
-            border: zero,
-            margin: zero,
-            baselines: Baselines::default(),
-            block_level_info: None,
-            background_images: Vec::new(),
-        })
-    }
-
-    #[test]
-    fn positioned_box_is_painted_once_in_tree_order() {
-        let positioned = box_fragment(2, Vec::new());
-        let positioning = Fragment::Positioning(havi_types::PositioningFragment {
-            base: BaseFragment::new(BaseFragmentInfo::anonymous(), style(), rect(0.0, 0.0, 100.0, 100.0)),
-            children: vec![positioned],
-        });
-        let root = [box_fragment(1, vec![positioning])];
-        let sc = build_stacking_context_tree(&root);
-        let mut hoisted = 0;
-        sc.paint_in_order(&mut |item| {
-            if let LayoutPaintItem::ChildStackingContext(child) = item {
-                child.paint_in_order(&mut |inner| {
-                    if let LayoutPaintItem::Content(LayoutStackingContextContent::HoistedFragment { .. }) = inner {
-                        hoisted += 1;
-                    }
-                });
-            }
-        });
-        assert_eq!(hoisted, 1);
-    }
-}

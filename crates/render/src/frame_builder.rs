@@ -108,21 +108,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     clip_id: cx.clip_id,
                     local_origin: cx.local_origin + containing_block_origin,
                 };
-                self.build_fragment_into_scene(PaintSource::Direct(fragment), *section, item_cx);
-            }
-            LayoutStackingContextContent::HoistedFragment { section, placeholder, fragment } => {
-                let containing_block_origin = self
-                    .fragment_origins
-                    .get(&(std::ptr::from_ref(*placeholder) as usize))
-                    .copied()
-                    .unwrap_or(dvec2(0.0, 0.0));
-                let item_cx = BuildContext {
-                    frame_id: cx.frame_id,
-                    clip_id: cx.clip_id,
-                    local_origin: cx.local_origin + containing_block_origin,
-                };
-                let _ = placeholder;
-                self.build_fragment_into_scene(PaintSource::Hoisted(fragment), *section, item_cx);
+                self.build_fragment_into_scene(fragment, *section, item_cx);
             }
             LayoutStackingContextContent::AtomicInlineStackingContainer { .. } => {}
         }
@@ -134,7 +120,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         section: StackingContextSection,
         cx: BuildContext,
     ) {
-        match source.fragment() {
+        match source {
             Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) | Fragment::Image(_) => {
                 self.frame_tree
                     .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
@@ -144,7 +130,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                     .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
                 self.build_iframe_into_scene(iframe, cx);
             }
-            Fragment::Positioning(_) => {}
+            Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => {}
         }
     }
 
@@ -367,6 +353,9 @@ fn collect_fragment_origins(
                 collect_fragment_origins(child, child_origin, origins, box_origins);
             }
         }
+        Fragment::AbsoluteOrFixedPositioned { resolved } => {
+            collect_fragment_origins(resolved, containing_block_origin, origins, box_origins);
+        }
         Fragment::IFrame(iframe) => {
             for child in iframe.child_fragments.iter() {
                 collect_fragment_origins(child, dvec2(0.0, 0.0), origins, box_origins);
@@ -385,13 +374,6 @@ fn uses_visual_context(
     };
     match content {
         LayoutStackingContextContent::Fragment { fragment, section } => match fragment {
-            Fragment::Box(bf) | Fragment::Float(bf) => {
-                std::ptr::eq(bf, owner_fragment)
-                    && *section == StackingContextSection::OwnBackgroundsAndBorders
-            }
-            _ => false,
-        },
-        LayoutStackingContextContent::HoistedFragment { fragment, section, .. } => match fragment {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 std::ptr::eq(bf, owner_fragment)
                     && *section == StackingContextSection::OwnBackgroundsAndBorders
@@ -737,7 +719,9 @@ mod tests {
                 initial_style(),
                 make_rect(0.0, 0.0, 1280.0, 800.0),
             ),
-            children: vec![green_box],
+            children: vec![Fragment::AbsoluteOrFixedPositioned {
+                resolved: Box::new(green_box.clone()),
+            }, green_box],
         });
 
         let body = Fragment::Box(BoxFragment {
@@ -840,7 +824,9 @@ mod tests {
                 initial_style(),
                 make_rect(0.0, 0.0, 1280.0, 800.0),
             ),
-            children: vec![green_box],
+            children: vec![Fragment::AbsoluteOrFixedPositioned {
+                resolved: Box::new(green_box.clone()),
+            }, green_box],
         });
 
         let body = Fragment::Box(BoxFragment {
@@ -882,8 +868,6 @@ mod tests {
 
     #[test]
     fn positioned_placeholder_uses_placeholder_origin_once() {
-        use crate::paint_items::PaintSource;
-
         let abspos = plain_box(2, 40.0, 50.0, Vec::new());
         let positioning = Fragment::Positioning(havi_types::PositioningFragment {
             base: BaseFragment::new(
@@ -891,7 +875,9 @@ mod tests {
                 initial_style(),
                 make_rect(10.0, 20.0, 300.0, 200.0),
             ),
-            children: vec![abspos],
+            children: vec![Fragment::AbsoluteOrFixedPositioned {
+                resolved: Box::new(abspos.clone()),
+            }, abspos],
         });
         let root = plain_box(1, 8.0, 9.0, vec![positioning]);
         let fragments = [root];
@@ -905,12 +891,13 @@ mod tests {
         );
 
         let root_items = &scene.frame_tree.frame(scene.frame_tree.root).items;
-        let hoisted_items: Vec<_> = root_items
+        let abspos_items: Vec<_> = root_items
             .iter()
-            .filter(|item| matches!(item.source, PaintSource::Hoisted(..)))
+            .filter(|item| item.source.tag().map(|t| t.node.0) == Some(2))
             .collect();
-        assert_eq!(hoisted_items.len(), 1);
-        assert_eq!(hoisted_items[0].local_origin, dvec2(18.0, 29.0));
+        assert_eq!(abspos_items.len(), 2);
+        assert_eq!(abspos_items[0].local_origin, dvec2(18.0, 29.0));
+        assert_eq!(abspos_items[1].local_origin, dvec2(18.0, 29.0));
     }
 
     #[test]

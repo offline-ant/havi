@@ -125,6 +125,9 @@ fn collect_fragment_render_semantics(
                 collect_fragment_render_semantics(child, semantics);
             }
         }
+        Fragment::AbsoluteOrFixedPositioned { resolved } => {
+            collect_fragment_render_semantics(resolved, semantics);
+        }
         Fragment::IFrame(iframe) => {
             for child in iframe.child_fragments.iter() {
                 collect_fragment_render_semantics(child, semantics);

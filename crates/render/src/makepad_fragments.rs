@@ -16,7 +16,7 @@ pub(crate) fn paint_fragment_item(
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
-    let fragment = item.source.fragment();
+    let fragment = item.source;
     if fragment.base().style.get_inherited_box().visibility != Visibility::Visible {
         return;
     }
@@ -118,7 +118,7 @@ pub(crate) fn paint_fragment_item(
                 opacity,
             );
         }
-        Fragment::Positioning(_) => {}
+        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => {}
     }
 }
 
