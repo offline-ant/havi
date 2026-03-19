@@ -106,7 +106,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
 
     fn build_content_into_scene(&mut self, content: &LayoutStackingContextContent<'a>, cx: BuildContext) {
         match content {
-            LayoutStackingContextContent::Fragment { section, fragment } => {
+            LayoutStackingContextContent::Fragment { section, fragment, .. } => {
                 let containing_block_origin = self
                     .fragment_origins
                     .get(&(std::ptr::from_ref(*fragment) as usize))
@@ -165,7 +165,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
             },
         );
         self.frame_tree.set_clip(frame_id, clip_id);
-        let child_sc = build_stacking_context_tree(&iframe.child_fragments);
+        let child_sc = build_stacking_context_tree(&iframe.child_fragments, frame_id, clip_id);
         self.build_stacking_context_into_scene(
             &child_sc,
             BuildContext {
@@ -392,7 +392,7 @@ fn uses_visual_context(
         return false;
     };
     match content {
-        LayoutStackingContextContent::Fragment { fragment, section } => match fragment {
+        LayoutStackingContextContent::Fragment { fragment, section, .. } => match fragment {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 std::ptr::eq(bf, owner_fragment)
                     && *section == StackingContextSection::OwnBackgroundsAndBorders

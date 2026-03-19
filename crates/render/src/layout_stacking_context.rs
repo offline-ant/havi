@@ -1,13 +1,8 @@
-//! Semantic stacking-context construction over layout-style fragment semantics.
-//!
-//! This is the active render paint-order path.
-//!
-//! The builder preserves placeholder semantics for hoisted absolute/fixed
-//! descendants. A placeholder participates at its original tree position and
-//! paints the hoisted fragment exactly once through that position.
+//! Servo-shaped semantic stacking-context construction over the shared semantic fragment model.
 
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
-use havi_types::Fragment;
+use havi_types::{Fragment, PhysicalRect};
+use makepad_widgets::DVec2;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
@@ -17,12 +12,76 @@ use style::values::computed::basic_shape::ClipPath;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
+use crate::clip_tree::ClipId;
+use crate::frame_tree::FrameId;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ContainingBlock {
+    pub frame_id: FrameId,
+    pub clip_id: ClipId,
+    pub scroll_frame_size: Option<DVec2>,
+    pub rect: PhysicalRect<app_units::Au>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ContainingBlockInfo {
+    pub for_non_absolute_descendants: ContainingBlock,
+    pub for_absolute_descendants: ContainingBlock,
+    pub for_absolute_and_fixed_descendants: ContainingBlock,
+}
+
+impl ContainingBlockInfo {
+    pub(crate) fn containing_block_for_fragment(&self, fragment: &Fragment) -> ContainingBlock {
+        match fragment {
+            Fragment::Box(bf) | Fragment::Float(bf) => {
+                match bf.base.style.get_box().position {
+                    ComputedPosition::Fixed => self.for_absolute_and_fixed_descendants,
+                    ComputedPosition::Absolute => self.for_absolute_descendants,
+                    _ => self.for_non_absolute_descendants,
+                }
+            }
+            _ => self.for_non_absolute_descendants,
+        }
+    }
+
+    pub(crate) fn new_for_non_absolute_descendants(
+        &self,
+        containing_block: ContainingBlock,
+    ) -> Self {
+        Self {
+            for_non_absolute_descendants: containing_block,
+            ..*self
+        }
+    }
+
+    pub(crate) fn new_for_absolute_descendants(
+        &self,
+        containing_block: ContainingBlock,
+    ) -> Self {
+        Self {
+            for_non_absolute_descendants: containing_block,
+            for_absolute_descendants: containing_block,
+            ..*self
+        }
+    }
+
+    pub(crate) fn new_for_absolute_and_fixed_descendants(
+        &self,
+        containing_block: ContainingBlock,
+    ) -> Self {
+        Self {
+            for_non_absolute_descendants: containing_block,
+            for_absolute_descendants: containing_block,
+            for_absolute_and_fixed_descendants: containing_block,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum StackingContextSection {
     OwnBackgroundsAndBorders,
     DescendantBackgroundsAndBorders,
     Foreground,
-    #[allow(dead_code)]
     Outline,
 }
 
@@ -38,6 +97,10 @@ pub(crate) enum LayoutStackingContextContent<'a> {
     Fragment {
         section: StackingContextSection,
         fragment: &'a Fragment,
+        frame_id: FrameId,
+        reference_frame_id: FrameId,
+        clip_id: ClipId,
+        containing_block: PhysicalRect<app_units::Au>,
     },
     AtomicInlineStackingContainer { index: usize },
 }
@@ -67,6 +130,8 @@ impl LayoutStackingContextContent<'_> {
 pub(crate) struct LayoutStackingContext<'a> {
     pub initializing_fragment: Option<&'a BoxFragment>,
     pub context_type: StackingContextType,
+    pub frame_id: FrameId,
+    pub clip_id: ClipId,
     pub contents: Vec<LayoutStackingContextContent<'a>>,
     pub real_stacking_contexts_and_positioned_stacking_containers: Vec<LayoutStackingContext<'a>>,
     pub float_stacking_containers: Vec<LayoutStackingContext<'a>>,
@@ -74,10 +139,12 @@ pub(crate) struct LayoutStackingContext<'a> {
 }
 
 impl<'a> LayoutStackingContext<'a> {
-    fn new_root() -> Self {
+    fn new_root(frame_id: FrameId, clip_id: ClipId) -> Self {
         Self {
             initializing_fragment: None,
             context_type: StackingContextType::RealStackingContext,
+            frame_id,
+            clip_id,
             contents: Vec::new(),
             real_stacking_contexts_and_positioned_stacking_containers: Vec::new(),
             float_stacking_containers: Vec::new(),
@@ -85,10 +152,17 @@ impl<'a> LayoutStackingContext<'a> {
         }
     }
 
-    fn new_child(bf: &'a BoxFragment, context_type: StackingContextType) -> Self {
+    fn new_child(
+        bf: &'a BoxFragment,
+        context_type: StackingContextType,
+        frame_id: FrameId,
+        clip_id: ClipId,
+    ) -> Self {
         Self {
             initializing_fragment: Some(bf),
             context_type,
+            frame_id,
+            clip_id,
             contents: Vec::new(),
             real_stacking_contexts_and_positioned_stacking_containers: Vec::new(),
             float_stacking_containers: Vec::new(),
@@ -193,54 +267,81 @@ pub(crate) enum LayoutPaintItem<'a, 'b> {
     Outline,
 }
 
-pub(crate) fn build_stacking_context_tree<'a>(fragments: &'a [Fragment]) -> LayoutStackingContext<'a> {
-    let mut root = LayoutStackingContext::new_root();
-    let hoisted = collect_hoisted_fragments(fragments);
-    let mut resolving = std::collections::HashSet::new();
+pub(crate) fn build_stacking_context_tree<'a>(
+    fragments: &'a [Fragment],
+    root_frame_id: FrameId,
+    root_clip_id: ClipId,
+) -> LayoutStackingContext<'a> {
+    let mut root = LayoutStackingContext::new_root(root_frame_id, root_clip_id);
+    let root_cb = ContainingBlock {
+        frame_id: root_frame_id,
+        clip_id: root_clip_id,
+        scroll_frame_size: None,
+        rect: PhysicalRect::zero(),
+    };
+    let cb_info = ContainingBlockInfo {
+        for_non_absolute_descendants: root_cb,
+        for_absolute_descendants: root_cb,
+        for_absolute_and_fixed_descendants: root_cb,
+    };
     for fragment in fragments {
-        build_fragment(fragment, BuildMode::SkipHoisted, &mut root, &hoisted, &mut resolving);
+        fragment_build_stacking_context_tree(
+            fragment,
+            &cb_info,
+            &mut root,
+            StackingContextBuildMode::SkipHoisted,
+        );
     }
     root.sort();
     root
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BuildMode {
-    SkipHoisted,
+pub(crate) enum StackingContextBuildMode {
     IncludeHoisted,
+    SkipHoisted,
 }
 
-fn build_fragment<'a>(
+fn fragment_build_stacking_context_tree<'a>(
     fragment: &'a Fragment,
-    mode: BuildMode,
+    containing_block_info: &ContainingBlockInfo,
     stacking_context: &mut LayoutStackingContext<'a>,
-    hoisted: &std::collections::HashMap<usize, &'a Fragment>,
-    resolving: &mut std::collections::HashSet<usize>,
+    mode: StackingContextBuildMode,
 ) {
+    let containing_block = containing_block_info.containing_block_for_fragment(fragment);
     match fragment {
-        Fragment::Box(bf) => {
-            if mode == BuildMode::SkipHoisted
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            if mode == StackingContextBuildMode::SkipHoisted
                 && bf.base.style.get_box().position.is_absolutely_positioned()
             {
                 return;
             }
-            build_for_box(fragment, bf, false, stacking_context, hoisted, resolving);
-        }
-        Fragment::Float(bf) => {
-            if mode == BuildMode::SkipHoisted
-                && bf.base.style.get_box().position.is_absolutely_positioned()
-            {
-                return;
-            }
-            build_for_box(fragment, bf, true, stacking_context, hoisted, resolving);
+            build_for_box(
+                fragment,
+                bf,
+                matches!(fragment, Fragment::Float(_)),
+                containing_block,
+                containing_block_info,
+                stacking_context,
+            );
         }
         Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            let key = std::ptr::from_ref(&**resolved) as usize;
-            if !resolving.insert(key) {
-                return;
+            fragment_build_stacking_context_tree(
+                resolved,
+                containing_block_info,
+                stacking_context,
+                StackingContextBuildMode::IncludeHoisted,
+            );
+        }
+        Fragment::Positioning(pf) => {
+            for child in &pf.children {
+                fragment_build_stacking_context_tree(
+                    child,
+                    containing_block_info,
+                    stacking_context,
+                    StackingContextBuildMode::SkipHoisted,
+                );
             }
-            build_fragment(resolved, BuildMode::IncludeHoisted, stacking_context, hoisted, resolving);
-            resolving.remove(&key);
         }
         Fragment::Text(tf) => {
             if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
@@ -249,6 +350,10 @@ fn build_fragment<'a>(
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::Foreground,
                 fragment,
+                frame_id: containing_block.frame_id,
+                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
+                clip_id: containing_block.clip_id,
+                containing_block: containing_block.rect,
             });
         }
         Fragment::Image(img) => {
@@ -258,6 +363,10 @@ fn build_fragment<'a>(
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::Foreground,
                 fragment,
+                frame_id: containing_block.frame_id,
+                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
+                clip_id: containing_block.clip_id,
+                containing_block: containing_block.rect,
             });
         }
         Fragment::IFrame(iframe) => {
@@ -267,12 +376,11 @@ fn build_fragment<'a>(
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::Foreground,
                 fragment,
+                frame_id: containing_block.frame_id,
+                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
+                clip_id: containing_block.clip_id,
+                containing_block: containing_block.rect,
             });
-        }
-        Fragment::Positioning(pf) => {
-            for child in &pf.children {
-                build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted, resolving);
-            }
         }
     }
 }
@@ -281,11 +389,14 @@ fn build_for_box<'a>(
     fragment: &'a Fragment,
     bf: &'a BoxFragment,
     is_float: bool,
+    containing_block: ContainingBlock,
+    containing_block_info: &ContainingBlockInfo,
     parent_sc: &mut LayoutStackingContext<'a>,
-    hoisted: &std::collections::HashMap<usize, &'a Fragment>,
-    resolving: &mut std::collections::HashSet<usize>,
 ) {
     let context_type = get_stacking_context_type(bf, is_float);
+    let frame_id = containing_block.frame_id;
+    let clip_id = containing_block.clip_id;
+
     match context_type {
         Some(ct) => {
             if ct == StackingContextType::AtomicInlineStackingContainer {
@@ -294,12 +405,16 @@ fn build_for_box<'a>(
                 });
             }
 
-            let mut child_sc = LayoutStackingContext::new_child(bf, ct);
+            let mut child_sc = LayoutStackingContext::new_child(bf, ct, frame_id, clip_id);
             child_sc.contents.push(LayoutStackingContextContent::Fragment {
                 section: StackingContextSection::OwnBackgroundsAndBorders,
                 fragment,
+                frame_id,
+                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
+                clip_id,
+                containing_block: containing_block.rect,
             });
-            build_box_children(bf, &mut child_sc, hoisted, resolving);
+            build_box_children(bf, containing_block_info, &mut child_sc);
 
             let mut stolen = Vec::new();
             if ct != StackingContextType::RealStackingContext {
@@ -314,56 +429,43 @@ fn build_for_box<'a>(
             parent_sc.contents.push(LayoutStackingContextContent::Fragment {
                 section: get_section_for_non_sc(bf),
                 fragment,
+                frame_id,
+                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
+                clip_id,
+                containing_block: containing_block.rect,
             });
-            build_box_children(bf, parent_sc, hoisted, resolving);
+            build_box_children(bf, containing_block_info, parent_sc);
         }
     }
 }
 
 fn build_box_children<'a>(
     bf: &'a BoxFragment,
+    containing_block_info: &ContainingBlockInfo,
     stacking_context: &mut LayoutStackingContext<'a>,
-    hoisted: &std::collections::HashMap<usize, &'a Fragment>,
-    resolving: &mut std::collections::HashSet<usize>,
 ) {
+    let child_cb = containing_block_info
+        .containing_block_for_fragment(&Fragment::Box(bf.clone()));
+    let containing_block = ContainingBlock {
+        rect: bf.cumulative_containing_block_rect,
+        ..child_cb
+    };
+
+    let child_info = if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
+        containing_block_info.new_for_absolute_and_fixed_descendants(containing_block)
+    } else if bf.base.style.get_box().position != ComputedPosition::Static {
+        containing_block_info.new_for_absolute_descendants(containing_block)
+    } else {
+        containing_block_info.new_for_non_absolute_descendants(containing_block)
+    };
+
     for child in &bf.children {
-        build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted, resolving);
-    }
-}
-
-fn collect_hoisted_fragments<'a>(fragments: &'a [Fragment]) -> std::collections::HashMap<usize, &'a Fragment> {
-    let mut hoisted = std::collections::HashMap::new();
-    for fragment in fragments {
-        collect_hoisted_fragment(fragment, &mut hoisted);
-    }
-    hoisted
-}
-
-fn collect_hoisted_fragment<'a>(
-    fragment: &'a Fragment,
-    hoisted: &mut std::collections::HashMap<usize, &'a Fragment>,
-) {
-    match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => {
-            if bf.base.style.get_box().position.is_absolutely_positioned() {
-                let key = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(fragment) as usize);
-                hoisted.entry(key).or_insert(fragment);
-            }
-            for child in &bf.children {
-                collect_hoisted_fragment(child, hoisted);
-            }
-        }
-        Fragment::Positioning(pf) => {
-            for child in &pf.children {
-                collect_hoisted_fragment(child, hoisted);
-            }
-        }
-        Fragment::IFrame(iframe) => {
-            for child in iframe.child_fragments.iter() {
-                collect_hoisted_fragment(child, hoisted);
-            }
-        }
-        Fragment::AbsoluteOrFixedPositioned { .. } | Fragment::Text(_) | Fragment::Image(_) => {}
+        fragment_build_stacking_context_tree(
+            child,
+            &child_info,
+            stacking_context,
+            StackingContextBuildMode::SkipHoisted,
+        );
     }
 }
 
