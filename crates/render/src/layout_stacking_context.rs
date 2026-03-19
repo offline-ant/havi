@@ -2,7 +2,6 @@
 
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_types::{Fragment, PhysicalRect};
-use makepad_widgets::DVec2;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
@@ -19,7 +18,6 @@ use crate::frame_tree::FrameId;
 pub(crate) struct ContainingBlock {
     pub frame_id: FrameId,
     pub clip_id: ClipId,
-    pub scroll_frame_size: Option<DVec2>,
     pub rect: PhysicalRect<app_units::Au>,
 }
 
@@ -82,7 +80,6 @@ pub(crate) enum StackingContextSection {
     OwnBackgroundsAndBorders,
     DescendantBackgroundsAndBorders,
     Foreground,
-    Outline,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,7 +95,6 @@ pub(crate) enum LayoutStackingContextContent<'a> {
         section: StackingContextSection,
         fragment: &'a Fragment,
         frame_id: FrameId,
-        reference_frame_id: FrameId,
         clip_id: ClipId,
         containing_block: PhysicalRect<app_units::Au>,
     },
@@ -130,8 +126,6 @@ impl LayoutStackingContextContent<'_> {
 pub(crate) struct LayoutStackingContext<'a> {
     pub initializing_fragment: Option<&'a BoxFragment>,
     pub context_type: StackingContextType,
-    pub frame_id: FrameId,
-    pub clip_id: ClipId,
     pub contents: Vec<LayoutStackingContextContent<'a>>,
     pub real_stacking_contexts_and_positioned_stacking_containers: Vec<LayoutStackingContext<'a>>,
     pub float_stacking_containers: Vec<LayoutStackingContext<'a>>,
@@ -139,12 +133,10 @@ pub(crate) struct LayoutStackingContext<'a> {
 }
 
 impl<'a> LayoutStackingContext<'a> {
-    fn new_root(frame_id: FrameId, clip_id: ClipId) -> Self {
+    fn new_root(_frame_id: FrameId, _clip_id: ClipId) -> Self {
         Self {
             initializing_fragment: None,
             context_type: StackingContextType::RealStackingContext,
-            frame_id,
-            clip_id,
             contents: Vec::new(),
             real_stacking_contexts_and_positioned_stacking_containers: Vec::new(),
             float_stacking_containers: Vec::new(),
@@ -155,14 +147,12 @@ impl<'a> LayoutStackingContext<'a> {
     fn new_child(
         bf: &'a BoxFragment,
         context_type: StackingContextType,
-        frame_id: FrameId,
-        clip_id: ClipId,
+        _frame_id: FrameId,
+        _clip_id: ClipId,
     ) -> Self {
         Self {
             initializing_fragment: Some(bf),
             context_type,
-            frame_id,
-            clip_id,
             contents: Vec::new(),
             real_stacking_contexts_and_positioned_stacking_containers: Vec::new(),
             float_stacking_containers: Vec::new(),
@@ -240,9 +230,7 @@ impl<'a> LayoutStackingContext<'a> {
             visitor(LayoutPaintItem::ChildStackingContext(child));
         }
 
-        for _ in outlines {
-            visitor(LayoutPaintItem::Outline);
-        }
+        let _ = outlines;
     }
 }
 
@@ -264,7 +252,6 @@ fn emit_content<'a, 'b>(
 pub(crate) enum LayoutPaintItem<'a, 'b> {
     Content(&'b LayoutStackingContextContent<'a>),
     ChildStackingContext(&'b LayoutStackingContext<'a>),
-    Outline,
 }
 
 pub(crate) fn build_stacking_context_tree<'a>(
@@ -276,7 +263,6 @@ pub(crate) fn build_stacking_context_tree<'a>(
     let root_cb = ContainingBlock {
         frame_id: root_frame_id,
         clip_id: root_clip_id,
-        scroll_frame_size: None,
         rect: PhysicalRect::zero(),
     };
     let cb_info = ContainingBlockInfo {
@@ -351,7 +337,6 @@ fn fragment_build_stacking_context_tree<'a>(
                 section: StackingContextSection::Foreground,
                 fragment,
                 frame_id: containing_block.frame_id,
-                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
                 clip_id: containing_block.clip_id,
                 containing_block: containing_block.rect,
             });
@@ -364,7 +349,6 @@ fn fragment_build_stacking_context_tree<'a>(
                 section: StackingContextSection::Foreground,
                 fragment,
                 frame_id: containing_block.frame_id,
-                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
                 clip_id: containing_block.clip_id,
                 containing_block: containing_block.rect,
             });
@@ -377,7 +361,6 @@ fn fragment_build_stacking_context_tree<'a>(
                 section: StackingContextSection::Foreground,
                 fragment,
                 frame_id: containing_block.frame_id,
-                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
                 clip_id: containing_block.clip_id,
                 containing_block: containing_block.rect,
             });
@@ -410,7 +393,6 @@ fn build_for_box<'a>(
                 section: StackingContextSection::OwnBackgroundsAndBorders,
                 fragment,
                 frame_id,
-                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
                 clip_id,
                 containing_block: containing_block.rect,
             });
@@ -430,7 +412,6 @@ fn build_for_box<'a>(
                 section: get_section_for_non_sc(bf),
                 fragment,
                 frame_id,
-                reference_frame_id: containing_block_info.for_absolute_and_fixed_descendants.frame_id,
                 clip_id,
                 containing_block: containing_block.rect,
             });

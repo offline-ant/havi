@@ -42,7 +42,6 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         match item {
             LayoutPaintItem::Content(content) => self.build_content_into_scene(content, cx),
             LayoutPaintItem::ChildStackingContext(child) => self.build_stacking_context_into_scene(child, cx),
-            LayoutPaintItem::Outline => {}
         }
     }
 

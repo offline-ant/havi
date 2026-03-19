@@ -59,7 +59,6 @@ pub(crate) fn paint_fragment_item(
                     );
                 }
             }
-            crate::layout_stacking_context::StackingContextSection::Outline => {}
         },
         Fragment::Text(text_fragment) => {
             if item.section != crate::layout_stacking_context::StackingContextSection::Foreground {
