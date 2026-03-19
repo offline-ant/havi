@@ -547,7 +547,7 @@ impl App {
             if tab_bar_dirty {
                 // Update URL bar for active tab
                 let url = self.tabs[self.active_tab_idx].url.clone();
-                self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                self.set_url_input_sanitized(cx, &url);
                 self.sync_tab_bar(cx);
             }
         }

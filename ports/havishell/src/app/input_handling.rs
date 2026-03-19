@@ -256,41 +256,53 @@ impl App {
                                 handled_input = true;
                             }
                         }
-                        // Suppress primary-modifier clipboard shortcuts.
-                        let is_primary_shortcut =
-                            key_event.modifiers.control || key_event.modifiers.logo;
-                        let is_clipboard_shortcut = matches!(
-                            key_event.key_code,
-                            makepad_widgets::makepad_platform::KeyCode::KeyC
-                                | makepad_widgets::makepad_platform::KeyCode::KeyX
-                                | makepad_widgets::makepad_platform::KeyCode::KeyV
-                        ) && is_primary_shortcut;
-                        if is_clipboard_shortcut {
+                        if Self::is_primary_new_tab_shortcut(key_event) {
+                            self.add_tab(cx);
                             handled_input = true;
-                        } else if let Some(event) =
-                            crate::input::translate_key_event(key_event, true)
-                        {
-                            self.send_input_event(event);
-                            handled_input = true;
+                        } else {
+                            // Suppress primary-modifier clipboard shortcuts.
+                            let is_primary_shortcut =
+                                key_event.modifiers.control || key_event.modifiers.logo;
+                            let is_clipboard_shortcut = matches!(
+                                key_event.key_code,
+                                makepad_widgets::makepad_platform::KeyCode::KeyC
+                                    | makepad_widgets::makepad_platform::KeyCode::KeyX
+                                    | makepad_widgets::makepad_platform::KeyCode::KeyV
+                            ) && is_primary_shortcut;
+                            if is_clipboard_shortcut {
+                                handled_input = true;
+                            } else if let Some(event) =
+                                crate::input::translate_key_event(key_event, true)
+                            {
+                                self.send_input_event(event);
+                                handled_input = true;
+                            }
                         }
                     },
                     ServoWebViewAction::KeyUp { key_event } => {
-                        // Suppress primary-modifier clipboard shortcuts.
-                        let is_primary_shortcut =
-                            key_event.modifiers.control || key_event.modifiers.logo;
-                        let is_clipboard_shortcut = matches!(
-                            key_event.key_code,
-                            makepad_widgets::makepad_platform::KeyCode::KeyC
-                                | makepad_widgets::makepad_platform::KeyCode::KeyX
-                                | makepad_widgets::makepad_platform::KeyCode::KeyV
-                        ) && is_primary_shortcut;
-                        if is_clipboard_shortcut {
-                            handled_input = true;
-                        } else if let Some(event) =
-                            crate::input::translate_key_event(key_event, false)
+                        if key_event.key_code == makepad_widgets::makepad_platform::KeyCode::KeyT
+                            && (key_event.modifiers.control || key_event.modifiers.logo)
+                            && !key_event.modifiers.shift
                         {
-                            self.send_input_event(event);
                             handled_input = true;
+                        } else {
+                            // Suppress primary-modifier clipboard shortcuts.
+                            let is_primary_shortcut =
+                                key_event.modifiers.control || key_event.modifiers.logo;
+                            let is_clipboard_shortcut = matches!(
+                                key_event.key_code,
+                                makepad_widgets::makepad_platform::KeyCode::KeyC
+                                    | makepad_widgets::makepad_platform::KeyCode::KeyX
+                                    | makepad_widgets::makepad_platform::KeyCode::KeyV
+                            ) && is_primary_shortcut;
+                            if is_clipboard_shortcut {
+                                handled_input = true;
+                            } else if let Some(event) =
+                                crate::input::translate_key_event(key_event, false)
+                            {
+                                self.send_input_event(event);
+                                handled_input = true;
+                            }
                         }
                     },
 

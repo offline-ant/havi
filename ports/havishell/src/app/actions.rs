@@ -346,12 +346,20 @@ impl MatchEvent for App {
             nav_action = Some(NavCommand::Reload);
         }
         if self.ui.button(cx, ids!(go_btn)).clicked(actions) {
-            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            nav_action = Some(NavCommand::Navigate(url_text));
+            let raw = self.ui.text_input(cx, ids!(url_input)).text();
+            let sanitized = self.read_url_input_sanitized(cx);
+            if sanitized != raw {
+                self.set_url_input_sanitized(cx, &sanitized);
+            }
+            nav_action = Some(NavCommand::Navigate(sanitized));
         }
         if self.ui.button(cx, ids!(edit_btn)).clicked(actions) {
-            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            if let Some(edit_url) = context_menu::editor_url_for(&url_text) {
+            let raw = self.ui.text_input(cx, ids!(url_input)).text();
+            let sanitized = self.read_url_input_sanitized(cx);
+            if sanitized != raw {
+                self.set_url_input_sanitized(cx, &sanitized);
+            }
+            if let Some(edit_url) = context_menu::editor_url_for(&sanitized) {
                 nav_action = Some(NavCommand::Navigate(edit_url));
             }
         }
@@ -393,14 +401,36 @@ impl MatchEvent for App {
             self.next_frame = cx.new_next_frame();
             cx.redraw_all();
         }
+        if let Some(changed) = self.ui.text_input(cx, ids!(url_input)).changed(actions) {
+            let sanitized = Self::sanitize_url_bar_text(&changed);
+            if sanitized != changed {
+                self.set_url_input_sanitized(cx, &sanitized);
+            }
+        }
+        if let Some(ke) = self
+            .ui
+            .text_input(cx, ids!(url_input))
+            .key_down_unhandled(actions)
+        {
+            if ke.key_code == KeyCode::Tab {
+                self.ui.text_input(cx, ids!(url_input)).set_key_focus(cx);
+            } else if Self::is_primary_new_tab_shortcut(&ke) {
+                self.add_tab(cx);
+                cx.set_cursor(MouseCursor::Default);
+            }
+        }
         if self
             .ui
             .text_input(cx, ids!(url_input))
             .returned(actions)
             .is_some()
         {
-            let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-            nav_action = Some(NavCommand::Navigate(url_text));
+            let raw = self.ui.text_input(cx, ids!(url_input)).text();
+            let sanitized = self.read_url_input_sanitized(cx);
+            if sanitized != raw {
+                self.set_url_input_sanitized(cx, &sanitized);
+            }
+            nav_action = Some(NavCommand::Navigate(sanitized));
         }
 
         // --- Window control buttons ---
@@ -606,7 +636,7 @@ impl MatchEvent for App {
                         self.tabs[idx].url = url.clone();
                         self.tabs[idx].watch.clear_change_detected();
                         if idx == self.active_tab_idx {
-                            self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+                            self.set_url_input_sanitized(cx, &url);
                             self.sync_toolbar_state(cx);
                         }
 
@@ -771,7 +801,7 @@ impl MatchEvent for App {
                             if idx == self.active_tab_idx {
                                 self.attach_active_render_state(cx);
                                 self.focus_active_webview(cx);
-                                self.ui.text_input(cx, ids!(url_input)).set_text(cx, &parsed_url);
+                                self.set_url_input_sanitized(cx, &parsed_url);
                             }
                             self.sync_tab_bar(cx);
                             self.needs_paint = true;
@@ -932,7 +962,7 @@ impl AppMain for App {
                         cx.hide_clipboard_actions();
                         cx.hide_selection_handles();
                     }
-                    self.ui.text_input(cx, ids!(url_input)).set_text(cx, url);
+                    self.set_url_input_sanitized(cx, url);
                     self.needs_paint = true;
                     self.sync_tab_bar(cx);
                     self.idle_frames = 0;

@@ -1012,4 +1012,27 @@ impl App {
             cx.set_key_focus(area);
         }
     }
+
+    pub(super) fn sanitize_url_bar_text(text: &str) -> String {
+        text.chars()
+            .filter(|c| !matches!(c, '\r' | '\n' | '\t'))
+            .collect()
+    }
+
+    pub(super) fn set_url_input_sanitized(&self, cx: &mut Cx, text: &str) {
+        let sanitized = Self::sanitize_url_bar_text(text);
+        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &sanitized);
+    }
+
+    pub(super) fn read_url_input_sanitized(&self, cx: &mut Cx) -> String {
+        let text = self.ui.text_input(cx, ids!(url_input)).text();
+        Self::sanitize_url_bar_text(&text)
+    }
+
+    pub(super) fn is_primary_new_tab_shortcut(ke: &KeyEvent) -> bool {
+        ke.key_code == KeyCode::KeyT
+            && (ke.modifiers.control || ke.modifiers.logo)
+            && !ke.modifiers.shift
+            && !ke.is_repeat
+    }
 }

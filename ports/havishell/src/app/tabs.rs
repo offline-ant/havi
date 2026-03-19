@@ -226,6 +226,7 @@ impl App {
                 let uid = child_widget.widget_uid();
                 if let Some(action) = actions.find_widget_action(uid) {
                     if let ViewAction::FingerDown(fd) = action.cast() {
+                        // Middle-click closes the tab immediately without activating it first.
                         if fd.mouse_button().is_some_and(|b| b.is_middle()) {
                             closed_tab = Some(tab_idx);
                             break;
@@ -320,7 +321,7 @@ impl App {
         self.activate_tab_webview(self.active_tab_idx);
         self.attach_active_render_state(cx);
         self.focus_active_webview(cx);
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
@@ -392,7 +393,7 @@ impl App {
         self.attach_active_render_state(cx);
         self.focus_active_webview(cx);
         let url = self.tabs[self.active_tab_idx].url.clone();
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
@@ -417,7 +418,7 @@ impl App {
         self.attach_active_render_state(cx);
         self.focus_active_webview(cx);
         let url = self.tabs[idx].url.clone();
-        self.ui.text_input(cx, ids!(url_input)).set_text(cx, &url);
+        self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);

@@ -190,6 +190,22 @@ script_mod! {
             url_input := TextInput{
                 width: Fill height: Fit
                 empty_text: "Enter URC..."
+                draw_text +: {
+                    color: #x111111
+                    color_hover: uniform(#x111111)
+                    color_focus: uniform(#x111111)
+                    color_empty: uniform(#x777777)
+                    color_empty_hover: uniform(#x777777)
+                    color_empty_focus: uniform(#x555555)
+                }
+                draw_bg +: {
+                    color: #xffffff
+                    color_hover: uniform(#xffffff)
+                    color_focus: uniform(#xffffff)
+                    border_color: uniform(#xcccccc)
+                    border_color_hover: uniform(#xbbbbbb)
+                    border_color_focus: uniform(#xaaaaaa)
+                }
             }
 
             go_btn := Button{ text: "🚀" }

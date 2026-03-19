@@ -241,7 +241,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
         }
 
         let mut descendant_frame_entry_id = None;
-        if crate::is_scroll_container(owner_fragment) {
+        if descendant.clip_id != visual.clip_id || crate::is_scroll_container(owner_fragment) {
             let frame_id = self.frame_tree.push_child_frame(
                 visual.frame_id,
                 FrameKey::NodeScrollFrame(frame_key_id),
@@ -493,13 +493,12 @@ mod tests {
         ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
     }
 
-    fn scroll_box(node_id: usize) -> Fragment {
+    fn overflow_box(node_id: usize, overflow: style::values::specified::Overflow) -> Fragment {
         use app_units::Au;
-        use style::values::specified::Overflow;
 
         let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
-        servo_arc::Arc::make_mut(&mut style).mutate_box().set_overflow_x(Overflow::Auto);
-        servo_arc::Arc::make_mut(&mut style).mutate_box().set_overflow_y(Overflow::Auto);
+        servo_arc::Arc::make_mut(&mut style).mutate_box().set_overflow_x(overflow);
+        servo_arc::Arc::make_mut(&mut style).mutate_box().set_overflow_y(overflow);
 
         let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
         Fragment::Box(BoxFragment {
@@ -516,6 +515,10 @@ mod tests {
             block_level_info: None,
             background_images: Vec::new(),
         })
+    }
+
+    fn scroll_box(node_id: usize) -> Fragment {
+        overflow_box(node_id, style::values::specified::Overflow::Auto)
     }
 
     fn plain_box(node_id: usize, x: f32, y: f32, children: Vec<Fragment>) -> Fragment {
@@ -538,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn build_scene_creates_scroll_frame_for_overflow_container() {
+    fn build_scene_creates_scroll_frame_for_scroll_container() {
         let fragment = scroll_box(7);
         let fragments = [fragment];
         let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
@@ -557,6 +560,27 @@ mod tests {
             .unwrap();
         assert_eq!(scene.frame_tree.frame(scene.frame_tree.root).items[0].local_origin, dvec2(0.0, 0.0));
         assert_eq!(scroll_frame.clip_id, ClipId(0));
+    }
+
+    #[test]
+    fn build_scene_creates_descendant_clip_frame_for_hidden_overflow_container() {
+        let fragment = overflow_box(8, style::values::specified::Overflow::Hidden);
+        let fragments = [fragment];
+        let sc = crate::stacking_context::build_stacking_context_tree(&fragments);
+        let scene = build_scene(
+            &sc,
+            &fragments,
+            &crate::ScrollState::default(),
+            dvec2(0.0, 0.0),
+            dvec2(800.0, 600.0),
+        );
+        let clip_frame = scene
+            .frame_tree
+            .frames
+            .iter()
+            .find(|frame| frame.kind == FrameKind::ScrollFrame && frame.owner_node_id == Some(8 << 8))
+            .unwrap();
+        assert_eq!(clip_frame.clip_id, ClipId(0));
     }
 
     fn translated_box(node_id: usize, x: f32, y: f32, tx: f32, ty: f32) -> Fragment {

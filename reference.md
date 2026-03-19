@@ -15,31 +15,13 @@ HAVI provides browser-owned helper schemes in addition to `hppr://` and
 
 Route setup flow for first-contact endpoint approval and local route storage.
 
-Behavior:
-
-- shows local setup UI for `group/app`
-- can preview remote content through `hppr-sandbox://`
-- may expose privileged local admin access needed to store approved route state
-
 ### `hppr-join://`
 
 HAVI join and login flow for Ring2-backed groups.
 
-Behavior:
-
-- local HTML UI for membership login or join request
-- may use route credentials for the selected upstream and group
-- supports deterministic join fixtures for tests
-
 ### `hppr-sandbox://`
 
 Untrusted preview mode.
-
-Behavior:
-
-- anonymous access only
-- strict CSP
-- JavaScript and active features blocked
 
 ### `hppr-browse://`
 
@@ -48,12 +30,6 @@ Read-only directory explorer for coordinate trees.
 ### `hppr-editor://`
 
 Local packet editor.
-
-Behavior:
-
-- targets local context only
-- can edit headers and packet data
-- can save through local privileged APIs
 
 ### `havi://`
 
@@ -68,36 +44,7 @@ Current pages include:
 These pages are implementation-defined UI. They are not part of the generic
 HPPR browser spec.
 
-## Diagnostics and fixtures
-
-`havi:///diagnostics` exposes HAVI-specific inspection and test controls.
-
-Current API commands:
-
-- `inspect`
-- `join_fixture_get`
-- `join_fixture_set`
-
-Join fixture states:
-
-- `none`
-- `pending`
-- `approved`
-
-Fixture state is process-local and resets on restart.
-
 ## Local runtime and configuration
-
-HAVI stores local configuration in:
-
-- `<config-dir>/havi.sqlite`
-
-Current uses include:
-
-- admin credentials
-- local history
-- shadow-mode state
-- other browser-local settings
 
 Environment variables:
 
@@ -112,27 +59,9 @@ location.
 
 ## Pylon integration
 
-HAVI always runs through pylon.
+HAVI runs through pylon.
 
-Runtime paths:
-
-- `external`
-- `self_exec`
-- `inline`
-
-Current host policy:
-
-- desktop targets prefer `self_exec`
-- android uses `inline`
-
-Desktop `./mach-havi run` enables the Makepad event socket automatically and
-prints `HAVI_MAKEPAD_SOCKET=<path>` for `havi-makepad-cli`.
-
-`havi --screenshot <output.png>` still uses normal startup behavior. Select the
-page with `HAVI_URL`, let HAVI render the first page, capture the rendered
-webview content only, write a PNG, and exit.
-
-HAVI also exposes pylon controls through `havi:///services`.
+HAVI exposes pylon controls through `havi:///services`.
 
 ### Pylon indicator
 
@@ -145,32 +74,38 @@ The toolbar indicator uses current HAVI shell glyphs:
 
 These visuals are shell UI details, not protocol semantics.
 
+## Shell behavior
+
+Current HAVI shell behavior:
+
+- the address bar is single-line and strips `\r`, `\n`, and `\t`
+- `Ctrl+T` on Linux and Windows opens a new tab
+- `Command+T` on macOS opens a new tab
+- middle click on a tab closes it
+
 ## Watch mode
 
 Watch mode is a HAVI tab feature for live reload and change indication.
-Two orthogonal settings control behavior:
+Two settings control behavior:
 
-**Watch scope** (cycled by the watch button):
+**Watch scope**:
 
 - `None` — no watching
 - `Page` — watch the current page coordinate only
-- `App` — watch the entire app (all changes under backing root)
+- `App` — watch the entire app
 
-**Navigate** (boolean toggle):
+**Navigate**:
 
 - Off: changes produce a notification badge on the tab
 - On: changes trigger automatic page reload
 
-Labels: `W:None`, `W:Page`, `W:App`. When navigate is on: `W:Page↻`, `W:App↻`.
+Wire protocol values:
 
-Cycling order: `None → Page → App → None`
-
-Wire protocol values: `none`, `page`, `app`, `page+navigate`, `app+navigate`.
-
-Backward compatibility: `off`→none, `notify`→page, `auto`→page+navigate,
-`tree`/`dev`→app+navigate.
-
-Connections are pooled by backing-root prefix and shared across tabs.
+- `none`
+- `page`
+- `app`
+- `page+navigate`
+- `app+navigate`
 
 ## Shadow mode
 
@@ -183,13 +118,26 @@ local shadow root:
 
 Current HAVI behavior:
 
-- shadow state is persisted in local HAVI state
-- entering shadow mode creates or reuses a persistent local shadow signing key
-- the current page is seeded into the shadow tree when resolution succeeds
-- tab watch is set to scope=App, navigate=on
-- publishing may re-seal content with a different target signer
+- shadow state is persisted locally
+- enabling shadow mode sets tab watch to scope=App, navigate=on
 
 Shadow mode is a HAVI workflow feature, not a generic HPPR browser requirement.
+
+## Diagnostics
+
+`havi:///diagnostics` exposes HAVI-specific inspection and test controls.
+
+Current API commands:
+
+- `inspect`
+- `join_fixture_get`
+- `join_fixture_set`
+
+Join fixture states:
+
+- `none`
+- `pending`
+- `approved`
 
 ## DevTools actors
 
@@ -223,12 +171,9 @@ HAVI creates per-origin site Ring1 identities using:
 
 It also maintains per-group route keys for authenticated remote operations.
 
-Legacy `HAVI-site:<group>#<app>` naming may still appear in compatibility code.
-`site:<group>#<app>` is the current form.
-
 ## Notes on scope
 
-This document may describe current HAVI implementation details that change over
-time.
+This document describes current HAVI implementation details and supported shell
+surfaces.
 
 Normative browser behavior belongs in `havi/spec/`.

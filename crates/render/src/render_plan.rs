@@ -228,7 +228,7 @@ mod tests {
             .set_transform_style(TransformStyle::Preserve3d);
         let fragments = [base_box(11, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&11).copied().unwrap();
+        let node = semantics.get(&(11 << 8)).copied().unwrap();
         assert_eq!(
             node.participation(),
             RenderParticipation::Compositor {
@@ -241,7 +241,7 @@ mod tests {
     fn plain_boxes_stay_on_direct_2d_path() {
         let fragments = [base_box(12, initial_style())];
         let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&12).copied().unwrap();
+        let node = semantics.get(&(12 << 8)).copied().unwrap();
         assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
@@ -253,7 +253,7 @@ mod tests {
             .set_perspective(style::values::generics::box_::Perspective::Length(NonNegativeLength::new(600.0)));
         let fragments = [base_box(13, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&13).copied().unwrap();
+        let node = semantics.get(&(13 << 8)).copied().unwrap();
         assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
@@ -269,7 +269,7 @@ mod tests {
         ));
         let fragments = [base_box(14, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&14).copied().unwrap();
+        let node = semantics.get(&(14 << 8)).copied().unwrap();
         assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
