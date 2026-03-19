@@ -25,8 +25,9 @@ pub enum Fragment {
     Positioning(PositioningFragment),
     /// Placeholder for a hoisted absolute/fixed fragment, preserving original tree order.
     ///
-    /// The referenced fragment is stored elsewhere in the converted fragment tree.
-    AbsoluteOrFixedPositioned { hoisted_id: usize },
+    /// The resolved fragment is carried directly so semantic lowering can follow
+    /// the original placeholder edge without separate id-based reconstruction.
+    AbsoluteOrFixedPositioned { resolved: Box<Fragment> },
     /// An iframe (nested browsing context). Carries a reference to the child
     /// document's fragment tree, rendered as a nested draw call.
     IFrame(IFrameFragment),

@@ -10,7 +10,7 @@ use style::properties::ComputedValues;
 use super::{
     BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags,
 };
-use crate::geom::{PhysicalRect, PhysicalSides};
+use crate::geom::{AuOrAuto, PhysicalRect, PhysicalSides};
 
 /// Baselines of a formatting context or element.
 #[derive(Clone, Copy, Debug, Default)]
@@ -33,6 +33,9 @@ pub struct BackgroundImage {
 pub struct BoxFragment {
     pub base: BaseFragment,
     pub children: Vec<Fragment>,
+    pub cumulative_containing_block_rect: PhysicalRect<Au>,
+    pub scrollable_overflow: Option<PhysicalRect<Au>>,
+    pub resolved_sticky_insets: Option<PhysicalSides<AuOrAuto>>,
     pub padding: PhysicalSides<Au>,
     pub border: PhysicalSides<Au>,
     pub margin: PhysicalSides<Au>,
@@ -62,6 +65,9 @@ impl BoxFragment {
         Self {
             base: BaseFragment::new(info, style, content_rect),
             children,
+            cumulative_containing_block_rect: PhysicalRect::zero(),
+            scrollable_overflow: None,
+            resolved_sticky_insets: None,
             padding,
             border,
             margin,

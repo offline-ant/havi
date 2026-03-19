@@ -62,11 +62,32 @@ use style_traits::CSSPixel;
 use webrender_api::units::{DeviceIntSize, LayoutPoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, ImageKey};
 
-/// Thread-safe container for sharing rendered fragments between layout and the embedding.
+/// Thread-safe container for sharing reduced leaf payload fragments between
+/// layout and the embedding.
 #[derive(Clone, Default)]
 pub struct SharedFragmentTree(Arc<RwLock<Option<Arc<Vec<havi_types::Fragment>>>>>);
 
 impl SharedFragmentTree {
+    pub fn set(&self, fragments: Arc<Vec<havi_types::Fragment>>) {
+        *self.0.write() = Some(fragments);
+    }
+
+    pub fn clear(&self) {
+        *self.0.write() = None;
+    }
+
+    pub fn get(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
+        self.0.read().clone()
+    }
+}
+
+/// Thread-safe container for sharing semantic layout fragments with the render
+/// pipeline. The payload is serialized rich fragment data that preserves
+/// layout-side paint semantics.
+#[derive(Clone, Default)]
+pub struct SharedLayoutFragmentTree(Arc<RwLock<Option<Arc<Vec<havi_types::Fragment>>>>>);
+
+impl SharedLayoutFragmentTree {
     pub fn set(&self, fragments: Arc<Vec<havi_types::Fragment>>) {
         *self.0.write() = Some(fragments);
     }
@@ -161,6 +182,16 @@ static PIPELINE_FRAGMENT_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<PipelineId, SharedFragmentTree>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
+/// Global registry of shared layout fragment trees, keyed by WebViewId.
+static LAYOUT_FRAGMENT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<WebViewId, SharedLayoutFragmentTree>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
+/// Global registry of shared layout fragment trees, keyed by PipelineId.
+static PIPELINE_LAYOUT_FRAGMENT_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<PipelineId, SharedLayoutFragmentTree>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
 /// Global registry of shared scroll states, keyed by WebViewId.
 static SCROLL_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedScrollState>>,
@@ -189,6 +220,26 @@ pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
 /// Get or create a SharedFragmentTree for a given PipelineId.
 pub fn shared_fragment_tree_for_pipeline(id: PipelineId) -> SharedFragmentTree {
     PIPELINE_FRAGMENT_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
+/// Get or create a SharedLayoutFragmentTree for a given WebViewId.
+pub fn shared_layout_fragment_tree_for(id: WebViewId) -> SharedLayoutFragmentTree {
+    LAYOUT_FRAGMENT_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
+/// Get or create a SharedLayoutFragmentTree for a given PipelineId.
+pub fn shared_layout_fragment_tree_for_pipeline(id: PipelineId) -> SharedLayoutFragmentTree {
+    PIPELINE_LAYOUT_FRAGMENT_REGISTRY
         .lock()
         .unwrap()
         .entry(id)
@@ -234,6 +285,16 @@ pub fn remove_shared_fragment_tree(id: WebViewId) {
 /// Remove a SharedFragmentTree when a pipeline is destroyed.
 pub fn remove_shared_fragment_tree_for_pipeline(id: PipelineId) {
     PIPELINE_FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
+}
+
+/// Remove a SharedLayoutFragmentTree when a WebView is destroyed.
+pub fn remove_shared_layout_fragment_tree(id: WebViewId) {
+    LAYOUT_FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
+}
+
+/// Remove a SharedLayoutFragmentTree when a pipeline is destroyed.
+pub fn remove_shared_layout_fragment_tree_for_pipeline(id: PipelineId) {
+    PIPELINE_LAYOUT_FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
 }
 
 /// Remove a SharedScrollState when a WebView is destroyed.
@@ -425,6 +486,8 @@ pub struct LayoutConfig {
     pub accessibility_active: bool,
     pub shared_fragments: SharedFragmentTree,
     pub shared_fragments_by_pipeline: SharedFragmentTree,
+    pub shared_layout_fragments: SharedLayoutFragmentTree,
+    pub shared_layout_fragments_by_pipeline: SharedLayoutFragmentTree,
     pub shared_scroll_state: SharedScrollState,
     pub shared_scroll_state_by_pipeline: SharedScrollState,
 }

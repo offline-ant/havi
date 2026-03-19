@@ -234,22 +234,16 @@ fn build_fragment<'a>(
             }
             build_for_box(fragment, bf, true, stacking_context, hoisted, resolving);
         }
-        Fragment::AbsoluteOrFixedPositioned { hoisted_id } => {
-            if !resolving.insert(*hoisted_id) {
-                // Already resolving this hoisted fragment up the call stack — skip to
-                // break the cycle.
+        Fragment::AbsoluteOrFixedPositioned { resolved } => {
+            let key = std::ptr::from_ref(&**resolved) as usize;
+            if !resolving.insert(key) {
                 return;
             }
-            let Some(resolved) = hoisted.get(hoisted_id).copied() else {
-                resolving.remove(hoisted_id);
-                return;
-            };
             build_fragment(resolved, BuildMode::IncludeHoisted, stacking_context, hoisted, resolving);
-            resolving.remove(hoisted_id);
+            resolving.remove(&key);
         }
         Fragment::Text(tf) => {
             if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                eprintln!("[render-sc] skip text do_not_paint node={:?} text={:?}", tf.base.tag.map(|t| t.node.0), tf.text);
                 return;
             }
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
@@ -259,7 +253,6 @@ fn build_fragment<'a>(
         }
         Fragment::Image(img) => {
             if img.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                eprintln!("[render-sc] skip image do_not_paint node={:?}", img.base.tag.map(|t| t.node.0));
                 return;
             }
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
@@ -269,7 +262,6 @@ fn build_fragment<'a>(
         }
         Fragment::IFrame(iframe) => {
             if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                eprintln!("[render-sc] skip iframe do_not_paint node={:?}", iframe.base.tag.map(|t| t.node.0));
                 return;
             }
             stacking_context.contents.push(LayoutStackingContextContent::Fragment {
@@ -335,9 +327,6 @@ fn build_box_children<'a>(
     resolving: &mut std::collections::HashSet<usize>,
 ) {
     for child in &bf.children {
-        // Always SkipHoisted for children — AbsoluteOrFixedPositioned
-        // placeholders among children are the entry points that switch
-        // to IncludeHoisted for the resolved fragment only.
         build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted, resolving);
     }
 }
@@ -354,18 +343,6 @@ fn collect_hoisted_fragment<'a>(
     fragment: &'a Fragment,
     hoisted: &mut std::collections::HashMap<usize, &'a Fragment>,
 ) {
-    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    DEPTH.with(|d| {
-        let depth = d.get() + 1;
-        d.set(depth);
-        if depth % 500 == 0 {
-            eprintln!("[stacking-ctx] collect_hoisted_fragment depth={}", depth);
-        }
-        if depth > 5000 {
-            eprintln!("[stacking-ctx] ABORTING collect_hoisted_fragment depth={}", depth);
-            std::process::abort();
-        }
-    });
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
             if bf.base.style.get_box().position.is_absolutely_positioned() {
@@ -388,7 +365,6 @@ fn collect_hoisted_fragment<'a>(
         }
         Fragment::AbsoluteOrFixedPositioned { .. } | Fragment::Text(_) | Fragment::Image(_) => {}
     }
-    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn get_stacking_context_type(bf: &BoxFragment, is_float: bool) -> Option<StackingContextType> {
@@ -473,4 +449,3 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
     }
     false
 }
-

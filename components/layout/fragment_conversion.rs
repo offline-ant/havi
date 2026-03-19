@@ -9,7 +9,7 @@
 //! contexts and paint items are finalized. The helpers here remain for leaf data
 //! extraction and embedder sharing while the semantic render path is migrated.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use app_units::Au;
@@ -25,12 +25,10 @@ pub(crate) fn convert_fragments(
     image_resolver: &Arc<ImageResolver>,
 ) -> Vec<havi_types::Fragment> {
     let mut visited_pipelines = HashSet::new();
-    let mut hoisted_ids = HashMap::new();
     convert_fragments_with_iframes(
         fragments,
         image_resolver,
         &mut visited_pipelines,
-        &mut hoisted_ids,
     )
 }
 
@@ -38,11 +36,10 @@ fn convert_fragments_with_iframes(
     fragments: &[LayoutFragment],
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-    hoisted_ids: &mut HashMap<usize, usize>,
 ) -> Vec<havi_types::Fragment> {
     fragments
         .iter()
-        .filter_map(|f| convert_fragment(f, image_resolver, visited_pipelines, hoisted_ids))
+        .filter_map(|f| convert_fragment(f, image_resolver, visited_pipelines))
         .collect()
 }
 
@@ -50,7 +47,6 @@ fn convert_fragment(
     fragment: &LayoutFragment,
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-    hoisted_ids: &mut HashMap<usize, usize>,
 ) -> Option<havi_types::Fragment> {
     match fragment {
         LayoutFragment::Box(arc) => {
@@ -59,7 +55,6 @@ fn convert_fragment(
                 &f,
                 image_resolver,
                 visited_pipelines,
-                hoisted_ids,
             )))
         },
         LayoutFragment::Float(arc) => {
@@ -68,7 +63,6 @@ fn convert_fragment(
                 &f,
                 image_resolver,
                 visited_pipelines,
-                hoisted_ids,
             )))
         },
         LayoutFragment::Positioning(arc) => {
@@ -79,7 +73,6 @@ fn convert_fragment(
                     &f.children,
                     image_resolver,
                     visited_pipelines,
-                    hoisted_ids,
                 ),
             }))
         },
@@ -156,7 +149,7 @@ fn convert_fragment(
         LayoutFragment::IFrame(arc) => {
             let f = arc.borrow();
             let (child_fragments, child_content_height) =
-                resolve_iframe_child_fragments(f.pipeline_id, image_resolver, visited_pipelines, hoisted_ids);
+                resolve_iframe_child_fragments(f.pipeline_id, image_resolver, visited_pipelines);
             Some(havi_types::Fragment::IFrame(havi_types::IFrameFragment {
                 base: convert_base_fragment(&f.base),
                 child_fragments,
@@ -166,11 +159,10 @@ fn convert_fragment(
         LayoutFragment::AbsoluteOrFixedPositioned(arc) => {
             let shared = arc.borrow();
             let resolved = shared.fragment.as_ref()?;
-            let key = std::ptr::from_ref(resolved) as usize;
-            let hoisted_id = *hoisted_ids.entry(key).or_insert_with(|| {
-                resolved.base().and_then(|base| base.tag).map(|tag| tag.node.0).unwrap_or(key)
-            });
-            Some(havi_types::Fragment::AbsoluteOrFixedPositioned { hoisted_id })
+            let resolved = convert_fragment(resolved, image_resolver, visited_pipelines)?;
+            Some(havi_types::Fragment::AbsoluteOrFixedPositioned {
+                resolved: Box::new(resolved),
+            })
         },
     }
 }
@@ -235,7 +227,6 @@ fn convert_box_fragment(
     f: &crate::fragment_tree::BoxFragment,
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-    hoisted_ids: &mut HashMap<usize, usize>,
 ) -> havi_types::BoxFragment {
     let block_level_info = f.block_level_layout_info.as_ref().map(|info| {
         Box::new(havi_types::BlockLevelLayoutInfo {
@@ -259,8 +250,10 @@ fn convert_box_fragment(
             &f.children,
             image_resolver,
             visited_pipelines,
-            hoisted_ids,
         ),
+        cumulative_containing_block_rect: f.cumulative_containing_block_rect,
+        scrollable_overflow: Some(f.scrollable_overflow()),
+        resolved_sticky_insets: Some(f.calculate_resolved_insets_if_positioned()),
         padding: f.padding,
         border: f.border,
         margin: f.margin,
@@ -278,7 +271,6 @@ fn resolve_iframe_child_fragments(
     pipeline_id: PipelineId,
     _image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-    _hoisted_ids: &mut HashMap<usize, usize>,
 ) -> (Arc<Vec<havi_types::Fragment>>, f32) {
     if !visited_pipelines.insert(pipeline_id) {
         return (Arc::new(Vec::new()), 0.0);

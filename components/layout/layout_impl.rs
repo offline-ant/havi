@@ -172,14 +172,20 @@ pub struct LayoutThread {
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
 
-    /// Converted fragments for havi-render, updated after each layout.
+    /// Converted fragments for havi-render leaf extraction, updated after each layout.
     rendered_fragments: RefCell<Option<Arc<Vec<havi_types::Fragment>>>>,
 
-    /// Shared container for exposing fragments to the embedding layer.
+    /// Shared container for exposing leaf payload fragments to the embedding layer.
     shared_fragments: layout_api::SharedFragmentTree,
 
-    /// Shared container for exposing fragments by pipeline to the embedding layer.
+    /// Shared container for exposing leaf payload fragments by pipeline to the embedding layer.
     shared_fragments_by_pipeline: layout_api::SharedFragmentTree,
+
+    /// Shared container for exposing semantic layout fragments to the embedding layer.
+    shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
+
+    /// Shared container for exposing semantic layout fragments by pipeline to the embedding layer.
+    shared_layout_fragments_by_pipeline: layout_api::SharedLayoutFragmentTree,
 
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
@@ -844,6 +850,8 @@ impl LayoutThread {
             rendered_fragments: Default::default(),
             shared_fragments: config.shared_fragments.clone(),
             shared_fragments_by_pipeline: config.shared_fragments_by_pipeline.clone(),
+            shared_layout_fragments: config.shared_layout_fragments.clone(),
+            shared_layout_fragments_by_pipeline: config.shared_layout_fragments_by_pipeline.clone(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
             resolved_images_cache: Default::default(),
             debug: opts::get().debug.clone(),
@@ -986,6 +994,13 @@ impl LayoutThread {
                         animating_images: reflow_request.animating_images.clone(),
                         animation_timeline_value: reflow_request.animation_timeline_value,
                     });
+                    let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
+                        &tree.root_fragments,
+                        &image_resolver,
+                    ));
+                    self.shared_layout_fragments.set(semantic.clone());
+                    self.shared_layout_fragments_by_pipeline.set(semantic);
+
                     let converted = crate::fragment_conversion::convert_fragments(
                         &tree.root_fragments, &image_resolver,
                     );
@@ -1259,7 +1274,14 @@ impl LayoutThread {
 
         *self.fragment_tree.borrow_mut() = Some(fragment_tree.clone());
 
-        // Convert layout fragments to havi_types fragments for rendering.
+        let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
+            &fragment_tree.root_fragments,
+            image_resolver,
+        ));
+        self.shared_layout_fragments.set(semantic.clone());
+        self.shared_layout_fragments_by_pipeline.set(semantic);
+
+        // Convert layout fragments to havi_types fragments for leaf paint payloads.
         let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments, image_resolver);
         let converted = Arc::new(converted);
         *self.rendered_fragments.borrow_mut() = Some(converted.clone());
