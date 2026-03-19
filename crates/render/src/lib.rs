@@ -1,16 +1,17 @@
-//! Render layout fragments using Makepad's native draw pipeline.
+//! Render layout fragments using a Servo-shaped semantic scene with a Makepad backend.
 //!
 //! Architecture boundary:
-//! - layout owns the full fragment tree semantics, including hoisted
-//!   `AbsoluteOrFixedPositioned` placeholders
-//! - render constructs stacking contexts and paint order from those semantics
-//! - Makepad-specific extraction happens only when final paint items are emitted
+//! - layout publishes an enriched semantic fragment transport through shared state
+//! - render lowers that semantic fragment tree into stacking contexts and a spatial scene
+//! - hit testing and clip evaluation use that same frame/clip scene
+//! - Makepad modules execute the already-built scene and do not reconstruct layout semantics
 //!
-//! The historical full-tree conversion into a simplified render fragment tree is
-//! removed from the active paint-order path. Leaf extraction still uses
-//! `havi_types` payloads where Makepad rendering needs concrete text/image/iframe
-//! data, but stacking-context construction and frame building now preserve
-//! semantic fragment ordering until final paint emission.
+//! Source-of-truth split:
+//! - semantic lowering: `layout_adapter`, `layout_stacking_context`, `frame_builder`,
+//!   `frame_tree`, `clip_tree`, `hit_test`
+//! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
+//!   `render_plan`, `compositor_scene`
+//! - backend-specific transform fallback: `transform`
 
 mod background;
 mod clip_tree;

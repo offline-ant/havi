@@ -64,6 +64,15 @@ pub(crate) fn pop_clip_chain(cx: &mut Cx2d, pushed_count: usize) {
     }
 }
 
+pub(crate) fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
+    let mapped = matrix.transform_vec4(vec4f(point.x as f32, point.y as f32, 0.0, 1.0));
+    if mapped.w.abs() > 1e-6 {
+        dvec2((mapped.x / mapped.w) as f64, (mapped.y / mapped.w) as f64)
+    } else {
+        dvec2(mapped.x as f64, mapped.y as f64)
+    }
+}
+
 pub(crate) fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
     let points = [
         dvec2(rect.pos.x, rect.pos.y),
@@ -76,13 +85,11 @@ pub(crate) fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for point in points {
-        let mapped = matrix.transform_vec4(vec4f(point.x as f32, point.y as f32, 0.0, 1.0));
-        let x = if mapped.w.abs() > 1e-6 { mapped.x / mapped.w } else { mapped.x } as f64;
-        let y = if mapped.w.abs() > 1e-6 { mapped.y / mapped.w } else { mapped.y } as f64;
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
+        let mapped = transform_point(matrix, point);
+        min_x = min_x.min(mapped.x);
+        min_y = min_y.min(mapped.y);
+        max_x = max_x.max(mapped.x);
+        max_y = max_y.max(mapped.y);
     }
     Rect {
         pos: dvec2(min_x, min_y),
