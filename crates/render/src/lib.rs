@@ -167,9 +167,16 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
 
 /// Draw fragments with viewport clipping, using a pre-built stacking context tree.
 ///
-/// Fragment coordinates are page-relative (starting at 0,0). In a cached
-/// texture pass the widget rect still carries the parent-space offset, so the
-/// scene origin stays at x=0 and only subtracts `viewport_top` on y.
+/// Fragment coordinates are page-relative (starting at 0,0). `cx.turtle().rect()`
+/// reports the current widget rect in the active Makepad pass, and that pass is
+/// not always the same kind of surface. During ordinary `CachedView`
+/// texture-caching the webview draws into its own cache texture, so
+/// `widget_rect.pos` is `(0,0)` in that local texture space. During framebuffer
+/// readback paths such as `webview.take_screenshot`, Makepad renders the widget
+/// into the window framebuffer and `widget_rect.pos` is the webview's actual
+/// window-space position. The scene origin therefore has to include
+/// `widget_rect.pos` so fragment draw positions line up in both passes; only the
+/// viewport scroll offset is always subtracted from y.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     cached_tree: &CachedStackingContextTree,
@@ -194,7 +201,17 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    let scroll_origin = dvec2(0.0, -(viewport_top as f64));
+    // Keep `widget_rect.pos` in the scene origin. This line has ping-ponged:
+    // it started at (0,0), then gained `widget_rect.pos` for framebuffer-space
+    // rendering, then was simplified back to x=0 / y=-viewport_top under the
+    // assumption that `ServoWebView` always draws inside a `CachedView`
+    // texture pass where local texture coordinates make `widget_rect.pos`
+    // equal `(0,0)`. That assumption is only true for the normal cached draw.
+    // `webview.take_screenshot` also renders through a framebuffer readback
+    // path, where fragment positions must include the widget's window-space
+    // offset or the capture is shifted. In cached texture passes this term is
+    // still harmless because `widget_rect.pos` is `(0,0)` there.
+    let scroll_origin = dvec2(widget_rect.pos.x, widget_rect.pos.y - viewport_top as f64);
     let viewport_size = dvec2(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
