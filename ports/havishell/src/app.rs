@@ -44,7 +44,7 @@ use crate::servo_web_view::ServoWebViewWidgetRefExt;
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.HaviShellRoot
-    use mod.widgets.WebViewHost
+    use mod.widgets.WebViewCachedSurface
     use mod.widgets.HaviTabBar
     use mod.widgets.HaviToolbar
     use mod.widgets.HaviContextMenu
@@ -106,6 +106,11 @@ enum StartupState {
     Booting,
     Ready,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PendingScreenshotCallback {
+    request_id: u64,
 }
 
 fn pylon_mode_from_env() -> PylonMode {
@@ -961,7 +966,7 @@ pub struct App {
     splash_timeout: Timer,
 
     #[rust]
-    pending_screenshot_callbacks: HashMap<u64, (WebViewId, u64)>,
+    pending_screenshot_callbacks: HashMap<u64, PendingScreenshotCallback>,
 
     #[rust]
     screenshot_mode: Option<screenshot::ScreenshotMode>,
@@ -978,17 +983,11 @@ const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
 impl App {
     pub(super) fn current_render_fragments(&self) -> layout_api::SharedFragmentTree {
-        if let Some(pipeline_id) = self.active_root_pipeline_id {
-            return layout_api::shared_fragment_tree_for_pipeline(pipeline_id.into());
-        }
         let tab = &self.tabs[self.active_tab_idx];
         layout_api::shared_fragment_tree_for(tab.webview_id)
     }
 
     pub(super) fn current_render_scroll_state(&self) -> layout_api::SharedScrollState {
-        if let Some(pipeline_id) = self.active_root_pipeline_id {
-            return layout_api::shared_scroll_state_for_pipeline(pipeline_id.into());
-        }
         let tab = &self.tabs[self.active_tab_idx];
         layout_api::shared_scroll_state_for(tab.webview_id)
     }
@@ -1003,7 +1002,8 @@ impl App {
         let images = self.servo.as_ref().unwrap().image_store();
         self.ui
             .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(shared, scroll, selection, images);
+            .set_shared_fragments(cx, shared, scroll, selection, images);
+        self.ui.view(cx, ids!(web_view_texture)).redraw(cx);
     }
 
     pub(super) fn focus_active_webview(&self, cx: &mut Cx) {

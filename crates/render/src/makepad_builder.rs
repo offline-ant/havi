@@ -98,6 +98,7 @@ pub(crate) fn paint_scene(
     clip_tree: &ClipTree,
     render_plan: &RenderPlan,
     compositor_scene: &CompositorScene,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
@@ -112,6 +113,7 @@ pub(crate) fn paint_scene(
         frame_tree.root,
         None,
         None,
+        root_viewport_size,
         state,
         parent_opacity,
     );
@@ -128,6 +130,7 @@ fn paint_frame_target(
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
     space_root_frame_id: Option<FrameId>,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
@@ -147,6 +150,7 @@ fn paint_frame_target(
                 frame_surface_id.unwrap(),
                 frame_id,
                 space_root_frame_id,
+                root_viewport_size,
                 state,
                 parent_opacity,
             );
@@ -162,6 +166,7 @@ fn paint_frame_target(
                 frame_id,
                 active_surface_id,
                 space_root_frame_id,
+                root_viewport_size,
                 state,
                 parent_opacity,
             );
@@ -179,6 +184,7 @@ fn paint_compositor_surface(
     surface_id: CompositorSurfaceId,
     surface_root_frame_id: FrameId,
     parent_space_root_frame_id: Option<FrameId>,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
@@ -215,6 +221,7 @@ fn paint_compositor_surface(
         surface_root_frame_id,
         Some(surface_id),
         Some(surface_root_frame_id),
+        root_viewport_size,
         state,
         1.0,
     );
@@ -247,10 +254,41 @@ fn paint_frame_direct_2d(
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
     space_root_frame_id: Option<FrameId>,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
     let frame = frame_tree.frame(frame_id);
+    let pass_size = cx.current_pass_size();
+
+    if frame_id == frame_tree.root {
+        cx.begin_page_root_turtle(dvec2(0.0, 0.0), root_viewport_size, Layout::default());
+        state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
+        state.draw_bg.draw_abs(
+            cx,
+            Rect {
+                pos: dvec2(0.0, 0.0),
+                size: root_viewport_size,
+            },
+        );
+        paint_frame_with_effects(
+            cx,
+            frame_tree,
+            clip_tree,
+            render_plan,
+            compositor_scene,
+            runtime,
+            frame_id,
+            active_surface_id,
+            space_root_frame_id,
+            root_viewport_size,
+            state,
+            parent_opacity,
+        );
+        cx.end_pass_sized_turtle();
+        return;
+    }
+
     state
         .frame_draw_lists
         .entry(frame.key)
@@ -259,25 +297,12 @@ fn paint_frame_direct_2d(
         })
         .draw_list
         .begin_always(cx);
-    let pass_size = cx.current_pass_size();
-    if frame_id == frame_tree.root {
-        cx.begin_page_root_turtle(dvec2(0.0, 0.0), pass_size, Layout::default());
-        state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
-        state.draw_bg.draw_abs(
-            cx,
-            Rect {
-                pos: dvec2(0.0, 0.0),
-                size: pass_size,
-            },
-        );
-    } else {
-        // Draw-list view transforms already map frame-local geometry into world
-        // space. Root-turtle clipping happens before that transform in Makepad,
-        // so deriving a local clip from the inverse-transformed viewport clips
-        // rotated/skewed content to an axis-aligned local box. Use an unclipped
-        // root turtle here and let explicit clip chains handle CSS overflow.
-        cx.begin_unclipped_root_turtle(pass_size, Layout::default());
-    }
+    // Draw-list view transforms already map frame-local geometry into world
+    // space. Root-turtle clipping happens before that transform in Makepad,
+    // so deriving a local clip from the inverse-transformed viewport clips
+    // rotated/skewed content to an axis-aligned local box. Use an unclipped
+    // root turtle here and let explicit clip chains handle CSS overflow.
+    cx.begin_unclipped_root_turtle(pass_size, Layout::default());
     state
         .frame_draw_lists
         .get_mut(&frame.key)
@@ -297,14 +322,11 @@ fn paint_frame_direct_2d(
         frame_id,
         active_surface_id,
         space_root_frame_id,
+        root_viewport_size,
         state,
         parent_opacity,
     );
-    if frame_id == frame_tree.root {
-        cx.end_pass_sized_turtle();
-    } else {
-        cx.end_pass_sized_turtle_no_clip();
-    }
+    cx.end_pass_sized_turtle_no_clip();
     state
         .frame_draw_lists
         .get_mut(&frame.key)
@@ -323,6 +345,7 @@ fn paint_frame_with_effects(
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
     space_root_frame_id: Option<FrameId>,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
@@ -345,6 +368,7 @@ fn paint_frame_with_effects(
                     frame_id,
                     active_surface_id,
                     space_root_frame_id,
+                    root_viewport_size,
                     state,
                     1.0,
                 );
@@ -370,6 +394,7 @@ fn paint_frame_with_effects(
                     frame_id,
                     active_surface_id,
                     space_root_frame_id,
+                    root_viewport_size,
                     state,
                     1.0,
                 );
@@ -389,6 +414,7 @@ fn paint_frame_with_effects(
         frame_id,
         active_surface_id,
         space_root_frame_id,
+        root_viewport_size,
         state,
         parent_opacity * element_opacity,
     );
@@ -404,6 +430,7 @@ fn paint_frame_contents(
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
     space_root_frame_id: Option<FrameId>,
+    root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
@@ -438,6 +465,7 @@ fn paint_frame_contents(
                     child_frame_id,
                     active_surface_id,
                     space_root_frame_id,
+                    root_viewport_size,
                     state,
                     opacity,
                 );

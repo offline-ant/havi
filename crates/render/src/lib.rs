@@ -201,16 +201,9 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    // Keep `widget_rect.pos` in the scene origin. This line has ping-ponged:
-    // it started at (0,0), then gained `widget_rect.pos` for framebuffer-space
-    // rendering, then was simplified back to x=0 / y=-viewport_top under the
-    // assumption that `ServoWebView` always draws inside a `CachedView`
-    // texture pass where local texture coordinates make `widget_rect.pos`
-    // equal `(0,0)`. That assumption is only true for the normal cached draw.
-    // `webview.take_screenshot` also renders through a framebuffer readback
-    // path, where fragment positions must include the widget's window-space
-    // offset or the capture is shifted. In cached texture passes this term is
-    // still harmless because `widget_rect.pos` is `(0,0)` there.
+    // Fragment coordinates are page-relative. Keep the widget's absolute pass
+    // position in the scene origin so cached texture passes and direct window
+    // passes both line up with Makepad's clip space.
     let scroll_origin = dvec2(widget_rect.pos.x, widget_rect.pos.y - viewport_top as f64);
     let viewport_size = dvec2(
         widget_rect.size.x,
@@ -248,6 +241,7 @@ pub fn render_fragments_clipped(
         &scene.clip_tree,
         &scene.render_plan,
         &scene.compositor_scene,
+        viewport_size,
         &mut state,
         1.0,
     );

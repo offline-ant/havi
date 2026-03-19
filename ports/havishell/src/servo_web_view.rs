@@ -473,6 +473,7 @@ impl ServoWebViewRef {
     /// Makepad rendering.
     pub fn set_shared_fragments(
         &self,
+        cx: &mut Cx,
         shared: layout_api::SharedFragmentTree,
         scroll_state: layout_api::SharedScrollState,
         selection: layout_api::SharedDocumentSelection,
@@ -490,6 +491,7 @@ impl ServoWebViewRef {
             // clean up freed entries — dropped passes remain in the pool
             // with stale paint_dirty/parent fields, causing cycle panics.
             // These passes are reconfigured each frame so reuse is safe.
+            inner.redraw(cx);
         }
     }
 

@@ -597,14 +597,6 @@ impl MatchEvent for App {
                     .map(|tab| tab.webview_id == request.webview_id)
                     .unwrap_or(false)
                 {
-                    // SCREENSHOT CAPTURE FOR SERVO WEBVIEW CONTENT MUST COME FROM THE CACHED
-                    // WEBVIEW SURFACE.
-                    // DO NOT EVER SWAP THIS FOR FRAMEBUFFER.
-                    // FRAMEBUFFER CAPTURE INCLUDES HAVI SHELL CHROME AND IS THE WRONG DATA
-                    // SOURCE FOR DEVTOOLS / WEBVIEW SCREENSHOTS.
-                    // THE CORRECT PATH IS CACHED-VIEW CAPTURE, SO HAVI REQUESTS CAPTURE FROM
-                    // THE CACHED WEBVIEW SURFACE WITHOUT TOUCHING TEXTURE OR FRAMEBUFFER
-                    // PLUMBING.
                     let source = match self
                         .ui
                         .view(cx, ids!(web_view_texture))
@@ -616,8 +608,12 @@ impl MatchEvent for App {
                         }
                     };
                     let capture_request_id = cx.request_capture(source);
-                    self.pending_screenshot_callbacks
-                        .insert(capture_request_id, (request.webview_id, request.request_id));
+                    self.pending_screenshot_callbacks.insert(
+                        capture_request_id,
+                        PendingScreenshotCallback {
+                            request_id: request.request_id,
+                        },
+                    );
                     self.next_frame = cx.new_next_frame();
                     cx.redraw_all();
                 }
@@ -1080,15 +1076,13 @@ impl AppMain for App {
             self.update_screenshot_mode(cx);
             self.handle_screenshot_capture_results(cx);
             for result in cx.drain_capture_results() {
-                if let Some((_webview_id, request_id)) =
-                    self.pending_screenshot_callbacks.remove(&result.request_id)
-                {
+                if let Some(pending) = self.pending_screenshot_callbacks.remove(&result.request_id) {
                     if let Some(mut image) =
                         servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {
                         composite_rgba_over_white(&mut image);
                         if let Some(servo) = &self.servo {
-                            servo.paint_screenshot_bridge().push_result(request_id, image);
+                            servo.paint_screenshot_bridge().push_result(pending.request_id, image);
                         }
                     }
                 }

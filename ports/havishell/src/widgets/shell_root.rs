@@ -397,7 +397,24 @@ script_mod! {
         }
     }
 
-    mod.widgets.WebViewHost = CachedView {
+    mod.widgets.WebViewCachedSurface = mod.widgets.ViewBase {
+        texture_caching: true
+        draw_bg +: {
+            image: texture_2d(float)
+            scale: varying(vec2(0))
+            shift: varying(vec2(0))
+            vertex: fn() {
+                let dpi = self.draw_pass.dpi_factor
+                let ceil_size = ceil(self.rect_size * dpi) / dpi
+                let floor_pos = floor(self.rect_pos * dpi) / dpi
+                self.scale = self.rect_size / ceil_size
+                self.shift = (self.rect_pos - floor_pos) / ceil_size
+                return self.clip_and_transform_vertex(self.rect_pos self.rect_size)
+            }
+            pixel: fn() {
+                return self.image.sample(self.pos * self.scale + self.shift)
+            }
+        }
         width: Fill
         height: Fill
         web_view := ServoWebView{
@@ -613,7 +630,7 @@ script_mod! {
                         width: Fill height: Fill
                         flow: Overlay
 
-                        web_view_texture := mod.widgets.WebViewHost {}
+                        web_view_texture := mod.widgets.WebViewCachedSurface {}
                         context_menu := mod.widgets.HaviContextMenu {}
                         pylon_menu := mod.widgets.HaviPylonMenu {}
                     }
