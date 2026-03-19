@@ -101,16 +101,6 @@ pub(crate) fn paint_scene(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let pass_size = cx.current_pass_size();
-    state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
-    state.draw_bg.draw_abs(
-        cx,
-        Rect {
-            pos: dvec2(0.0, 0.0),
-            size: pass_size,
-        },
-    );
-
     let mut runtime = CompositorRuntime::new(cx.cx);
     paint_frame_target(
         cx,
@@ -260,23 +250,6 @@ fn paint_frame_direct_2d(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    if frame_id == frame_tree.root {
-        paint_frame_with_effects(
-            cx,
-            frame_tree,
-            clip_tree,
-            render_plan,
-            compositor_scene,
-            runtime,
-            frame_id,
-            active_surface_id,
-            space_root_frame_id,
-            state,
-            parent_opacity,
-        );
-        return;
-    }
-
     let frame = frame_tree.frame(frame_id);
     state
         .frame_draw_lists
@@ -289,6 +262,14 @@ fn paint_frame_direct_2d(
     let pass_size = cx.current_pass_size();
     if frame_id == frame_tree.root {
         cx.begin_page_root_turtle(dvec2(0.0, 0.0), pass_size, Layout::default());
+        state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
+        state.draw_bg.draw_abs(
+            cx,
+            Rect {
+                pos: dvec2(0.0, 0.0),
+                size: pass_size,
+            },
+        );
     } else {
         // Draw-list view transforms already map frame-local geometry into world
         // space. Root-turtle clipping happens before that transform in Makepad,
@@ -302,7 +283,10 @@ fn paint_frame_direct_2d(
         .get_mut(&frame.key)
         .unwrap()
         .draw_list
-        .set_view_transform_self_only(cx.cx, &frame.matrix.world);
+        .set_view_transform_self_only(
+            cx.cx,
+            &frame_transform_in_space(frame_tree, space_root_frame_id, frame_id),
+        );
     paint_frame_with_effects(
         cx,
         frame_tree,

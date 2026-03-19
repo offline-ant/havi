@@ -166,10 +166,10 @@ pub(crate) fn has_true_3d_transform(
     );
 
     if !box_style.transform.0.is_empty() {
-        let Ok((_, is_3d)) = box_style.transform.to_transform_3d_matrix(Some(&reference_box)) else {
+        let Ok((matrix, _)) = box_style.transform.to_transform_3d_matrix(Some(&reference_box)) else {
             return false;
         };
-        if is_3d {
+        if is_3d_matrix(&transform_to_array(&matrix)) {
             return true;
         }
     }
@@ -339,17 +339,22 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     (m[15] - 1.0).abs() > 1e-5                       // m44
 }
 
-/// Flatten a 3D reference frame into a 2D affine basis.
+/// Flatten a 3D reference frame into a 2D affine matrix when the transformed
+/// z=0 plane remains planar in screen space.
 ///
-/// The fallback samples the transformed origin and the transformed unit axes on
-/// the element's local z=0 plane, then rebuilds a 2D affine matrix from those
-/// projected basis vectors.
+/// CSS 3D transforms used without `preserve-3d` are painted as the projection
+/// of the element's local z=0 plane. An affine 2D fallback therefore needs the
+/// exact projected corner positions, not just a basis sampled from the local
+/// axes. Solve the affine map from the projected top-left, top-right, and
+/// bottom-left corners so translation and shear match the projected quad.
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
         let p = Mat4f { v: *m }.transform_vec4(makepad_widgets::vec4f(x, y, 0.0, 1.0));
-        let w = if p.w.abs() > 1e-6 { p.w } else { 1.0 };
-        let px = p.x / w;
-        let py = p.y / w;
+        if p.w.abs() <= 1e-6 {
+            return None;
+        }
+        let px = p.x / p.w;
+        let py = p.y / p.w;
         if px.is_finite() && py.is_finite() {
             Some((px, py))
         } else {
@@ -357,9 +362,10 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
         }
     }
 
-    let p00 = project(m, 0.0, 0.0)?;
     let px = if bw.abs() > 1e-6 { bw } else { 1.0 };
     let py = if bh.abs() > 1e-6 { bh } else { 1.0 };
+
+    let p00 = project(m, 0.0, 0.0)?;
     let p10 = project(m, px, 0.0)?;
     let p01 = project(m, 0.0, py)?;
 

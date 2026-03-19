@@ -5,6 +5,20 @@ use havi_protocols::credentials::global_credential_store;
 use havi_protocols::resolve;
 use havi_protocols::util::mime_from_path;
 
+fn composite_rgba_over_white(image: &mut servo::RgbaImage) {
+    for pixel in image.pixels_mut() {
+        let alpha = pixel[3] as u32;
+        if alpha == 255 {
+            continue;
+        }
+        let inv_alpha = 255 - alpha;
+        pixel[0] = (((pixel[0] as u32 * alpha) + (255 * inv_alpha) + 127) / 255) as u8;
+        pixel[1] = (((pixel[1] as u32 * alpha) + (255 * inv_alpha) + 127) / 255) as u8;
+        pixel[2] = (((pixel[2] as u32 * alpha) + (255 * inv_alpha) + 127) / 255) as u8;
+        pixel[3] = 255;
+    }
+}
+
 fn servo_cursor_to_makepad(cursor: servo::Cursor) -> MouseCursor {
     match cursor {
         servo::Cursor::None => MouseCursor::Hidden,
@@ -1069,9 +1083,10 @@ impl AppMain for App {
                 if let Some((_webview_id, request_id)) =
                     self.pending_screenshot_callbacks.remove(&result.request_id)
                 {
-                    if let Some(image) =
+                    if let Some(mut image) =
                         servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {
+                        composite_rgba_over_white(&mut image);
                         if let Some(servo) = &self.servo {
                             servo.paint_screenshot_bridge().push_result(request_id, image);
                         }
