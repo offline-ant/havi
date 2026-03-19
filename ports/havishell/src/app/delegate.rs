@@ -8,6 +8,7 @@ use servo::{
     HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument, HpprResolvedMediaSource,
     HpprResolvedSourceRef,
 };
+use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
 static DEVTOOLS_BIND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
@@ -469,6 +470,7 @@ impl servo::ServoDelegate for HaviServoDelegate {
         let bind = format!("127.0.0.1:{}", port);
         set_devtools_bind(bind.clone());
         println!("HAVI_DEVTOOLS={}", bind);
+        let _ = std::io::stdout().flush();
         log!(
             "DEVTOOLS_BIND={} # havi-devtools-cli -p {}",
             bind,
