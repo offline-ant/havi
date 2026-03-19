@@ -15,26 +15,28 @@
 
 use std::sync::Arc;
 
+use base::id::WebViewId;
 use havi_types::Fragment;
+use layout_api::{shared_fragment_tree_for, SharedFragmentTree};
 
 /// The current shared fragment source used by havi-render.
 ///
-/// Today this is still the converted `havi_types::Fragment` tree because leaf
-/// extraction and embedder sharing are wired around it. Render code should go
-/// through this adapter instead of treating the converted tree as the
-/// architectural source of truth.
+/// Today this still reads the shared fragment registry, but the active semantic
+/// render path now treats the adapter as the only entry point rather than
+/// depending on converted payload ownership at the call site.
 #[derive(Clone)]
 pub(crate) struct LayoutFragmentSource {
-    fragments: Arc<Vec<Fragment>>,
+    shared_fragments: SharedFragmentTree,
 }
 
 impl LayoutFragmentSource {
-    pub(crate) fn new(fragments: Arc<Vec<Fragment>>) -> Self {
-        Self { fragments }
+    pub(crate) fn new(webview_id: WebViewId) -> Self {
+        Self {
+            shared_fragments: shared_fragment_tree_for(webview_id),
+        }
     }
 
-    pub(crate) fn fragments(&self) -> &[Fragment] {
-        self.fragments.as_slice()
+    pub(crate) fn fragments_arc(&self) -> Option<Arc<Vec<Fragment>>> {
+        self.shared_fragments.get()
     }
-
 }

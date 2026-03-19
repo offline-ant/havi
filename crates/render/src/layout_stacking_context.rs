@@ -279,7 +279,7 @@ fn build_fragment<'a>(
         }
         Fragment::Positioning(pf) => {
             for child in &pf.children {
-                build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted);
+                build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted, resolving);
             }
         }
     }
@@ -291,6 +291,7 @@ fn build_for_box<'a>(
     is_float: bool,
     parent_sc: &mut LayoutStackingContext<'a>,
     hoisted: &std::collections::HashMap<usize, &'a Fragment>,
+    resolving: &mut std::collections::HashSet<usize>,
 ) {
     let context_type = get_stacking_context_type(bf, is_float);
     match context_type {
@@ -306,7 +307,7 @@ fn build_for_box<'a>(
                 section: StackingContextSection::OwnBackgroundsAndBorders,
                 fragment,
             });
-            build_box_children(bf, &mut child_sc, hoisted);
+            build_box_children(bf, &mut child_sc, hoisted, resolving);
 
             let mut stolen = Vec::new();
             if ct != StackingContextType::RealStackingContext {
@@ -322,7 +323,7 @@ fn build_for_box<'a>(
                 section: get_section_for_non_sc(bf),
                 fragment,
             });
-            build_box_children(bf, parent_sc, hoisted);
+            build_box_children(bf, parent_sc, hoisted, resolving);
         }
     }
 }
@@ -331,12 +332,13 @@ fn build_box_children<'a>(
     bf: &'a BoxFragment,
     stacking_context: &mut LayoutStackingContext<'a>,
     hoisted: &std::collections::HashMap<usize, &'a Fragment>,
+    resolving: &mut std::collections::HashSet<usize>,
 ) {
     for child in &bf.children {
         // Always SkipHoisted for children — AbsoluteOrFixedPositioned
         // placeholders among children are the entry points that switch
         // to IncludeHoisted for the resolved fragment only.
-        build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted);
+        build_fragment(child, BuildMode::SkipHoisted, stacking_context, hoisted, resolving);
     }
 }
 

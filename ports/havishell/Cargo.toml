@@ -40,6 +40,7 @@ hppr-client = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
 layout_api = { path = "../../components/shared/layout" }
+base = { path = "../../components/shared/base" }
 paint_api = { path = "../../components/shared/paint" }
 pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"

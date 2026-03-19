@@ -150,6 +150,8 @@ pub struct ServoWebView {
     /// directly instead of using the GL texture.
     #[rust]
     shared_fragments: Option<layout_api::SharedFragmentTree>,
+    #[rust]
+    shared_webview_id: Option<base::id::WebViewId>,
     /// Data pointer of the last rendered fragment Arc, used to detect when the
     /// fragment tree is replaced (navigation) so GPU caches can be cleared.
     #[rust]
@@ -326,15 +328,15 @@ impl Widget for ServoWebView {
         // rect() may return 0x0 when sizing is not yet resolved.
         cx.turtle_mut().set_used(peek_rect.size.x, peek_rect.size.y);
 
-        if let Some(ref frags) = fragments {
+        if fragments.is_some() {
             // Rebuild stacking context tree only when fragments change.
             let needs_rebuild = self
                 .cached_fragment_source
                 .as_ref()
-                .map_or(true, |c| !c.is_valid_for(frags));
+                .map_or(true, |c| !c.is_valid_for(frag_ptr));
             if needs_rebuild {
                 self.cached_fragment_source =
-                    Some(havi_render::CachedFragmentSource::new(frags.clone()));
+                    Some(havi_render::CachedFragmentSource::new(frag_ptr));
             }
 
             let rect = cx.turtle().rect();
@@ -364,6 +366,7 @@ impl Widget for ServoWebView {
 
             havi_render::render_fragments_clipped(
                 cx,
+                self.shared_webview_id.expect("shared webview id"),
                 self.cached_fragment_source.as_ref().unwrap(),
                 viewport_top,
                 viewport_bottom,
@@ -472,12 +475,14 @@ impl ServoWebViewRef {
     pub fn set_shared_fragments(
         &self,
         cx: &mut Cx,
+        webview_id: base::id::WebViewId,
         shared: layout_api::SharedFragmentTree,
         scroll_state: layout_api::SharedScrollState,
         selection: layout_api::SharedDocumentSelection,
         image_store: paint_api::SharedImageStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
+            inner.shared_webview_id = Some(webview_id);
             inner.shared_fragments = Some(shared);
             inner.shared_scroll_state = Some(scroll_state);
             inner.shared_selection = Some(selection);

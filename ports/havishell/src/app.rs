@@ -1002,7 +1002,7 @@ impl App {
         let images = self.servo.as_ref().unwrap().image_store();
         self.ui
             .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(cx, shared, scroll, selection, images);
+            .set_shared_fragments(cx, tab.webview_id, shared, scroll, selection, images);
         self.ui.view(cx, ids!(web_view_texture)).redraw(cx);
     }
 

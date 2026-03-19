@@ -55,6 +55,7 @@ pub(crate) mod color {
 
 use std::collections::HashMap;
 
+use base::id::WebViewId;
 use havi_types::fragment_tree::BoxFragment;
 use havi_types::Fragment;
 use makepad_widgets::*;
@@ -191,7 +192,8 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
 /// viewport scroll offset is always subtracted from y.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
-    cached_fragments: &CachedFragmentSource,
+    webview_id: WebViewId,
+    _cached_fragments: &CachedFragmentSource,
     viewport_top: f32,
     viewport_bottom: f32,
     draw_bg: &mut DrawColor,
@@ -221,11 +223,14 @@ pub fn render_fragments_clipped(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
     );
-    let layout_source = layout_adapter::LayoutFragmentSource::new(cached_fragments.fragments_arc().clone());
-    let semantic_tree = layout_stacking_context::build_stacking_context_tree(layout_source.fragments());
+    let layout_source = layout_adapter::LayoutFragmentSource::new(webview_id);
+    let Some(fragments) = layout_source.fragments_arc() else {
+        return;
+    };
+    let semantic_tree = layout_stacking_context::build_stacking_context_tree(&fragments);
     let scene = frame_builder::build_scene(
         &semantic_tree,
-        layout_source.fragments(),
+        &fragments,
         scroll_state,
         scroll_origin,
         viewport_size,

@@ -3029,10 +3029,12 @@ name = "havi-render"
 version = "0.1.0"
 dependencies = [
  "app_units",
+ "base",
  "euclid",
  "havi-fonts",
  "havi-platform-fonts",
  "havi-types",
+ "layout_api",
  "makepad-compositor",
  "makepad-widgets",
  "rustybuzz 0.20.1",
@@ -3060,6 +3062,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "base",
  "cc",
  "crossbeam-channel",
  "dpi",
