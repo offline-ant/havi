@@ -9,7 +9,7 @@ use makepad_widgets::*;
 use crate::compositor_scene::CompositorSurfaceId;
 use crate::makepad_clip::{
     classify_clip_chain, map_rect_between_paint_containers, pop_clip_chain, push_clip_chain,
-    push_local_clip_chain, transform_rect, ClipPushResult,
+    push_local_clip_chain, transform_rect, ClipPushResult, MaskRuntime,
 };
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
@@ -46,6 +46,11 @@ struct CompositorRuntime {
     surfaces: HashMap<CompositorSurfaceId, MpSurface>,
 }
 
+struct BackendRuntime {
+    compositor: CompositorRuntime,
+    masks: MaskRuntime,
+}
+
 impl CompositorRuntime {
     fn new(cx: &mut Cx) -> Self {
         Self {
@@ -54,6 +59,18 @@ impl CompositorRuntime {
         }
     }
 
+}
+
+impl BackendRuntime {
+    fn new(cx: &mut Cx) -> Self {
+        Self {
+            compositor: CompositorRuntime::new(cx),
+            masks: MaskRuntime::new(cx),
+        }
+    }
+}
+
+impl CompositorRuntime {
     fn ensure_surface(
         &mut self,
         cx: &mut Cx,
@@ -101,7 +118,7 @@ pub(crate) fn paint_scene(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let mut runtime = CompositorRuntime::new(cx.cx);
+    let mut runtime = BackendRuntime::new(cx.cx);
     paint_paint_container_target(
         cx,
         scene,
@@ -120,7 +137,7 @@ pub(crate) fn paint_scene(
 fn paint_paint_container_target(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    runtime: &mut CompositorRuntime,
+    runtime: &mut BackendRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
     target_paint_container_id: PaintContainerId,
@@ -173,7 +190,7 @@ fn paint_paint_container_target(
 fn paint_compositor_surface(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    runtime: &mut CompositorRuntime,
+    runtime: &mut BackendRuntime,
     surface_id: CompositorSurfaceId,
     surface_root_paint_container_id: PaintContainerId,
     target_paint_container_id: PaintContainerId,
@@ -197,7 +214,7 @@ fn paint_compositor_surface(
         scene.frame_participation(surface_root_paint_container_id),
         RenderParticipation::Compositor { .. }
     );
-    runtime.begin_surface(cx, surface_id, local_bounds.size, with_depth, local_bounds.pos);
+    runtime.compositor.begin_surface(cx, surface_id, local_bounds.size, with_depth, local_bounds.pos);
     paint_paint_container_target(
         cx,
         scene,
@@ -210,10 +227,10 @@ fn paint_compositor_surface(
         state,
         1.0,
     );
-    runtime.end_surface(cx, surface_id);
+    runtime.compositor.end_surface(cx, surface_id);
 
     let mut quad = MpCompositedQuad::new(
-        runtime.surface_texture(surface_id),
+        runtime.compositor.surface_texture(surface_id),
         Rect {
             pos: dvec2(0.0, 0.0),
             size: local_bounds.size,
@@ -234,13 +251,13 @@ fn paint_compositor_surface(
     if let Some(clip_planes) = projected_clip {
         quad.clip_planes = clip_planes.planes[..clip_planes.count].to_vec();
     }
-    runtime.compositor.draw_quad(cx, &quad);
+    runtime.compositor.compositor.draw_quad(cx, &quad);
 }
 
 fn paint_paint_container_direct_2d(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    runtime: &mut CompositorRuntime,
+    runtime: &mut BackendRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
     target_paint_container_id: PaintContainerId,
@@ -319,7 +336,7 @@ fn paint_paint_container_direct_2d(
 fn paint_paint_container_with_effects(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    runtime: &mut CompositorRuntime,
+    runtime: &mut BackendRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
     target_paint_container_id: PaintContainerId,
@@ -396,7 +413,7 @@ fn paint_paint_container_with_effects(
 fn paint_paint_container_contents(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    runtime: &mut CompositorRuntime,
+    runtime: &mut BackendRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
     target_paint_container_id: PaintContainerId,
@@ -434,6 +451,10 @@ fn paint_paint_container_contents(
                     paint_container_id,
                     scene.effective_clip_chain_for_paint_container(child_paint_container_id),
                 );
+                if let Some(chain) = pushed.mask_chain.as_ref() {
+                    let _ = runtime.masks.begin_mask_chain(cx, paint_container_id, chain);
+                    continue;
+                }
                 if pushed.projected_quad_clip_planes.is_none() {
                     paint_paint_container_target(
                         cx,
