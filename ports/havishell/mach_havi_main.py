@@ -815,6 +815,22 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Test command
+# ---------------------------------------------------------------------------
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    env = setup_desktop_env()
+    cmd = [sys.executable, str(HAVI_ROOT / "tests" / "havi" / "reftest.py")]
+    extra = getattr(args, "extra", None)
+    if extra:
+        cmd.extend(extra)
+
+    _log("desktop test", env=env, cmd=cmd)
+    return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
+
+
+# ---------------------------------------------------------------------------
 # Run commands
 # ---------------------------------------------------------------------------
 
@@ -1012,6 +1028,11 @@ def run(topdir: str) -> int:
     p_check = sub.add_parser("check", help="Check havishell (desktop only)")
     _add_common_flags(p_check)
     p_check.set_defaults(func=cmd_check)
+
+    # --- test ---
+    p_test = sub.add_parser("test", help="Run HAVI tests (desktop reftests)")
+    p_test.add_argument("extra", nargs="*", help="Extra arguments forwarded to tests/havi/reftest.py")
+    p_test.set_defaults(func=cmd_test)
 
     # --- run ---
     p_run = sub.add_parser("run", help="Run havishell")
