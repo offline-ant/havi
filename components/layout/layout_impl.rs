@@ -1276,10 +1276,14 @@ impl LayoutThread {
         if let Some(fragment_tree) = &*self.fragment_tree.borrow() {
             fragment_tree.calculate_scrollable_overflow();
 
-            let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
-                &fragment_tree.root_fragments,
-                image_resolver,
-            ));
+            let semantic = Arc::new({
+                let mut visited_pipelines = std::collections::HashSet::new();
+                crate::semantic_fragment::ToSemanticFragmentTree::to_semantic_fragments(
+                    fragment_tree.root_fragments.as_slice(),
+                    image_resolver,
+                    &mut visited_pipelines,
+                )
+            });
             self.shared_layout_fragments.set(semantic.clone());
             self.shared_layout_fragments_by_pipeline.set(semantic);
 
