@@ -400,7 +400,7 @@ fn paint_paint_container_contents(
                     cx,
                     scene,
                     paint_container_id,
-                    scene.frame_clip_id(child_paint_container_id),
+                    scene.effective_clip_chain_for_paint_container(child_paint_container_id),
                 );
                 paint_paint_container_target(
                     cx,

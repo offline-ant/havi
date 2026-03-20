@@ -6,7 +6,10 @@ use havi_fragment_semantics::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 
 use crate::makepad_clip::transform_point;
-use crate::scene::{PaintContainerId, RenderScene, SceneClipId, ScenePaintCommand, ScenePaintItem, SpatialNodeKind};
+use crate::scene::{
+    PaintContainerId, RenderScene, SceneClipId, ScenePaintCommand, ScenePaintItem,
+    SpatialNodeSemantics,
+};
 
 pub(crate) fn hit_test(
     scene: &RenderScene<'_>,
@@ -27,7 +30,7 @@ fn hit_test_frame_reverse(
     paint_container_id: PaintContainerId,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    let point_local = transform_point(&scene.frame_world_inverse(paint_container_id), point_world);
+    let point_local = point_in_paint_container(scene, paint_container_id, point_world);
 
     for command in scene.frame_paint_list(paint_container_id).iter().rev() {
         match *command {
@@ -66,11 +69,13 @@ fn find_scroll_container_in_frame_reverse(
         }
     }
 
-    if scene.spatial_node(scene.paint_container_spatial_node_id(paint_container_id)).kind == SpatialNodeKind::Scroll {
-        if !clip_chain_contains_point(scene, scene.frame_clip_id(paint_container_id), point_world) {
+    let spatial_node = scene.spatial_node(scene.paint_container_spatial_node_id(paint_container_id));
+    if let SpatialNodeSemantics::Scroll(scroll) = spatial_node.semantics {
+        let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
+        if !clip_chain_contains_point(scene, clip_id, point_world) {
             return None;
         }
-        if let Some(node_id) = scene.frame_owner_node_id(paint_container_id) {
+        if let Some(node_id) = scroll.external_scroll_node_id.or(scene.frame_owner_node_id(paint_container_id)) {
             return Some(OpaqueNode(node_id));
         }
     }
@@ -90,16 +95,29 @@ fn clip_chain_contains_point(
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        let point_local = transform_point(
-            &scene.spatial_node(node.parent_spatial_node_id).world_inverse,
-            point_world,
-        );
+        let point_local = point_in_spatial_node(scene, node.parent_spatial_node_id, point_world);
         if !point_in_rect(point_local, node.rect) {
             return false;
         }
         current = node.parent_clip_id;
     }
     true
+}
+
+fn point_in_paint_container(
+    scene: &RenderScene<'_>,
+    paint_container_id: PaintContainerId,
+    point_world: DVec2,
+) -> DVec2 {
+    point_in_spatial_node(scene, scene.paint_container_spatial_node_id(paint_container_id), point_world)
+}
+
+fn point_in_spatial_node(
+    scene: &RenderScene<'_>,
+    spatial_node_id: crate::scene::SpatialNodeId,
+    point_world: DVec2,
+) -> DVec2 {
+    transform_point(&scene.world_to_spatial_transform(spatial_node_id), point_world)
 }
 
 fn hit_test_item_local(

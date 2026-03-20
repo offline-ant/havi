@@ -13,8 +13,10 @@
 //! - active scene identity is split into spatial nodes and paint containers
 //! - builder APIs expose spatial-node creation and paint-container attachment separately
 //! - stacking-context lowering carries scene-native spatial attachments and descriptors
-//! - spatial nodes now store scene-native semantic carriers for reference-frame, sticky,
+//! - spatial nodes store scene-native semantic carriers for reference-frame, sticky,
 //!   scroll, and clip linkage state
+//! - scene consumers are moving onto semantic carriers and explicit linkage instead of
+//!   matrix-only truth and coarse kind checks
 //! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`

@@ -229,12 +229,20 @@ impl<'a> RenderScene<'a> {
         self.paint_containers[paint_container_id].spatial_node_id
     }
 
+    pub(crate) fn spatial_to_world_transform(&self, spatial_node_id: SpatialNodeId) -> Mat4f {
+        self.spatial_node(spatial_node_id).world
+    }
+
+    pub(crate) fn world_to_spatial_transform(&self, spatial_node_id: SpatialNodeId) -> Mat4f {
+        self.spatial_node(spatial_node_id).world_inverse
+    }
+
     pub(crate) fn frame_world_transform(&self, paint_container_id: PaintContainerId) -> Mat4f {
-        self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).world
+        self.spatial_to_world_transform(self.paint_container_spatial_node_id(paint_container_id))
     }
 
     pub(crate) fn frame_world_inverse(&self, paint_container_id: PaintContainerId) -> Mat4f {
-        self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).world_inverse
+        self.world_to_spatial_transform(self.paint_container_spatial_node_id(paint_container_id))
     }
 
     pub(crate) fn frame_owner_node_id(&self, paint_container_id: PaintContainerId) -> Option<usize> {
@@ -243,6 +251,26 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn frame_clip_id(&self, paint_container_id: PaintContainerId) -> SceneClipId {
         self.paint_containers[paint_container_id].clip_id
+    }
+
+    pub(crate) fn effective_clip_chain_for_paint_container(
+        &self,
+        paint_container_id: PaintContainerId,
+    ) -> SceneClipId {
+        let paint_clip_id = self.frame_clip_id(paint_container_id);
+        let spatial_clip_id = self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).clip_chain_root;
+        if paint_clip_id != SceneClipId::INVALID {
+            paint_clip_id
+        } else {
+            spatial_clip_id
+        }
+    }
+
+    pub(crate) fn effective_scroll_node_for_paint_container(
+        &self,
+        paint_container_id: PaintContainerId,
+    ) -> Option<SpatialNodeId> {
+        self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).nearest_scroll_node_id
     }
 }
 
