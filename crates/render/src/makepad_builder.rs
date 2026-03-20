@@ -108,6 +108,7 @@ pub(crate) fn paint_scene(
         &mut runtime,
         scene.root_paint_container_id(),
         None,
+        scene.root_paint_container_id(),
         None,
         root_viewport_size,
         state,
@@ -122,16 +123,13 @@ fn paint_paint_container_target(
     runtime: &mut CompositorRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
+    target_paint_container_id: PaintContainerId,
     space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
     let frame_surface_id = scene.frame_surface(paint_container_id);
-    let target_paint_container_id = active_surface_id
-        .and_then(|surface_id| scene.compositor_scene().surfaces.get(surface_id))
-        .and_then(|surface| surface.direct_frames.first().copied())
-        .unwrap_or(scene.root_paint_container_id());
     let redirects_to_surface = scene.compositor_scene().frame_redirects_to_surface(
         scene,
         paint_container_id,
@@ -148,6 +146,7 @@ fn paint_paint_container_target(
                 runtime,
                 frame_surface_id.unwrap(),
                 paint_container_id,
+                target_paint_container_id,
                 space_root_paint_container_id,
                 root_viewport_size,
                 state,
@@ -161,6 +160,7 @@ fn paint_paint_container_target(
                 runtime,
                 paint_container_id,
                 active_surface_id,
+                target_paint_container_id,
                 space_root_paint_container_id,
                 root_viewport_size,
                 state,
@@ -176,6 +176,7 @@ fn paint_compositor_surface(
     runtime: &mut CompositorRuntime,
     surface_id: CompositorSurfaceId,
     surface_root_paint_container_id: PaintContainerId,
+    target_paint_container_id: PaintContainerId,
     parent_space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
@@ -203,6 +204,7 @@ fn paint_compositor_surface(
         runtime,
         surface_root_paint_container_id,
         Some(surface_id),
+        surface_root_paint_container_id,
         Some(surface_root_paint_container_id),
         root_viewport_size,
         state,
@@ -217,11 +219,7 @@ fn paint_compositor_surface(
             size: local_bounds.size,
         },
     );
-    let projected_clip = projected_surface_clip(
-        scene,
-        parent_space_root_paint_container_id,
-        surface_root_paint_container_id,
-    );
+    let projected_clip = projected_surface_clip(scene, target_paint_container_id, surface_root_paint_container_id);
     let frame_transform = paint_container_transform_in_space(
         scene,
         parent_space_root_paint_container_id,
@@ -245,6 +243,7 @@ fn paint_paint_container_direct_2d(
     runtime: &mut CompositorRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
+    target_paint_container_id: PaintContainerId,
     space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
@@ -269,6 +268,7 @@ fn paint_paint_container_direct_2d(
             runtime,
             paint_container_id,
             active_surface_id,
+            target_paint_container_id,
             space_root_paint_container_id,
             root_viewport_size,
             state,
@@ -301,6 +301,7 @@ fn paint_paint_container_direct_2d(
         runtime,
         paint_container_id,
         active_surface_id,
+        target_paint_container_id,
         space_root_paint_container_id,
         root_viewport_size,
         state,
@@ -321,6 +322,7 @@ fn paint_paint_container_with_effects(
     runtime: &mut CompositorRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
+    target_paint_container_id: PaintContainerId,
     space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
@@ -341,6 +343,7 @@ fn paint_paint_container_with_effects(
                     runtime,
                     paint_container_id,
                     active_surface_id,
+                    target_paint_container_id,
                     space_root_paint_container_id,
                     root_viewport_size,
                     state,
@@ -364,6 +367,7 @@ fn paint_paint_container_with_effects(
                     runtime,
                     paint_container_id,
                     active_surface_id,
+                    target_paint_container_id,
                     space_root_paint_container_id,
                     root_viewport_size,
                     state,
@@ -381,6 +385,7 @@ fn paint_paint_container_with_effects(
         runtime,
         paint_container_id,
         active_surface_id,
+        target_paint_container_id,
         space_root_paint_container_id,
         root_viewport_size,
         state,
@@ -394,6 +399,7 @@ fn paint_paint_container_contents(
     runtime: &mut CompositorRuntime,
     paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
+    target_paint_container_id: PaintContainerId,
     space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
@@ -413,7 +419,7 @@ fn paint_paint_container_contents(
                 let child_redirects_to_surface = scene.compositor_scene().frame_redirects_to_surface(
                     scene,
                     child_paint_container_id,
-                    paint_container_id,
+                    target_paint_container_id,
                     active_surface_id,
                 );
                 if child_redirects_to_surface {
@@ -435,6 +441,7 @@ fn paint_paint_container_contents(
                         runtime,
                         child_paint_container_id,
                         active_surface_id,
+                        target_paint_container_id,
                         space_root_paint_container_id,
                         root_viewport_size,
                         state,
@@ -449,17 +456,13 @@ fn paint_paint_container_contents(
 
 fn projected_surface_clip(
     scene: &RenderScene<'_>,
-    space_root_paint_container_id: Option<PaintContainerId>,
+    target_paint_container_id: PaintContainerId,
     paint_container_id: PaintContainerId,
 ) -> Option<crate::scene::BackendClipPlanes> {
     let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
-    classify_clip_chain(
-        scene,
-        space_root_paint_container_id.unwrap_or(scene.root_paint_container_id()),
-        clip_id,
-    )
-    .push_result
-    .projected_quad_clip_planes
+    classify_clip_chain(scene, target_paint_container_id, clip_id)
+        .push_result
+        .projected_quad_clip_planes
 }
 
 fn paint_container_transform_in_space(

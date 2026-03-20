@@ -25,6 +25,7 @@ pub(crate) struct CompositorSurface {
     pub participates_in_group_id: Option<CompositorGroupId>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub flattening_boundary: bool,
+    pub projected_clip_surface: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -50,7 +51,11 @@ impl CompositorScene {
     ) -> bool {
         self.frame_surface(paint_container_id)
             .is_some_and(|surface_id| Some(surface_id) != active_surface_id)
-            || self.frame_requires_projected_clip_surface(scene, paint_container_id, target_paint_container_id)
+            || self.frame_needs_additional_projected_clip_surface(
+                scene,
+                paint_container_id,
+                target_paint_container_id,
+            )
     }
 
     pub(crate) fn frame_requires_projected_clip_surface(
@@ -59,14 +64,29 @@ impl CompositorScene {
         paint_container_id: PaintContainerId,
         target_paint_container_id: PaintContainerId,
     ) -> bool {
-        if self.frame_surface(paint_container_id).is_some() {
-            return false;
-        }
         let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
         classify_clip_chain(scene, target_paint_container_id, clip_id)
             .push_result
             .projected_quad_clip_planes
             .is_some()
+    }
+
+    pub(crate) fn frame_needs_additional_projected_clip_surface(
+        &self,
+        scene: &RenderScene<'_>,
+        paint_container_id: PaintContainerId,
+        target_paint_container_id: PaintContainerId,
+    ) -> bool {
+        match self.frame_surface(paint_container_id) {
+            None => self.frame_requires_projected_clip_surface(scene, paint_container_id, target_paint_container_id),
+            Some(surface_id) => {
+                let surface = &self.surfaces[surface_id];
+                surface.projected_clip_surface
+                    && Some(target_paint_container_id) != surface.parent_surface_id.and_then(|parent_surface_id| {
+                        self.surfaces[parent_surface_id].direct_frames.first().copied()
+                    })
+            }
+        }
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<CompositorSurfaceId> {
@@ -110,7 +130,12 @@ impl CompositorScene {
                 }
             }
             RenderParticipation::Direct2d => {
-                let surface_id = self.push_surface(paint_container_id, current_surface_id, CompositorGroupMode::Flat);
+                let surface_id = self.push_surface(
+                    paint_container_id,
+                    current_surface_id,
+                    CompositorGroupMode::Flat,
+                    true,
+                );
                 self.push_direct_frame(paint_container_id, Some(surface_id));
                 for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
                     self.visit_frame(
@@ -128,7 +153,7 @@ impl CompositorScene {
                         if data.has_perspective || data.preserves_3d => CompositorGroupMode::Preserve3d,
                     _ => group,
                 };
-                let surface_id = self.push_surface(paint_container_id, current_surface_id, group);
+                let surface_id = self.push_surface(paint_container_id, current_surface_id, group, false);
                 if let Some(group_id) = current_preserve_group_id {
                     self.surfaces[surface_id].participates_in_group_id = Some(group_id);
                     self.groups[group_id].member_surfaces.push(surface_id);
@@ -177,6 +202,7 @@ impl CompositorScene {
         paint_container_id: PaintContainerId,
         parent_surface_id: Option<CompositorSurfaceId>,
         group_mode: CompositorGroupMode,
+        projected_clip_surface: bool,
     ) -> CompositorSurfaceId {
         let flattening_boundary = matches!(group_mode, CompositorGroupMode::Flat);
         let surface_id = self.surfaces.len();
@@ -187,6 +213,7 @@ impl CompositorScene {
             started_group_id: None,
             participates_in_group_id: None,
             flattening_boundary,
+            projected_clip_surface,
         });
         self.frame_surface.insert(paint_container_id, surface_id);
         if let Some(parent_surface_id) = parent_surface_id {
