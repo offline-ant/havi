@@ -94,15 +94,10 @@ fn clip_chain_contains_point(
 
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
-        let node = scene.clip_node(current).unwrap();
-        let point_local = point_in_spatial_node(scene, node.parent_spatial_node_id, point_world);
-        if !point_in_rect(point_local, node.rect) {
+        if !scene.clip_contains_world_point(current, point_world) {
             return false;
         }
-        if scene.clip_chain_has_reference_frame_effects(current) {
-            current = node.parent_clip_id;
-            continue;
-        }
+        let node = scene.clip_node(current).unwrap();
         current = node.parent_clip_id;
     }
     true

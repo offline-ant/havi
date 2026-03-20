@@ -1,6 +1,6 @@
 use makepad_widgets::*;
 
-use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SceneClipKind, SpatialNodeId, SpatialNodeSemantics};
+use crate::scene::{PaintContainerId, RenderScene, SceneClipGeometry, SceneClipId, SceneClipKind, SpatialNodeSemantics};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
@@ -15,24 +15,21 @@ pub(crate) fn push_clip_chain(
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        let mapped = map_rect_from_spatial_to_paint_container(
-            scene,
-            node.parent_spatial_node_id,
-            paint_container_id,
-            node.rect,
-        );
+        let geometry = scene
+            .clip_geometry_in_paint_container(current, paint_container_id)
+            .unwrap();
         if matches!(node.kind, SceneClipKind::OverflowClip) {
-            chain.push(mapped);
+            chain.push(geometry);
         } else if !clip_node_uses_perspective(scene, current) {
-            chain.push(mapped);
+            chain.push(geometry);
         } else {
-            chain.push(mapped);
+            chain.push(geometry);
         }
         current = node.parent_clip_id;
     }
     chain.reverse();
-    for rect in &chain {
-        cx.push_clip_rect(*rect);
+    for geometry in &chain {
+        push_clip_geometry(cx, *geometry);
     }
     chain.len()
 }
@@ -51,15 +48,15 @@ pub(crate) fn push_local_clip_chain(
     let paint_spatial_node_id = scene.paint_container_spatial_node_id(paint_container_id);
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        if node.parent_spatial_node_id != paint_spatial_node_id {
+        if node.spatial_node_id != paint_spatial_node_id {
             break;
         }
-        chain.push(node.rect);
+        chain.push(node.geometry);
         current = node.parent_clip_id;
     }
     chain.reverse();
-    for rect in &chain {
-        cx.push_clip_rect(*rect);
+    for geometry in &chain {
+        push_clip_geometry(cx, *geometry);
     }
     chain.len()
 }
@@ -116,20 +113,16 @@ pub(crate) fn map_rect_between_paint_containers(
     transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
 }
 
-pub(crate) fn map_rect_from_spatial_to_paint_container(
-    scene: &RenderScene<'_>,
-    from_spatial_node_id: SpatialNodeId,
-    to_paint_container_id: PaintContainerId,
-    rect: Rect,
-) -> Rect {
-    let world_rect = transform_rect(&scene.spatial_to_world_transform(from_spatial_node_id), rect);
-    transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
-}
-
 fn clip_node_uses_perspective(scene: &RenderScene<'_>, clip_id: SceneClipId) -> bool {
     let node = scene.clip_node(clip_id).unwrap();
     matches!(
         scene.spatial_node(node.reference_frame_id).semantics,
         SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d
     )
+}
+
+fn push_clip_geometry(cx: &mut Cx2d, geometry: SceneClipGeometry) {
+    match geometry {
+        SceneClipGeometry::Rect { rect } => cx.push_clip_rect(rect),
+    }
 }

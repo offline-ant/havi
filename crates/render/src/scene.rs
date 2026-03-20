@@ -85,10 +85,15 @@ pub(crate) enum SceneClipKind {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) enum SceneClipGeometry {
+    Rect { rect: Rect },
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
-    pub parent_spatial_node_id: SpatialNodeId,
-    pub rect: Rect,
+    pub spatial_node_id: SpatialNodeId,
+    pub geometry: SceneClipGeometry,
     pub scroll_node_id: Option<SpatialNodeId>,
     pub overflow_root_spatial_node_id: Option<SpatialNodeId>,
     pub reference_frame_id: SpatialNodeId,
@@ -198,15 +203,6 @@ impl<'a> RenderScene<'a> {
         &self.paint_containers[paint_container_id].paint_list
     }
 
-    pub(crate) fn child_frames(&self, paint_container_id: PaintContainerId) -> impl Iterator<Item = PaintContainerId> + '_ {
-        self.frame_paint_list(paint_container_id)
-            .iter()
-            .filter_map(|command| match command {
-                ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => Some(*child_paint_container_id),
-                ScenePaintCommand::Item(_) => None,
-            })
-    }
-
     pub(crate) fn clip_node(&self, clip_id: SceneClipId) -> Option<&SceneClipNode> {
         if clip_id == SceneClipId::INVALID {
             None
@@ -228,6 +224,28 @@ impl<'a> RenderScene<'a> {
             current = node.parent_clip_id;
         }
         false
+    }
+
+    pub(crate) fn clip_contains_world_point(&self, clip_id: SceneClipId, point_world: DVec2) -> bool {
+        let Some(node) = self.clip_node(clip_id) else {
+            return true;
+        };
+        let point_local = transform_point(&self.world_to_spatial_transform(node.spatial_node_id), point_world);
+        clip_geometry_contains_point(node.geometry, point_local)
+    }
+
+    pub(crate) fn clip_geometry_in_paint_container(
+        &self,
+        clip_id: SceneClipId,
+        paint_container_id: PaintContainerId,
+    ) -> Option<SceneClipGeometry> {
+        let node = self.clip_node(clip_id)?;
+        Some(map_clip_geometry_from_spatial_to_paint_container(
+            self,
+            node.spatial_node_id,
+            paint_container_id,
+            node.geometry,
+        ))
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
@@ -286,13 +304,6 @@ impl<'a> RenderScene<'a> {
         } else {
             spatial_clip_id
         }
-    }
-
-    pub(crate) fn effective_scroll_node_for_paint_container(
-        &self,
-        paint_container_id: PaintContainerId,
-    ) -> Option<SpatialNodeId> {
-        self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).nearest_scroll_node_id
     }
 }
 
@@ -399,6 +410,65 @@ fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
     }
 
     dvec2(dx, dy)
+}
+
+fn clip_geometry_contains_point(geometry: SceneClipGeometry, point: DVec2) -> bool {
+    match geometry {
+        SceneClipGeometry::Rect { rect } => {
+            point.x >= rect.pos.x
+                && point.x < rect.pos.x + rect.size.x
+                && point.y >= rect.pos.y
+                && point.y < rect.pos.y + rect.size.y
+        }
+    }
+}
+
+fn map_clip_geometry_from_spatial_to_paint_container(
+    scene: &RenderScene<'_>,
+    from_spatial_node_id: SpatialNodeId,
+    to_paint_container_id: PaintContainerId,
+    geometry: SceneClipGeometry,
+) -> SceneClipGeometry {
+    match geometry {
+        SceneClipGeometry::Rect { rect } => {
+            let world_rect = transform_rect(&scene.spatial_to_world_transform(from_spatial_node_id), rect);
+            let mapped = transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect);
+            SceneClipGeometry::Rect { rect: mapped }
+        }
+    }
+}
+
+fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
+    let mapped = matrix.transform_vec4(vec4f(point.x as f32, point.y as f32, 0.0, 1.0));
+    if mapped.w.abs() > 1e-6 {
+        dvec2((mapped.x / mapped.w) as f64, (mapped.y / mapped.w) as f64)
+    } else {
+        dvec2(mapped.x as f64, mapped.y as f64)
+    }
+}
+
+fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
+    let points = [
+        dvec2(rect.pos.x, rect.pos.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y),
+        dvec2(rect.pos.x, rect.pos.y + rect.size.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y + rect.size.y),
+    ];
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for point in points {
+        let mapped = transform_point(matrix, point);
+        min_x = min_x.min(mapped.x);
+        min_y = min_y.min(mapped.y);
+        max_x = max_x.max(mapped.x);
+        max_y = max_y.max(mapped.y);
+    }
+    Rect {
+        pos: dvec2(min_x, min_y),
+        size: dvec2((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+    }
 }
 
 fn translation_matrix(tx: f32, ty: f32) -> Mat4f {

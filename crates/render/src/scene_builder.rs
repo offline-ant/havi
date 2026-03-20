@@ -181,8 +181,8 @@ impl<'a> RenderSceneBuilder<'a> {
         let clip_id = SceneClipId(self.clip_nodes.len());
         self.clip_nodes.push(SceneClipNode {
             parent_clip_id,
-            parent_spatial_node_id: spatial_node_id,
-            rect,
+            spatial_node_id,
+            geometry: crate::scene::SceneClipGeometry::Rect { rect },
             scroll_node_id: self.spatial_nodes[spatial_node_id.0].nearest_scroll_node_id,
             overflow_root_spatial_node_id: Some(spatial_node_id),
             reference_frame_id: self.spatial_nodes[spatial_node_id.0].nearest_reference_frame_id,
