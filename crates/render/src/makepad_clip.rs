@@ -1,8 +1,8 @@
 use makepad_widgets::*;
 
 use crate::scene::{
-    BackendClipExecution, BackendClipExecutionKind, BackendClipPlanes, PaintContainerId, RenderScene,
-    SceneClipGeometry, SceneClipId,
+    BackendClipExecution, BackendClipExecutionKind, BackendClipPlanes, BackendProjectedClipLimit,
+    PaintContainerId, RenderScene, SceneClipGeometry, SceneClipId,
 };
 
 pub(crate) fn push_clip_chain(
@@ -42,6 +42,9 @@ pub(crate) fn classify_clip_chain(
                 BackendClipExecutionKind::ProjectedQuadFallback => {
                     if let Some(clip_planes) = execution.clip_planes {
                         push_result.projected_quad_clip_planes = Some(clip_planes);
+                    }
+                    if let Some(limit) = execution.projected_clip_limit {
+                        push_result.projected_clip_limit = Some(limit);
                     }
                     push_result.used_projected_quad_fallback = true;
                 }
@@ -101,6 +104,7 @@ pub(crate) struct ClassifiedClipChain {
 pub(crate) struct ClipPushResult {
     pub rect_pushes: usize,
     pub projected_quad_clip_planes: Option<BackendClipPlanes>,
+    pub projected_clip_limit: Option<BackendProjectedClipLimit>,
     pub used_projected_quad_fallback: bool,
     pub used_mask_fallback: bool,
 }

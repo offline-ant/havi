@@ -102,12 +102,19 @@ pub(crate) struct BackendClipExecution {
     pub rect: Option<Rect>,
     pub quad: Option<[DVec2; 4]>,
     pub clip_planes: Option<BackendClipPlanes>,
+    pub projected_clip_limit: Option<BackendProjectedClipLimit>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BackendClipPlanes {
     pub planes: [Vec4f; 4],
     pub count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BackendProjectedClipLimit {
+    DegenerateQuad,
+    ClipPlaneCapacity,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -296,12 +303,19 @@ impl<'a> RenderScene<'a> {
                 rect,
             )),
         };
-        let clip_planes = quad.and_then(backend_clip_planes_from_quad);
+        let (clip_planes, projected_clip_limit) = match quad {
+            Some(quad) => match backend_clip_planes_from_quad(quad) {
+                Ok(clip_planes) => (Some(clip_planes), None),
+                Err(limit) => (None, Some(limit)),
+            },
+            None => (None, None),
+        };
         Some(BackendClipExecution {
             kind,
             rect,
             quad,
             clip_planes,
+            projected_clip_limit,
         })
     }
 
@@ -516,21 +530,26 @@ fn project_rect_to_paint_container_quad(
     corners.map(|point| transform_point(&to_local, transform_point(&to_world, point)))
 }
 
-fn backend_clip_planes_from_quad(quad: [DVec2; 4]) -> Option<BackendClipPlanes> {
+fn backend_clip_planes_from_quad(
+    quad: [DVec2; 4],
+) -> Result<BackendClipPlanes, BackendProjectedClipLimit> {
     let mut planes = [vec4(0.0, 0.0, 0.0, 0.0); 4];
+    if planes.len() > makepad_compositor::MP_MAX_CLIP_PLANES {
+        return Err(BackendProjectedClipLimit::ClipPlaneCapacity);
+    }
     for index in 0..4 {
         let from = quad[index];
         let to = quad[(index + 1) % 4];
         let edge = dvec2(to.x - from.x, to.y - from.y);
         let length = (edge.x * edge.x + edge.y * edge.y).sqrt();
         if length <= 1e-6 {
-            return None;
+            return Err(BackendProjectedClipLimit::DegenerateQuad);
         }
         let normal = dvec2(-edge.y / length, edge.x / length);
         let distance = -(normal.x * from.x + normal.y * from.y);
         planes[index] = vec4(normal.x as f32, normal.y as f32, 0.0, distance as f32);
     }
-    Some(BackendClipPlanes { planes, count: 4 })
+    Ok(BackendClipPlanes { planes, count: 4 })
 }
 
 fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
