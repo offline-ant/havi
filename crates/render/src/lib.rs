@@ -228,13 +228,7 @@ pub fn render_fragments_clipped(
     let Some(fragments) = layout_source.fragments_arc() else {
         return;
     };
-    let semantic_tree = layout_stacking_context::build_stacking_context_tree(
-        &fragments,
-        0,
-        crate::clip_tree::ClipId::INVALID,
-    );
     let scene = frame_builder::build_scene(
-        &semantic_tree,
         &fragments,
         scroll_state,
         scroll_origin,

@@ -2,6 +2,7 @@
 
 use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_types::{Fragment, PhysicalRect};
+use makepad_widgets::{dvec2, Mat4f, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
@@ -256,8 +257,12 @@ pub(crate) enum LayoutPaintItem<'a, 'b> {
 
 pub(crate) fn build_stacking_context_tree<'a>(
     fragments: &'a [Fragment],
+    frame_tree: &mut crate::frame_tree::FrameTree<'a>,
+    clip_tree: &mut crate::clip_tree::ClipTree,
     root_frame_id: FrameId,
     root_clip_id: ClipId,
+    scroll_state: &crate::ScrollState,
+    owner_semantics: &std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 ) -> LayoutStackingContext<'a> {
     let mut root = LayoutStackingContext::new_root(root_frame_id, root_clip_id);
     let root_cb = ContainingBlock {
@@ -270,8 +275,14 @@ pub(crate) fn build_stacking_context_tree<'a>(
         for_absolute_descendants: root_cb,
         for_absolute_and_fixed_descendants: root_cb,
     };
+    let mut builder = StackingContextBuilder {
+        frame_tree,
+        clip_tree,
+        scroll_state,
+        owner_semantics,
+    };
     for fragment in fragments {
-        fragment_build_stacking_context_tree(
+        builder.fragment_build_stacking_context_tree(
             fragment,
             &cb_info,
             &mut root,
@@ -288,7 +299,16 @@ pub(crate) enum StackingContextBuildMode {
     SkipHoisted,
 }
 
-fn fragment_build_stacking_context_tree<'a>(
+struct StackingContextBuilder<'tree, 'a> {
+    frame_tree: &'tree mut crate::frame_tree::FrameTree<'a>,
+    clip_tree: &'tree mut crate::clip_tree::ClipTree,
+    scroll_state: &'tree crate::ScrollState,
+    owner_semantics: &'tree std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
+}
+
+impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
+fn fragment_build_stacking_context_tree(
+    &mut self,
     fragment: &'a Fragment,
     containing_block_info: &ContainingBlockInfo,
     stacking_context: &mut LayoutStackingContext<'a>,
@@ -302,7 +322,7 @@ fn fragment_build_stacking_context_tree<'a>(
             {
                 return;
             }
-            build_for_box(
+            self.build_for_box(
                 fragment,
                 bf,
                 matches!(fragment, Fragment::Float(_)),
@@ -312,7 +332,7 @@ fn fragment_build_stacking_context_tree<'a>(
             );
         }
         Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            fragment_build_stacking_context_tree(
+            self.fragment_build_stacking_context_tree(
                 resolved,
                 containing_block_info,
                 stacking_context,
@@ -321,7 +341,7 @@ fn fragment_build_stacking_context_tree<'a>(
         }
         Fragment::Positioning(pf) => {
             for child in &pf.children {
-                fragment_build_stacking_context_tree(
+                self.fragment_build_stacking_context_tree(
                     child,
                     containing_block_info,
                     stacking_context,
@@ -368,7 +388,8 @@ fn fragment_build_stacking_context_tree<'a>(
     }
 }
 
-fn build_for_box<'a>(
+fn build_for_box(
+    &mut self,
     fragment: &'a Fragment,
     bf: &'a BoxFragment,
     is_float: bool,
@@ -396,7 +417,8 @@ fn build_for_box<'a>(
                 clip_id,
                 containing_block: containing_block.rect,
             });
-            build_box_children(bf, containing_block_info, &mut child_sc);
+            let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+            self.build_box_children(bf, &child_info, &mut child_sc);
 
             let mut stolen = Vec::new();
             if ct != StackingContextType::RealStackingContext {
@@ -415,38 +437,152 @@ fn build_for_box<'a>(
                 clip_id,
                 containing_block: containing_block.rect,
             });
-            build_box_children(bf, containing_block_info, parent_sc);
+            let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+            self.build_box_children(bf, &child_info, parent_sc);
         }
     }
 }
 
-fn build_box_children<'a>(
+fn build_box_children(
+    &mut self,
     bf: &'a BoxFragment,
     containing_block_info: &ContainingBlockInfo,
     stacking_context: &mut LayoutStackingContext<'a>,
 ) {
-    let child_cb = containing_block_info
-        .containing_block_for_fragment(&Fragment::Box(bf.clone()));
-    let containing_block = ContainingBlock {
-        rect: bf.cumulative_containing_block_rect,
-        ..child_cb
-    };
-
-    let child_info = if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
-        containing_block_info.new_for_absolute_and_fixed_descendants(containing_block)
-    } else if bf.base.style.get_box().position != ComputedPosition::Static {
-        containing_block_info.new_for_absolute_descendants(containing_block)
-    } else {
-        containing_block_info.new_for_non_absolute_descendants(containing_block)
-    };
-
     for child in &bf.children {
-        fragment_build_stacking_context_tree(
+        self.fragment_build_stacking_context_tree(
             child,
-            &child_info,
+            containing_block_info,
             stacking_context,
             StackingContextBuildMode::SkipHoisted,
         );
+    }
+}
+
+fn create_spatial_context_for_box(
+    &mut self,
+    bf: &'a BoxFragment,
+    containing_block: ContainingBlock,
+    containing_block_info: &ContainingBlockInfo,
+) -> ContainingBlockInfo {
+    let owner_node_id = bf.base.tag.map(|tag| {
+        let pseudo_key = match bf.base.style.pseudo() {
+            Some(style::selector_parser::PseudoElement::Before) => 1,
+            Some(style::selector_parser::PseudoElement::After) => 2,
+            Some(style::selector_parser::PseudoElement::Marker) => 3,
+            Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
+            Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
+            Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
+            Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
+            Some(_) => 15,
+            None => 0,
+        };
+        (tag.node.0 << 8) ^ pseudo_key
+    });
+    let frame_key_id = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(bf) as usize);
+    let mut new_containing_block = containing_block;
+
+    let flatten_3d = owner_node_id
+        .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
+        .map(|semantics| !semantics.requires_compositor())
+        .unwrap_or(true);
+    let current_origin = dvec2(
+        bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
+        bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
+    );
+    if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
+        let frame_id = self.frame_tree.push_child_frame(
+            containing_block.frame_id,
+            crate::frame_tree::FrameKey::NodeReferenceFrame(frame_key_id),
+            crate::frame_tree::FrameKind::ReferenceFrame,
+            owner_node_id,
+            matrix,
+        );
+        self.frame_tree.append_child_frame(containing_block.frame_id, frame_id);
+        new_containing_block.frame_id = frame_id;
+    }
+
+    if let Some(insets) = bf.resolved_sticky_insets {
+        let dy = match (insets.top, insets.bottom) {
+            (havi_types::AuOrAuto::LengthPercentage(v), _) => v.to_f32_px(),
+            (_, havi_types::AuOrAuto::LengthPercentage(v)) => -v.to_f32_px(),
+            _ => 0.0,
+        };
+        if dy.abs() >= 0.001 {
+            let frame_id = self.frame_tree.push_child_frame(
+                new_containing_block.frame_id,
+                crate::frame_tree::FrameKey::NodeStickyFrame(frame_key_id),
+                crate::frame_tree::FrameKind::StickyFrame,
+                owner_node_id,
+                translation_matrix(0.0, dy),
+            );
+            self.frame_tree.append_child_frame(new_containing_block.frame_id, frame_id);
+            new_containing_block.frame_id = frame_id;
+        }
+    }
+
+    if let Some(rect) = bf.scrollable_overflow {
+        let clip_id = self.clip_tree.push_rect(
+            new_containing_block.frame_id,
+            new_containing_block.clip_id,
+            Rect {
+                pos: dvec2(
+                    new_containing_block.rect.origin.x.to_f32_px() as f64 + rect.origin.x.to_f32_px() as f64,
+                    new_containing_block.rect.origin.y.to_f32_px() as f64 + rect.origin.y.to_f32_px() as f64,
+                ),
+                size: dvec2(
+                    rect.size.width.to_f32_px() as f64,
+                    rect.size.height.to_f32_px() as f64,
+                ),
+            },
+        );
+        let scroll_frame_id = self.frame_tree.push_child_frame(
+            new_containing_block.frame_id,
+            crate::frame_tree::FrameKey::NodeScrollFrame(frame_key_id),
+            crate::frame_tree::FrameKind::ScrollFrame,
+            owner_node_id,
+            fragment_scroll_translation(bf, self.scroll_state).unwrap_or_else(Mat4f::identity),
+        );
+        self.frame_tree.set_clip(scroll_frame_id, clip_id);
+        self.frame_tree.append_child_frame(new_containing_block.frame_id, scroll_frame_id);
+        new_containing_block.frame_id = scroll_frame_id;
+        new_containing_block.clip_id = clip_id;
+    }
+
+    let child_containing_block = ContainingBlock {
+        frame_id: new_containing_block.frame_id,
+        clip_id: new_containing_block.clip_id,
+        rect: bf.cumulative_containing_block_rect,
+    };
+
+    if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
+        containing_block_info.new_for_absolute_and_fixed_descendants(child_containing_block)
+    } else if bf.base.style.get_box().position != ComputedPosition::Static {
+        containing_block_info.new_for_absolute_descendants(child_containing_block)
+    } else {
+        containing_block_info.new_for_non_absolute_descendants(child_containing_block)
+    }
+}
+
+}
+
+fn fragment_scroll_translation(
+    bf: &BoxFragment,
+    scroll_state: &crate::ScrollState,
+) -> Option<Mat4f> {
+    let node_id = bf.base.tag.map(|tag| tag.node.0)?;
+    let offset = scroll_state.get(&node_id).copied().unwrap_or(dvec2(0.0, 0.0));
+    Some(translation_matrix(-(offset.x as f32), -(offset.y as f32)))
+}
+
+fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
+    Mat4f {
+        v: [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            tx, ty, 0.0, 1.0,
+        ],
     }
 }
 
