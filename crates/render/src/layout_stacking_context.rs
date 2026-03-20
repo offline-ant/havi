@@ -14,7 +14,9 @@ use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
 use crate::frame_tree::{FrameId, FrameKey};
-use crate::scene::{SceneClipId, SpatialNodeId, SpatialNodeKind};
+use crate::scene::{
+    ReferenceFrameData, SceneClipId, ScrollNodeData, SpatialNodeId, StickyNodeData,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ContainingBlock {
@@ -305,33 +307,17 @@ pub(crate) enum StackingContextBuildMode {
 
 #[derive(Clone, Copy, Debug)]
 enum SpatialDescriptor {
-    ReferenceFrame { matrix: Mat4f },
-    Sticky { translation: Mat4f },
-    Scroll { translation: Mat4f },
+    ReferenceFrame(ReferenceFrameData),
+    Sticky(StickyNodeData),
+    Scroll(ScrollNodeData),
 }
 
 impl SpatialDescriptor {
-    fn kind(self) -> SpatialNodeKind {
-        match self {
-            SpatialDescriptor::ReferenceFrame { .. } => SpatialNodeKind::ReferenceFrame,
-            SpatialDescriptor::Sticky { .. } => SpatialNodeKind::Sticky,
-            SpatialDescriptor::Scroll { .. } => SpatialNodeKind::Scroll,
-        }
-    }
-
-    fn local_transform(self) -> Mat4f {
-        match self {
-            SpatialDescriptor::ReferenceFrame { matrix }
-            | SpatialDescriptor::Sticky { translation: matrix }
-            | SpatialDescriptor::Scroll { translation: matrix } => matrix,
-        }
-    }
-
     fn frame_key(self, key_id: usize) -> FrameKey {
         match self {
-            SpatialDescriptor::ReferenceFrame { .. } => FrameKey::NodeReferenceFrame(key_id),
-            SpatialDescriptor::Sticky { .. } => FrameKey::NodeStickyFrame(key_id),
-            SpatialDescriptor::Scroll { .. } => FrameKey::NodeScrollFrame(key_id),
+            SpatialDescriptor::ReferenceFrame(_) => FrameKey::NodeReferenceFrame(key_id),
+            SpatialDescriptor::Sticky(_) => FrameKey::NodeStickyFrame(key_id),
+            SpatialDescriptor::Scroll(_) => FrameKey::NodeScrollFrame(key_id),
         }
     }
 }
@@ -513,12 +499,23 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         let mut new_containing_block = containing_block;
 
         for descriptor in self.spatial_descriptors_for_box(bf, owner_node_id) {
-            let spatial_node_id = self.scene_builder.child_spatial_node(
-                new_containing_block.spatial_node_id,
-                descriptor.kind(),
-                owner_node_id,
-                descriptor.local_transform(),
-            );
+            let spatial_node_id = match descriptor {
+                SpatialDescriptor::ReferenceFrame(data) => self.scene_builder.child_reference_frame(
+                    new_containing_block.spatial_node_id,
+                    owner_node_id,
+                    data,
+                ),
+                SpatialDescriptor::Sticky(data) => self.scene_builder.child_sticky_node(
+                    new_containing_block.spatial_node_id,
+                    owner_node_id,
+                    data,
+                ),
+                SpatialDescriptor::Scroll(data) => self.scene_builder.child_scroll_node(
+                    new_containing_block.spatial_node_id,
+                    owner_node_id,
+                    data,
+                ),
+            };
             let paint_container_id = self.scene_builder.child_paint_container(
                 new_containing_block.paint_container_id,
                 spatial_node_id,
@@ -580,7 +577,11 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
         );
         if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
-            descriptors.push(SpatialDescriptor::ReferenceFrame { matrix });
+            descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
+                local_transform: matrix,
+                preserves_3d: !flatten_3d,
+                anchors_content: true,
+            }));
         }
 
         if let Some(insets) = bf.resolved_sticky_insets {
@@ -590,16 +591,27 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 _ => 0.0,
             };
             if dy.abs() >= 0.001 {
-                descriptors.push(SpatialDescriptor::Sticky {
-                    translation: translation_matrix(0.0, dy),
-                });
+                descriptors.push(SpatialDescriptor::Sticky(StickyNodeData {
+                    bounds_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
+                    used_offset: dvec2(0.0, dy as f64),
+                    inset_top: insets.top.non_auto().map(|v| v.to_f32_px()),
+                    inset_right: insets.right.non_auto().map(|v| v.to_f32_px()),
+                    inset_bottom: insets.bottom.non_auto().map(|v| v.to_f32_px()),
+                    inset_left: insets.left.non_auto().map(|v| v.to_f32_px()),
+                }));
             }
         }
 
-        if let Some(translation) = fragment_scroll_translation(bf, self.scroll_state) {
-            if bf.scrollable_overflow.is_some() {
-                descriptors.push(SpatialDescriptor::Scroll { translation });
-            }
+        if let Some(scrollable_overflow) = bf.scrollable_overflow {
+            let scroll_translation = fragment_scroll_translation(bf, self.scroll_state)
+                .map(extract_translation)
+                .unwrap_or_else(|| dvec2(0.0, 0.0));
+            descriptors.push(SpatialDescriptor::Scroll(ScrollNodeData {
+                scroll_translation,
+                scroll_frame_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
+                content_rect: physical_rect_to_rect(scrollable_overflow),
+                external_scroll_node_id: bf.base.tag.map(|tag| tag.node.0),
+            }));
         }
 
         descriptors
@@ -621,6 +633,17 @@ fn fragment_scroll_translation(
     let node_id = bf.base.tag.map(|tag| tag.node.0)?;
     let offset = scroll_state.get(&node_id).copied().unwrap_or(dvec2(0.0, 0.0));
     Some(translation_matrix(-(offset.x as f32), -(offset.y as f32)))
+}
+
+fn extract_translation(matrix: Mat4f) -> makepad_widgets::DVec2 {
+    dvec2(matrix.v[12] as f64, matrix.v[13] as f64)
+}
+
+fn physical_rect_to_rect(rect: PhysicalRect<app_units::Au>) -> Rect {
+    Rect {
+        pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
+        size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
+    }
 }
 
 fn translation_matrix(tx: f32, ty: f32) -> Mat4f {

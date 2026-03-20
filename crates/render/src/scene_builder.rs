@@ -1,11 +1,12 @@
 use crate::compositor_scene::CompositorScene;
-use crate::frame_tree::{FrameId, FrameKey, FrameKind};
+use crate::frame_tree::{FrameId, FrameKey};
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
 use crate::render_plan::RenderPlan;
 use crate::scene::{
-    PaintContainer, PaintContainerId, RenderScene, SceneClipId, SceneClipNode, ScenePaintCommand,
-    ScenePaintItem, SpatialNode, SpatialNodeId, SpatialNodeKind,
+    PaintContainer, PaintContainerId, ReferenceFrameData, RenderScene, SceneClipId, SceneClipNode,
+    ScenePaintCommand, ScenePaintItem, ScrollNodeData, SpatialNode, SpatialNodeId,
+    SpatialNodeSemantics, StickyNodeData,
 };
 use makepad_widgets::*;
 
@@ -25,10 +26,14 @@ impl<'a> RenderSceneBuilder<'a> {
             spatial_nodes: vec![SpatialNode {
                 id: root_spatial_node_id,
                 parent: None,
-                kind: SpatialNodeKind::Root,
+                kind: crate::scene::SpatialNodeKind::Root,
+                semantics: SpatialNodeSemantics::Root,
                 owner_node_id: None,
                 world: Mat4f::identity(),
                 world_inverse: Mat4f::identity(),
+                nearest_reference_frame_id: root_spatial_node_id,
+                nearest_scroll_node_id: None,
+                clip_chain_root: SceneClipId::INVALID,
             }],
             paint_containers: vec![PaintContainer {
                 key: FrameKey::Root,
@@ -56,34 +61,82 @@ impl<'a> RenderSceneBuilder<'a> {
         self.root_paint_container_id
     }
 
-    pub(crate) fn paint_container_spatial_node_id(
-        &self,
-        paint_container_id: PaintContainerId,
-    ) -> SpatialNodeId {
+    pub(crate) fn paint_container_spatial_node_id(&self, paint_container_id: PaintContainerId) -> SpatialNodeId {
         self.paint_containers[paint_container_id].spatial_node_id
     }
 
     pub(crate) fn child_spatial_node(
         &mut self,
         parent_spatial_node_id: SpatialNodeId,
-        kind: FrameKind,
+        semantics: SpatialNodeSemantics,
         owner_node_id: Option<usize>,
-        local: Mat4f,
     ) -> SpatialNodeId {
-        let parent_world = self.spatial_nodes[parent_spatial_node_id.0].world;
-        let world = Mat4f::mul(&parent_world, &local);
+        let parent = self.spatial_nodes[parent_spatial_node_id.0];
+        let local = semantics.local_transform();
+        let world = Mat4f::mul(&parent.world, &local);
         let world_inverse = world.invert();
 
         let spatial_node_id = SpatialNodeId(self.spatial_nodes.len());
+        let nearest_reference_frame_id = match semantics {
+            SpatialNodeSemantics::ReferenceFrame(_) => spatial_node_id,
+            _ => parent.nearest_reference_frame_id,
+        };
+        let nearest_scroll_node_id = match semantics {
+            SpatialNodeSemantics::Scroll(_) => Some(spatial_node_id),
+            _ => parent.nearest_scroll_node_id,
+        };
         self.spatial_nodes.push(SpatialNode {
             id: spatial_node_id,
             parent: Some(parent_spatial_node_id),
-            kind: spatial_kind_from_frame_kind(kind),
+            kind: semantics.kind(),
+            semantics,
             owner_node_id,
             world,
             world_inverse,
+            nearest_reference_frame_id,
+            nearest_scroll_node_id,
+            clip_chain_root: parent.clip_chain_root,
         });
         spatial_node_id
+    }
+
+    pub(crate) fn child_reference_frame(
+        &mut self,
+        parent_spatial_node_id: SpatialNodeId,
+        owner_node_id: Option<usize>,
+        data: ReferenceFrameData,
+    ) -> SpatialNodeId {
+        self.child_spatial_node(
+            parent_spatial_node_id,
+            SpatialNodeSemantics::ReferenceFrame(data),
+            owner_node_id,
+        )
+    }
+
+    pub(crate) fn child_sticky_node(
+        &mut self,
+        parent_spatial_node_id: SpatialNodeId,
+        owner_node_id: Option<usize>,
+        data: StickyNodeData,
+    ) -> SpatialNodeId {
+        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Sticky(data), owner_node_id)
+    }
+
+    pub(crate) fn child_scroll_node(
+        &mut self,
+        parent_spatial_node_id: SpatialNodeId,
+        owner_node_id: Option<usize>,
+        data: ScrollNodeData,
+    ) -> SpatialNodeId {
+        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Scroll(data), owner_node_id)
+    }
+
+    pub(crate) fn child_iframe_root_node(
+        &mut self,
+        parent_spatial_node_id: SpatialNodeId,
+        owner_node_id: Option<usize>,
+    ) -> SpatialNodeId {
+        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::IFrameRoot, owner_node_id)
     }
 
     pub(crate) fn child_paint_container(
@@ -98,7 +151,7 @@ impl<'a> RenderSceneBuilder<'a> {
             key,
             owner_node_id,
             spatial_node_id,
-            clip_id: SceneClipId::INVALID,
+            clip_id: self.spatial_nodes[spatial_node_id.0].clip_chain_root,
             items: Vec::new(),
             paint_list: Vec::new(),
         });
@@ -108,36 +161,28 @@ impl<'a> RenderSceneBuilder<'a> {
         paint_container_id
     }
 
-    pub(crate) fn child_frame(
-        &mut self,
-        parent_paint_container_id: PaintContainerId,
-        key: FrameKey,
-        kind: FrameKind,
-        owner_node_id: Option<usize>,
-        local: Mat4f,
-    ) -> PaintContainerId {
-        let parent_spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
-        let spatial_node_id = self.child_spatial_node(parent_spatial_node_id, kind, owner_node_id, local);
-        self.child_paint_container(parent_paint_container_id, spatial_node_id, key, owner_node_id)
-    }
-
     pub(crate) fn rect_clip(
         &mut self,
         parent_paint_container_id: PaintContainerId,
         parent_clip_id: SceneClipId,
         rect: Rect,
     ) -> SceneClipId {
+        let spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
         let clip_id = SceneClipId(self.clip_nodes.len());
         self.clip_nodes.push(SceneClipNode {
             parent_clip_id,
-            parent_spatial_node_id: self.paint_containers[parent_paint_container_id].spatial_node_id,
+            parent_spatial_node_id: spatial_node_id,
             rect,
+            scroll_node_id: self.spatial_nodes[spatial_node_id.0].nearest_scroll_node_id,
+            overflow_root_spatial_node_id: Some(spatial_node_id),
         });
         clip_id
     }
 
     pub(crate) fn set_frame_clip(&mut self, paint_container_id: PaintContainerId, clip_id: SceneClipId) {
         self.paint_containers[paint_container_id].clip_id = clip_id;
+        let spatial_node_id = self.paint_containers[paint_container_id].spatial_node_id;
+        self.spatial_nodes[spatial_node_id.0].clip_chain_root = clip_id;
     }
 
     pub(crate) fn push_item(
@@ -187,15 +232,5 @@ impl<'a> RenderSceneBuilder<'a> {
         );
         let compositor_scene = CompositorScene::build(&provisional);
         provisional.with_compositor_scene(compositor_scene)
-    }
-}
-
-fn spatial_kind_from_frame_kind(kind: FrameKind) -> SpatialNodeKind {
-    match kind {
-        FrameKind::Root => SpatialNodeKind::Root,
-        FrameKind::ReferenceFrame => SpatialNodeKind::ReferenceFrame,
-        FrameKind::StickyFrame => SpatialNodeKind::Sticky,
-        FrameKind::ScrollFrame => SpatialNodeKind::Scroll,
-        FrameKind::IFrameRoot => SpatialNodeKind::IFrameRoot,
     }
 }

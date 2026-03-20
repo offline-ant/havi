@@ -21,10 +21,72 @@ pub(crate) enum SpatialNodeKind {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) struct ReferenceFrameData {
+    pub local_transform: Mat4f,
+    pub preserves_3d: bool,
+    pub anchors_content: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StickyNodeData {
+    pub bounds_rect: Rect,
+    pub used_offset: DVec2,
+    pub inset_top: Option<f32>,
+    pub inset_right: Option<f32>,
+    pub inset_bottom: Option<f32>,
+    pub inset_left: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScrollNodeData {
+    pub scroll_translation: DVec2,
+    pub scroll_frame_rect: Rect,
+    pub content_rect: Rect,
+    pub external_scroll_node_id: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SpatialNodeSemantics {
+    Root,
+    ReferenceFrame(ReferenceFrameData),
+    Scroll(ScrollNodeData),
+    Sticky(StickyNodeData),
+    IFrameRoot,
+}
+
+impl SpatialNodeSemantics {
+    pub(crate) fn kind(self) -> SpatialNodeKind {
+        match self {
+            SpatialNodeSemantics::Root => SpatialNodeKind::Root,
+            SpatialNodeSemantics::ReferenceFrame(_) => SpatialNodeKind::ReferenceFrame,
+            SpatialNodeSemantics::Scroll(_) => SpatialNodeKind::Scroll,
+            SpatialNodeSemantics::Sticky(_) => SpatialNodeKind::Sticky,
+            SpatialNodeSemantics::IFrameRoot => SpatialNodeKind::IFrameRoot,
+        }
+    }
+
+    pub(crate) fn local_transform(self) -> Mat4f {
+        match self {
+            SpatialNodeSemantics::Root | SpatialNodeSemantics::IFrameRoot => Mat4f::identity(),
+            SpatialNodeSemantics::ReferenceFrame(data) => data.local_transform,
+            SpatialNodeSemantics::Scroll(data) => translation_matrix(
+                -(data.scroll_translation.x as f32),
+                -(data.scroll_translation.y as f32),
+            ),
+            SpatialNodeSemantics::Sticky(data) => {
+                translation_matrix(data.used_offset.x as f32, data.used_offset.y as f32)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
     pub parent_spatial_node_id: SpatialNodeId,
     pub rect: Rect,
+    pub scroll_node_id: Option<SpatialNodeId>,
+    pub overflow_root_spatial_node_id: Option<SpatialNodeId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -52,9 +114,13 @@ pub(crate) struct SpatialNode {
     pub id: SpatialNodeId,
     pub parent: Option<SpatialNodeId>,
     pub kind: SpatialNodeKind,
+    pub semantics: SpatialNodeSemantics,
     pub owner_node_id: Option<usize>,
     pub world: Mat4f,
     pub world_inverse: Mat4f,
+    pub nearest_reference_frame_id: SpatialNodeId,
+    pub nearest_scroll_node_id: Option<SpatialNodeId>,
+    pub clip_chain_root: SceneClipId,
 }
 
 pub(crate) struct PaintContainer<'a> {
@@ -177,5 +243,16 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn frame_clip_id(&self, paint_container_id: PaintContainerId) -> SceneClipId {
         self.paint_containers[paint_container_id].clip_id
+    }
+}
+
+fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
+    Mat4f {
+        v: [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            tx, ty, 0.0, 1.0,
+        ],
     }
 }
