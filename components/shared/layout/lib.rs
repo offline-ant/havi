@@ -62,33 +62,15 @@ use style_traits::CSSPixel;
 use webrender_api::units::{DeviceIntSize, LayoutPoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, ImageKey};
 
-/// Thread-safe container for sharing reduced leaf payload fragments between
-/// layout and the embedding.
-#[derive(Clone, Default)]
-pub struct SharedFragmentTree(Arc<RwLock<Option<Arc<Vec<havi_types::Fragment>>>>>);
-
-impl SharedFragmentTree {
-    pub fn set(&self, fragments: Arc<Vec<havi_types::Fragment>>) {
-        *self.0.write() = Some(fragments);
-    }
-
-    pub fn clear(&self) {
-        *self.0.write() = None;
-    }
-
-    pub fn get(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
-        self.0.read().clone()
-    }
-}
-
 /// Thread-safe container for sharing semantic layout fragments with the render
-/// pipeline. The payload is serialized rich fragment data that preserves
-/// layout-side paint semantics.
+/// pipeline. The payload is the active shared semantic fragment model.
 #[derive(Clone, Default)]
-pub struct SharedLayoutFragmentTree(Arc<RwLock<Option<Arc<Vec<havi_types::Fragment>>>>>);
+pub struct SharedLayoutFragmentTree(
+    Arc<RwLock<Option<Arc<Vec<havi_fragment_semantics::Fragment>>>>>,
+);
 
 impl SharedLayoutFragmentTree {
-    pub fn set(&self, fragments: Arc<Vec<havi_types::Fragment>>) {
+    pub fn set(&self, fragments: Arc<Vec<havi_fragment_semantics::Fragment>>) {
         *self.0.write() = Some(fragments);
     }
 
@@ -96,7 +78,7 @@ impl SharedLayoutFragmentTree {
         *self.0.write() = None;
     }
 
-    pub fn get(&self) -> Option<Arc<Vec<havi_types::Fragment>>> {
+    pub fn get(&self) -> Option<Arc<Vec<havi_fragment_semantics::Fragment>>> {
         self.0.read().clone()
     }
 }
@@ -171,17 +153,6 @@ impl SharedDocumentSelection {
     }
 }
 
-/// Global registry of shared fragment trees, keyed by WebViewId.
-/// Layout writes fragments here; the embedding reads them for rendering.
-static FRAGMENT_REGISTRY: std::sync::LazyLock<
-    std::sync::Mutex<FxHashMap<WebViewId, SharedFragmentTree>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
-
-/// Global registry of shared fragment trees, keyed by PipelineId.
-static PIPELINE_FRAGMENT_REGISTRY: std::sync::LazyLock<
-    std::sync::Mutex<FxHashMap<PipelineId, SharedFragmentTree>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
-
 /// Global registry of shared layout fragment trees, keyed by WebViewId.
 static LAYOUT_FRAGMENT_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedLayoutFragmentTree>>,
@@ -206,26 +177,6 @@ static PIPELINE_SCROLL_REGISTRY: std::sync::LazyLock<
 static SELECTION_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedDocumentSelection>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
-
-/// Get or create a SharedFragmentTree for a given WebViewId.
-pub fn shared_fragment_tree_for(id: WebViewId) -> SharedFragmentTree {
-    FRAGMENT_REGISTRY
-        .lock()
-        .unwrap()
-        .entry(id)
-        .or_default()
-        .clone()
-}
-
-/// Get or create a SharedFragmentTree for a given PipelineId.
-pub fn shared_fragment_tree_for_pipeline(id: PipelineId) -> SharedFragmentTree {
-    PIPELINE_FRAGMENT_REGISTRY
-        .lock()
-        .unwrap()
-        .entry(id)
-        .or_default()
-        .clone()
-}
 
 /// Get or create a SharedLayoutFragmentTree for a given WebViewId.
 pub fn shared_layout_fragment_tree_for(id: WebViewId) -> SharedLayoutFragmentTree {
@@ -275,16 +226,6 @@ pub fn shared_document_selection_for(id: WebViewId) -> SharedDocumentSelection {
         .entry(id)
         .or_default()
         .clone()
-}
-
-/// Remove a SharedFragmentTree when a WebView is destroyed.
-pub fn remove_shared_fragment_tree(id: WebViewId) {
-    FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
-}
-
-/// Remove a SharedFragmentTree when a pipeline is destroyed.
-pub fn remove_shared_fragment_tree_for_pipeline(id: PipelineId) {
-    PIPELINE_FRAGMENT_REGISTRY.lock().unwrap().remove(&id);
 }
 
 /// Remove a SharedLayoutFragmentTree when a WebView is destroyed.
@@ -484,8 +425,6 @@ pub struct LayoutConfig {
     pub user_stylesheets: Rc<Vec<DocumentStyleSheet>>,
     pub theme: Theme,
     pub accessibility_active: bool,
-    pub shared_fragments: SharedFragmentTree,
-    pub shared_fragments_by_pipeline: SharedFragmentTree,
     pub shared_layout_fragments: SharedLayoutFragmentTree,
     pub shared_layout_fragments_by_pipeline: SharedLayoutFragmentTree,
     pub shared_scroll_state: SharedScrollState,

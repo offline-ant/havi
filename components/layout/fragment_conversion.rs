@@ -2,41 +2,36 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Converts layout's internal fragment types to `havi_types::Fragment` leaf payloads.
+//! Lowers layout's internal fragment types into the shared semantic fragment model.
 //!
-//! This module is compatibility glue, not the render architecture boundary.
-//! Render paint ordering must preserve layout fragment semantics until stacking
-//! contexts and paint items are finalized. The helpers here remain for leaf data
-//! extraction and embedder sharing while the semantic render path is migrated.
+//! This is a temporary layout-internal lowering shim. It is not the architectural
+//! semantic source of truth. The shared semantic crate is the active layout->render
+//! boundary until layout internals are extracted or shared directly.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use app_units::Au;
 use base::id::PipelineId;
+use havi_fragment_semantics as semantics;
 
-use fonts_traits::FontIdentifier;
 use crate::context::ImageResolver;
 use crate::fragment_tree::Fragment as LayoutFragment;
+use fonts_traits::FontIdentifier;
 
-/// Convert a slice of layout fragments to havi_types fragments for rendering.
 pub(crate) fn convert_fragments(
     fragments: &[LayoutFragment],
     image_resolver: &Arc<ImageResolver>,
-) -> Vec<havi_types::Fragment> {
+) -> Vec<semantics::Fragment> {
     let mut visited_pipelines = HashSet::new();
-    convert_fragments_with_iframes(
-        fragments,
-        image_resolver,
-        &mut visited_pipelines,
-    )
+    convert_fragments_with_iframes(fragments, image_resolver, &mut visited_pipelines)
 }
 
 fn convert_fragments_with_iframes(
     fragments: &[LayoutFragment],
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-) -> Vec<havi_types::Fragment> {
+) -> Vec<semantics::Fragment> {
     fragments
         .iter()
         .filter_map(|f| convert_fragment(f, image_resolver, visited_pipelines))
@@ -47,35 +42,37 @@ fn convert_fragment(
     fragment: &LayoutFragment,
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-) -> Option<havi_types::Fragment> {
+) -> Option<semantics::Fragment> {
     match fragment {
         LayoutFragment::Box(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Box(convert_box_fragment(
+            Some(semantics::Fragment::Box(convert_box_fragment(
                 &f,
                 image_resolver,
                 visited_pipelines,
             )))
-        },
+        }
         LayoutFragment::Float(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Float(convert_box_fragment(
+            Some(semantics::Fragment::Float(convert_box_fragment(
                 &f,
                 image_resolver,
                 visited_pipelines,
             )))
-        },
+        }
         LayoutFragment::Positioning(arc) => {
             let f = arc.borrow();
-            Some(havi_types::Fragment::Positioning(havi_types::PositioningFragment {
-                base: convert_base_fragment(&f.base),
-                children: convert_fragments_with_iframes(
-                    &f.children,
-                    image_resolver,
-                    visited_pipelines,
-                ),
-            }))
-        },
+            Some(semantics::Fragment::Positioning(
+                semantics::PositioningFragment {
+                    base: convert_base_fragment(&f.base),
+                    children: convert_fragments_with_iframes(
+                        &f.children,
+                        image_resolver,
+                        visited_pipelines,
+                    ),
+                },
+            ))
+        }
         LayoutFragment::Text(arc) => {
             let f = arc.borrow();
             let font_size_px = f.font_metrics.em_size.to_f32_px();
@@ -85,7 +82,7 @@ fn convert_fragment(
                 .flat_map(|store| {
                     store.glyphs().map(|g| {
                         let offset = g.offset();
-                        havi_types::ShapedGlyph {
+                        semantics::ShapedGlyph {
                             glyph_id: g.id(),
                             advance: g.advance(),
                             x_offset: offset.map_or(Au(0), |o| o.x),
@@ -96,7 +93,7 @@ fn convert_fragment(
                 })
                 .collect();
 
-            Some(havi_types::Fragment::Text(havi_types::TextFragment {
+            Some(semantics::Fragment::Text(semantics::TextFragment {
                 base: convert_base_fragment(&f.base),
                 text: f.text.clone(),
                 font_size_px,
@@ -109,7 +106,7 @@ fn convert_fragment(
                 font_handle: font_handle_from_font(&f.font),
                 font_data: font_data_from_font(&f.font),
             }))
-        },
+        }
         LayoutFragment::Image(arc) => {
             let f = arc.borrow();
             let image_key = f.image_key.map(|k| (k.0.0, k.1));
@@ -119,7 +116,6 @@ fn convert_fragment(
                 .raster_image
                 .as_ref()
                 .map(|img| {
-                    // Look up the active animation frame for this node.
                     let active_frame = node.and_then(|n| {
                         image_resolver
                             .animating_images
@@ -132,12 +128,16 @@ fn convert_fragment(
                     let frame = img.frames.get(frame_idx).or_else(|| img.frames.first());
                     let (w, h, range) = match frame {
                         Some(frame) => (frame.width, frame.height, frame.byte_range.clone()),
-                        None => (img.metadata.width as u32, img.metadata.height as u32, 0..img.bytes.len()),
+                        None => (
+                            img.metadata.width as u32,
+                            img.metadata.height as u32,
+                            0..img.bytes.len(),
+                        ),
                     };
                     (w, h, img.bytes.clone(), range)
                 })
                 .unwrap_or_else(|| (0, 0, Arc::new(Vec::new()), 0..0));
-            Some(havi_types::Fragment::Image(havi_types::ImageFragment {
+            Some(semantics::Fragment::Image(semantics::ImageFragment {
                 base: convert_base_fragment(&f.base),
                 image_key,
                 frame_width,
@@ -145,77 +145,75 @@ fn convert_fragment(
                 image_data,
                 frame_byte_range,
             }))
-        },
+        }
         LayoutFragment::IFrame(arc) => {
             let f = arc.borrow();
             let (child_fragments, child_content_height) =
-                resolve_iframe_child_fragments(f.pipeline_id, image_resolver, visited_pipelines);
-            Some(havi_types::Fragment::IFrame(havi_types::IFrameFragment {
+                resolve_iframe_child_fragments(f.pipeline_id, visited_pipelines);
+            Some(semantics::Fragment::IFrame(semantics::IFrameFragment {
                 base: convert_base_fragment(&f.base),
                 child_fragments,
                 child_content_height,
             }))
-        },
+        }
         LayoutFragment::AbsoluteOrFixedPositioned(arc) => {
             let shared = arc.borrow();
             let resolved = shared.fragment.as_ref()?;
             let resolved = convert_fragment(resolved, image_resolver, visited_pipelines)?;
-            Some(havi_types::Fragment::AbsoluteOrFixedPositioned {
+            Some(semantics::Fragment::AbsoluteOrFixedPositioned {
                 resolved: Box::new(resolved),
             })
-        },
+        }
     }
 }
 
-fn convert_base_fragment(
-    base: &crate::fragment_tree::BaseFragment,
-) -> havi_types::BaseFragment {
+fn convert_base_fragment(base: &crate::fragment_tree::BaseFragment) -> semantics::BaseFragment {
     let style_ref = base.style();
     let style = (*style_ref).clone();
 
-    let tag = base.tag.map(|t| havi_types::Tag {
-        node: havi_types::OpaqueNode(t.node.id()),
+    let tag = base.tag.map(|t| semantics::Tag {
+        node: semantics::OpaqueNode(t.node.id()),
     });
 
-    let mut flags = havi_types::FragmentFlags::empty();
+    let mut flags = semantics::FragmentFlags::empty();
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT)
     {
-        flags |= havi_types::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT;
+        flags |= semantics::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT;
     }
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::IS_BR_ELEMENT)
     {
-        flags |= havi_types::FragmentFlags::IS_BR_ELEMENT;
+        flags |= semantics::FragmentFlags::IS_BR_ELEMENT;
     }
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::IS_WIDGET)
     {
-        flags |= havi_types::FragmentFlags::IS_WIDGET;
+        flags |= semantics::FragmentFlags::IS_WIDGET;
     }
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::IS_REPLACED)
     {
-        flags |= havi_types::FragmentFlags::IS_REPLACED;
+        flags |= semantics::FragmentFlags::IS_REPLACED;
     }
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::IS_ROOT_ELEMENT)
     {
-        flags |= havi_types::FragmentFlags::IS_ROOT_ELEMENT;
+        flags |= semantics::FragmentFlags::IS_ROOT_ELEMENT;
     }
     if base
         .flags
         .contains(crate::fragment_tree::FragmentFlags::DO_NOT_PAINT)
     {
-        flags |= havi_types::FragmentFlags::DO_NOT_PAINT;
+        flags |= semantics::FragmentFlags::DO_NOT_PAINT;
     }
 
-    havi_types::BaseFragment {
+    semantics::BaseFragment {
         tag,
         flags,
         style,
@@ -227,9 +225,9 @@ fn convert_box_fragment(
     f: &crate::fragment_tree::BoxFragment,
     image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-) -> havi_types::BoxFragment {
+) -> semantics::BoxFragment {
     let block_level_info = f.block_level_layout_info.as_ref().map(|info| {
-        Box::new(havi_types::BlockLevelLayoutInfo {
+        Box::new(semantics::BlockLevelLayoutInfo {
             clearance: info.clearance,
             block_margins_collapsed_with_children: convert_collapsed_block_margins(
                 &info.block_margins_collapsed_with_children,
@@ -239,25 +237,25 @@ fn convert_box_fragment(
 
     let writing_mode = f.style().writing_mode;
     let baselines = f.baselines(writing_mode);
-
-    // Resolve CSS background-image: url() images.
     let node = f.base.tag.map(|t| t.node);
     let background_images = resolve_background_images(&f.base.style(), node, image_resolver);
 
-    havi_types::BoxFragment {
+    semantics::BoxFragment {
         base: convert_base_fragment(&f.base),
-        children: convert_fragments_with_iframes(
-            &f.children,
-            image_resolver,
-            visited_pipelines,
-        ),
+        children: convert_fragments_with_iframes(&f.children, image_resolver, visited_pipelines),
         cumulative_containing_block_rect: f.cumulative_containing_block_rect,
-        scrollable_overflow: if f.base.flags.contains(crate::fragment_tree::FragmentFlags::DO_NOT_PAINT) {
+        scrollable_overflow: if f
+            .base
+            .flags
+            .contains(crate::fragment_tree::FragmentFlags::DO_NOT_PAINT)
+        {
             None
         } else {
             Some(f.scrollable_overflow())
         },
-        resolved_sticky_insets: if f.style().get_box().position == style::computed_values::position::T::Static {
+        resolved_sticky_insets: if f.style().get_box().position
+            == style::computed_values::position::T::Static
+        {
             None
         } else {
             Some(f.calculate_resolved_insets_if_positioned())
@@ -265,7 +263,7 @@ fn convert_box_fragment(
         padding: f.padding,
         border: f.border,
         margin: f.margin,
-        baselines: havi_types::Baselines {
+        baselines: semantics::Baselines {
             first: baselines.first,
             last: baselines.last,
         },
@@ -274,17 +272,15 @@ fn convert_box_fragment(
     }
 }
 
-/// Resolve CSS background-image: url() values to pixel data.
 fn resolve_iframe_child_fragments(
     pipeline_id: PipelineId,
-    _image_resolver: &Arc<ImageResolver>,
     visited_pipelines: &mut HashSet<PipelineId>,
-) -> (Arc<Vec<havi_types::Fragment>>, f32) {
+) -> (Arc<Vec<semantics::Fragment>>, f32) {
     if !visited_pipelines.insert(pipeline_id) {
         return (Arc::new(Vec::new()), 0.0);
     }
 
-    let child_fragments = layout_api::shared_fragment_tree_for_pipeline(pipeline_id)
+    let child_fragments = layout_api::shared_layout_fragment_tree_for_pipeline(pipeline_id)
         .get()
         .unwrap_or_else(|| Arc::new(Vec::new()));
     let child_content_height = layout_api::shared_scroll_state_for_pipeline(pipeline_id)
@@ -299,7 +295,7 @@ fn resolve_background_images(
     style: &style::properties::ComputedValues,
     node: Option<style::dom::OpaqueNode>,
     image_resolver: &Arc<ImageResolver>,
-) -> Vec<havi_types::BackgroundImage> {
+) -> Vec<semantics::BackgroundImage> {
     use style::values::computed::image::Image;
 
     let bg = style.get_background();
@@ -307,7 +303,9 @@ fn resolve_background_images(
     for image in bg.background_image.0.iter() {
         match image {
             Image::Url(url_value) => {
-                let Some(url) = url_value.url() else { continue };
+                let Some(url) = url_value.url() else {
+                    continue;
+                };
                 let Ok(cached) = image_resolver.get_cached_image_for_url(
                     node.unwrap_or(style::dom::OpaqueNode(0)),
                     url.clone().into(),
@@ -315,8 +313,10 @@ fn resolve_background_images(
                 ) else {
                     continue;
                 };
-                let Some(raster) = cached.as_raster_image() else { continue };
-                images.push(havi_types::BackgroundImage {
+                let Some(raster) = cached.as_raster_image() else {
+                    continue;
+                };
+                images.push(semantics::BackgroundImage {
                     width: raster.metadata.width as u32,
                     height: raster.metadata.height as u32,
                     pixels: raster.bytes.as_ref().clone(),
@@ -330,11 +330,11 @@ fn resolve_background_images(
 
 fn convert_collapsed_block_margins(
     m: &crate::fragment_tree::CollapsedBlockMargins,
-) -> havi_types::CollapsedBlockMargins {
-    havi_types::CollapsedBlockMargins {
+) -> semantics::CollapsedBlockMargins {
+    semantics::CollapsedBlockMargins {
         collapsed_through: m.collapsed_through,
-        start: havi_types::CollapsedMargin::new(m.start.solve()),
-        end: havi_types::CollapsedMargin::new(m.end.solve()),
+        start: semantics::CollapsedMargin::new(m.start.solve()),
+        end: semantics::CollapsedMargin::new(m.end.solve()),
     }
 }
 
@@ -358,17 +358,13 @@ fn font_handle_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontHandle
                 path: native.path,
                 index: native.index,
             })
-        },
+        }
         FontIdentifier::Web(_) => None,
     }
 }
 
-/// Pre-load font data bytes during conversion so the render crate
-/// doesn't need to read from disk during draw.
 fn font_data_from_font(font: &fonts::FontRef) -> Option<havi_fonts::FontData> {
     let data_and_index = font.font_data_and_index().ok()?;
     let bytes: &[u8] = data_and_index.data.as_ref();
     Some(Arc::new(bytes.to_vec()))
 }
-
-

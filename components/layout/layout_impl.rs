@@ -172,15 +172,6 @@ pub struct LayoutThread {
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
 
-    /// Converted fragments for havi-render leaf extraction, updated after each layout.
-    rendered_fragments: RefCell<Option<Arc<Vec<havi_types::Fragment>>>>,
-
-    /// Shared container for exposing leaf payload fragments to the embedding layer.
-    shared_fragments: layout_api::SharedFragmentTree,
-
-    /// Shared container for exposing leaf payload fragments by pipeline to the embedding layer.
-    shared_fragments_by_pipeline: layout_api::SharedFragmentTree,
-
     /// Shared container for exposing semantic layout fragments to the embedding layer.
     shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
 
@@ -847,9 +838,6 @@ impl LayoutThread {
             need_overflow_calculation: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
-            rendered_fragments: Default::default(),
-            shared_fragments: config.shared_fragments.clone(),
-            shared_fragments_by_pipeline: config.shared_fragments_by_pipeline.clone(),
             shared_layout_fragments: config.shared_layout_fragments.clone(),
             shared_layout_fragments_by_pipeline: config.shared_layout_fragments_by_pipeline.clone(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
@@ -1287,16 +1275,13 @@ impl LayoutThread {
 
         if let Some(fragment_tree) = &*self.fragment_tree.borrow() {
             fragment_tree.calculate_scrollable_overflow();
+
             let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
                 &fragment_tree.root_fragments,
                 image_resolver,
             ));
             self.shared_layout_fragments.set(semantic.clone());
-            self.shared_layout_fragments_by_pipeline.set(semantic.clone());
-
-            *self.rendered_fragments.borrow_mut() = Some(semantic.clone());
-            self.shared_fragments.set(semantic.clone());
-            self.shared_fragments_by_pipeline.set(semantic);
+            self.shared_layout_fragments_by_pipeline.set(semantic);
 
             if self.debug.flow_tree {
                 fragment_tree.print();
