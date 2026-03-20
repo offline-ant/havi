@@ -13,48 +13,110 @@ make -j4 test
 # Single behavior test
 ./address-test.sh
 
-# Tiny rendering suite
+# Tiny exact screenshot reftest suite
 ./reftest.py
 
-# Curated WPT transform / 3D reftests
+# Browser-oracle screenshot validation on curated WPT transforms / 3D cases
+./wpt-oracle.py
+
+# Exact HAVI-vs-reference checks for curated WPT cases
 ./reftest.py --wpt-manifest reftest/wpt-transforms.list
 
-# Run only 10 cases at a time, or a specific slice
+# Browser-oracle checks for curated WPT cases
+./wpt-oracle.py --wpt-manifest reftest/wpt-transforms.list
+
+# Run only a slice at a time
 ./reftest.py --wpt-manifest reftest/wpt-transforms.list --limit 10
 ./reftest.py --wpt-manifest reftest/wpt-transforms.list --offset 10 --limit 10
+./wpt-oracle.py --wpt-manifest reftest/wpt-transforms.list --limit 10
+./wpt-oracle.py --wpt-manifest reftest/wpt-transforms.list --offset 10 --limit 10
 ```
 
 ## Structure
 
 ```
-*-test.sh          Shell runners (server setup, launch, result capture)
-content/           HTML test pages with inline JS assertions
-reftest/           Tiny screenshot reftest cases + references
-reftest.py         Tiny screenshot reftest runner
-test-prelude.bash  Shared infrastructure (server, launch, JS-result polling)
+*-test.sh              Shell runners (server setup, launch, result capture)
+content/               HTML test pages with inline JS assertions
+reftest/               Tiny screenshot reftest cases + references
+reftest.py             Exact HAVI screenshot reftest runner
+wpt-oracle.py          Browser-oracle screenshot validator (HAVI vs Chromium/Firefox)
+test-prelude.bash      Shared infrastructure (server, launch, JS-result polling)
 content/test-utils.js  Shared JS assertion helpers
 ```
 
 Behavior tests keep using `window.testResults` and `run_js_tests`, which polls
 that JSON summary via `havi-devtools-cli`.
 
-Rendering tests use `reftest.py`, which sets `HAVI_URL`, runs
-`havi --screenshot <output.png>` for the test and reference pages, then compares
-PNG output exactly.
+## Screenshot harnesses
 
-`reftest.py` also supports WPT-style files directly:
+### `reftest.py`
 
-- `--wpt-test <path>` parses one test file for `rel=match` and `rel=mismatch`
-- `--wpt-manifest <file>` reads one WPT test path per line and expands each file
-  into one or more reftest cases
+`reftest.py` is the exact screenshot runner.
 
-Use this for focused layout work such as transforms, perspective, matrix3d,
-and other 3D rendering cases.
+It:
 
-`reftest.py` runs at most 10 cases by default. Use `--offset` and `--limit`
-to work through a manifest in small focused batches.
+- builds HAVI with `./mach-havi build`
+- renders the test page with `havi --no-pylon --screenshot <png>`
+- renders the reference page the same way
+- compares PNG output by exact RGBA equality
+- saves failure artifacts:
+  - test PNG
+  - reference PNG
+  - diff PNG
+  - HAVI logs for both renders
+
+Inputs:
+
+- explicit local manifests with `==` / `!=`
+- one WPT-style file with `rel=match` / `rel=mismatch`
+- a manifest listing WPT test files, one per line
+
+Use `reftest.py` when:
+
+- the local reference is trusted
+- exact output equality is the goal
+- a reduced repro should stay pixel-identical over time
+
+### `wpt-oracle.py`
+
+`wpt-oracle.py` is the browser-oracle validator.
+
+It:
+
+- builds HAVI with `./mach-havi build`
+- renders HAVI test output
+- renders Chromium test and reference output
+- renders Firefox test and reference output
+- crops all images to the common non-white content region from the origin
+- compares using two mismatch metrics:
+  - pixel mismatch percentage
+  - structure mismatch percentage based on missing ink regions
+- uses the larger of those metrics as the mismatch score
+- classifies cases using browser disagreement:
+  - `pass`
+  - `bad-ref`
+  - `likely-havi-error`
+
+Current limitations:
+
+- oracle mode only supports `==` / `rel=match` cases
+- mismatch cases are skipped
+
+Use `wpt-oracle.py` when:
+
+- validating semantic rendering work against browsers
+- working on transforms, perspective, matrix, matrix3d, 3D ordering
+- working on sticky, overflow, clip, or other visual CSS behavior where a single ref may be noisy
+- determining whether a failure is a likely HAVI bug or a questionable reference
+
+Interpretation:
+
+- `bad-ref` means browser disagreement against the nominal reference is large enough that the case is not reliable evidence by itself
+- `likely-havi-error` means HAVI falls outside the Chromium/Firefox envelope and needs engine work
 
 ## Adding a test
+
+### Behavior test
 
 1. Create `content/foo.html` using `test-utils.js` (see existing pages for
    pattern)
@@ -72,5 +134,31 @@ to work through a manifest in small focused batches.
    run_js_tests
    ```
 3. `chmod +x foo-test.sh`
+
+### Exact screenshot reftest
+
+1. Add a test and reference pair under `reftest/`
+2. Add a manifest line to `reftest/reftest.list`:
+   ```text
+   == test.html ref.html
+   ```
+   or
+   ```text
+   != test.html ref.html
+   ```
+3. Run `./reftest.py`
+
+### WPT-based screenshot validation
+
+1. Add the WPT test path to a manifest such as `reftest/wpt-transforms.list`
+2. Use:
+   ```bash
+   ./reftest.py --wpt-manifest reftest/wpt-transforms.list
+   ./wpt-oracle.py --wpt-manifest reftest/wpt-transforms.list
+   ```
+3. Inspect saved artifacts before deciding whether a failure is:
+   - an engine bug
+   - a bad reference
+   - harmless browser disagreement
 
 The Makefile auto-discovers all `*-test.sh` files.
