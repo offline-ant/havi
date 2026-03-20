@@ -15,6 +15,7 @@
 //! - stacking-context lowering carries scene-native spatial attachments and descriptors
 //! - spatial nodes store scene-native semantic carriers for reference-frame, sticky,
 //!   scroll, and clip linkage state
+//! - execution transforms are derived from scene semantics and spatial ancestry in `scene`
 //! - scene consumers are moving onto semantic carriers and explicit linkage instead of
 //!   matrix-only truth and coarse kind checks
 //! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`

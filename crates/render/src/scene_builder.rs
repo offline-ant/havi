@@ -72,10 +72,6 @@ impl<'a> RenderSceneBuilder<'a> {
         owner_node_id: Option<usize>,
     ) -> SpatialNodeId {
         let parent = self.spatial_nodes[parent_spatial_node_id.0];
-        let local = semantics.local_transform();
-        let world = Mat4f::mul(&parent.world, &local);
-        let world_inverse = world.invert();
-
         let spatial_node_id = SpatialNodeId(self.spatial_nodes.len());
         let nearest_reference_frame_id = match semantics {
             SpatialNodeSemantics::ReferenceFrame(_) => spatial_node_id,
@@ -91,8 +87,8 @@ impl<'a> RenderSceneBuilder<'a> {
             kind: semantics.kind(),
             semantics,
             owner_node_id,
-            world,
-            world_inverse,
+            world: Mat4f::identity(),
+            world_inverse: Mat4f::identity(),
             nearest_reference_frame_id,
             nearest_scroll_node_id,
             clip_chain_root: parent.clip_chain_root,

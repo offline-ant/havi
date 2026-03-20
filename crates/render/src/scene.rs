@@ -65,7 +65,7 @@ impl SpatialNodeSemantics {
         }
     }
 
-    pub(crate) fn local_transform(self) -> Mat4f {
+    pub(crate) fn local_execution_transform(self) -> Mat4f {
         match self {
             SpatialNodeSemantics::Root | SpatialNodeSemantics::IFrameRoot => Mat4f::identity(),
             SpatialNodeSemantics::ReferenceFrame(data) => data.local_transform,
@@ -144,7 +144,7 @@ pub(crate) struct RenderScene<'a> {
 
 impl<'a> RenderScene<'a> {
     pub(crate) fn new(
-        spatial_nodes: Vec<SpatialNode>,
+        mut spatial_nodes: Vec<SpatialNode>,
         root_spatial_node: SpatialNodeId,
         paint_containers: Vec<PaintContainer<'a>>,
         root_paint_container: PaintContainerId,
@@ -152,6 +152,7 @@ impl<'a> RenderScene<'a> {
         render_plan: RenderPlan,
         compositor_scene: CompositorScene,
     ) -> Self {
+        recompute_spatial_execution(&mut spatial_nodes, root_spatial_node);
         Self {
             spatial_nodes,
             root_spatial_node,
@@ -230,10 +231,12 @@ impl<'a> RenderScene<'a> {
     }
 
     pub(crate) fn spatial_to_world_transform(&self, spatial_node_id: SpatialNodeId) -> Mat4f {
+        let _ = self.spatial_node(spatial_node_id).semantics;
         self.spatial_node(spatial_node_id).world
     }
 
     pub(crate) fn world_to_spatial_transform(&self, spatial_node_id: SpatialNodeId) -> Mat4f {
+        let _ = self.spatial_node(spatial_node_id).semantics;
         self.spatial_node(spatial_node_id).world_inverse
     }
 
@@ -271,6 +274,43 @@ impl<'a> RenderScene<'a> {
         paint_container_id: PaintContainerId,
     ) -> Option<SpatialNodeId> {
         self.spatial_node(self.paint_container_spatial_node_id(paint_container_id)).nearest_scroll_node_id
+    }
+}
+
+fn recompute_spatial_execution(spatial_nodes: &mut [SpatialNode], root_spatial_node: SpatialNodeId) {
+    if spatial_nodes.is_empty() {
+        return;
+    }
+    let identity = Mat4f::identity();
+    let root = root_spatial_node.0;
+    spatial_nodes[root].world = identity;
+    spatial_nodes[root].world_inverse = identity;
+    spatial_nodes[root].nearest_reference_frame_id = root_spatial_node;
+    spatial_nodes[root].nearest_scroll_node_id = None;
+
+    for index in 0..spatial_nodes.len() {
+        if index == root {
+            continue;
+        }
+        let parent_id = spatial_nodes[index].parent.expect("non-root spatial node must have parent");
+        let parent = spatial_nodes[parent_id.0];
+        let semantics = spatial_nodes[index].semantics;
+        let local = semantics.local_execution_transform();
+        let world = Mat4f::mul(&parent.world, &local);
+        let world_inverse = world.invert();
+        let nearest_reference_frame_id = match semantics {
+            SpatialNodeSemantics::ReferenceFrame(_) => SpatialNodeId(index),
+            _ => parent.nearest_reference_frame_id,
+        };
+        let nearest_scroll_node_id = match semantics {
+            SpatialNodeSemantics::Scroll(_) => Some(SpatialNodeId(index)),
+            _ => parent.nearest_scroll_node_id,
+        };
+        spatial_nodes[index].kind = semantics.kind();
+        spatial_nodes[index].world = world;
+        spatial_nodes[index].world_inverse = world_inverse;
+        spatial_nodes[index].nearest_reference_frame_id = nearest_reference_frame_id;
+        spatial_nodes[index].nearest_scroll_node_id = nearest_scroll_node_id;
     }
 }
 
