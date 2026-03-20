@@ -1,4 +1,3 @@
-use crate::scene::SceneClipId;
 use crate::frame_tree::{FrameId, FrameKey, FrameKind};
 use crate::layout_stacking_context::{
     build_stacking_context_tree, LayoutPaintItem, LayoutStackingContext,
@@ -6,7 +5,7 @@ use crate::layout_stacking_context::{
 };
 use crate::paint_items::PaintSource;
 use crate::render_plan::collect_owner_render_semantics;
-use crate::scene::RenderScene;
+use crate::scene::{RenderScene, SceneClipId};
 use crate::scene_builder::RenderSceneBuilder;
 use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_widgets::*;
@@ -93,12 +92,17 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
     fn build_iframe_into_scene(&mut self, iframe: &'a IFrameFragment, cx: BuildContext) {
         let key_id = frame_key_id_for_iframe(iframe);
         let iframe_origin = iframe_content_origin(iframe, cx.local_origin);
-        let frame_id = self.scene_builder.child_frame(
-            cx.frame_id,
-            FrameKey::NodeIFrameRoot(key_id),
+        let spatial_node_id = self.scene_builder.child_spatial_node(
+            self.scene_builder.paint_container_spatial_node_id(cx.frame_id),
             FrameKind::IFrameRoot,
             iframe.base.tag.map(|tag| tag.node.0),
             translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32),
+        );
+        let frame_id = self.scene_builder.child_paint_container(
+            cx.frame_id,
+            spatial_node_id,
+            FrameKey::NodeIFrameRoot(key_id),
+            iframe.base.tag.map(|tag| tag.node.0),
         );
         let clip_id = self.scene_builder.rect_clip(
             frame_id,

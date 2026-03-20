@@ -483,6 +483,7 @@ fn create_spatial_context_for_box(
     });
     let frame_key_id = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(bf) as usize);
     let mut new_containing_block = containing_block;
+    let mut new_spatial_node_id = self.scene_builder.paint_container_spatial_node_id(containing_block.frame_id);
 
     let flatten_3d = owner_node_id
         .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
@@ -493,12 +494,17 @@ fn create_spatial_context_for_box(
         bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
     );
     if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
-        let frame_id = self.scene_builder.child_frame(
-            containing_block.frame_id,
-            crate::frame_tree::FrameKey::NodeReferenceFrame(frame_key_id),
+        new_spatial_node_id = self.scene_builder.child_spatial_node(
+            new_spatial_node_id,
             crate::frame_tree::FrameKind::ReferenceFrame,
             owner_node_id,
             matrix,
+        );
+        let frame_id = self.scene_builder.child_paint_container(
+            containing_block.frame_id,
+            new_spatial_node_id,
+            crate::frame_tree::FrameKey::NodeReferenceFrame(frame_key_id),
+            owner_node_id,
         );
         new_containing_block.frame_id = frame_id;
     }
@@ -510,12 +516,17 @@ fn create_spatial_context_for_box(
             _ => 0.0,
         };
         if dy.abs() >= 0.001 {
-            let frame_id = self.scene_builder.child_frame(
-                new_containing_block.frame_id,
-                crate::frame_tree::FrameKey::NodeStickyFrame(frame_key_id),
+            new_spatial_node_id = self.scene_builder.child_spatial_node(
+                new_spatial_node_id,
                 crate::frame_tree::FrameKind::StickyFrame,
                 owner_node_id,
                 translation_matrix(0.0, dy),
+            );
+            let frame_id = self.scene_builder.child_paint_container(
+                new_containing_block.frame_id,
+                new_spatial_node_id,
+                crate::frame_tree::FrameKey::NodeStickyFrame(frame_key_id),
+                owner_node_id,
             );
             new_containing_block.frame_id = frame_id;
         }
@@ -536,12 +547,17 @@ fn create_spatial_context_for_box(
                 ),
             },
         );
-        let scroll_frame_id = self.scene_builder.child_frame(
-            new_containing_block.frame_id,
-            crate::frame_tree::FrameKey::NodeScrollFrame(frame_key_id),
+        new_spatial_node_id = self.scene_builder.child_spatial_node(
+            new_spatial_node_id,
             crate::frame_tree::FrameKind::ScrollFrame,
             owner_node_id,
             fragment_scroll_translation(bf, self.scroll_state).unwrap_or_else(Mat4f::identity),
+        );
+        let scroll_frame_id = self.scene_builder.child_paint_container(
+            new_containing_block.frame_id,
+            new_spatial_node_id,
+            crate::frame_tree::FrameKey::NodeScrollFrame(frame_key_id),
+            owner_node_id,
         );
         self.scene_builder.set_frame_clip(scroll_frame_id, clip_id);
         new_containing_block.frame_id = scroll_frame_id;

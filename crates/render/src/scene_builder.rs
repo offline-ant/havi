@@ -48,15 +48,28 @@ impl<'a> RenderSceneBuilder<'a> {
         self.root_paint_container_id
     }
 
-    pub(crate) fn child_frame(
+    pub(crate) fn root_spatial_node_id(&self) -> SpatialNodeId {
+        self.root_spatial_node_id
+    }
+
+    pub(crate) fn root_paint_container_id(&self) -> PaintContainerId {
+        self.root_paint_container_id
+    }
+
+    pub(crate) fn paint_container_spatial_node_id(
+        &self,
+        paint_container_id: PaintContainerId,
+    ) -> SpatialNodeId {
+        self.paint_containers[paint_container_id].spatial_node_id
+    }
+
+    pub(crate) fn child_spatial_node(
         &mut self,
-        parent_paint_container_id: PaintContainerId,
-        key: FrameKey,
+        parent_spatial_node_id: SpatialNodeId,
         kind: FrameKind,
         owner_node_id: Option<usize>,
         local: Mat4f,
-    ) -> PaintContainerId {
-        let parent_spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
+    ) -> SpatialNodeId {
         let parent_world = self.spatial_nodes[parent_spatial_node_id.0].world;
         let world = Mat4f::mul(&parent_world, &local);
         let world_inverse = world.invert();
@@ -70,7 +83,16 @@ impl<'a> RenderSceneBuilder<'a> {
             world,
             world_inverse,
         });
+        spatial_node_id
+    }
 
+    pub(crate) fn child_paint_container(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        spatial_node_id: SpatialNodeId,
+        key: FrameKey,
+        owner_node_id: Option<usize>,
+    ) -> PaintContainerId {
         let paint_container_id = self.paint_containers.len();
         self.paint_containers.push(PaintContainer {
             key,
@@ -84,6 +106,19 @@ impl<'a> RenderSceneBuilder<'a> {
             .paint_list
             .push(ScenePaintCommand::ChildPaintContainer(paint_container_id));
         paint_container_id
+    }
+
+    pub(crate) fn child_frame(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        key: FrameKey,
+        kind: FrameKind,
+        owner_node_id: Option<usize>,
+        local: Mat4f,
+    ) -> PaintContainerId {
+        let parent_spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
+        let spatial_node_id = self.child_spatial_node(parent_spatial_node_id, kind, owner_node_id, local);
+        self.child_paint_container(parent_paint_container_id, spatial_node_id, key, owner_node_id)
     }
 
     pub(crate) fn rect_clip(
