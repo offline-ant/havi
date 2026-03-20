@@ -106,8 +106,11 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
         let spatial_node_id = self.scene_builder.child_spatial_node(
             spatial_node_id,
             SpatialNodeSemantics::ReferenceFrame(ReferenceFrameData {
-                local_transform: translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32),
                 origin: iframe_origin,
+                transform_matrix: Some(translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32)),
+                perspective_matrix: None,
+                has_transform: true,
+                has_perspective: false,
                 preserves_3d: false,
                 anchors_content: true,
             }),

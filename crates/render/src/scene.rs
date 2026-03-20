@@ -22,8 +22,11 @@ pub(crate) enum SpatialNodeKind {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReferenceFrameData {
-    pub local_transform: Mat4f,
     pub origin: DVec2,
+    pub transform_matrix: Option<Mat4f>,
+    pub perspective_matrix: Option<Mat4f>,
+    pub has_transform: bool,
+    pub has_perspective: bool,
     pub preserves_3d: bool,
     pub anchors_content: bool,
 }
@@ -41,6 +44,8 @@ pub(crate) struct StickyNodeData {
     pub constraint_rect: Rect,
     pub frame_rect: Rect,
     pub containing_block_rect: Rect,
+    pub scroll_container_rect: Rect,
+    pub nearest_scroll_node_id: Option<SpatialNodeId>,
     pub offsets: StickyOffsetConstraints,
 }
 
@@ -308,7 +313,7 @@ fn recompute_spatial_execution(spatial_nodes: &mut [SpatialNode], root_spatial_n
 fn local_execution_transform(semantics: SpatialNodeSemantics) -> Mat4f {
     match semantics {
         SpatialNodeSemantics::Root | SpatialNodeSemantics::IFrameRoot => Mat4f::identity(),
-        SpatialNodeSemantics::ReferenceFrame(data) => data.local_transform,
+        SpatialNodeSemantics::ReferenceFrame(data) => reference_frame_execution_transform(data),
         SpatialNodeSemantics::Scroll(data) => translation_matrix(
             -(data.scroll_offset.x as f32),
             -(data.scroll_offset.y as f32),
@@ -318,6 +323,17 @@ fn local_execution_transform(semantics: SpatialNodeSemantics) -> Mat4f {
             translation_matrix(offset.x as f32, offset.y as f32)
         }
     }
+}
+
+fn reference_frame_execution_transform(data: ReferenceFrameData) -> Mat4f {
+    let mut transform = Mat4f::identity();
+    if let Some(perspective) = data.perspective_matrix {
+        transform = Mat4f::mul(&transform, &perspective);
+    }
+    if let Some(matrix) = data.transform_matrix {
+        transform = Mat4f::mul(&transform, &matrix);
+    }
+    transform
 }
 
 fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
@@ -333,22 +349,28 @@ fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
     let cb_right = data.containing_block_rect.pos.x + data.containing_block_rect.size.x;
     let cb_bottom = data.containing_block_rect.pos.y + data.containing_block_rect.size.y;
 
+    let scroll_rect = data.scroll_container_rect;
+    let scroll_left = scroll_rect.pos.x;
+    let scroll_top = scroll_rect.pos.y;
+    let scroll_right = scroll_rect.pos.x + scroll_rect.size.x;
+    let scroll_bottom = scroll_rect.pos.y + scroll_rect.size.y;
+
     if let Some(left) = data.offsets.left {
-        dx = (data.constraint_rect.pos.x + left as f64) - frame_left;
+        dx = (scroll_left + left as f64) - frame_left;
         dx = dx.max(cb_left - frame_left);
         dx = dx.min(cb_right - frame_right);
     } else if let Some(right) = data.offsets.right {
-        dx = (data.constraint_rect.pos.x + data.constraint_rect.size.x - right as f64) - frame_right;
+        dx = (scroll_right - right as f64) - frame_right;
         dx = dx.max(cb_left - frame_left);
         dx = dx.min(cb_right - frame_right);
     }
 
     if let Some(top) = data.offsets.top {
-        dy = (data.constraint_rect.pos.y + top as f64) - frame_top;
+        dy = (scroll_top + top as f64) - frame_top;
         dy = dy.max(cb_top - frame_top);
         dy = dy.min(cb_bottom - frame_bottom);
     } else if let Some(bottom) = data.offsets.bottom {
-        dy = (data.constraint_rect.pos.y + data.constraint_rect.size.y - bottom as f64) - frame_bottom;
+        dy = (scroll_bottom - bottom as f64) - frame_bottom;
         dy = dy.max(cb_top - frame_top);
         dy = dy.min(cb_bottom - frame_bottom);
     }

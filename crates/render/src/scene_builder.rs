@@ -113,8 +113,21 @@ impl<'a> RenderSceneBuilder<'a> {
         &mut self,
         parent_spatial_node_id: SpatialNodeId,
         owner_node_id: Option<usize>,
-        data: StickyNodeData,
+        mut data: StickyNodeData,
     ) -> SpatialNodeId {
+        data.nearest_scroll_node_id = self.spatial_nodes[parent_spatial_node_id.0].nearest_scroll_node_id;
+        if let Some(scroll_node_id) = data.nearest_scroll_node_id {
+            if let SpatialNodeSemantics::Scroll(scroll) = self.spatial_nodes[scroll_node_id.0].semantics {
+                let translated_scroll_rect = Rect {
+                    pos: dvec2(
+                        data.scroll_container_rect.pos.x - scroll.scroll_offset.x,
+                        data.scroll_container_rect.pos.y - scroll.scroll_offset.y,
+                    ),
+                    size: data.scroll_container_rect.size,
+                };
+                data.scroll_container_rect = translated_scroll_rect;
+            }
+        }
         self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Sticky(data), owner_node_id)
     }
 

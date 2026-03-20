@@ -576,10 +576,13 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
             bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
         );
-        if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
+        if let Some(reference_frame) = crate::reference_frame::reference_frame_semantics(bf, current_origin, flatten_3d) {
             descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
-                local_transform: matrix,
-                origin: current_origin,
+                origin: reference_frame.origin,
+                transform_matrix: reference_frame.transform_matrix,
+                perspective_matrix: reference_frame.perspective_matrix,
+                has_transform: reference_frame.has_transform,
+                has_perspective: reference_frame.has_perspective,
                 preserves_3d: !flatten_3d,
                 anchors_content: true,
             }));
@@ -587,10 +590,13 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
 
         if let Some(insets) = bf.resolved_sticky_insets {
             if has_sticky_offset_constraints(insets) {
+                let scroll_container_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
                 descriptors.push(SpatialDescriptor::Sticky(StickyNodeData {
                     constraint_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
                     frame_rect: physical_rect_to_rect(bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector())),
                     containing_block_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
+                    scroll_container_rect,
+                    nearest_scroll_node_id: None,
                     offsets: crate::scene::StickyOffsetConstraints {
                         top: insets.top.non_auto().map(|v| v.to_f32_px()),
                         right: insets.right.non_auto().map(|v| v.to_f32_px()),

@@ -4,26 +4,28 @@ use style::properties::ComputedValues;
 use style::values::generics::box_::Perspective;
 use style::values::generics::transform::{GenericRotate, GenericScale, GenericTranslate};
 
-use crate::transform::compute_css_reference_frame_matrix;
+use crate::transform::{
+    compute_css_descendant_perspective_matrix, compute_css_reference_frame_matrix,
+};
 
-/// Compute the reference-frame local execution matrix for a box fragment, if any.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ReferenceFrameSemantics {
+    pub has_transform: bool,
+    pub has_perspective: bool,
+    pub origin: DVec2,
+    pub transform_matrix: Option<Mat4f>,
+    pub perspective_matrix: Option<Mat4f>,
+}
+
+/// Compute the scene-owned reference-frame semantics for a box fragment, if any.
 ///
-/// A reference frame is created when a box has a CSS transform or perspective.
-/// The returned matrix is `T(anchor) * css_transform * T(-anchor)`, where
-/// `anchor` is the box's border-box origin in absolute page coordinates and
-/// `css_transform` already has `transform-origin` baked in via `change_basis`.
-///
-/// This matches the scene model: items inside the reference frame keep
-/// their absolute page-space coordinates, and the `T(-anchor)` converts them
-/// to frame-local coordinates before the CSS transform is applied.
-///
-/// Pure `perspective` owners (no transform) get an identity matrix — they
-/// establish structural isolation only.
-pub(crate) fn reference_frame_matrix(
+/// The scene stores transform and descendant-perspective inputs separately.
+/// Execution matrices are derived later from these semantic inputs.
+pub(crate) fn reference_frame_semantics(
     bf: &BoxFragment,
     current_origin: DVec2,
     flatten_3d: bool,
-) -> Option<Mat4f> {
+) -> Option<ReferenceFrameSemantics> {
     let style = &bf.base.style;
     let presence = transform_presence(style);
 
@@ -31,17 +33,22 @@ pub(crate) fn reference_frame_matrix(
         return None;
     }
 
-    // Pure perspective (no transform): structural isolation with identity matrix.
-    if !presence.has_transform && presence.has_perspective {
-        return Some(Mat4f::identity());
-    }
-
     let border_rect = bf.border_rect();
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();
-    let anchor = border_origin_absolute(bf, current_origin);
-    let css_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d)?;
-    Some(compose_reference_frame_transform(anchor, css_matrix))
+    let origin = border_origin_absolute(bf, current_origin);
+    let transform_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d)
+        .map(|matrix| compose_reference_frame_transform(origin, matrix));
+    let perspective_matrix = compute_css_descendant_perspective_matrix(style, bw, bh)
+        .map(|matrix| compose_reference_frame_transform(origin, Mat4f { v: matrix }));
+
+    Some(ReferenceFrameSemantics {
+        has_transform: presence.has_transform,
+        has_perspective: presence.has_perspective,
+        origin,
+        transform_matrix,
+        perspective_matrix,
+    })
 }
 
 pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) -> DVec2 {
@@ -52,10 +59,6 @@ pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) ->
     )
 }
 
-/// Compose a CSS transform (with transform-origin baked in) into a world-space
-/// matrix anchored at the element's border-box origin.
-///
-/// Result: `T(anchor) * transform * T(-anchor)`
 fn compose_reference_frame_transform(anchor: DVec2, transform: Mat4f) -> Mat4f {
     let t_pos = translation_matrix(anchor.x as f32, anchor.y as f32);
     let t_neg = translation_matrix(-(anchor.x as f32), -(anchor.y as f32));
