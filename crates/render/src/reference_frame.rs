@@ -15,6 +15,7 @@ pub(crate) struct ReferenceFrameSemantics {
     pub origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
+    pub is_invertible: bool,
 }
 
 /// Compute the scene-owned reference-frame semantics for a box fragment, if any.
@@ -42,12 +43,24 @@ pub(crate) fn reference_frame_semantics(
     let perspective_matrix = compute_css_descendant_perspective_matrix(style, bw, bh)
         .map(|matrix| compose_reference_frame_transform(origin, Mat4f { v: matrix }));
 
+    let combined = match (perspective_matrix, transform_matrix) {
+        (Some(perspective), Some(transform)) => Some(Mat4f::mul(&perspective, &transform)),
+        (Some(perspective), None) => Some(perspective),
+        (None, Some(transform)) => Some(transform),
+        (None, None) => None,
+    };
+    let is_invertible = combined.map(|matrix| matrix.invert()).is_some();
+    if !is_invertible {
+        return None;
+    }
+
     Some(ReferenceFrameSemantics {
         has_transform: presence.has_transform,
         has_perspective: presence.has_perspective,
         origin,
         transform_matrix,
         perspective_matrix,
+        is_invertible,
     })
 }
 

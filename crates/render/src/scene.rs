@@ -39,13 +39,21 @@ pub(crate) struct StickyOffsetConstraints {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) struct StickyOffsetBounds {
+    pub min: f32,
+    pub max: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct StickyNodeData {
     pub frame_rect: Rect,
+    pub margins: StickyOffsetConstraints,
+    pub vertical_offset_bounds: StickyOffsetBounds,
+    pub horizontal_offset_bounds: StickyOffsetBounds,
     pub containing_block_rect: Rect,
     pub scroll_frame_rect: Rect,
     pub scroll_port_rect: Rect,
     pub nearest_scroll_node_id: Option<SpatialNodeId>,
-    pub offsets: StickyOffsetConstraints,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +61,8 @@ pub(crate) struct ScrollNodeData {
     pub scroll_offset: DVec2,
     pub scroll_frame_rect: Rect,
     pub content_rect: Rect,
+    pub sensitivity_x: bool,
+    pub sensitivity_y: bool,
     pub external_scroll_node_id: Option<usize>,
 }
 
@@ -81,6 +91,7 @@ impl SpatialNodeSemantics {
 pub(crate) enum SceneClipKind {
     Overflow,
     OverflowClip,
+    CssClip,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -448,74 +459,76 @@ fn reference_frame_execution_transform(data: ReferenceFrameData) -> Mat4f {
 }
 
 fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
-    fn clamp_axis(offset: f64, min_offset: f64, max_offset: f64) -> f64 {
-        offset.max(min_offset).min(max_offset)
+    if data.margins.top.is_none()
+        && data.margins.right.is_none()
+        && data.margins.bottom.is_none()
+        && data.margins.left.is_none()
+    {
+        return dvec2(0.0, 0.0);
     }
 
-    let mut dx = 0.0;
-    let mut dy = 0.0;
+    let mut sticky_rect = data.frame_rect;
+    let mut sticky_offset = dvec2(0.0, 0.0);
+
+    if let Some(margin) = data.margins.top {
+        let top_viewport_edge = data.scroll_port_rect.pos.y + margin as f64;
+        if sticky_rect.pos.y < top_viewport_edge {
+            sticky_offset.y = top_viewport_edge - sticky_rect.pos.y;
+        }
+    }
+
+    if sticky_offset.y <= 0.0 {
+        if let Some(margin) = data.margins.bottom {
+            sticky_rect.pos.y += sticky_offset.y;
+            let bottom_viewport_edge =
+                data.scroll_port_rect.pos.y + data.scroll_port_rect.size.y - margin as f64;
+            let sticky_bottom = sticky_rect.pos.y + sticky_rect.size.y;
+            if sticky_bottom > bottom_viewport_edge {
+                sticky_offset.y += bottom_viewport_edge - sticky_bottom;
+            }
+        }
+    }
+
+    if let Some(margin) = data.margins.left {
+        let left_viewport_edge = data.scroll_port_rect.pos.x + margin as f64;
+        if sticky_rect.pos.x < left_viewport_edge {
+            sticky_offset.x = left_viewport_edge - sticky_rect.pos.x;
+        }
+    }
+
+    if sticky_offset.x <= 0.0 {
+        if let Some(margin) = data.margins.right {
+            sticky_rect.pos.x += sticky_offset.x;
+            let right_viewport_edge =
+                data.scroll_port_rect.pos.x + data.scroll_port_rect.size.x - margin as f64;
+            let sticky_right = sticky_rect.pos.x + sticky_rect.size.x;
+            if sticky_right > right_viewport_edge {
+                sticky_offset.x += right_viewport_edge - sticky_right;
+            }
+        }
+    }
+
+    sticky_offset.y = sticky_offset
+        .y
+        .max(data.vertical_offset_bounds.min as f64)
+        .min(data.vertical_offset_bounds.max as f64);
+    sticky_offset.x = sticky_offset
+        .x
+        .max(data.horizontal_offset_bounds.min as f64)
+        .min(data.horizontal_offset_bounds.max as f64);
 
     let frame_left = data.frame_rect.pos.x;
     let frame_top = data.frame_rect.pos.y;
     let frame_right = data.frame_rect.pos.x + data.frame_rect.size.x;
     let frame_bottom = data.frame_rect.pos.y + data.frame_rect.size.y;
-
     let cb_left = data.containing_block_rect.pos.x;
     let cb_top = data.containing_block_rect.pos.y;
     let cb_right = data.containing_block_rect.pos.x + data.containing_block_rect.size.x;
     let cb_bottom = data.containing_block_rect.pos.y + data.containing_block_rect.size.y;
+    sticky_offset.x = sticky_offset.x.max(cb_left - frame_left).min(cb_right - frame_right);
+    sticky_offset.y = sticky_offset.y.max(cb_top - frame_top).min(cb_bottom - frame_bottom);
 
-    let scroll_frame_left = data.scroll_frame_rect.pos.x;
-    let scroll_frame_top = data.scroll_frame_rect.pos.y;
-    let scroll_frame_right = data.scroll_frame_rect.pos.x + data.scroll_frame_rect.size.x;
-    let scroll_frame_bottom = data.scroll_frame_rect.pos.y + data.scroll_frame_rect.size.y;
-
-    let scroll_port_left = data.scroll_port_rect.pos.x;
-    let scroll_port_top = data.scroll_port_rect.pos.y;
-    let scroll_port_right = data.scroll_port_rect.pos.x + data.scroll_port_rect.size.x;
-    let scroll_port_bottom = data.scroll_port_rect.pos.y + data.scroll_port_rect.size.y;
-
-    let min_dx = cb_left - frame_left;
-    let max_dx = cb_right - frame_right;
-    let min_dy = cb_top - frame_top;
-    let max_dy = cb_bottom - frame_bottom;
-
-    if let Some(left) = data.offsets.left {
-        let desired = (scroll_port_left + left as f64) - frame_left;
-        dx = clamp_axis(desired, min_dx, max_dx);
-    }
-    if let Some(right) = data.offsets.right {
-        let desired = (scroll_port_right - right as f64) - frame_right;
-        let right_dx = clamp_axis(desired, min_dx, max_dx);
-        dx = if data.offsets.left.is_some() {
-            if right_dx < dx { right_dx } else { dx }
-        } else {
-            right_dx
-        };
-    }
-
-    if let Some(top) = data.offsets.top {
-        let desired = (scroll_port_top + top as f64) - frame_top;
-        dy = clamp_axis(desired, min_dy, max_dy);
-    }
-    if let Some(bottom) = data.offsets.bottom {
-        let desired = (scroll_port_bottom - bottom as f64) - frame_bottom;
-        let bottom_dy = clamp_axis(desired, min_dy, max_dy);
-        dy = if data.offsets.top.is_some() {
-            if bottom_dy < dy { bottom_dy } else { dy }
-        } else {
-            bottom_dy
-        };
-    }
-
-    if scroll_port_left <= scroll_frame_left && scroll_port_right >= scroll_frame_right {
-        dx = clamp_axis(dx, min_dx, max_dx);
-    }
-    if scroll_port_top <= scroll_frame_top && scroll_port_bottom >= scroll_frame_bottom {
-        dy = clamp_axis(dy, min_dy, max_dy);
-    }
-
-    dvec2(dx, dy)
+    dvec2(sticky_offset.x, sticky_offset.y)
 }
 
 fn clip_geometry_contains_point(geometry: SceneClipGeometry, point: DVec2) -> bool {

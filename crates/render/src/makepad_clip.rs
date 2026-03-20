@@ -197,7 +197,13 @@ pub(crate) fn push_local_clip_chain(
         if node.spatial_node_id != paint_spatial_node_id {
             break;
         }
-        chain.push(node.geometry);
+        match node.kind {
+            crate::scene::SceneClipKind::Overflow
+            | crate::scene::SceneClipKind::OverflowClip
+            | crate::scene::SceneClipKind::CssClip => {
+                chain.push(node.geometry);
+            }
+        }
         current = node.parent_clip_id;
     }
     chain.reverse();

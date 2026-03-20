@@ -10,11 +10,13 @@ use style::computed_values::position::T as ComputedPosition;
 use style::computed_values::transform_style::T as ComputedTransformStyle;
 use style::properties::ComputedValues;
 use style::values::computed::basic_shape::ClipPath;
+use style::values::computed::ClipRectOrAuto;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
 use crate::scene::{
-    ReferenceFrameData, SceneClipId, SceneClipKind, ScrollNodeData, SpatialNodeId, StickyNodeData,
+    ReferenceFrameData, SceneClipId, SceneClipKind, ScrollNodeData, SpatialNodeId,
+    StickyNodeData, StickyOffsetBounds,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -513,6 +515,17 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             new_containing_block.spatial_node_id = spatial_node_id;
         }
 
+        if let Some(css_clip_rect) = css_clip_rect(bf, new_containing_block.rect) {
+            let clip_id = self.scene_builder.rect_clip(
+                new_containing_block.paint_container_id,
+                new_containing_block.clip_id,
+                css_clip_rect,
+                SceneClipKind::CssClip,
+            );
+            self.scene_builder.set_frame_clip(new_containing_block.paint_container_id, clip_id);
+            new_containing_block.clip_id = clip_id;
+        }
+
         if let Some(rect) = bf.scrollable_overflow {
             let overflow_kind = overflow_clip_kind(&bf.base.style);
             let clip_id = self.scene_builder.rect_clip(
@@ -534,19 +547,43 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             new_containing_block.clip_id = clip_id;
         }
 
-        let child_containing_block = ContainingBlock {
+        let border_rect = bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        let padding_rect = bf.padding_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        let content_rect = bf.content_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+
+        let for_absolute_descendants = ContainingBlock {
             paint_container_id: new_containing_block.paint_container_id,
             spatial_node_id: new_containing_block.spatial_node_id,
             clip_id: new_containing_block.clip_id,
-            rect: bf.cumulative_containing_block_rect,
+            rect: padding_rect,
+        };
+        let for_non_absolute_descendants = ContainingBlock {
+            paint_container_id: new_containing_block.paint_container_id,
+            spatial_node_id: new_containing_block.spatial_node_id,
+            clip_id: new_containing_block.clip_id,
+            rect: content_rect,
+        };
+        let for_absolute_and_fixed_descendants = ContainingBlock {
+            paint_container_id: new_containing_block.paint_container_id,
+            spatial_node_id: new_containing_block.spatial_node_id,
+            clip_id: new_containing_block.clip_id,
+            rect: border_rect,
         };
 
         if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
-            containing_block_info.new_for_absolute_and_fixed_descendants(child_containing_block)
+            ContainingBlockInfo {
+                for_non_absolute_descendants,
+                for_absolute_descendants,
+                for_absolute_and_fixed_descendants,
+            }
         } else if bf.base.style.get_box().position != ComputedPosition::Static {
-            containing_block_info.new_for_absolute_descendants(child_containing_block)
+            ContainingBlockInfo {
+                for_non_absolute_descendants,
+                for_absolute_descendants,
+                for_absolute_and_fixed_descendants: containing_block_info.for_absolute_and_fixed_descendants,
+            }
         } else {
-            containing_block_info.new_for_non_absolute_descendants(child_containing_block)
+            containing_block_info.new_for_non_absolute_descendants(for_non_absolute_descendants)
         }
     }
 
@@ -573,25 +610,53 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 has_transform: reference_frame.has_transform,
                 has_perspective: reference_frame.has_perspective,
                 preserves_3d: !flatten_3d,
-                anchors_content: true,
+                anchors_content: reference_frame.is_invertible,
             }));
         }
 
         if let Some(insets) = bf.resolved_sticky_insets {
             if has_sticky_offset_constraints(insets) {
                 let scroll_frame_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
+                let containing_block_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
+                let frame_rect = physical_rect_to_rect(
+                    bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector()),
+                );
+                let computed_margin = bf.base.style.get_margin();
+                let border_rect = bf.border_rect();
+                let distance_top = border_rect.min_y();
+                let distance_right = bf.cumulative_containing_block_rect.width() - border_rect.max_x();
+                let distance_bottom = bf.cumulative_containing_block_rect.height() - border_rect.max_y();
+                let distance_left = border_rect.min_x();
+                let offset_bound = |distance: app_units::Au,
+                                    used_margin: app_units::Au,
+                                    computed_margin_auto: bool| {
+                    let used_margin = if computed_margin_auto {
+                        app_units::Au::zero()
+                    } else {
+                        used_margin
+                    };
+                    app_units::Au::zero().max(distance - used_margin).to_f32_px()
+                };
                 descriptors.push(SpatialDescriptor::Sticky(StickyNodeData {
-                    frame_rect: physical_rect_to_rect(bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector())),
-                    containing_block_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
-                    scroll_frame_rect,
-                    scroll_port_rect: scroll_frame_rect,
-                    nearest_scroll_node_id: None,
-                    offsets: crate::scene::StickyOffsetConstraints {
+                    frame_rect,
+                    margins: crate::scene::StickyOffsetConstraints {
                         top: insets.top.non_auto().map(|v| v.to_f32_px()),
                         right: insets.right.non_auto().map(|v| v.to_f32_px()),
                         bottom: insets.bottom.non_auto().map(|v| v.to_f32_px()),
                         left: insets.left.non_auto().map(|v| v.to_f32_px()),
                     },
+                    vertical_offset_bounds: StickyOffsetBounds {
+                        min: -offset_bound(distance_top, bf.margin.top, computed_margin.margin_top.is_auto()),
+                        max: offset_bound(distance_bottom, bf.margin.bottom, computed_margin.margin_bottom.is_auto()),
+                    },
+                    horizontal_offset_bounds: StickyOffsetBounds {
+                        min: -offset_bound(distance_left, bf.margin.left, computed_margin.margin_left.is_auto()),
+                        max: offset_bound(distance_right, bf.margin.right, computed_margin.margin_right.is_auto()),
+                    },
+                    containing_block_rect,
+                    scroll_frame_rect,
+                    scroll_port_rect: scroll_frame_rect,
+                    nearest_scroll_node_id: None,
                 }));
             }
         }
@@ -599,10 +664,13 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         if let Some(scrollable_overflow) = bf.scrollable_overflow {
             let scroll_offset = fragment_scroll_offset(bf, self.scroll_state)
                 .unwrap_or_else(|| dvec2(0.0, 0.0));
+            let overflow = bf.base.style.get_box();
             descriptors.push(SpatialDescriptor::Scroll(ScrollNodeData {
                 scroll_offset,
                 scroll_frame_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
                 content_rect: physical_rect_to_rect(scrollable_overflow),
+                sensitivity_x: matches!(overflow.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll),
+                sensitivity_y: matches!(overflow.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll),
                 external_scroll_node_id: bf.base.tag.map(|tag| tag.node.0),
             }));
         }
@@ -639,6 +707,24 @@ fn physical_rect_to_rect(rect: PhysicalRect<app_units::Au>) -> Rect {
         pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
         size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
     }
+}
+
+fn css_clip_rect(
+    bf: &BoxFragment,
+    containing_block_rect: PhysicalRect<app_units::Au>,
+) -> Option<Rect> {
+    if !bf.base.style.get_box().position.is_absolutely_positioned() {
+        return None;
+    }
+    let clip_rect = match bf.base.style.get_effects().clip {
+        ClipRectOrAuto::Rect(rect) => rect,
+        _ => return None,
+    };
+    let border_rect = bf.border_rect();
+    let clip_rect = clip_rect
+        .for_border_rect(border_rect)
+        .translate(containing_block_rect.origin.to_vector());
+    Some(physical_rect_to_rect(clip_rect))
 }
 
 fn overflow_clip_kind(style: &ComputedValues) -> SceneClipKind {

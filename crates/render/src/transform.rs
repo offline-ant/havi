@@ -382,6 +382,7 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
 
 /// T(x,y,z) * M * T(-x,-y,-z)
 fn change_basis<U, V>(m: &euclid::Transform3D<f32, U, V>, x: f32, y: f32, z: f32) -> euclid::Transform3D<f32, U, V> {
-    m.pre_translate(euclid::Vector3D::new(-x, -y, -z))
-     .then_translate(euclid::Vector3D::new(x, y, z))
+    euclid::Transform3D::translation(x, y, z)
+        .then(m)
+        .then_translate(euclid::Vector3D::new(-x, -y, -z))
 }

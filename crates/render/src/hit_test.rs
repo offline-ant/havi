@@ -75,6 +75,17 @@ fn find_scroll_container_in_frame_reverse(
         if !clip_chain_contains_point(scene, clip_id, point_world) {
             return None;
         }
+        let point_local = point_in_paint_container(scene, paint_container_id, point_world);
+        let x_in_scroll = point_local.x >= scroll.scroll_frame_rect.pos.x
+            && point_local.x < scroll.scroll_frame_rect.pos.x + scroll.scroll_frame_rect.size.x;
+        let y_in_scroll = point_local.y >= scroll.scroll_frame_rect.pos.y
+            && point_local.y < scroll.scroll_frame_rect.pos.y + scroll.scroll_frame_rect.size.y;
+        if (!scroll.sensitivity_x && !scroll.sensitivity_y)
+            || (!scroll.sensitivity_x && !y_in_scroll)
+            || (!scroll.sensitivity_y && !x_in_scroll)
+        {
+            return None;
+        }
         if let Some(node_id) = scroll.external_scroll_node_id.or(scene.frame_owner_node_id(paint_container_id)) {
             return Some(OpaqueNode(node_id));
         }
@@ -98,6 +109,11 @@ fn clip_chain_contains_point(
             return false;
         }
         let node = scene.clip_node(current).unwrap();
+        match node.kind {
+            crate::scene::SceneClipKind::Overflow
+            | crate::scene::SceneClipKind::OverflowClip
+            | crate::scene::SceneClipKind::CssClip => {}
+        }
         current = node.parent_clip_id;
     }
     true
