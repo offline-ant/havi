@@ -69,6 +69,7 @@ pub(crate) fn end_filter_pass(
     cx.end_pass(&fp.pass);
 
     state.draw_filter_image.draw_vars.set_texture(0, &fp.texture);
+    state.draw_filter_image.use_mask = 0.0;
     state.draw_filter_image.opacity = opacity;
     state.draw_filter_image.blur_radius = filters.blur_radius;
     state.draw_filter_image.brightness = filters.brightness;

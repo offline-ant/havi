@@ -233,6 +233,8 @@ script_mod! {
     set_type_default() do #(DrawFilterImage::script_shader(vm)){
         ..mod.draw.DrawQuad
         filter_texture: texture_2d(float)
+        mask_texture: texture_2d(float)
+        use_mask: 0.0
         opacity: 1.0
         blur_radius: 0.0
         brightness: 1.0
@@ -306,6 +308,10 @@ script_mod! {
             color = vec4(color.rgb * self.brightness, color.a)
             // Contrast
             color = vec4((color.rgb - vec3(0.5, 0.5, 0.5)) * self.contrast + vec3(0.5, 0.5, 0.5), color.a)
+            if self.use_mask > 0.5 {
+                let mask = self.mask_texture.sample_as_bgra(uv).w
+                color = vec4(color.rgb, color.a * mask)
+            }
             // Re-premultiply and apply opacity
             let fa = color.a * self.opacity
             return vec4(color.rgb * fa, fa)
@@ -343,6 +349,8 @@ impl DrawVideoYuv {
 pub struct DrawFilterImage {
     #[deref]
     pub draw_super: DrawQuad,
+    #[live]
+    pub use_mask: f32,
     #[live(1.0)]
     pub opacity: f32,
     #[live]

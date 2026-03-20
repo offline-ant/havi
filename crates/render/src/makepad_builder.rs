@@ -49,6 +49,7 @@ struct CompositorRuntime {
 struct BackendRuntime {
     compositor: CompositorRuntime,
     masks: MaskRuntime,
+    mask_contents: HashMap<PaintContainerId, MpSurface>,
 }
 
 impl CompositorRuntime {
@@ -66,7 +67,34 @@ impl BackendRuntime {
         Self {
             compositor: CompositorRuntime::new(cx),
             masks: MaskRuntime::new(cx),
+            mask_contents: HashMap::new(),
         }
+    }
+
+    fn ensure_mask_content_surface(&mut self, cx: &mut Cx, paint_container_id: PaintContainerId, size: DVec2) {
+        self.mask_contents
+            .entry(paint_container_id)
+            .and_modify(|surface| surface.resize(cx, size))
+            .or_insert_with(|| MpSurface::new(cx, size, MpSurfaceColorFormat::BgraU8, false));
+    }
+
+    fn begin_mask_content_surface(&mut self, cx: &mut Cx2d, paint_container_id: PaintContainerId, size: DVec2) {
+        self.ensure_mask_content_surface(cx.cx, paint_container_id, size);
+        let surface = self.mask_contents.get_mut(&paint_container_id).unwrap();
+        surface.begin(cx, None);
+        cx.set_pass_shift_scale(surface.pass(), dvec2(0.0, 0.0), dvec2(1.0, 1.0));
+    }
+
+    fn end_mask_content_surface(&mut self, cx: &mut Cx2d, paint_container_id: PaintContainerId) {
+        self.mask_contents.get_mut(&paint_container_id).unwrap().end(cx);
+    }
+
+    fn mask_content_texture(&self, paint_container_id: PaintContainerId) -> Texture {
+        self.mask_contents
+            .get(&paint_container_id)
+            .unwrap()
+            .color_texture()
+            .clone()
     }
 }
 
@@ -452,7 +480,45 @@ fn paint_paint_container_contents(
                     scene.effective_clip_chain_for_paint_container(child_paint_container_id),
                 );
                 if let Some(chain) = pushed.mask_chain.as_ref() {
-                    let _ = runtime.masks.begin_mask_chain(cx, paint_container_id, chain);
+                    if let Some(mask_texture) = runtime.masks.begin_mask_chain(cx, paint_container_id, chain) {
+                        let mask_rect = Rect {
+                            pos: dvec2(0.0, 0.0),
+                            size: cx.current_pass_size(),
+                        };
+                        runtime.begin_mask_content_surface(cx, paint_container_id, mask_rect.size);
+                        cx.begin_unclipped_root_turtle_for_pass(Layout::default());
+                        paint_paint_container_target(
+                            cx,
+                            scene,
+                            runtime,
+                            child_paint_container_id,
+                            active_surface_id,
+                            target_paint_container_id,
+                            space_root_paint_container_id,
+                            root_viewport_size,
+                            state,
+                            opacity,
+                        );
+                        cx.end_pass_sized_turtle_no_clip();
+                        runtime.end_mask_content_surface(cx, paint_container_id);
+
+                        state.draw_filter_image.draw_vars.set_texture(0, &runtime.mask_content_texture(paint_container_id));
+                        state.draw_filter_image.draw_vars.set_texture(1, &mask_texture);
+                        state.draw_filter_image.use_mask = 1.0;
+                        state.draw_filter_image.opacity = 1.0;
+                        state.draw_filter_image.blur_radius = 0.0;
+                        state.draw_filter_image.brightness = 1.0;
+                        state.draw_filter_image.contrast = 1.0;
+                        state.draw_filter_image.grayscale = 0.0;
+                        state.draw_filter_image.hue_rotate = 0.0;
+                        state.draw_filter_image.invert = 0.0;
+                        state.draw_filter_image.saturate = 1.0;
+                        state.draw_filter_image.sepia = 0.0;
+                        state.draw_filter_image.tex_size = Vec2f { x: mask_rect.size.x as f32, y: mask_rect.size.y as f32 };
+                        state.draw_filter_image.draw_abs(cx, mask_rect);
+                        state.draw_filter_image.use_mask = 0.0;
+                    }
+                    pop_clip_chain(cx, pushed.rect_pushes);
                     continue;
                 }
                 if pushed.projected_quad_clip_planes.is_none() {
