@@ -128,9 +128,16 @@ fn paint_paint_container_target(
     parent_opacity: f32,
 ) {
     let frame_surface_id = scene.frame_surface(paint_container_id);
-    let redirects_to_surface = scene
-        .compositor_scene()
-        .frame_redirects_to_surface(scene, paint_container_id, active_surface_id);
+    let target_paint_container_id = active_surface_id
+        .and_then(|surface_id| scene.compositor_scene().surfaces.get(surface_id))
+        .and_then(|surface| surface.direct_frames.first().copied())
+        .unwrap_or(scene.root_paint_container_id());
+    let redirects_to_surface = scene.compositor_scene().frame_redirects_to_surface(
+        scene,
+        paint_container_id,
+        target_paint_container_id,
+        active_surface_id,
+    );
     let participation = scene.frame_participation(paint_container_id);
 
     match participation {
@@ -403,9 +410,12 @@ fn paint_paint_container_contents(
             }
             ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => {
                 let child_parent_surface_id = scene.frame_parent_surface(child_paint_container_id);
-                let child_redirects_to_surface = scene
-                    .compositor_scene()
-                    .frame_redirects_to_surface(scene, child_paint_container_id, active_surface_id);
+                let child_redirects_to_surface = scene.compositor_scene().frame_redirects_to_surface(
+                    scene,
+                    child_paint_container_id,
+                    paint_container_id,
+                    active_surface_id,
+                );
                 if child_redirects_to_surface {
                     let child_surface_id = scene.frame_surface(child_paint_container_id);
                     if child_surface_id != active_surface_id && child_parent_surface_id != active_surface_id {

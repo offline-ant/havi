@@ -45,26 +45,23 @@ impl CompositorScene {
         &self,
         scene: &RenderScene<'_>,
         paint_container_id: PaintContainerId,
+        target_paint_container_id: PaintContainerId,
         active_surface_id: Option<CompositorSurfaceId>,
     ) -> bool {
         self.frame_surface(paint_container_id)
             .is_some_and(|surface_id| Some(surface_id) != active_surface_id)
-            || self.frame_requires_projected_clip_surface(scene, paint_container_id, active_surface_id)
+            || self.frame_requires_projected_clip_surface(scene, paint_container_id, target_paint_container_id)
     }
 
     pub(crate) fn frame_requires_projected_clip_surface(
         &self,
         scene: &RenderScene<'_>,
         paint_container_id: PaintContainerId,
-        active_surface_id: Option<CompositorSurfaceId>,
+        target_paint_container_id: PaintContainerId,
     ) -> bool {
         if self.frame_surface(paint_container_id).is_some() {
             return false;
         }
-        let target_paint_container_id = active_surface_id
-            .and_then(|surface_id| self.surfaces.get(surface_id))
-            .and_then(|surface| surface.direct_frames.first().copied())
-            .unwrap_or(scene.root_paint_container_id());
         let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
         classify_clip_chain(scene, target_paint_container_id, clip_id)
             .push_result
@@ -91,8 +88,15 @@ impl CompositorScene {
         current_surface_id: Option<CompositorSurfaceId>,
         current_preserve_group_id: Option<CompositorGroupId>,
     ) {
-        let requires_projected_clip_surface = current_surface_id.is_some()
-            && self.frame_requires_projected_clip_surface(scene, paint_container_id, current_surface_id);
+        let target_paint_container_id = current_surface_id
+            .and_then(|surface_id| self.surfaces.get(surface_id))
+            .and_then(|surface| surface.direct_frames.first().copied())
+            .unwrap_or(scene.root_paint_container_id());
+        let requires_projected_clip_surface = self.frame_requires_projected_clip_surface(
+            scene,
+            paint_container_id,
+            target_paint_container_id,
+        );
         match scene.frame_participation(paint_container_id) {
             RenderParticipation::Direct2d if !requires_projected_clip_surface => {
                 self.push_direct_frame(paint_container_id, current_surface_id);
