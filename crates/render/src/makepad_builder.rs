@@ -9,7 +9,7 @@ use makepad_widgets::*;
 use crate::compositor_scene::CompositorSurfaceId;
 use crate::makepad_clip::{
     map_rect_between_paint_containers, pop_clip_chain, push_clip_chain, push_local_clip_chain,
-    transform_rect,
+    transform_rect, ClipPushResult,
 };
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
@@ -396,7 +396,7 @@ fn paint_paint_container_contents(
                 if child_parent_surface_id.is_some() && child_parent_surface_id != active_surface_id {
                     continue;
                 }
-                let pushed = push_clip_chain(
+                let pushed: ClipPushResult = push_clip_chain(
                     cx,
                     scene,
                     paint_container_id,
@@ -413,7 +413,7 @@ fn paint_paint_container_contents(
                     state,
                     opacity,
                 );
-                pop_clip_chain(cx, pushed);
+                pop_clip_chain(cx, pushed.rect_pushes);
             }
         }
     }

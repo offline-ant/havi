@@ -1,7 +1,8 @@
 use makepad_widgets::*;
 
 use crate::scene::{
-    BackendClipExecutionKind, PaintContainerId, RenderScene, SceneClipGeometry, SceneClipId,
+    BackendClipExecution, BackendClipExecutionKind, PaintContainerId, RenderScene, SceneClipGeometry,
+    SceneClipId,
 };
 
 pub(crate) fn push_clip_chain(
@@ -9,11 +10,11 @@ pub(crate) fn push_clip_chain(
     scene: &RenderScene<'_>,
     paint_container_id: PaintContainerId,
     clip_id: SceneClipId,
-) -> usize {
+) -> ClipPushResult {
     if clip_id == SceneClipId::INVALID {
-        return 0;
+        return ClipPushResult::default();
     }
-    let mut pushed = 0;
+    let mut result = ClipPushResult::default();
     let mut current = clip_id;
     let mut chain = Vec::new();
     while current != SceneClipId::INVALID {
@@ -24,11 +25,14 @@ pub(crate) fn push_clip_chain(
     }
     chain.reverse();
     for execution in chain {
-        if push_backend_clip_execution(cx, execution) {
-            pushed += 1;
+        match push_backend_clip_execution(cx, execution) {
+            BackendClipPush::Rect => result.rect_pushes += 1,
+            BackendClipPush::ProjectedQuadFallback => result.used_projected_quad_fallback = true,
+            BackendClipPush::MaskFallback => result.used_mask_fallback = true,
+            BackendClipPush::None => {}
         }
     }
-    pushed
+    result
 }
 
 pub(crate) fn push_local_clip_chain(
@@ -62,6 +66,21 @@ pub(crate) fn pop_clip_chain(cx: &mut Cx2d, pushed_count: usize) {
     for _ in 0..pushed_count {
         cx.pop_clip_rect();
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ClipPushResult {
+    pub rect_pushes: usize,
+    pub used_projected_quad_fallback: bool,
+    pub used_mask_fallback: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BackendClipPush {
+    None,
+    Rect,
+    ProjectedQuadFallback,
+    MaskFallback,
 }
 
 pub(crate) fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
@@ -110,25 +129,31 @@ pub(crate) fn map_rect_between_paint_containers(
     transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
 }
 
-fn push_backend_clip_execution(
-    cx: &mut Cx2d,
-    execution: crate::scene::BackendClipExecution,
-) -> bool {
+fn push_backend_clip_execution(cx: &mut Cx2d, execution: BackendClipExecution) -> BackendClipPush {
     match execution.kind {
         BackendClipExecutionKind::DirectRect => {
             if let Some(rect) = execution.rect {
                 cx.push_clip_rect(rect);
-                true
+                BackendClipPush::Rect
             } else {
-                false
+                BackendClipPush::None
             }
         }
-        BackendClipExecutionKind::ProjectedQuadFallback | BackendClipExecutionKind::MaskFallback => {
+        BackendClipExecutionKind::ProjectedQuadFallback => {
+            if let Some(rect) = execution.rect {
+                let _quad = execution.quad;
+                cx.push_clip_rect(rect);
+                BackendClipPush::ProjectedQuadFallback
+            } else {
+                BackendClipPush::None
+            }
+        }
+        BackendClipExecutionKind::MaskFallback => {
             if let Some(rect) = execution.rect {
                 cx.push_clip_rect(rect);
-                true
+                BackendClipPush::MaskFallback
             } else {
-                false
+                BackendClipPush::None
             }
         }
     }

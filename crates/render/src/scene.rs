@@ -100,6 +100,7 @@ pub(crate) enum BackendClipExecutionKind {
 pub(crate) struct BackendClipExecution {
     pub kind: BackendClipExecutionKind,
     pub rect: Option<Rect>,
+    pub quad: Option<[DVec2; 4]>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -280,7 +281,15 @@ impl<'a> RenderScene<'a> {
         let rect = match geometry {
             SceneClipGeometry::Rect { rect } => Some(rect),
         };
-        Some(BackendClipExecution { kind, rect })
+        let quad = match node.geometry {
+            SceneClipGeometry::Rect { rect } => Some(project_rect_to_paint_container_quad(
+                self,
+                node.spatial_node_id,
+                paint_container_id,
+                rect,
+            )),
+        };
+        Some(BackendClipExecution { kind, rect, quad })
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
@@ -471,6 +480,23 @@ fn map_clip_geometry_from_spatial_to_paint_container(
             SceneClipGeometry::Rect { rect: mapped }
         }
     }
+}
+
+fn project_rect_to_paint_container_quad(
+    scene: &RenderScene<'_>,
+    from_spatial_node_id: SpatialNodeId,
+    to_paint_container_id: PaintContainerId,
+    rect: Rect,
+) -> [DVec2; 4] {
+    let to_local = scene.frame_world_inverse(to_paint_container_id);
+    let to_world = scene.spatial_to_world_transform(from_spatial_node_id);
+    let corners = [
+        dvec2(rect.pos.x, rect.pos.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y),
+        dvec2(rect.pos.x + rect.size.x, rect.pos.y + rect.size.y),
+        dvec2(rect.pos.x, rect.pos.y + rect.size.y),
+    ];
+    corners.map(|point| transform_point(&to_local, transform_point(&to_world, point)))
 }
 
 fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
