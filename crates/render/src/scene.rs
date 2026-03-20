@@ -313,6 +313,10 @@ impl<'a> RenderScene<'a> {
         self.compositor_scene.frame_parent_surface(paint_container_id)
     }
 
+    pub(crate) fn compositor_scene(&self) -> &CompositorScene {
+        &self.compositor_scene
+    }
+
     pub(crate) fn with_compositor_scene(mut self, compositor_scene: CompositorScene) -> Self {
         self.compositor_scene = compositor_scene;
         self

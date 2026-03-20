@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::makepad_clip::classify_clip_chain;
 use crate::render_plan::{CompositorGroupMode, RenderParticipation};
 use crate::scene::{PaintContainerId, RenderScene, ScenePaintCommand};
 
@@ -40,6 +41,37 @@ impl CompositorScene {
         compositor_scene
     }
 
+    pub(crate) fn frame_redirects_to_surface(
+        &self,
+        scene: &RenderScene<'_>,
+        paint_container_id: PaintContainerId,
+        active_surface_id: Option<CompositorSurfaceId>,
+    ) -> bool {
+        self.frame_surface(paint_container_id)
+            .is_some_and(|surface_id| Some(surface_id) != active_surface_id)
+            || self.frame_requires_projected_clip_surface(scene, paint_container_id, active_surface_id)
+    }
+
+    pub(crate) fn frame_requires_projected_clip_surface(
+        &self,
+        scene: &RenderScene<'_>,
+        paint_container_id: PaintContainerId,
+        active_surface_id: Option<CompositorSurfaceId>,
+    ) -> bool {
+        if self.frame_surface(paint_container_id).is_some() {
+            return false;
+        }
+        let target_paint_container_id = active_surface_id
+            .and_then(|surface_id| self.surfaces.get(surface_id))
+            .and_then(|surface| surface.direct_frames.first().copied())
+            .unwrap_or(scene.root_paint_container_id());
+        let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
+        classify_clip_chain(scene, target_paint_container_id, clip_id)
+            .push_result
+            .projected_quad_clip_planes
+            .is_some()
+    }
+
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<CompositorSurfaceId> {
         self.frame_surface.get(&paint_container_id).copied()
     }
@@ -59,8 +91,10 @@ impl CompositorScene {
         current_surface_id: Option<CompositorSurfaceId>,
         current_preserve_group_id: Option<CompositorGroupId>,
     ) {
+        let requires_projected_clip_surface = current_surface_id.is_some()
+            && self.frame_requires_projected_clip_surface(scene, paint_container_id, current_surface_id);
         match scene.frame_participation(paint_container_id) {
-            RenderParticipation::Direct2d => {
+            RenderParticipation::Direct2d if !requires_projected_clip_surface => {
                 self.push_direct_frame(paint_container_id, current_surface_id);
                 for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
                     self.visit_frame(
@@ -68,6 +102,18 @@ impl CompositorScene {
                         child_paint_container_id,
                         current_surface_id,
                         current_preserve_group_id,
+                    );
+                }
+            }
+            RenderParticipation::Direct2d => {
+                let surface_id = self.push_surface(paint_container_id, current_surface_id, CompositorGroupMode::Flat);
+                self.push_direct_frame(paint_container_id, Some(surface_id));
+                for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
+                    self.visit_frame(
+                        scene,
+                        child_paint_container_id,
+                        Some(surface_id),
+                        None,
                     );
                 }
             }
