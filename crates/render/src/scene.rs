@@ -284,13 +284,16 @@ impl<'a> RenderScene<'a> {
         let node = self.clip_node(clip_id)?;
         let geometry = self.clip_geometry_in_paint_container(clip_id, paint_container_id)?;
         let reference_frame = self.spatial_node(node.reference_frame_id);
-        let kind = match reference_frame.semantics {
-            SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d => {
-                BackendClipExecutionKind::ProjectedQuadFallback
-            }
-            _ => match geometry {
+        let projected_clip = matches!(
+            reference_frame.semantics,
+            SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d
+        );
+        let kind = if projected_clip {
+            BackendClipExecutionKind::ProjectedQuadFallback
+        } else {
+            match geometry {
                 SceneClipGeometry::Rect { .. } => BackendClipExecutionKind::DirectRect,
-            },
+            }
         };
         let rect = match geometry {
             SceneClipGeometry::Rect { rect } => Some(rect),
@@ -309,6 +312,11 @@ impl<'a> RenderScene<'a> {
                 Err(limit) => (None, Some(limit)),
             },
             None => (None, None),
+        };
+        let kind = if projected_clip && clip_planes.is_none() {
+            BackendClipExecutionKind::MaskFallback
+        } else {
+            kind
         };
         Some(BackendClipExecution {
             kind,

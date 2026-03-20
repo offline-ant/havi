@@ -48,7 +48,12 @@ pub(crate) fn classify_clip_chain(
                     }
                     push_result.used_projected_quad_fallback = true;
                 }
-                BackendClipExecutionKind::MaskFallback => push_result.used_mask_fallback = true,
+                BackendClipExecutionKind::MaskFallback => {
+                    if let Some(limit) = execution.projected_clip_limit {
+                        push_result.projected_clip_limit = Some(limit);
+                    }
+                    push_result.used_mask_fallback = true;
+                }
             }
             executions.push(execution);
         }
@@ -190,7 +195,7 @@ fn push_backend_clip_execution(cx: &mut Cx2d, execution: BackendClipExecution) -
                 cx.push_clip_rect(rect);
                 BackendClipPush::MaskFallback
             } else {
-                BackendClipPush::None
+                BackendClipPush::MaskFallback
             }
         }
     }
