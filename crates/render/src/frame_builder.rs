@@ -5,7 +5,7 @@ use crate::layout_stacking_context::{
 };
 use crate::paint_items::PaintSource;
 use crate::render_plan::collect_owner_render_semantics;
-use crate::scene::{ReferenceFrameData, RenderScene, SceneClipId, SpatialNodeSemantics};
+use crate::scene::{ReferenceFrameData, RenderScene, SceneClipId, SceneClipKind, SpatialNodeSemantics};
 use crate::scene_builder::RenderSceneBuilder;
 use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_widgets::*;
@@ -132,6 +132,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                     iframe.base.rect.size.height.to_f32_px() as f64,
                 ),
             },
+            SceneClipKind::Overflow,
         );
         self.scene_builder.set_frame_clip(paint_container_id, clip_id);
         let child_owner_semantics = collect_owner_render_semantics(&iframe.child_fragments);

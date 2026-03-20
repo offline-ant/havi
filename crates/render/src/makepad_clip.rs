@@ -1,6 +1,6 @@
 use makepad_widgets::*;
 
-use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SpatialNodeId, SpatialNodeSemantics};
+use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SceneClipKind, SpatialNodeId, SpatialNodeSemantics};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
@@ -21,7 +21,9 @@ pub(crate) fn push_clip_chain(
             paint_container_id,
             node.rect,
         );
-        if !clip_node_uses_perspective(scene, current) {
+        if matches!(node.kind, SceneClipKind::OverflowClip) {
+            chain.push(mapped);
+        } else if !clip_node_uses_perspective(scene, current) {
             chain.push(mapped);
         } else {
             chain.push(mapped);

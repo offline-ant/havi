@@ -79,6 +79,12 @@ impl SpatialNodeSemantics {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) enum SceneClipKind {
+    Overflow,
+    OverflowClip,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
     pub parent_spatial_node_id: SpatialNodeId,
@@ -86,6 +92,7 @@ pub(crate) struct SceneClipNode {
     pub scroll_node_id: Option<SpatialNodeId>,
     pub overflow_root_spatial_node_id: Option<SpatialNodeId>,
     pub reference_frame_id: SpatialNodeId,
+    pub kind: SceneClipKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

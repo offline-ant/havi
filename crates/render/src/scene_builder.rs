@@ -4,8 +4,8 @@ use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
 use crate::render_plan::RenderPlan;
 use crate::scene::{
-    PaintContainer, PaintContainerId, ReferenceFrameData, RenderScene, SceneClipId, SceneClipNode,
-    ScenePaintCommand, ScenePaintItem, ScrollNodeData, SpatialNode, SpatialNodeId,
+    PaintContainer, PaintContainerId, ReferenceFrameData, RenderScene, SceneClipId, SceneClipKind,
+    SceneClipNode, ScenePaintCommand, ScenePaintItem, ScrollNodeData, SpatialNode, SpatialNodeId,
     SpatialNodeSemantics, StickyNodeData,
 };
 use makepad_widgets::*;
@@ -175,6 +175,7 @@ impl<'a> RenderSceneBuilder<'a> {
         parent_paint_container_id: PaintContainerId,
         parent_clip_id: SceneClipId,
         rect: Rect,
+        kind: SceneClipKind,
     ) -> SceneClipId {
         let spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
         let clip_id = SceneClipId(self.clip_nodes.len());
@@ -185,6 +186,7 @@ impl<'a> RenderSceneBuilder<'a> {
             scroll_node_id: self.spatial_nodes[spatial_node_id.0].nearest_scroll_node_id,
             overflow_root_spatial_node_id: Some(spatial_node_id),
             reference_frame_id: self.spatial_nodes[spatial_node_id.0].nearest_reference_frame_id,
+            kind,
         });
         clip_id
     }

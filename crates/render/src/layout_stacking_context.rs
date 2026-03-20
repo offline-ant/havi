@@ -15,7 +15,7 @@ use style::Zero;
 
 use crate::frame_tree::{FrameId, FrameKey};
 use crate::scene::{
-    ReferenceFrameData, SceneClipId, ScrollNodeData, SpatialNodeId, StickyNodeData,
+    ReferenceFrameData, SceneClipId, SceneClipKind, ScrollNodeData, SpatialNodeId, StickyNodeData,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -527,6 +527,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         }
 
         if let Some(rect) = bf.scrollable_overflow {
+            let overflow_kind = overflow_clip_kind(&bf.base.style);
             let clip_id = self.scene_builder.rect_clip(
                 new_containing_block.paint_container_id,
                 new_containing_block.clip_id,
@@ -540,6 +541,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                         rect.size.height.to_f32_px() as f64,
                     ),
                 },
+                overflow_kind,
             );
             self.scene_builder.set_frame_clip(new_containing_block.paint_container_id, clip_id);
             new_containing_block.clip_id = clip_id;
@@ -649,6 +651,17 @@ fn physical_rect_to_rect(rect: PhysicalRect<app_units::Au>) -> Rect {
     Rect {
         pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
         size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
+    }
+}
+
+fn overflow_clip_kind(style: &ComputedValues) -> SceneClipKind {
+    let overflow = style.get_box();
+    if matches!(overflow.overflow_x, ComputedOverflow::Clip)
+        || matches!(overflow.overflow_y, ComputedOverflow::Clip)
+    {
+        SceneClipKind::OverflowClip
+    } else {
+        SceneClipKind::Overflow
     }
 }
 
