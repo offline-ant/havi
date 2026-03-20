@@ -1,6 +1,8 @@
 use makepad_widgets::*;
 
-use crate::scene::{PaintContainerId, RenderScene, SceneClipGeometry, SceneClipId, SceneClipKind, SpatialNodeSemantics};
+use crate::scene::{
+    BackendClipExecutionKind, PaintContainerId, RenderScene, SceneClipGeometry, SceneClipId,
+};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
@@ -11,27 +13,22 @@ pub(crate) fn push_clip_chain(
     if clip_id == SceneClipId::INVALID {
         return 0;
     }
-    let mut chain = Vec::new();
+    let mut pushed = 0;
     let mut current = clip_id;
+    let mut chain = Vec::new();
     while current != SceneClipId::INVALID {
-        let node = scene.clip_node(current).unwrap();
-        let geometry = scene
-            .clip_geometry_in_paint_container(current, paint_container_id)
-            .unwrap();
-        if matches!(node.kind, SceneClipKind::OverflowClip) {
-            chain.push(geometry);
-        } else if !clip_node_uses_perspective(scene, current) {
-            chain.push(geometry);
-        } else {
-            chain.push(geometry);
+        if let Some(execution) = scene.backend_clip_execution(current, paint_container_id) {
+            chain.push(execution);
         }
-        current = node.parent_clip_id;
+        current = scene.clip_node(current).unwrap().parent_clip_id;
     }
     chain.reverse();
-    for geometry in &chain {
-        push_clip_geometry(cx, *geometry);
+    for execution in chain {
+        if push_backend_clip_execution(cx, execution) {
+            pushed += 1;
+        }
     }
-    chain.len()
+    pushed
 }
 
 pub(crate) fn push_local_clip_chain(
@@ -113,12 +110,28 @@ pub(crate) fn map_rect_between_paint_containers(
     transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
 }
 
-fn clip_node_uses_perspective(scene: &RenderScene<'_>, clip_id: SceneClipId) -> bool {
-    let node = scene.clip_node(clip_id).unwrap();
-    matches!(
-        scene.spatial_node(node.reference_frame_id).semantics,
-        SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d
-    )
+fn push_backend_clip_execution(
+    cx: &mut Cx2d,
+    execution: crate::scene::BackendClipExecution,
+) -> bool {
+    match execution.kind {
+        BackendClipExecutionKind::DirectRect => {
+            if let Some(rect) = execution.rect {
+                cx.push_clip_rect(rect);
+                true
+            } else {
+                false
+            }
+        }
+        BackendClipExecutionKind::ProjectedQuadFallback | BackendClipExecutionKind::MaskFallback => {
+            if let Some(rect) = execution.rect {
+                cx.push_clip_rect(rect);
+                true
+            } else {
+                false
+            }
+        }
+    }
 }
 
 fn push_clip_geometry(cx: &mut Cx2d, geometry: SceneClipGeometry) {

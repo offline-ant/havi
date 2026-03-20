@@ -89,6 +89,19 @@ pub(crate) enum SceneClipGeometry {
     Rect { rect: Rect },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BackendClipExecutionKind {
+    DirectRect,
+    ProjectedQuadFallback,
+    MaskFallback,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BackendClipExecution {
+    pub kind: BackendClipExecutionKind,
+    pub rect: Option<Rect>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
@@ -246,6 +259,28 @@ impl<'a> RenderScene<'a> {
             paint_container_id,
             node.geometry,
         ))
+    }
+
+    pub(crate) fn backend_clip_execution(
+        &self,
+        clip_id: SceneClipId,
+        paint_container_id: PaintContainerId,
+    ) -> Option<BackendClipExecution> {
+        let node = self.clip_node(clip_id)?;
+        let geometry = self.clip_geometry_in_paint_container(clip_id, paint_container_id)?;
+        let reference_frame = self.spatial_node(node.reference_frame_id);
+        let kind = match reference_frame.semantics {
+            SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d => {
+                BackendClipExecutionKind::ProjectedQuadFallback
+            }
+            _ => match geometry {
+                SceneClipGeometry::Rect { .. } => BackendClipExecutionKind::DirectRect,
+            },
+        };
+        let rect = match geometry {
+            SceneClipGeometry::Rect { rect } => Some(rect),
+        };
+        Some(BackendClipExecution { kind, rect })
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
