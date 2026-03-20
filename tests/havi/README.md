@@ -25,6 +25,10 @@ make -j4 test
 # Browser-oracle checks for curated WPT cases
 ./wpt-oracle.py --wpt-manifest reftest/wpt-transforms.list
 
+# Focused MaskFallback projected-clip validation
+./reftest.py --wpt-manifest reftest/mask-fallback-wpt.list
+./wpt-oracle.py --wpt-manifest reftest/mask-fallback-wpt.list
+
 # Run only a slice at a time
 ./reftest.py --wpt-manifest reftest/wpt-transforms.list --limit 10
 ./reftest.py --wpt-manifest reftest/wpt-transforms.list --offset 10 --limit 10
