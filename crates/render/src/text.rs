@@ -274,7 +274,7 @@ fn draw_positioned_glyphs_with_font(
 
     if !rasterized_glyphs.is_empty() {
         dt.color = color;
-        dt.draw_rasterized_glyphs_abs(cx, &rasterized_glyphs, color);
+        dt.draw_rasterized_glyphs_exact_abs(cx, &rasterized_glyphs, color);
     }
 }
 
