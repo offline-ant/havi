@@ -11,7 +11,8 @@
 //!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
 //! - scene-native storage now lives in `scene` and `scene_builder`
 //! - active scene identity is split into spatial nodes and paint containers
-//! - builder APIs now expose spatial-node creation and paint-container attachment separately
+//! - builder APIs expose spatial-node creation and paint-container attachment separately
+//! - stacking-context lowering now carries scene-native spatial attachments and descriptors
 //! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`

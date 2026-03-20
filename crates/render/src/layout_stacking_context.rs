@@ -13,12 +13,13 @@ use style::values::computed::basic_shape::ClipPath;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
-use crate::frame_tree::FrameId;
-use crate::scene::SceneClipId;
+use crate::frame_tree::{FrameId, FrameKey};
+use crate::scene::{SceneClipId, SpatialNodeId, SpatialNodeKind};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ContainingBlock {
-    pub frame_id: FrameId,
+    pub paint_container_id: FrameId,
+    pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
     pub rect: PhysicalRect<app_units::Au>,
 }
@@ -33,31 +34,23 @@ pub(crate) struct ContainingBlockInfo {
 impl ContainingBlockInfo {
     pub(crate) fn containing_block_for_fragment(&self, fragment: &Fragment) -> ContainingBlock {
         match fragment {
-            Fragment::Box(bf) | Fragment::Float(bf) => {
-                match bf.base.style.get_box().position {
-                    ComputedPosition::Fixed => self.for_absolute_and_fixed_descendants,
-                    ComputedPosition::Absolute => self.for_absolute_descendants,
-                    _ => self.for_non_absolute_descendants,
-                }
-            }
+            Fragment::Box(bf) | Fragment::Float(bf) => match bf.base.style.get_box().position {
+                ComputedPosition::Fixed => self.for_absolute_and_fixed_descendants,
+                ComputedPosition::Absolute => self.for_absolute_descendants,
+                _ => self.for_non_absolute_descendants,
+            },
             _ => self.for_non_absolute_descendants,
         }
     }
 
-    pub(crate) fn new_for_non_absolute_descendants(
-        &self,
-        containing_block: ContainingBlock,
-    ) -> Self {
+    pub(crate) fn new_for_non_absolute_descendants(&self, containing_block: ContainingBlock) -> Self {
         Self {
             for_non_absolute_descendants: containing_block,
             ..*self
         }
     }
 
-    pub(crate) fn new_for_absolute_descendants(
-        &self,
-        containing_block: ContainingBlock,
-    ) -> Self {
+    pub(crate) fn new_for_absolute_descendants(&self, containing_block: ContainingBlock) -> Self {
         Self {
             for_non_absolute_descendants: containing_block,
             for_absolute_descendants: containing_block,
@@ -65,10 +58,7 @@ impl ContainingBlockInfo {
         }
     }
 
-    pub(crate) fn new_for_absolute_and_fixed_descendants(
-        &self,
-        containing_block: ContainingBlock,
-    ) -> Self {
+    pub(crate) fn new_for_absolute_and_fixed_descendants(&self, containing_block: ContainingBlock) -> Self {
         Self {
             for_non_absolute_descendants: containing_block,
             for_absolute_descendants: containing_block,
@@ -93,12 +83,18 @@ pub(crate) enum StackingContextType {
     AtomicInlineStackingContainer,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpatialAttachment {
+    pub paint_container_id: FrameId,
+    pub spatial_node_id: SpatialNodeId,
+    pub clip_id: SceneClipId,
+}
+
 pub(crate) enum LayoutStackingContextContent<'a> {
     Fragment {
         section: StackingContextSection,
         fragment: &'a Fragment,
-        frame_id: FrameId,
-        clip_id: SceneClipId,
+        attachment: SpatialAttachment,
         containing_block: PhysicalRect<app_units::Au>,
     },
     AtomicInlineStackingContainer { index: usize },
@@ -136,7 +132,7 @@ pub(crate) struct LayoutStackingContext<'a> {
 }
 
 impl<'a> LayoutStackingContext<'a> {
-    fn new_root(_frame_id: FrameId, _clip_id: SceneClipId) -> Self {
+    fn new_root(_attachment: SpatialAttachment) -> Self {
         Self {
             initializing_fragment: None,
             context_type: StackingContextType::RealStackingContext,
@@ -150,8 +146,7 @@ impl<'a> LayoutStackingContext<'a> {
     fn new_child(
         bf: &'a BoxFragment,
         context_type: StackingContextType,
-        _frame_id: FrameId,
-        _clip_id: SceneClipId,
+        _attachment: SpatialAttachment,
     ) -> Self {
         Self {
             initializing_fragment: Some(bf),
@@ -268,9 +263,15 @@ pub(crate) fn build_stacking_context_tree<'a>(
     scroll_state: &crate::ScrollState,
     owner_semantics: &std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 ) -> LayoutStackingContext<'a> {
-    let mut root = LayoutStackingContext::new_root(root_frame_id, root_clip_id);
+    let root_attachment = SpatialAttachment {
+        paint_container_id: root_frame_id,
+        spatial_node_id: scene_builder.paint_container_spatial_node_id(root_frame_id),
+        clip_id: root_clip_id,
+    };
+    let mut root = LayoutStackingContext::new_root(root_attachment);
     let root_cb = ContainingBlock {
-        frame_id: root_frame_id,
+        paint_container_id: root_frame_id,
+        spatial_node_id: root_attachment.spatial_node_id,
         clip_id: root_clip_id,
         rect: PhysicalRect::zero(),
     };
@@ -302,6 +303,39 @@ pub(crate) enum StackingContextBuildMode {
     SkipHoisted,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum SpatialDescriptor {
+    ReferenceFrame { matrix: Mat4f },
+    Sticky { translation: Mat4f },
+    Scroll { translation: Mat4f },
+}
+
+impl SpatialDescriptor {
+    fn kind(self) -> SpatialNodeKind {
+        match self {
+            SpatialDescriptor::ReferenceFrame { .. } => SpatialNodeKind::ReferenceFrame,
+            SpatialDescriptor::Sticky { .. } => SpatialNodeKind::Sticky,
+            SpatialDescriptor::Scroll { .. } => SpatialNodeKind::Scroll,
+        }
+    }
+
+    fn local_transform(self) -> Mat4f {
+        match self {
+            SpatialDescriptor::ReferenceFrame { matrix }
+            | SpatialDescriptor::Sticky { translation: matrix }
+            | SpatialDescriptor::Scroll { translation: matrix } => matrix,
+        }
+    }
+
+    fn frame_key(self, key_id: usize) -> FrameKey {
+        match self {
+            SpatialDescriptor::ReferenceFrame { .. } => FrameKey::NodeReferenceFrame(key_id),
+            SpatialDescriptor::Sticky { .. } => FrameKey::NodeStickyFrame(key_id),
+            SpatialDescriptor::Scroll { .. } => FrameKey::NodeScrollFrame(key_id),
+        }
+    }
+}
+
 struct StackingContextBuilder<'tree, 'a> {
     scene_builder: &'tree mut crate::scene_builder::RenderSceneBuilder<'a>,
     scroll_state: &'tree crate::ScrollState,
@@ -309,276 +343,275 @@ struct StackingContextBuilder<'tree, 'a> {
 }
 
 impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
-fn fragment_build_stacking_context_tree(
-    &mut self,
-    fragment: &'a Fragment,
-    containing_block_info: &ContainingBlockInfo,
-    stacking_context: &mut LayoutStackingContext<'a>,
-    mode: StackingContextBuildMode,
-) {
-    let containing_block = containing_block_info.containing_block_for_fragment(fragment);
-    match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => {
-            if mode == StackingContextBuildMode::SkipHoisted
-                && bf.base.style.get_box().position.is_absolutely_positioned()
-            {
-                return;
-            }
-            self.build_for_box(
-                fragment,
-                bf,
-                matches!(fragment, Fragment::Float(_)),
-                containing_block,
-                containing_block_info,
-                stacking_context,
-            );
-        }
-        Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            self.fragment_build_stacking_context_tree(
-                resolved,
-                containing_block_info,
-                stacking_context,
-                StackingContextBuildMode::IncludeHoisted,
-            );
-        }
-        Fragment::Positioning(pf) => {
-            for child in &pf.children {
-                self.fragment_build_stacking_context_tree(
-                    child,
+    fn fragment_build_stacking_context_tree(
+        &mut self,
+        fragment: &'a Fragment,
+        containing_block_info: &ContainingBlockInfo,
+        stacking_context: &mut LayoutStackingContext<'a>,
+        mode: StackingContextBuildMode,
+    ) {
+        let containing_block = containing_block_info.containing_block_for_fragment(fragment);
+        match fragment {
+            Fragment::Box(bf) | Fragment::Float(bf) => {
+                if mode == StackingContextBuildMode::SkipHoisted
+                    && bf.base.style.get_box().position.is_absolutely_positioned()
+                {
+                    return;
+                }
+                self.build_for_box(
+                    fragment,
+                    bf,
+                    matches!(fragment, Fragment::Float(_)),
+                    containing_block,
                     containing_block_info,
                     stacking_context,
-                    StackingContextBuildMode::SkipHoisted,
                 );
             }
-        }
-        Fragment::Text(tf) => {
-            if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                return;
+            Fragment::AbsoluteOrFixedPositioned { resolved } => {
+                self.fragment_build_stacking_context_tree(
+                    resolved,
+                    containing_block_info,
+                    stacking_context,
+                    StackingContextBuildMode::IncludeHoisted,
+                );
             }
-            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
-                section: StackingContextSection::Foreground,
-                fragment,
-                frame_id: containing_block.frame_id,
-                clip_id: containing_block.clip_id,
-                containing_block: containing_block.rect,
-            });
-        }
-        Fragment::Image(img) => {
-            if img.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                return;
+            Fragment::Positioning(pf) => {
+                for child in &pf.children {
+                    self.fragment_build_stacking_context_tree(
+                        child,
+                        containing_block_info,
+                        stacking_context,
+                        StackingContextBuildMode::SkipHoisted,
+                    );
+                }
             }
-            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
-                section: StackingContextSection::Foreground,
-                fragment,
-                frame_id: containing_block.frame_id,
-                clip_id: containing_block.clip_id,
-                containing_block: containing_block.rect,
-            });
-        }
-        Fragment::IFrame(iframe) => {
-            if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
-                return;
-            }
-            stacking_context.contents.push(LayoutStackingContextContent::Fragment {
-                section: StackingContextSection::Foreground,
-                fragment,
-                frame_id: containing_block.frame_id,
-                clip_id: containing_block.clip_id,
-                containing_block: containing_block.rect,
-            });
-        }
-    }
-}
-
-fn build_for_box(
-    &mut self,
-    fragment: &'a Fragment,
-    bf: &'a BoxFragment,
-    is_float: bool,
-    containing_block: ContainingBlock,
-    containing_block_info: &ContainingBlockInfo,
-    parent_sc: &mut LayoutStackingContext<'a>,
-) {
-    let context_type = get_stacking_context_type(bf, is_float);
-    let frame_id = containing_block.frame_id;
-    let clip_id = containing_block.clip_id;
-
-    match context_type {
-        Some(ct) => {
-            if ct == StackingContextType::AtomicInlineStackingContainer {
-                parent_sc.contents.push(LayoutStackingContextContent::AtomicInlineStackingContainer {
-                    index: parent_sc.atomic_inline_stacking_containers.len(),
+            Fragment::Text(tf) => {
+                if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                    return;
+                }
+                stacking_context.contents.push(LayoutStackingContextContent::Fragment {
+                    section: StackingContextSection::Foreground,
+                    fragment,
+                    attachment: attachment_from_containing_block(containing_block),
+                    containing_block: containing_block.rect,
                 });
             }
-
-            let mut child_sc = LayoutStackingContext::new_child(bf, ct, frame_id, clip_id);
-            child_sc.contents.push(LayoutStackingContextContent::Fragment {
-                section: StackingContextSection::OwnBackgroundsAndBorders,
-                fragment,
-                frame_id,
-                clip_id,
-                containing_block: containing_block.rect,
-            });
-            let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
-            self.build_box_children(bf, &child_info, &mut child_sc);
-
-            let mut stolen = Vec::new();
-            if ct != StackingContextType::RealStackingContext {
-                stolen = std::mem::take(&mut child_sc.real_stacking_contexts_and_positioned_stacking_containers);
+            Fragment::Image(img) => {
+                if img.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                    return;
+                }
+                stacking_context.contents.push(LayoutStackingContextContent::Fragment {
+                    section: StackingContextSection::Foreground,
+                    fragment,
+                    attachment: attachment_from_containing_block(containing_block),
+                    containing_block: containing_block.rect,
+                });
             }
-
-            child_sc.sort();
-            parent_sc.add_stacking_context(child_sc);
-            parent_sc.real_stacking_contexts_and_positioned_stacking_containers.append(&mut stolen);
-        }
-        None => {
-            parent_sc.contents.push(LayoutStackingContextContent::Fragment {
-                section: get_section_for_non_sc(bf),
-                fragment,
-                frame_id,
-                clip_id,
-                containing_block: containing_block.rect,
-            });
-            let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
-            self.build_box_children(bf, &child_info, parent_sc);
+            Fragment::IFrame(iframe) => {
+                if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+                    return;
+                }
+                stacking_context.contents.push(LayoutStackingContextContent::Fragment {
+                    section: StackingContextSection::Foreground,
+                    fragment,
+                    attachment: attachment_from_containing_block(containing_block),
+                    containing_block: containing_block.rect,
+                });
+            }
         }
     }
-}
 
-fn build_box_children(
-    &mut self,
-    bf: &'a BoxFragment,
-    containing_block_info: &ContainingBlockInfo,
-    stacking_context: &mut LayoutStackingContext<'a>,
-) {
-    for child in &bf.children {
-        self.fragment_build_stacking_context_tree(
-            child,
-            containing_block_info,
-            stacking_context,
-            StackingContextBuildMode::SkipHoisted,
-        );
-    }
-}
+    fn build_for_box(
+        &mut self,
+        fragment: &'a Fragment,
+        bf: &'a BoxFragment,
+        is_float: bool,
+        containing_block: ContainingBlock,
+        containing_block_info: &ContainingBlockInfo,
+        parent_sc: &mut LayoutStackingContext<'a>,
+    ) {
+        let context_type = get_stacking_context_type(bf, is_float);
+        let attachment = attachment_from_containing_block(containing_block);
 
-fn create_spatial_context_for_box(
-    &mut self,
-    bf: &'a BoxFragment,
-    containing_block: ContainingBlock,
-    containing_block_info: &ContainingBlockInfo,
-) -> ContainingBlockInfo {
-    let owner_node_id = bf.base.tag.map(|tag| {
-        let pseudo_key = match bf.base.style.pseudo() {
-            Some(style::selector_parser::PseudoElement::Before) => 1,
-            Some(style::selector_parser::PseudoElement::After) => 2,
-            Some(style::selector_parser::PseudoElement::Marker) => 3,
-            Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
-            Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
-            Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
-            Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
-            Some(_) => 15,
-            None => 0,
-        };
-        (tag.node.0 << 8) ^ pseudo_key
-    });
-    let frame_key_id = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(bf) as usize);
-    let mut new_containing_block = containing_block;
-    let mut new_spatial_node_id = self.scene_builder.paint_container_spatial_node_id(containing_block.frame_id);
+        match context_type {
+            Some(ct) => {
+                if ct == StackingContextType::AtomicInlineStackingContainer {
+                    parent_sc.contents.push(LayoutStackingContextContent::AtomicInlineStackingContainer {
+                        index: parent_sc.atomic_inline_stacking_containers.len(),
+                    });
+                }
 
-    let flatten_3d = owner_node_id
-        .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
-        .map(|semantics| !semantics.requires_compositor())
-        .unwrap_or(true);
-    let current_origin = dvec2(
-        bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
-        bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
-    );
-    if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
-        new_spatial_node_id = self.scene_builder.child_spatial_node(
-            new_spatial_node_id,
-            crate::frame_tree::FrameKind::ReferenceFrame,
-            owner_node_id,
-            matrix,
-        );
-        let frame_id = self.scene_builder.child_paint_container(
-            containing_block.frame_id,
-            new_spatial_node_id,
-            crate::frame_tree::FrameKey::NodeReferenceFrame(frame_key_id),
-            owner_node_id,
-        );
-        new_containing_block.frame_id = frame_id;
+                let mut child_sc = LayoutStackingContext::new_child(bf, ct, attachment);
+                child_sc.contents.push(LayoutStackingContextContent::Fragment {
+                    section: StackingContextSection::OwnBackgroundsAndBorders,
+                    fragment,
+                    attachment,
+                    containing_block: containing_block.rect,
+                });
+                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                self.build_box_children(bf, &child_info, &mut child_sc);
+
+                let mut stolen = Vec::new();
+                if ct != StackingContextType::RealStackingContext {
+                    stolen = std::mem::take(&mut child_sc.real_stacking_contexts_and_positioned_stacking_containers);
+                }
+
+                child_sc.sort();
+                parent_sc.add_stacking_context(child_sc);
+                parent_sc.real_stacking_contexts_and_positioned_stacking_containers.append(&mut stolen);
+            }
+            None => {
+                parent_sc.contents.push(LayoutStackingContextContent::Fragment {
+                    section: get_section_for_non_sc(bf),
+                    fragment,
+                    attachment,
+                    containing_block: containing_block.rect,
+                });
+                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                self.build_box_children(bf, &child_info, parent_sc);
+            }
+        }
     }
 
-    if let Some(insets) = bf.resolved_sticky_insets {
-        let dy = match (insets.top, insets.bottom) {
-            (havi_types::AuOrAuto::LengthPercentage(v), _) => v.to_f32_px(),
-            (_, havi_types::AuOrAuto::LengthPercentage(v)) => -v.to_f32_px(),
-            _ => 0.0,
-        };
-        if dy.abs() >= 0.001 {
-            new_spatial_node_id = self.scene_builder.child_spatial_node(
-                new_spatial_node_id,
-                crate::frame_tree::FrameKind::StickyFrame,
-                owner_node_id,
-                translation_matrix(0.0, dy),
+    fn build_box_children(
+        &mut self,
+        bf: &'a BoxFragment,
+        containing_block_info: &ContainingBlockInfo,
+        stacking_context: &mut LayoutStackingContext<'a>,
+    ) {
+        for child in &bf.children {
+            self.fragment_build_stacking_context_tree(
+                child,
+                containing_block_info,
+                stacking_context,
+                StackingContextBuildMode::SkipHoisted,
             );
-            let frame_id = self.scene_builder.child_paint_container(
-                new_containing_block.frame_id,
-                new_spatial_node_id,
-                crate::frame_tree::FrameKey::NodeStickyFrame(frame_key_id),
-                owner_node_id,
-            );
-            new_containing_block.frame_id = frame_id;
         }
     }
 
-    if let Some(rect) = bf.scrollable_overflow {
-        let clip_id = self.scene_builder.rect_clip(
-            new_containing_block.frame_id,
-            new_containing_block.clip_id,
-            Rect {
-                pos: dvec2(
-                    new_containing_block.rect.origin.x.to_f32_px() as f64 + rect.origin.x.to_f32_px() as f64,
-                    new_containing_block.rect.origin.y.to_f32_px() as f64 + rect.origin.y.to_f32_px() as f64,
-                ),
-                size: dvec2(
-                    rect.size.width.to_f32_px() as f64,
-                    rect.size.height.to_f32_px() as f64,
-                ),
-            },
-        );
-        new_spatial_node_id = self.scene_builder.child_spatial_node(
-            new_spatial_node_id,
-            crate::frame_tree::FrameKind::ScrollFrame,
-            owner_node_id,
-            fragment_scroll_translation(bf, self.scroll_state).unwrap_or_else(Mat4f::identity),
-        );
-        let scroll_frame_id = self.scene_builder.child_paint_container(
-            new_containing_block.frame_id,
-            new_spatial_node_id,
-            crate::frame_tree::FrameKey::NodeScrollFrame(frame_key_id),
-            owner_node_id,
-        );
-        self.scene_builder.set_frame_clip(scroll_frame_id, clip_id);
-        new_containing_block.frame_id = scroll_frame_id;
-        new_containing_block.clip_id = clip_id;
+    fn create_spatial_context_for_box(
+        &mut self,
+        bf: &'a BoxFragment,
+        containing_block: ContainingBlock,
+        containing_block_info: &ContainingBlockInfo,
+    ) -> ContainingBlockInfo {
+        let owner_node_id = bf.base.tag.map(|tag| {
+            let pseudo_key = match bf.base.style.pseudo() {
+                Some(style::selector_parser::PseudoElement::Before) => 1,
+                Some(style::selector_parser::PseudoElement::After) => 2,
+                Some(style::selector_parser::PseudoElement::Marker) => 3,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
+                Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
+                Some(_) => 15,
+                None => 0,
+            };
+            (tag.node.0 << 8) ^ pseudo_key
+        });
+        let key_id = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(bf) as usize);
+        let mut new_containing_block = containing_block;
+
+        for descriptor in self.spatial_descriptors_for_box(bf, owner_node_id) {
+            let spatial_node_id = self.scene_builder.child_spatial_node(
+                new_containing_block.spatial_node_id,
+                descriptor.kind(),
+                owner_node_id,
+                descriptor.local_transform(),
+            );
+            let paint_container_id = self.scene_builder.child_paint_container(
+                new_containing_block.paint_container_id,
+                spatial_node_id,
+                descriptor.frame_key(key_id),
+                owner_node_id,
+            );
+            new_containing_block.paint_container_id = paint_container_id;
+            new_containing_block.spatial_node_id = spatial_node_id;
+        }
+
+        if let Some(rect) = bf.scrollable_overflow {
+            let clip_id = self.scene_builder.rect_clip(
+                new_containing_block.paint_container_id,
+                new_containing_block.clip_id,
+                Rect {
+                    pos: dvec2(
+                        new_containing_block.rect.origin.x.to_f32_px() as f64 + rect.origin.x.to_f32_px() as f64,
+                        new_containing_block.rect.origin.y.to_f32_px() as f64 + rect.origin.y.to_f32_px() as f64,
+                    ),
+                    size: dvec2(
+                        rect.size.width.to_f32_px() as f64,
+                        rect.size.height.to_f32_px() as f64,
+                    ),
+                },
+            );
+            self.scene_builder.set_frame_clip(new_containing_block.paint_container_id, clip_id);
+            new_containing_block.clip_id = clip_id;
+        }
+
+        let child_containing_block = ContainingBlock {
+            paint_container_id: new_containing_block.paint_container_id,
+            spatial_node_id: new_containing_block.spatial_node_id,
+            clip_id: new_containing_block.clip_id,
+            rect: bf.cumulative_containing_block_rect,
+        };
+
+        if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
+            containing_block_info.new_for_absolute_and_fixed_descendants(child_containing_block)
+        } else if bf.base.style.get_box().position != ComputedPosition::Static {
+            containing_block_info.new_for_absolute_descendants(child_containing_block)
+        } else {
+            containing_block_info.new_for_non_absolute_descendants(child_containing_block)
+        }
     }
 
-    let child_containing_block = ContainingBlock {
-        frame_id: new_containing_block.frame_id,
-        clip_id: new_containing_block.clip_id,
-        rect: bf.cumulative_containing_block_rect,
-    };
+    fn spatial_descriptors_for_box(
+        &self,
+        bf: &'a BoxFragment,
+        owner_node_id: Option<usize>,
+    ) -> Vec<SpatialDescriptor> {
+        let mut descriptors = Vec::new();
 
-    if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
-        containing_block_info.new_for_absolute_and_fixed_descendants(child_containing_block)
-    } else if bf.base.style.get_box().position != ComputedPosition::Static {
-        containing_block_info.new_for_absolute_descendants(child_containing_block)
-    } else {
-        containing_block_info.new_for_non_absolute_descendants(child_containing_block)
+        let flatten_3d = owner_node_id
+            .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
+            .map(|semantics| !semantics.requires_compositor())
+            .unwrap_or(true);
+        let current_origin = dvec2(
+            bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
+            bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
+        );
+        if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
+            descriptors.push(SpatialDescriptor::ReferenceFrame { matrix });
+        }
+
+        if let Some(insets) = bf.resolved_sticky_insets {
+            let dy = match (insets.top, insets.bottom) {
+                (havi_types::AuOrAuto::LengthPercentage(v), _) => v.to_f32_px(),
+                (_, havi_types::AuOrAuto::LengthPercentage(v)) => -v.to_f32_px(),
+                _ => 0.0,
+            };
+            if dy.abs() >= 0.001 {
+                descriptors.push(SpatialDescriptor::Sticky {
+                    translation: translation_matrix(0.0, dy),
+                });
+            }
+        }
+
+        if let Some(translation) = fragment_scroll_translation(bf, self.scroll_state) {
+            if bf.scrollable_overflow.is_some() {
+                descriptors.push(SpatialDescriptor::Scroll { translation });
+            }
+        }
+
+        descriptors
     }
 }
 
+fn attachment_from_containing_block(containing_block: ContainingBlock) -> SpatialAttachment {
+    SpatialAttachment {
+        paint_container_id: containing_block.paint_container_id,
+        spatial_node_id: containing_block.spatial_node_id,
+        clip_id: containing_block.clip_id,
+    }
 }
 
 fn fragment_scroll_translation(
