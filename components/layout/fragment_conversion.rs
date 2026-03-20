@@ -252,8 +252,16 @@ fn convert_box_fragment(
             visited_pipelines,
         ),
         cumulative_containing_block_rect: f.cumulative_containing_block_rect,
-        scrollable_overflow: Some(f.scrollable_overflow()),
-        resolved_sticky_insets: Some(f.calculate_resolved_insets_if_positioned()),
+        scrollable_overflow: if f.base.flags.contains(crate::fragment_tree::FragmentFlags::DO_NOT_PAINT) {
+            None
+        } else {
+            Some(f.scrollable_overflow())
+        },
+        resolved_sticky_insets: if f.style().get_box().position == style::computed_values::position::T::Static {
+            None
+        } else {
+            Some(f.calculate_resolved_insets_if_positioned())
+        },
         padding: f.padding,
         border: f.border,
         margin: f.margin,

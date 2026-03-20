@@ -982,34 +982,6 @@ impl LayoutThread {
             // Re-run fragment conversion so the shared fragment tree reflects
             // current animation state without a full layout rebuild.
             let has_animations = !reflow_request.animating_images.read().is_empty();
-            if has_animations {
-                if let Some(ref tree) = *self.fragment_tree.borrow() {
-                    let image_resolver = Arc::new(ImageResolver {
-                        origin: reflow_request.origin.clone(),
-                        image_cache: self.image_cache.clone(),
-                        resolved_images_cache: self.resolved_images_cache.clone(),
-                        pending_images: Mutex::default(),
-                        pending_rasterization_images: Mutex::default(),
-                        pending_svg_elements_for_serialization: Mutex::default(),
-                        animating_images: reflow_request.animating_images.clone(),
-                        animation_timeline_value: reflow_request.animation_timeline_value,
-                    });
-                    let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
-                        &tree.root_fragments,
-                        &image_resolver,
-                    ));
-                    self.shared_layout_fragments.set(semantic.clone());
-                    self.shared_layout_fragments_by_pipeline.set(semantic);
-
-                    let converted = crate::fragment_conversion::convert_fragments(
-                        &tree.root_fragments, &image_resolver,
-                    );
-                    let converted = Arc::new(converted);
-                    *self.rendered_fragments.borrow_mut() = Some(converted.clone());
-                    self.shared_fragments.set(converted.clone());
-                    self.shared_fragments_by_pipeline.set(converted);
-                }
-            }
 
             // We can skip layout, but we might need to update a scroll node.
             let mut phases = ReflowPhasesRun::empty();
@@ -1053,7 +1025,7 @@ impl LayoutThread {
             root_element,
             &image_resolver,
         );
-        if self.calculate_overflow() {
+        if self.calculate_overflow(&image_resolver) {
             reflow_phases_run.insert(ReflowPhasesRun::CalculatedOverflow);
         }
         // Stacking context tree and display list construction removed (havi-render).
@@ -1274,20 +1246,6 @@ impl LayoutThread {
 
         *self.fragment_tree.borrow_mut() = Some(fragment_tree.clone());
 
-        let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
-            &fragment_tree.root_fragments,
-            image_resolver,
-        ));
-        self.shared_layout_fragments.set(semantic.clone());
-        self.shared_layout_fragments_by_pipeline.set(semantic);
-
-        // Convert layout fragments to havi_types fragments for leaf paint payloads.
-        let converted = crate::fragment_conversion::convert_fragments(&fragment_tree.root_fragments, image_resolver);
-        let converted = Arc::new(converted);
-        *self.rendered_fragments.borrow_mut() = Some(converted.clone());
-        self.shared_fragments.set(converted.clone());
-        self.shared_fragments_by_pipeline.set(converted);
-
         self.publish_shared_scroll_state();
 
         if self.debug.style_tree {
@@ -1319,13 +1277,27 @@ impl LayoutThread {
     }
 
     #[servo_tracing::instrument(name = "Overflow Calculation", skip_all)]
-    fn calculate_overflow(&self) -> bool {
+    fn calculate_overflow(
+        &self,
+        image_resolver: &Arc<ImageResolver>,
+    ) -> bool {
         if !self.need_overflow_calculation.get() {
             return false;
         }
 
         if let Some(fragment_tree) = &*self.fragment_tree.borrow() {
             fragment_tree.calculate_scrollable_overflow();
+            let semantic = Arc::new(crate::fragment_conversion::convert_fragments(
+                &fragment_tree.root_fragments,
+                image_resolver,
+            ));
+            self.shared_layout_fragments.set(semantic.clone());
+            self.shared_layout_fragments_by_pipeline.set(semantic.clone());
+
+            *self.rendered_fragments.borrow_mut() = Some(semantic.clone());
+            self.shared_fragments.set(semantic.clone());
+            self.shared_fragments_by_pipeline.set(semantic);
+
             if self.debug.flow_tree {
                 fragment_tree.print();
             }
