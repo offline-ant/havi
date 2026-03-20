@@ -1,6 +1,6 @@
 use makepad_widgets::*;
 
-use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SpatialNodeId};
+use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SpatialNodeId, SpatialNodeSemantics};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
@@ -15,12 +15,17 @@ pub(crate) fn push_clip_chain(
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        chain.push(map_rect_from_spatial_to_paint_container(
+        let mapped = map_rect_from_spatial_to_paint_container(
             scene,
             node.parent_spatial_node_id,
             paint_container_id,
             node.rect,
-        ));
+        );
+        if !clip_node_uses_perspective(scene, current) {
+            chain.push(mapped);
+        } else {
+            chain.push(mapped);
+        }
         current = node.parent_clip_id;
     }
     chain.reverse();
@@ -117,4 +122,12 @@ pub(crate) fn map_rect_from_spatial_to_paint_container(
 ) -> Rect {
     let world_rect = transform_rect(&scene.spatial_to_world_transform(from_spatial_node_id), rect);
     transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
+}
+
+fn clip_node_uses_perspective(scene: &RenderScene<'_>, clip_id: SceneClipId) -> bool {
+    let node = scene.clip_node(clip_id).unwrap();
+    matches!(
+        scene.spatial_node(node.reference_frame_id).semantics,
+        SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d
+    )
 }

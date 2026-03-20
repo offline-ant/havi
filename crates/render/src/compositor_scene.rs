@@ -72,6 +72,12 @@ impl CompositorScene {
                 }
             }
             RenderParticipation::Compositor { group } => {
+                let spatial_node = scene.spatial_node(scene.paint_container_spatial_node_id(paint_container_id));
+                let group = match spatial_node.semantics {
+                    crate::scene::SpatialNodeSemantics::ReferenceFrame(data)
+                        if data.has_perspective || data.preserves_3d => CompositorGroupMode::Preserve3d,
+                    _ => group,
+                };
                 let surface_id = self.push_surface(paint_container_id, current_surface_id, group);
                 if let Some(group_id) = current_preserve_group_id {
                     self.surfaces[surface_id].participates_in_group_id = Some(group_id);

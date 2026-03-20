@@ -85,6 +85,7 @@ pub(crate) struct SceneClipNode {
     pub rect: Rect,
     pub scroll_node_id: Option<SpatialNodeId>,
     pub overflow_root_spatial_node_id: Option<SpatialNodeId>,
+    pub reference_frame_id: SpatialNodeId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -205,6 +206,21 @@ impl<'a> RenderScene<'a> {
         } else {
             Some(&self.clip_nodes[clip_id.0])
         }
+    }
+
+    pub(crate) fn clip_chain_has_reference_frame_effects(&self, clip_id: SceneClipId) -> bool {
+        let mut current = clip_id;
+        while current != SceneClipId::INVALID {
+            let node = self.clip_node(current).unwrap();
+            let reference_frame = self.spatial_node(node.reference_frame_id);
+            if let SpatialNodeSemantics::ReferenceFrame(data) = reference_frame.semantics {
+                if data.has_perspective || data.preserves_3d {
+                    return true;
+                }
+            }
+            current = node.parent_clip_id;
+        }
+        false
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {

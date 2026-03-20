@@ -184,6 +184,7 @@ impl<'a> RenderSceneBuilder<'a> {
             rect,
             scroll_node_id: self.spatial_nodes[spatial_node_id.0].nearest_scroll_node_id,
             overflow_root_spatial_node_id: Some(spatial_node_id),
+            reference_frame_id: self.spatial_nodes[spatial_node_id.0].nearest_reference_frame_id,
         });
         clip_id
     }

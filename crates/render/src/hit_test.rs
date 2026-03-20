@@ -99,6 +99,10 @@ fn clip_chain_contains_point(
         if !point_in_rect(point_local, node.rect) {
             return false;
         }
+        if scene.clip_chain_has_reference_frame_effects(current) {
+            current = node.parent_clip_id;
+            continue;
+        }
         current = node.parent_clip_id;
     }
     true
