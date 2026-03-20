@@ -1,4 +1,4 @@
-use havi_types::{Fragment, ImageFragment};
+use havi_fragment_semantics::{Fragment, ImageFragment};
 use makepad_widgets::makepad_draw::ImageBuffer;
 use makepad_widgets::*;
 use style::computed_values::visibility::T as Visibility;
@@ -6,13 +6,13 @@ use style::computed_values::visibility::T as Visibility;
 use crate::DrawVideoYuv;
 
 use crate::background::draw_element_box;
-use crate::frame_tree::FramePaintItem;
+use crate::scene::ScenePaintItem;
 use crate::makepad_builder::MakepadDrawState;
 use crate::text::draw_text_run;
 
 pub(crate) fn paint_fragment_item(
     cx: &mut Cx2d,
-    item: &FramePaintItem<'_>,
+    item: &ScenePaintItem<'_>,
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
@@ -25,7 +25,8 @@ pub(crate) fn paint_fragment_item(
         Fragment::Box(bf) | Fragment::Float(bf) => match item.section {
             crate::layout_stacking_context::StackingContextSection::OwnBackgroundsAndBorders
             | crate::layout_stacking_context::StackingContextSection::DescendantBackgroundsAndBorders
-            | crate::layout_stacking_context::StackingContextSection::Foreground => {
+            | crate::layout_stacking_context::StackingContextSection::Foreground
+            | crate::layout_stacking_context::StackingContextSection::Outline => {
                 let border_rect = bf.border_rect();
                 let bx = item.local_origin.x + border_rect.origin.x.to_f32_px() as f64;
                 let by = item.local_origin.y + border_rect.origin.y.to_f32_px() as f64;

@@ -13,13 +13,13 @@ use style::values::computed::basic_shape::ClipPath;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
-use crate::clip_tree::ClipId;
 use crate::frame_tree::FrameId;
+use crate::scene::SceneClipId;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ContainingBlock {
     pub frame_id: FrameId,
-    pub clip_id: ClipId,
+    pub clip_id: SceneClipId,
     pub rect: PhysicalRect<app_units::Au>,
 }
 
@@ -98,7 +98,7 @@ pub(crate) enum LayoutStackingContextContent<'a> {
         section: StackingContextSection,
         fragment: &'a Fragment,
         frame_id: FrameId,
-        clip_id: ClipId,
+        clip_id: SceneClipId,
         containing_block: PhysicalRect<app_units::Au>,
     },
     AtomicInlineStackingContainer { index: usize },
@@ -136,7 +136,7 @@ pub(crate) struct LayoutStackingContext<'a> {
 }
 
 impl<'a> LayoutStackingContext<'a> {
-    fn new_root(_frame_id: FrameId, _clip_id: ClipId) -> Self {
+    fn new_root(_frame_id: FrameId, _clip_id: SceneClipId) -> Self {
         Self {
             initializing_fragment: None,
             context_type: StackingContextType::RealStackingContext,
@@ -151,7 +151,7 @@ impl<'a> LayoutStackingContext<'a> {
         bf: &'a BoxFragment,
         context_type: StackingContextType,
         _frame_id: FrameId,
-        _clip_id: ClipId,
+        _clip_id: SceneClipId,
     ) -> Self {
         Self {
             initializing_fragment: Some(bf),
@@ -264,7 +264,7 @@ pub(crate) fn build_stacking_context_tree<'a>(
     fragments: &'a [Fragment],
     scene_builder: &mut crate::scene_builder::RenderSceneBuilder<'a>,
     root_frame_id: FrameId,
-    root_clip_id: ClipId,
+    root_clip_id: SceneClipId,
     scroll_state: &crate::ScrollState,
     owner_semantics: &std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 ) -> LayoutStackingContext<'a> {

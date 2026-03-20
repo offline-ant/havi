@@ -5,9 +5,8 @@
 use havi_fragment_semantics::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 
-use crate::frame_tree::FramePaintCommand;
 use crate::makepad_clip::transform_point;
-use crate::scene::{RenderScene, SpatialNodeKind};
+use crate::scene::{RenderScene, SceneClipId, ScenePaintCommand, ScenePaintItem, SpatialNodeId, SpatialNodeKind};
 
 pub(crate) fn hit_test(
     scene: &RenderScene<'_>,
@@ -25,21 +24,20 @@ pub(crate) fn find_scroll_container(
 
 fn hit_test_frame_reverse(
     scene: &RenderScene<'_>,
-    frame_id: crate::frame_tree::FrameId,
+    frame_id: usize,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    let frame = scene.frame(frame_id);
-    let point_local = transform_point(&frame.matrix.world_inverse, point_world);
+    let point_local = transform_point(&scene.frame_world_inverse(frame_id), point_world);
 
-    for command in frame.paint_list.iter().rev() {
+    for command in scene.frame_paint_list(frame_id).iter().rev() {
         match *command {
-            FramePaintCommand::ChildFrame(child_id) => {
-                if let Some(hit) = hit_test_frame_reverse(scene, child_id, point_world) {
+            ScenePaintCommand::ChildSpatialNode(child_id) => {
+                if let Some(hit) = hit_test_frame_reverse(scene, child_id.0, point_world) {
                     return Some(hit);
                 }
             }
-            FramePaintCommand::Item(item_index) => {
-                let item = &frame.items[item_index];
+            ScenePaintCommand::Item(item_index) => {
+                let item = &scene.frame_items(frame_id)[item_index];
                 if !clip_chain_contains_point(scene, item.clip_id, point_world) {
                     continue;
                 }
@@ -57,24 +55,22 @@ fn hit_test_frame_reverse(
 
 fn find_scroll_container_in_frame_reverse(
     scene: &RenderScene<'_>,
-    frame_id: crate::frame_tree::FrameId,
+    frame_id: usize,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    let frame = scene.frame(frame_id);
-
-    for command in frame.paint_list.iter().rev() {
-        if let FramePaintCommand::ChildFrame(child_id) = *command {
-            if let Some(hit) = find_scroll_container_in_frame_reverse(scene, child_id, point_world) {
+    for command in scene.frame_paint_list(frame_id).iter().rev() {
+        if let ScenePaintCommand::ChildSpatialNode(child_id) = *command {
+            if let Some(hit) = find_scroll_container_in_frame_reverse(scene, child_id.0, point_world) {
                 return Some(hit);
             }
         }
     }
 
-    if scene.spatial_node(crate::scene::SpatialNodeId(frame_id)).kind == SpatialNodeKind::Scroll {
-        if !clip_chain_contains_point(scene, frame.clip_id, point_world) {
+    if scene.spatial_node(SpatialNodeId(frame_id)).kind == SpatialNodeKind::Scroll {
+        if !clip_chain_contains_point(scene, scene.frame_clip_id(frame_id), point_world) {
             return None;
         }
-        if let Some(node_id) = frame.owner_node_id {
+        if let Some(node_id) = scene.frame_owner_node_id(frame_id) {
             return Some(OpaqueNode(node_id));
         }
     }
@@ -84,18 +80,20 @@ fn find_scroll_container_in_frame_reverse(
 
 fn clip_chain_contains_point(
     scene: &RenderScene<'_>,
-    clip_id: crate::clip_tree::ClipId,
+    clip_id: SceneClipId,
     point_world: DVec2,
 ) -> bool {
-    if clip_id == crate::clip_tree::ClipId::INVALID {
+    if clip_id == SceneClipId::INVALID {
         return true;
     }
 
     let mut current = clip_id;
-    while current != crate::clip_tree::ClipId::INVALID {
-        let node = scene.clip_tree.get(current);
-        let frame = scene.frame(node.parent_frame_id);
-        let point_local = transform_point(&frame.matrix.world_inverse, point_world);
+    while current != SceneClipId::INVALID {
+        let node = scene.clip_node(current).unwrap();
+        let point_local = transform_point(
+            &scene.spatial_node(node.parent_spatial_node_id).world_inverse,
+            point_world,
+        );
         if !point_in_rect(point_local, node.rect) {
             return false;
         }
@@ -105,7 +103,7 @@ fn clip_chain_contains_point(
 }
 
 fn hit_test_item_local(
-    item: &crate::frame_tree::FramePaintItem<'_>,
+    item: &ScenePaintItem<'_>,
     point_local: DVec2,
 ) -> bool {
     let rect = match item.source {

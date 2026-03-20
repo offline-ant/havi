@@ -1,25 +1,24 @@
 use makepad_widgets::*;
 
-use crate::clip_tree::ClipId;
 use crate::frame_tree::FrameId;
-use crate::scene::RenderScene;
+use crate::scene::{RenderScene, SceneClipId, SpatialNodeId};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     frame_id: FrameId,
-    clip_id: ClipId,
+    clip_id: SceneClipId,
 ) -> usize {
-    if clip_id == ClipId::INVALID {
+    if clip_id == SceneClipId::INVALID {
         return 0;
     }
     let mut chain = Vec::new();
     let mut current = clip_id;
-    while current != ClipId::INVALID {
-        let node = scene.clip_tree.get(current);
+    while current != SceneClipId::INVALID {
+        let node = scene.clip_node(current).unwrap();
         chain.push(map_rect_between_frames(
             scene,
-            node.parent_frame_id,
+            node.parent_spatial_node_id.0,
             frame_id,
             node.rect,
         ));
@@ -36,16 +35,16 @@ pub(crate) fn push_local_clip_chain(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     frame_id: FrameId,
-    clip_id: ClipId,
+    clip_id: SceneClipId,
 ) -> usize {
-    if clip_id == ClipId::INVALID {
+    if clip_id == SceneClipId::INVALID {
         return 0;
     }
     let mut chain = Vec::new();
     let mut current = clip_id;
-    while current != ClipId::INVALID {
-        let node = scene.clip_tree.get(current);
-        if node.parent_frame_id != frame_id {
+    while current != SceneClipId::INVALID {
+        let node = scene.clip_node(current).unwrap();
+        if node.parent_spatial_node_id != SpatialNodeId(frame_id) {
             break;
         }
         chain.push(node.rect);
@@ -106,6 +105,6 @@ pub(crate) fn map_rect_between_frames(
     if from_frame_id == to_frame_id {
         return rect;
     }
-    let world_rect = transform_rect(&scene.frame(from_frame_id).matrix.world, rect);
-    transform_rect(&scene.frame(to_frame_id).matrix.world_inverse, world_rect)
+    let world_rect = transform_rect(&scene.frame_world_transform(from_frame_id), rect);
+    transform_rect(&scene.frame_world_inverse(to_frame_id), world_rect)
 }

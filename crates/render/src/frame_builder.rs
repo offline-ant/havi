@@ -1,4 +1,4 @@
-use crate::clip_tree::ClipId;
+use crate::scene::SceneClipId;
 use crate::frame_tree::{FrameId, FrameKey, FrameKind};
 use crate::layout_stacking_context::{
     build_stacking_context_tree, LayoutPaintItem, LayoutStackingContext,
@@ -14,7 +14,7 @@ use makepad_widgets::*;
 #[derive(Clone, Copy)]
 pub(crate) struct BuildContext {
     pub frame_id: FrameId,
-    pub clip_id: ClipId,
+    pub clip_id: SceneClipId,
     pub local_origin: DVec2,
 }
 
@@ -145,7 +145,7 @@ pub(crate) fn build_scene<'a>(
         fragments,
         &mut scene_builder,
         root_id,
-        ClipId::INVALID,
+        SceneClipId::INVALID,
         scroll_state,
         &owner_semantics,
     );
@@ -156,7 +156,7 @@ pub(crate) fn build_scene<'a>(
         &semantic_tree,
         BuildContext {
             frame_id: root_id,
-            clip_id: ClipId::INVALID,
+            clip_id: SceneClipId::INVALID,
             local_origin: scroll_origin,
         },
     );

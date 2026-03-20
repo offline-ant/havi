@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::frame_tree::{FrameId, FramePaintCommand};
+use crate::frame_tree::FrameId;
+use crate::scene::ScenePaintCommand;
 use crate::render_plan::{CompositorGroupMode, RenderParticipation};
 use crate::scene::RenderScene;
 
@@ -166,8 +167,8 @@ fn child_frame_ids(scene: &RenderScene<'_>, frame_id: FrameId) -> Vec<FrameId> {
         .frame_paint_list(frame_id)
         .iter()
         .filter_map(|command| match command {
-            FramePaintCommand::ChildFrame(child_frame_id) => Some(*child_frame_id),
-            FramePaintCommand::Item(_) => None,
+            ScenePaintCommand::ChildSpatialNode(child_frame_id) => Some(child_frame_id.0),
+            ScenePaintCommand::Item(_) => None,
         })
         .collect()
 }

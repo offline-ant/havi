@@ -9,7 +9,8 @@
 //! Source-of-truth split:
 //! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
 //!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
-//! - temporary scene internals behind the boundary: `frame_tree`, `clip_tree`
+//! - scene-native storage now lives in `scene` and `scene_builder`
+//! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`
 //! - backend-specific transform fallback: `transform`

@@ -64,9 +64,8 @@ impl RenderPlan {
     ) -> Self {
         let mut frame_participation = vec![RenderParticipation::Direct2d; scene.frame_count()];
         for frame_id in 0..scene.frame_count() {
-            let frame = scene.frame(frame_id);
-            let participation = frame
-                .owner_node_id
+            let participation = scene
+                .frame_owner_node_id(frame_id)
                 .and_then(|node_id| owner_semantics.get(&node_id).copied())
                 .map(NodeRenderSemantics::participation)
                 .unwrap_or(RenderParticipation::Direct2d);
@@ -294,11 +293,18 @@ mod tests {
 
     #[test]
     fn render_plan_defaults_unowned_frames_to_direct_2d() {
-        let frame_tree = crate::frame_tree::FrameTree::new();
-        let clip_tree = crate::clip_tree::ClipTree::new();
-        let scene = RenderScene::from_legacy_parts(
-            frame_tree,
-            clip_tree,
+        let scene = RenderScene::new(
+            vec![crate::scene::SceneSpatialNode {
+                key: crate::frame_tree::FrameKey::Root,
+                kind: crate::scene::SpatialNodeKind::Root,
+                owner_node_id: None,
+                world: Mat4f::identity(),
+                world_inverse: Mat4f::identity(),
+                clip_id: crate::scene::SceneClipId::INVALID,
+                items: Vec::new(),
+                paint_list: Vec::new(),
+            }],
+            Vec::new(),
             RenderPlan::default(),
             crate::compositor_scene::CompositorScene::default(),
         );

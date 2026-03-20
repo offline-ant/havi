@@ -7,7 +7,8 @@ use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
 use makepad_widgets::*;
 
 use crate::compositor_scene::CompositorSurfaceId;
-use crate::frame_tree::{FrameId, FramePaintCommand, FramePaintItem};
+use crate::frame_tree::FrameId;
+use crate::scene::{ScenePaintCommand, ScenePaintItem};
 use crate::makepad_clip::{pop_clip_chain, push_clip_chain, push_local_clip_chain, transform_rect};
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
@@ -246,7 +247,7 @@ fn paint_frame_direct_2d(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let frame = scene.frame(frame_id);
+    let frame_key = scene.frame_key(frame_id);
     let pass_size = cx.current_pass_size();
 
     if frame_id == scene.root_frame_id() {
@@ -276,7 +277,7 @@ fn paint_frame_direct_2d(
 
     let frame_draw_list = state
         .frame_draw_lists
-        .entry(frame.key)
+        .entry(frame_key)
         .or_insert_with(|| FrameDrawList {
             draw_list: DrawList2d::new(cx.cx),
         });
@@ -284,7 +285,7 @@ fn paint_frame_direct_2d(
     cx.begin_unclipped_root_turtle(pass_size, Layout::default());
     state
         .frame_draw_lists
-        .get_mut(&frame.key)
+        .get_mut(&frame_key)
         .unwrap()
         .draw_list
         .set_view_transform_self_only(
@@ -305,7 +306,7 @@ fn paint_frame_direct_2d(
     cx.end_pass_sized_turtle_no_clip();
     state
         .frame_draw_lists
-        .get_mut(&frame.key)
+        .get_mut(&frame_key)
         .unwrap()
         .draw_list
         .end(cx);
@@ -398,14 +399,14 @@ fn paint_frame_contents(
     let paint_list = scene.frame_paint_list(frame_id).to_vec();
     for command in paint_list {
         match command {
-            FramePaintCommand::Item(item_index) => {
+            ScenePaintCommand::Item(item_index) => {
                 let item = &scene.frame_items(frame_id)[item_index];
                 let pushed = push_local_clip_chain(cx, scene, frame_id, item.clip_id);
                 paint_fragment_item(cx, item, state, opacity);
                 pop_clip_chain(cx, pushed);
             }
-            FramePaintCommand::ChildFrame(child_frame_id) => {
-                let child_parent_surface_id = scene.frame_parent_surface(child_frame_id);
+            ScenePaintCommand::ChildSpatialNode(child_frame_id) => {
+                let child_parent_surface_id = scene.frame_parent_surface(child_frame_id.0);
                 if child_parent_surface_id.is_some() && child_parent_surface_id != active_surface_id {
                     continue;
                 }
@@ -413,13 +414,13 @@ fn paint_frame_contents(
                     cx,
                     scene,
                     frame_id,
-                    scene.frame(child_frame_id).clip_id,
+                    scene.frame_clip_id(child_frame_id.0),
                 );
                 paint_frame_target(
                     cx,
                     scene,
                     runtime,
-                    child_frame_id,
+                    child_frame_id.0,
                     active_surface_id,
                     space_root_frame_id,
                     root_viewport_size,
@@ -451,8 +452,7 @@ fn frame_owner_bounds_in_space(
     frame_id: FrameId,
     space_root_frame_id: Option<FrameId>,
 ) -> Option<(usize, Rect)> {
-    let frame = scene.frame(frame_id);
-    let owner_node_id = frame.owner_node_id?;
+    let owner_node_id = scene.frame_owner_node_id(frame_id)?;
     let transform = frame_transform_in_space(scene, space_root_frame_id, frame_id);
     for item in scene.frame_items(frame_id) {
         if let Some(local_rect) = frame_paint_item_local_rect(item) {
@@ -462,7 +462,7 @@ fn frame_owner_bounds_in_space(
     None
 }
 
-fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
+fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
     match item.source {
         havi_fragment_semantics::Fragment::Box(bf) | havi_fragment_semantics::Fragment::Float(bf) => {
             let rect = bf.border_rect();
@@ -529,7 +529,7 @@ fn frame_subtree_bounds_in_space(
     let paint_list = scene.frame_paint_list(frame_id).to_vec();
     for command in paint_list {
         match command {
-            FramePaintCommand::Item(item_index) => {
+            ScenePaintCommand::Item(item_index) => {
                 if let Some(local_rect) = frame_paint_item_local_rect(&scene.frame_items(frame_id)[item_index]) {
                     let mapped = transform_rect(
                         &frame_transform_in_space(scene, Some(space_root_frame_id), frame_id),
@@ -538,19 +538,19 @@ fn frame_subtree_bounds_in_space(
                     bounds = union_rect(bounds, mapped);
                 }
             }
-            FramePaintCommand::ChildFrame(child_frame_id) => {
+            ScenePaintCommand::ChildSpatialNode(child_frame_id) => {
                 let child_is_separate_surface = scene
-                    .frame_surface(child_frame_id)
+                    .frame_surface(child_frame_id.0)
                     .is_some_and(|surface_id| Some(surface_id) != scene.frame_surface(frame_id));
                 let child_bounds = if child_is_separate_surface {
                     frame_subtree_bounds_in_space(
                         scene,
-                        child_frame_id,
-                        child_frame_id,
+                        child_frame_id.0,
+                        child_frame_id.0,
                     )
                     .map(|rect| {
                         transform_rect(
-                            &frame_transform_in_space(scene, Some(space_root_frame_id), child_frame_id),
+                            &frame_transform_in_space(scene, Some(space_root_frame_id), child_frame_id.0),
                             rect,
                         )
                     })
@@ -558,7 +558,7 @@ fn frame_subtree_bounds_in_space(
                     frame_subtree_bounds_in_space(
                         scene,
                         space_root_frame_id,
-                        child_frame_id,
+                        child_frame_id.0,
                     )
                 };
                 if let Some(child_bounds) = child_bounds {
