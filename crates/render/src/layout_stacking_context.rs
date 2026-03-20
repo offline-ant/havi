@@ -3,7 +3,7 @@
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_fragment_semantics::Fragment;
 use havi_types::PhysicalRect;
-use makepad_widgets::{dvec2, Mat4f, Rect};
+use makepad_widgets::{dvec2, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::position::T as ComputedPosition;
@@ -579,35 +579,33 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
             descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
                 local_transform: matrix,
+                origin: current_origin,
                 preserves_3d: !flatten_3d,
                 anchors_content: true,
             }));
         }
 
         if let Some(insets) = bf.resolved_sticky_insets {
-            let dy = match (insets.top, insets.bottom) {
-                (havi_types::AuOrAuto::LengthPercentage(v), _) => v.to_f32_px(),
-                (_, havi_types::AuOrAuto::LengthPercentage(v)) => -v.to_f32_px(),
-                _ => 0.0,
-            };
-            if dy.abs() >= 0.001 {
+            if has_sticky_offset_constraints(insets) {
                 descriptors.push(SpatialDescriptor::Sticky(StickyNodeData {
-                    bounds_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
-                    used_offset: dvec2(0.0, dy as f64),
-                    inset_top: insets.top.non_auto().map(|v| v.to_f32_px()),
-                    inset_right: insets.right.non_auto().map(|v| v.to_f32_px()),
-                    inset_bottom: insets.bottom.non_auto().map(|v| v.to_f32_px()),
-                    inset_left: insets.left.non_auto().map(|v| v.to_f32_px()),
+                    constraint_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
+                    frame_rect: physical_rect_to_rect(bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector())),
+                    containing_block_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
+                    offsets: crate::scene::StickyOffsetConstraints {
+                        top: insets.top.non_auto().map(|v| v.to_f32_px()),
+                        right: insets.right.non_auto().map(|v| v.to_f32_px()),
+                        bottom: insets.bottom.non_auto().map(|v| v.to_f32_px()),
+                        left: insets.left.non_auto().map(|v| v.to_f32_px()),
+                    },
                 }));
             }
         }
 
         if let Some(scrollable_overflow) = bf.scrollable_overflow {
-            let scroll_translation = fragment_scroll_translation(bf, self.scroll_state)
-                .map(extract_translation)
+            let scroll_offset = fragment_scroll_offset(bf, self.scroll_state)
                 .unwrap_or_else(|| dvec2(0.0, 0.0));
             descriptors.push(SpatialDescriptor::Scroll(ScrollNodeData {
-                scroll_translation,
+                scroll_offset,
                 scroll_frame_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
                 content_rect: physical_rect_to_rect(scrollable_overflow),
                 external_scroll_node_id: bf.base.tag.map(|tag| tag.node.0),
@@ -626,34 +624,25 @@ fn attachment_from_containing_block(containing_block: ContainingBlock) -> Spatia
     }
 }
 
-fn fragment_scroll_translation(
+fn fragment_scroll_offset(
     bf: &BoxFragment,
     scroll_state: &crate::ScrollState,
-) -> Option<Mat4f> {
+) -> Option<makepad_widgets::DVec2> {
     let node_id = bf.base.tag.map(|tag| tag.node.0)?;
-    let offset = scroll_state.get(&node_id).copied().unwrap_or(dvec2(0.0, 0.0));
-    Some(translation_matrix(-(offset.x as f32), -(offset.y as f32)))
+    Some(scroll_state.get(&node_id).copied().unwrap_or(dvec2(0.0, 0.0)))
 }
 
-fn extract_translation(matrix: Mat4f) -> makepad_widgets::DVec2 {
-    dvec2(matrix.v[12] as f64, matrix.v[13] as f64)
+fn has_sticky_offset_constraints(insets: havi_types::PhysicalSides<havi_types::AuOrAuto>) -> bool {
+    insets.top.non_auto().is_some()
+        || insets.right.non_auto().is_some()
+        || insets.bottom.non_auto().is_some()
+        || insets.left.non_auto().is_some()
 }
 
 fn physical_rect_to_rect(rect: PhysicalRect<app_units::Au>) -> Rect {
     Rect {
         pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
         size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
-    }
-}
-
-fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
-    Mat4f {
-        v: [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            tx, ty, 0.0, 1.0,
-        ],
     }
 }
 

@@ -1,4 +1,4 @@
-use havi_types::fragment_tree::BoxFragment;
+use havi_fragment_semantics::fragment_tree::BoxFragment;
 use makepad_widgets::*;
 use style::properties::ComputedValues;
 use style::values::generics::box_::Perspective;
@@ -6,14 +6,14 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 
 use crate::transform::compute_css_reference_frame_matrix;
 
-/// Compute the reference-frame world matrix for a box fragment, if any.
+/// Compute the reference-frame local execution matrix for a box fragment, if any.
 ///
 /// A reference frame is created when a box has a CSS transform or perspective.
 /// The returned matrix is `T(anchor) * css_transform * T(-anchor)`, where
 /// `anchor` is the box's border-box origin in absolute page coordinates and
 /// `css_transform` already has `transform-origin` baked in via `change_basis`.
 ///
-/// This matches the WebRender model: items inside the reference frame keep
+/// This matches the scene model: items inside the reference frame keep
 /// their absolute page-space coordinates, and the `T(-anchor)` converts them
 /// to frame-local coordinates before the CSS transform is applied.
 ///

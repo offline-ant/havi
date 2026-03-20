@@ -107,6 +107,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
             spatial_node_id,
             SpatialNodeSemantics::ReferenceFrame(ReferenceFrameData {
                 local_transform: translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32),
+                origin: iframe_origin,
                 preserves_3d: false,
                 anchors_content: true,
             }),
