@@ -982,9 +982,9 @@ const MAX_IDLE_FRAMES: u32 = 10;
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
 impl App {
-    pub(super) fn current_render_fragments(&self) -> layout_api::SharedFragmentTree {
+    pub(super) fn current_render_fragments(&self) -> layout_api::SharedLayoutFragmentTree {
         let tab = &self.tabs[self.active_tab_idx];
-        layout_api::shared_fragment_tree_for(tab.webview_id)
+        layout_api::shared_layout_fragment_tree_for(tab.webview_id)
     }
 
     pub(super) fn current_render_scroll_state(&self) -> layout_api::SharedScrollState {
@@ -1002,7 +1002,7 @@ impl App {
         let images = self.servo.as_ref().unwrap().image_store();
         self.ui
             .servo_web_view(cx, ids!(web_view))
-            .set_shared_fragments(cx, tab.webview_id, shared, scroll, selection, images);
+            .set_shared_layout_fragments(cx, tab.webview_id, shared, scroll, selection, images);
         self.ui.view(cx, ids!(web_view_texture)).redraw(cx);
     }
 

@@ -146,10 +146,10 @@ pub struct ServoWebView {
     opacity_passes: OpacityPasses,
     #[rust]
     filter_passes: FilterPasses,
-    /// Shared fragment tree from layout. When set, draw_walk renders fragments
-    /// directly instead of using the GL texture.
+    /// Shared semantic fragment tree from layout. When set, draw_walk renders
+    /// through havi-render's semantic path.
     #[rust]
-    shared_fragments: Option<layout_api::SharedFragmentTree>,
+    shared_layout_fragments: Option<layout_api::SharedLayoutFragmentTree>,
     #[rust]
     shared_webview_id: Option<base::id::WebViewId>,
     /// Data pointer of the last rendered fragment Arc, used to detect when the
@@ -305,8 +305,10 @@ impl Widget for ServoWebView {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
-        let fragments: Option<Arc<Vec<havi_types::Fragment>>> =
-            self.shared_fragments.as_ref().and_then(|sf| sf.get());
+        let fragments = self
+            .shared_layout_fragments
+            .as_ref()
+            .and_then(|sf| sf.get());
         let peek_rect = cx.peek_walk_turtle(walk);
 
         // Detect fragment tree replacement (navigation) and clear image textures.
@@ -472,18 +474,18 @@ impl ServoWebView {
 impl ServoWebViewRef {
     /// Set the shared fragment tree, scroll state, and image store for direct
     /// Makepad rendering.
-    pub fn set_shared_fragments(
+    pub fn set_shared_layout_fragments(
         &self,
         cx: &mut Cx,
         webview_id: base::id::WebViewId,
-        shared: layout_api::SharedFragmentTree,
+        shared: layout_api::SharedLayoutFragmentTree,
         scroll_state: layout_api::SharedScrollState,
         selection: layout_api::SharedDocumentSelection,
         image_store: paint_api::SharedImageStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_webview_id = Some(webview_id);
-            inner.shared_fragments = Some(shared);
+            inner.shared_layout_fragments = Some(shared);
             inner.shared_scroll_state = Some(scroll_state);
             inner.shared_selection = Some(selection);
             inner.image_store = Some(image_store);
