@@ -4,7 +4,6 @@ use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
 use style::computed_values::transform_style::T as ComputedTransformStyle;
 
-use crate::frame_tree::FrameId;
 use crate::scene::RenderScene;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -87,7 +86,7 @@ impl RenderPlan {
         }
     }
 
-    pub(crate) fn frame_participation(&self, frame_id: FrameId) -> RenderParticipation {
+    pub(crate) fn frame_participation(&self, frame_id: usize) -> RenderParticipation {
         self.frame_participation
             .get(frame_id)
             .copied()
@@ -114,18 +113,6 @@ fn collect_fragment_render_semantics(
     fragment: &Fragment,
     semantics: &mut HashMap<usize, NodeRenderSemantics>,
 ) {
-    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    DEPTH.with(|d| {
-        let depth = d.get() + 1;
-        d.set(depth);
-        if depth % 500 == 0 {
-            eprintln!("[render-plan] collect_fragment_render_semantics depth={}", depth);
-        }
-        if depth > 5000 {
-            eprintln!("[render-plan] ABORTING collect_fragment_render_semantics depth={}", depth);
-            std::process::abort();
-        }
-    });
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
             collect_box_render_semantics(bf, semantics);
@@ -146,7 +133,6 @@ fn collect_fragment_render_semantics(
         }
         Fragment::Text(_) | Fragment::Image(_) => {}
     }
-    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn collect_box_render_semantics(
@@ -298,13 +284,16 @@ mod tests {
                 id: crate::scene::SpatialNodeId(0),
                 parent: None,
                 kind: crate::scene::SpatialNodeKind::Root,
+                semantics: crate::scene::SpatialNodeSemantics::Root,
                 owner_node_id: None,
                 world: Mat4f::identity(),
                 world_inverse: Mat4f::identity(),
+                nearest_reference_frame_id: crate::scene::SpatialNodeId(0),
+                nearest_scroll_node_id: None,
+                clip_chain_root: crate::scene::SceneClipId::INVALID,
             }],
             crate::scene::SpatialNodeId(0),
             vec![crate::scene::PaintContainer {
-                key: crate::frame_tree::FrameKey::Root,
                 owner_node_id: None,
                 spatial_node_id: crate::scene::SpatialNodeId(0),
                 clip_id: crate::scene::SceneClipId::INVALID,
@@ -317,7 +306,7 @@ mod tests {
             crate::compositor_scene::CompositorScene::default(),
         );
         let plan = RenderPlan::build(&scene, HashMap::new());
-        assert_eq!(plan.frame_participation(scene.root_frame_id()), RenderParticipation::Direct2d);
+        assert_eq!(plan.frame_participation(scene.root_paint_container_id()), RenderParticipation::Direct2d);
         let _ = dvec2(0.0, 0.0);
     }
 }

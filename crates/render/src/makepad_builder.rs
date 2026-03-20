@@ -294,7 +294,7 @@ fn paint_paint_container_direct_2d(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let frame_key = scene.frame_key(paint_container_id);
+    let frame_key = paint_container_id;
     let pass_size = cx.current_pass_size();
 
     if paint_container_id == scene.root_paint_container_id() {

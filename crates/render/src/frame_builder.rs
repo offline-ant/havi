@@ -1,4 +1,3 @@
-use crate::frame_tree::FrameKey;
 use crate::layout_stacking_context::{
     build_stacking_context_tree, LayoutPaintItem, LayoutStackingContext,
     LayoutStackingContextContent, SpatialAttachment, StackingContextSection,
@@ -97,7 +96,6 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
     }
 
     fn build_iframe_into_scene(&mut self, iframe: &'a IFrameFragment, cx: BuildContext) {
-        let key_id = frame_key_id_for_iframe(iframe);
         let iframe_origin = iframe_content_origin(iframe, cx.local_origin);
         let spatial_node_id = self.scene_builder.child_iframe_root_node(
             cx.attachment.spatial_node_id,
@@ -119,7 +117,6 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
         let paint_container_id = self.scene_builder.child_paint_container(
             cx.attachment.paint_container_id,
             spatial_node_id,
-            FrameKey::NodeIFrameRoot(key_id),
             iframe.base.tag.map(|tag| tag.node.0),
         );
         let clip_id = self.scene_builder.rect_clip(
@@ -166,7 +163,7 @@ pub(crate) fn build_scene<'a>(
 ) -> BuiltScene<'a> {
     let owner_semantics = collect_owner_render_semantics(fragments);
     let mut scene_builder = RenderSceneBuilder::new();
-    let root_id = scene_builder.root_frame_id();
+    let root_id = scene_builder.root_paint_container_id();
     let root_spatial_node_id = scene_builder.paint_container_spatial_node_id(root_id);
     let semantic_tree = build_stacking_context_tree(
         fragments,
@@ -191,14 +188,6 @@ pub(crate) fn build_scene<'a>(
         },
     );
     scene_builder.build(owner_semantics)
-}
-
-fn frame_key_id_for_iframe(iframe: &IFrameFragment) -> usize {
-    iframe
-        .base
-        .tag
-        .map(|tag| tag.node.0)
-        .unwrap_or(std::ptr::from_ref(iframe) as usize)
 }
 
 fn iframe_content_origin(iframe: &IFrameFragment, current_origin: DVec2) -> DVec2 {

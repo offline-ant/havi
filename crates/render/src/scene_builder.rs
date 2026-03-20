@@ -1,5 +1,4 @@
 use crate::compositor_scene::CompositorScene;
-use crate::frame_tree::{FrameId, FrameKey};
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
 use crate::render_plan::RenderPlan;
@@ -36,7 +35,6 @@ impl<'a> RenderSceneBuilder<'a> {
                 clip_chain_root: SceneClipId::INVALID,
             }],
             paint_containers: vec![PaintContainer {
-                key: FrameKey::Root,
                 owner_node_id: None,
                 spatial_node_id: root_spatial_node_id,
                 clip_id: SceneClipId::INVALID,
@@ -47,10 +45,6 @@ impl<'a> RenderSceneBuilder<'a> {
             root_spatial_node_id,
             root_paint_container_id,
         }
-    }
-
-    pub(crate) fn root_frame_id(&self) -> FrameId {
-        self.root_paint_container_id
     }
 
     pub(crate) fn root_spatial_node_id(&self) -> SpatialNodeId {
@@ -118,14 +112,13 @@ impl<'a> RenderSceneBuilder<'a> {
         data.nearest_scroll_node_id = self.spatial_nodes[parent_spatial_node_id.0].nearest_scroll_node_id;
         if let Some(scroll_node_id) = data.nearest_scroll_node_id {
             if let SpatialNodeSemantics::Scroll(scroll) = self.spatial_nodes[scroll_node_id.0].semantics {
-                let translated_scroll_rect = Rect {
+                data.scroll_port_rect = Rect {
                     pos: dvec2(
-                        data.scroll_container_rect.pos.x - scroll.scroll_offset.x,
-                        data.scroll_container_rect.pos.y - scroll.scroll_offset.y,
+                        data.scroll_frame_rect.pos.x - scroll.scroll_offset.x,
+                        data.scroll_frame_rect.pos.y - scroll.scroll_offset.y,
                     ),
-                    size: data.scroll_container_rect.size,
+                    size: data.scroll_frame_rect.size,
                 };
-                data.scroll_container_rect = translated_scroll_rect;
             }
         }
         self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Sticky(data), owner_node_id)
@@ -152,12 +145,10 @@ impl<'a> RenderSceneBuilder<'a> {
         &mut self,
         parent_paint_container_id: PaintContainerId,
         spatial_node_id: SpatialNodeId,
-        key: FrameKey,
         owner_node_id: Option<usize>,
     ) -> PaintContainerId {
         let paint_container_id = self.paint_containers.len();
         self.paint_containers.push(PaintContainer {
-            key,
             owner_node_id,
             spatial_node_id,
             clip_id: self.spatial_nodes[spatial_node_id.0].clip_chain_root,

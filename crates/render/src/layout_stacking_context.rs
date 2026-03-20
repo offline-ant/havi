@@ -13,14 +13,13 @@ use style::values::computed::basic_shape::ClipPath;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
-use crate::frame_tree::{FrameId, FrameKey};
 use crate::scene::{
     ReferenceFrameData, SceneClipId, SceneClipKind, ScrollNodeData, SpatialNodeId, StickyNodeData,
 };
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ContainingBlock {
-    pub paint_container_id: FrameId,
+    pub paint_container_id: usize,
     pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
     pub rect: PhysicalRect<app_units::Au>,
@@ -87,7 +86,7 @@ pub(crate) enum StackingContextType {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpatialAttachment {
-    pub paint_container_id: FrameId,
+    pub paint_container_id: usize,
     pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
 }
@@ -260,7 +259,7 @@ pub(crate) enum LayoutPaintItem<'a, 'b> {
 pub(crate) fn build_stacking_context_tree<'a>(
     fragments: &'a [Fragment],
     scene_builder: &mut crate::scene_builder::RenderSceneBuilder<'a>,
-    root_frame_id: FrameId,
+    root_frame_id: usize,
     root_clip_id: SceneClipId,
     scroll_state: &crate::ScrollState,
     owner_semantics: &std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
@@ -310,16 +309,6 @@ enum SpatialDescriptor {
     ReferenceFrame(ReferenceFrameData),
     Sticky(StickyNodeData),
     Scroll(ScrollNodeData),
-}
-
-impl SpatialDescriptor {
-    fn frame_key(self, key_id: usize) -> FrameKey {
-        match self {
-            SpatialDescriptor::ReferenceFrame(_) => FrameKey::NodeReferenceFrame(key_id),
-            SpatialDescriptor::Sticky(_) => FrameKey::NodeStickyFrame(key_id),
-            SpatialDescriptor::Scroll(_) => FrameKey::NodeScrollFrame(key_id),
-        }
-    }
 }
 
 struct StackingContextBuilder<'tree, 'a> {
@@ -495,7 +484,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             };
             (tag.node.0 << 8) ^ pseudo_key
         });
-        let key_id = bf.base.tag.map(|tag| tag.node.0).unwrap_or(std::ptr::from_ref(bf) as usize);
         let mut new_containing_block = containing_block;
 
         for descriptor in self.spatial_descriptors_for_box(bf, owner_node_id) {
@@ -519,7 +507,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             let paint_container_id = self.scene_builder.child_paint_container(
                 new_containing_block.paint_container_id,
                 spatial_node_id,
-                descriptor.frame_key(key_id),
                 owner_node_id,
             );
             new_containing_block.paint_container_id = paint_container_id;
@@ -592,12 +579,12 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
 
         if let Some(insets) = bf.resolved_sticky_insets {
             if has_sticky_offset_constraints(insets) {
-                let scroll_container_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
+                let scroll_frame_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
                 descriptors.push(SpatialDescriptor::Sticky(StickyNodeData {
-                    constraint_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
                     frame_rect: physical_rect_to_rect(bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector())),
                     containing_block_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
-                    scroll_container_rect,
+                    scroll_frame_rect,
+                    scroll_port_rect: scroll_frame_rect,
                     nearest_scroll_node_id: None,
                     offsets: crate::scene::StickyOffsetConstraints {
                         top: insets.top.non_auto().map(|v| v.to_f32_px()),

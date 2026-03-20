@@ -18,16 +18,13 @@
 //! - execution transforms are derived from scene semantics and spatial ancestry in `scene`
 //! - scene consumers are moving onto semantic carriers and explicit linkage instead of
 //!   matrix-only truth and coarse kind checks
-//! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`
 //! - backend-specific transform fallback: `transform`
 
 mod background;
-mod clip_tree;
 mod compositor_scene;
 mod frame_builder;
-mod frame_tree;
 mod fragment_source;
 mod hit_test;
 mod layout_adapter;
@@ -108,7 +105,7 @@ pub struct FrameDrawList {
     pub draw_list: DrawList2d,
 }
 
-pub type FrameDrawListState = HashMap<crate::frame_tree::FrameKey, FrameDrawList>;
+pub type FrameDrawListState = HashMap<usize, FrameDrawList>;
 
 /// Render-to-texture state for opacity isolation (CSS stacking context).
 /// When an element has opacity < 1.0, its subtree must be composited as a group

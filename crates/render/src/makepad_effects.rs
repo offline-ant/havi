@@ -7,8 +7,8 @@ use crate::makepad_builder::MakepadDrawState;
 use crate::scene::RenderScene;
 use crate::{CssFilters, FilterPass, OpacityPass};
 
-pub(crate) fn frame_effects_for_node(scene: &RenderScene<'_>, frame_id: crate::frame_tree::FrameId) -> (f32, CssFilters) {
-    for item in scene.frame_items(frame_id) {
+pub(crate) fn frame_effects_for_node(scene: &RenderScene<'_>, paint_container_id: usize) -> (f32, CssFilters) {
+    for item in scene.frame_items(paint_container_id) {
         match item.source {
             Fragment::Box(bf) | Fragment::Float(bf) => {
                 return (bf.base.style.get_effects().opacity, crate::resolve_css_filters(&bf.base.style));

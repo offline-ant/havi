@@ -1,7 +1,6 @@
 use makepad_widgets::*;
 
 use crate::compositor_scene::CompositorScene;
-use crate::frame_tree::FrameKey;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
 use crate::render_plan::RenderPlan;
@@ -41,10 +40,10 @@ pub(crate) struct StickyOffsetConstraints {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct StickyNodeData {
-    pub constraint_rect: Rect,
     pub frame_rect: Rect,
     pub containing_block_rect: Rect,
-    pub scroll_container_rect: Rect,
+    pub scroll_frame_rect: Rect,
+    pub scroll_port_rect: Rect,
     pub nearest_scroll_node_id: Option<SpatialNodeId>,
     pub offsets: StickyOffsetConstraints,
 }
@@ -163,7 +162,6 @@ pub(crate) struct SpatialNode {
 }
 
 pub(crate) struct PaintContainer<'a> {
-    pub key: FrameKey,
     pub owner_node_id: Option<usize>,
     pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
@@ -213,10 +211,6 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn root_paint_container_id(&self) -> PaintContainerId {
         self.root_paint_container
-    }
-
-    pub(crate) fn frame_key(&self, paint_container_id: PaintContainerId) -> FrameKey {
-        self.paint_containers[paint_container_id].key
     }
 
     pub(crate) fn frame_count(&self) -> usize {
@@ -454,6 +448,10 @@ fn reference_frame_execution_transform(data: ReferenceFrameData) -> Mat4f {
 }
 
 fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
+    fn clamp_axis(offset: f64, min_offset: f64, max_offset: f64) -> f64 {
+        offset.max(min_offset).min(max_offset)
+    }
+
     let mut dx = 0.0;
     let mut dy = 0.0;
 
@@ -461,35 +459,60 @@ fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
     let frame_top = data.frame_rect.pos.y;
     let frame_right = data.frame_rect.pos.x + data.frame_rect.size.x;
     let frame_bottom = data.frame_rect.pos.y + data.frame_rect.size.y;
+
     let cb_left = data.containing_block_rect.pos.x;
     let cb_top = data.containing_block_rect.pos.y;
     let cb_right = data.containing_block_rect.pos.x + data.containing_block_rect.size.x;
     let cb_bottom = data.containing_block_rect.pos.y + data.containing_block_rect.size.y;
 
-    let scroll_rect = data.scroll_container_rect;
-    let scroll_left = scroll_rect.pos.x;
-    let scroll_top = scroll_rect.pos.y;
-    let scroll_right = scroll_rect.pos.x + scroll_rect.size.x;
-    let scroll_bottom = scroll_rect.pos.y + scroll_rect.size.y;
+    let scroll_frame_left = data.scroll_frame_rect.pos.x;
+    let scroll_frame_top = data.scroll_frame_rect.pos.y;
+    let scroll_frame_right = data.scroll_frame_rect.pos.x + data.scroll_frame_rect.size.x;
+    let scroll_frame_bottom = data.scroll_frame_rect.pos.y + data.scroll_frame_rect.size.y;
+
+    let scroll_port_left = data.scroll_port_rect.pos.x;
+    let scroll_port_top = data.scroll_port_rect.pos.y;
+    let scroll_port_right = data.scroll_port_rect.pos.x + data.scroll_port_rect.size.x;
+    let scroll_port_bottom = data.scroll_port_rect.pos.y + data.scroll_port_rect.size.y;
+
+    let min_dx = cb_left - frame_left;
+    let max_dx = cb_right - frame_right;
+    let min_dy = cb_top - frame_top;
+    let max_dy = cb_bottom - frame_bottom;
 
     if let Some(left) = data.offsets.left {
-        dx = (scroll_left + left as f64) - frame_left;
-        dx = dx.max(cb_left - frame_left);
-        dx = dx.min(cb_right - frame_right);
-    } else if let Some(right) = data.offsets.right {
-        dx = (scroll_right - right as f64) - frame_right;
-        dx = dx.max(cb_left - frame_left);
-        dx = dx.min(cb_right - frame_right);
+        let desired = (scroll_port_left + left as f64) - frame_left;
+        dx = clamp_axis(desired, min_dx, max_dx);
+    }
+    if let Some(right) = data.offsets.right {
+        let desired = (scroll_port_right - right as f64) - frame_right;
+        let right_dx = clamp_axis(desired, min_dx, max_dx);
+        dx = if data.offsets.left.is_some() {
+            if right_dx < dx { right_dx } else { dx }
+        } else {
+            right_dx
+        };
     }
 
     if let Some(top) = data.offsets.top {
-        dy = (scroll_top + top as f64) - frame_top;
-        dy = dy.max(cb_top - frame_top);
-        dy = dy.min(cb_bottom - frame_bottom);
-    } else if let Some(bottom) = data.offsets.bottom {
-        dy = (scroll_bottom - bottom as f64) - frame_bottom;
-        dy = dy.max(cb_top - frame_top);
-        dy = dy.min(cb_bottom - frame_bottom);
+        let desired = (scroll_port_top + top as f64) - frame_top;
+        dy = clamp_axis(desired, min_dy, max_dy);
+    }
+    if let Some(bottom) = data.offsets.bottom {
+        let desired = (scroll_port_bottom - bottom as f64) - frame_bottom;
+        let bottom_dy = clamp_axis(desired, min_dy, max_dy);
+        dy = if data.offsets.top.is_some() {
+            if bottom_dy < dy { bottom_dy } else { dy }
+        } else {
+            bottom_dy
+        };
+    }
+
+    if scroll_port_left <= scroll_frame_left && scroll_port_right >= scroll_frame_right {
+        dx = clamp_axis(dx, min_dx, max_dx);
+    }
+    if scroll_port_top <= scroll_frame_top && scroll_port_bottom >= scroll_frame_bottom {
+        dy = clamp_axis(dy, min_dy, max_dy);
     }
 
     dvec2(dx, dy)
