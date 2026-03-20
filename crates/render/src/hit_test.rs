@@ -6,38 +6,38 @@ use havi_fragment_semantics::{Fragment, OpaqueNode};
 use makepad_widgets::*;
 
 use crate::makepad_clip::transform_point;
-use crate::scene::{RenderScene, SceneClipId, ScenePaintCommand, ScenePaintItem, SpatialNodeId, SpatialNodeKind};
+use crate::scene::{PaintContainerId, RenderScene, SceneClipId, ScenePaintCommand, ScenePaintItem, SpatialNodeKind};
 
 pub(crate) fn hit_test(
     scene: &RenderScene<'_>,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    hit_test_frame_reverse(scene, scene.root_frame_id(), point_world)
+    hit_test_frame_reverse(scene, scene.root_paint_container_id(), point_world)
 }
 
 pub(crate) fn find_scroll_container(
     scene: &RenderScene<'_>,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    find_scroll_container_in_frame_reverse(scene, scene.root_frame_id(), point_world)
+    find_scroll_container_in_frame_reverse(scene, scene.root_paint_container_id(), point_world)
 }
 
 fn hit_test_frame_reverse(
     scene: &RenderScene<'_>,
-    frame_id: usize,
+    paint_container_id: PaintContainerId,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    let point_local = transform_point(&scene.frame_world_inverse(frame_id), point_world);
+    let point_local = transform_point(&scene.frame_world_inverse(paint_container_id), point_world);
 
-    for command in scene.frame_paint_list(frame_id).iter().rev() {
+    for command in scene.frame_paint_list(paint_container_id).iter().rev() {
         match *command {
-            ScenePaintCommand::ChildSpatialNode(child_id) => {
-                if let Some(hit) = hit_test_frame_reverse(scene, child_id.0, point_world) {
+            ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => {
+                if let Some(hit) = hit_test_frame_reverse(scene, child_paint_container_id, point_world) {
                     return Some(hit);
                 }
             }
             ScenePaintCommand::Item(item_index) => {
-                let item = &scene.frame_items(frame_id)[item_index];
+                let item = &scene.frame_items(paint_container_id)[item_index];
                 if !clip_chain_contains_point(scene, item.clip_id, point_world) {
                     continue;
                 }
@@ -55,22 +55,22 @@ fn hit_test_frame_reverse(
 
 fn find_scroll_container_in_frame_reverse(
     scene: &RenderScene<'_>,
-    frame_id: usize,
+    paint_container_id: PaintContainerId,
     point_world: DVec2,
 ) -> Option<OpaqueNode> {
-    for command in scene.frame_paint_list(frame_id).iter().rev() {
-        if let ScenePaintCommand::ChildSpatialNode(child_id) = *command {
-            if let Some(hit) = find_scroll_container_in_frame_reverse(scene, child_id.0, point_world) {
+    for command in scene.frame_paint_list(paint_container_id).iter().rev() {
+        if let ScenePaintCommand::ChildPaintContainer(child_paint_container_id) = *command {
+            if let Some(hit) = find_scroll_container_in_frame_reverse(scene, child_paint_container_id, point_world) {
                 return Some(hit);
             }
         }
     }
 
-    if scene.spatial_node(SpatialNodeId(frame_id)).kind == SpatialNodeKind::Scroll {
-        if !clip_chain_contains_point(scene, scene.frame_clip_id(frame_id), point_world) {
+    if scene.spatial_node(scene.paint_container_spatial_node_id(paint_container_id)).kind == SpatialNodeKind::Scroll {
+        if !clip_chain_contains_point(scene, scene.frame_clip_id(paint_container_id), point_world) {
             return None;
         }
-        if let Some(node_id) = scene.frame_owner_node_id(frame_id) {
+        if let Some(node_id) = scene.frame_owner_node_id(paint_container_id) {
             return Some(OpaqueNode(node_id));
         }
     }

@@ -10,6 +10,7 @@
 //! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
 //!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
 //! - scene-native storage now lives in `scene` and `scene_builder`
+//! - active scene identity is split into spatial nodes and paint containers
 //! - leftover compatibility modules pending deletion: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`

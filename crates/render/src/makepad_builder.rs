@@ -7,15 +7,16 @@ use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
 use makepad_widgets::*;
 
 use crate::compositor_scene::CompositorSurfaceId;
-use crate::frame_tree::FrameId;
-use crate::scene::{ScenePaintCommand, ScenePaintItem};
-use crate::makepad_clip::{pop_clip_chain, push_clip_chain, push_local_clip_chain, transform_rect};
+use crate::makepad_clip::{
+    map_rect_between_paint_containers, pop_clip_chain, push_clip_chain, push_local_clip_chain,
+    transform_rect,
+};
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
 };
 use crate::makepad_fragments::{paint_fragment_item, paint_selection_overlay};
 use crate::render_plan::RenderParticipation;
-use crate::scene::RenderScene;
+use crate::scene::{PaintContainerId, RenderScene, ScenePaintCommand, ScenePaintItem};
 use crate::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv, FilterState,
     FrameDrawList, FrameDrawListState, OpacityState, SelectionHighlight, TextureCache,
@@ -101,11 +102,11 @@ pub(crate) fn paint_scene(
     parent_opacity: f32,
 ) {
     let mut runtime = CompositorRuntime::new(cx.cx);
-    paint_frame_target(
+    paint_paint_container_target(
         cx,
         scene,
         &mut runtime,
-        scene.root_frame_id(),
+        scene.root_paint_container_id(),
         None,
         None,
         root_viewport_size,
@@ -115,32 +116,20 @@ pub(crate) fn paint_scene(
     paint_selection_overlay(cx, state);
 }
 
-fn paint_frame_target(
+fn paint_paint_container_target(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
-    space_root_frame_id: Option<FrameId>,
+    space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    thread_local! { static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    DEPTH.with(|d| {
-        let depth = d.get() + 1;
-        d.set(depth);
-        if depth % 200 == 0 {
-            eprintln!("[makepad-builder] paint_frame_target depth={} frame_id={} total_frames={}", depth, frame_id, scene.frame_count());
-        }
-        if depth > 2000 {
-            eprintln!("[makepad-builder] ABORTING paint_frame_target depth={} — likely infinite recursion", depth);
-            std::process::abort();
-        }
-    });
-    let frame_surface_id = scene.frame_surface(frame_id);
+    let frame_surface_id = scene.frame_surface(paint_container_id);
     let redirects_to_surface = frame_surface_id.is_some() && frame_surface_id != active_surface_id;
-    let participation = scene.frame_participation(frame_id);
+    let participation = scene.frame_participation(paint_container_id);
 
     match participation {
         RenderParticipation::Compositor { .. } if redirects_to_surface => {
@@ -149,28 +138,27 @@ fn paint_frame_target(
                 scene,
                 runtime,
                 frame_surface_id.unwrap(),
-                frame_id,
-                space_root_frame_id,
+                paint_container_id,
+                space_root_paint_container_id,
                 root_viewport_size,
                 state,
                 parent_opacity,
             );
         }
         RenderParticipation::Direct2d | RenderParticipation::Compositor { .. } => {
-            paint_frame_direct_2d(
+            paint_paint_container_direct_2d(
                 cx,
                 scene,
                 runtime,
-                frame_id,
+                paint_container_id,
                 active_surface_id,
-                space_root_frame_id,
+                space_root_paint_container_id,
                 root_viewport_size,
                 state,
                 parent_opacity,
             );
         }
     }
-    DEPTH.with(|d| d.set(d.get() - 1));
 }
 
 fn paint_compositor_surface(
@@ -178,16 +166,16 @@ fn paint_compositor_surface(
     scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     surface_id: CompositorSurfaceId,
-    surface_root_frame_id: FrameId,
-    parent_space_root_frame_id: Option<FrameId>,
+    surface_root_paint_container_id: PaintContainerId,
+    parent_space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let Some(local_bounds) = frame_subtree_bounds_in_space(
+    let Some(local_bounds) = paint_container_subtree_bounds_in_space(
         scene,
-        surface_root_frame_id,
-        surface_root_frame_id,
+        surface_root_paint_container_id,
+        surface_root_paint_container_id,
     ) else {
         return;
     };
@@ -196,23 +184,17 @@ fn paint_compositor_surface(
     }
 
     let with_depth = matches!(
-        scene.frame_participation(surface_root_frame_id),
+        scene.frame_participation(surface_root_paint_container_id),
         RenderParticipation::Compositor { .. }
     );
-    runtime.begin_surface(
-        cx,
-        surface_id,
-        local_bounds.size,
-        with_depth,
-        local_bounds.pos,
-    );
-    paint_frame_target(
+    runtime.begin_surface(cx, surface_id, local_bounds.size, with_depth, local_bounds.pos);
+    paint_paint_container_target(
         cx,
         scene,
         runtime,
-        surface_root_frame_id,
+        surface_root_paint_container_id,
         Some(surface_id),
-        Some(surface_root_frame_id),
+        Some(surface_root_paint_container_id),
         root_viewport_size,
         state,
         1.0,
@@ -226,7 +208,11 @@ fn paint_compositor_surface(
             size: local_bounds.size,
         },
     );
-    let frame_transform = frame_transform_in_space(scene, parent_space_root_frame_id, surface_root_frame_id);
+    let frame_transform = paint_container_transform_in_space(
+        scene,
+        parent_space_root_paint_container_id,
+        surface_root_paint_container_id,
+    );
     quad.transform = Mat4f::mul(
         &frame_transform,
         &translation_matrix(local_bounds.pos.x as f32, local_bounds.pos.y as f32),
@@ -236,21 +222,21 @@ fn paint_compositor_surface(
     runtime.compositor.draw_quad(cx, &quad);
 }
 
-fn paint_frame_direct_2d(
+fn paint_paint_container_direct_2d(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
-    space_root_frame_id: Option<FrameId>,
+    space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let frame_key = scene.frame_key(frame_id);
+    let frame_key = scene.frame_key(paint_container_id);
     let pass_size = cx.current_pass_size();
 
-    if frame_id == scene.root_frame_id() {
+    if paint_container_id == scene.root_paint_container_id() {
         cx.begin_page_root_turtle(dvec2(0.0, 0.0), root_viewport_size, Layout::default());
         state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
         state.draw_bg.draw_abs(
@@ -260,13 +246,13 @@ fn paint_frame_direct_2d(
                 size: root_viewport_size,
             },
         );
-        paint_frame_with_effects(
+        paint_paint_container_with_effects(
             cx,
             scene,
             runtime,
-            frame_id,
+            paint_container_id,
             active_surface_id,
-            space_root_frame_id,
+            space_root_paint_container_id,
             root_viewport_size,
             state,
             parent_opacity,
@@ -290,15 +276,15 @@ fn paint_frame_direct_2d(
         .draw_list
         .set_view_transform_self_only(
             cx.cx,
-            &frame_transform_in_space(scene, space_root_frame_id, frame_id),
+            &paint_container_transform_in_space(scene, space_root_paint_container_id, paint_container_id),
         );
-    paint_frame_with_effects(
+    paint_paint_container_with_effects(
         cx,
         scene,
         runtime,
-        frame_id,
+        paint_container_id,
         active_surface_id,
-        space_root_frame_id,
+        space_root_paint_container_id,
         root_viewport_size,
         state,
         parent_opacity,
@@ -312,33 +298,33 @@ fn paint_frame_direct_2d(
         .end(cx);
 }
 
-fn paint_frame_with_effects(
+fn paint_paint_container_with_effects(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
-    space_root_frame_id: Option<FrameId>,
+    space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let (element_opacity, css_filters) = frame_effects_for_node(scene, frame_id);
+    let (element_opacity, css_filters) = frame_effects_for_node(scene, paint_container_id);
     let needs_filter = !css_filters.is_identity();
     let needs_opacity = element_opacity < 1.0 && !needs_filter;
 
-    if frame_id != scene.root_frame_id() {
-        if let Some((node_id, bounds)) = frame_owner_bounds_in_space(scene, frame_id, space_root_frame_id) {
+    if paint_container_id != scene.root_paint_container_id() {
+        if let Some((node_id, bounds)) = paint_container_owner_bounds_in_space(scene, paint_container_id, space_root_paint_container_id) {
             let size = dvec2(bounds.size.x.max(1.0), bounds.size.y.max(1.0));
             if needs_filter {
                 begin_filter_pass(cx, state, node_id, size, bounds.pos);
-                paint_frame_contents(
+                paint_paint_container_contents(
                     cx,
                     scene,
                     runtime,
-                    frame_id,
+                    paint_container_id,
                     active_surface_id,
-                    space_root_frame_id,
+                    space_root_paint_container_id,
                     root_viewport_size,
                     state,
                     1.0,
@@ -355,13 +341,13 @@ fn paint_frame_with_effects(
             }
             if needs_opacity {
                 begin_opacity_pass(cx, state, node_id, size, bounds.pos);
-                paint_frame_contents(
+                paint_paint_container_contents(
                     cx,
                     scene,
                     runtime,
-                    frame_id,
+                    paint_container_id,
                     active_surface_id,
-                    space_root_frame_id,
+                    space_root_paint_container_id,
                     root_viewport_size,
                     state,
                     1.0,
@@ -372,57 +358,57 @@ fn paint_frame_with_effects(
         }
     }
 
-    paint_frame_contents(
+    paint_paint_container_contents(
         cx,
         scene,
         runtime,
-        frame_id,
+        paint_container_id,
         active_surface_id,
-        space_root_frame_id,
+        space_root_paint_container_id,
         root_viewport_size,
         state,
         parent_opacity * element_opacity,
     );
 }
 
-fn paint_frame_contents(
+fn paint_paint_container_contents(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     active_surface_id: Option<CompositorSurfaceId>,
-    space_root_frame_id: Option<FrameId>,
+    space_root_paint_container_id: Option<PaintContainerId>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
-    let paint_list = scene.frame_paint_list(frame_id).to_vec();
+    let paint_list = scene.frame_paint_list(paint_container_id).to_vec();
     for command in paint_list {
         match command {
             ScenePaintCommand::Item(item_index) => {
-                let item = &scene.frame_items(frame_id)[item_index];
-                let pushed = push_local_clip_chain(cx, scene, frame_id, item.clip_id);
+                let item = &scene.frame_items(paint_container_id)[item_index];
+                let pushed = push_local_clip_chain(cx, scene, paint_container_id, item.clip_id);
                 paint_fragment_item(cx, item, state, opacity);
                 pop_clip_chain(cx, pushed);
             }
-            ScenePaintCommand::ChildSpatialNode(child_frame_id) => {
-                let child_parent_surface_id = scene.frame_parent_surface(child_frame_id.0);
+            ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => {
+                let child_parent_surface_id = scene.frame_parent_surface(child_paint_container_id);
                 if child_parent_surface_id.is_some() && child_parent_surface_id != active_surface_id {
                     continue;
                 }
                 let pushed = push_clip_chain(
                     cx,
                     scene,
-                    frame_id,
-                    scene.frame_clip_id(child_frame_id.0),
+                    paint_container_id,
+                    scene.frame_clip_id(child_paint_container_id),
                 );
-                paint_frame_target(
+                paint_paint_container_target(
                     cx,
                     scene,
                     runtime,
-                    child_frame_id.0,
+                    child_paint_container_id,
                     active_surface_id,
-                    space_root_frame_id,
+                    space_root_paint_container_id,
                     root_viewport_size,
                     state,
                     opacity,
@@ -433,28 +419,28 @@ fn paint_frame_contents(
     }
 }
 
-fn frame_transform_in_space(
+fn paint_container_transform_in_space(
     scene: &RenderScene<'_>,
-    space_root_frame_id: Option<FrameId>,
-    frame_id: FrameId,
+    space_root_paint_container_id: Option<PaintContainerId>,
+    paint_container_id: PaintContainerId,
 ) -> Mat4f {
-    match space_root_frame_id {
-        Some(space_root_frame_id) => Mat4f::mul(
-            &scene.frame_world_inverse(space_root_frame_id),
-            &scene.frame_world_transform(frame_id),
+    match space_root_paint_container_id {
+        Some(space_root_paint_container_id) => Mat4f::mul(
+            &scene.frame_world_inverse(space_root_paint_container_id),
+            &scene.frame_world_transform(paint_container_id),
         ),
-        None => scene.frame_world_transform(frame_id),
+        None => scene.frame_world_transform(paint_container_id),
     }
 }
 
-fn frame_owner_bounds_in_space(
+fn paint_container_owner_bounds_in_space(
     scene: &RenderScene<'_>,
-    frame_id: FrameId,
-    space_root_frame_id: Option<FrameId>,
+    paint_container_id: PaintContainerId,
+    space_root_paint_container_id: Option<PaintContainerId>,
 ) -> Option<(usize, Rect)> {
-    let owner_node_id = scene.frame_owner_node_id(frame_id)?;
-    let transform = frame_transform_in_space(scene, space_root_frame_id, frame_id);
-    for item in scene.frame_items(frame_id) {
+    let owner_node_id = scene.frame_owner_node_id(paint_container_id)?;
+    let transform = paint_container_transform_in_space(scene, space_root_paint_container_id, paint_container_id);
+    for item in scene.frame_items(paint_container_id) {
         if let Some(local_rect) = frame_paint_item_local_rect(item) {
             return Some((owner_node_id, transform_rect(&transform, local_rect)));
         }
@@ -520,45 +506,47 @@ fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
     }
 }
 
-fn frame_subtree_bounds_in_space(
+fn paint_container_subtree_bounds_in_space(
     scene: &RenderScene<'_>,
-    space_root_frame_id: FrameId,
-    frame_id: FrameId,
+    space_root_paint_container_id: PaintContainerId,
+    paint_container_id: PaintContainerId,
 ) -> Option<Rect> {
     let mut bounds = None;
-    let paint_list = scene.frame_paint_list(frame_id).to_vec();
+    let paint_list = scene.frame_paint_list(paint_container_id).to_vec();
     for command in paint_list {
         match command {
             ScenePaintCommand::Item(item_index) => {
-                if let Some(local_rect) = frame_paint_item_local_rect(&scene.frame_items(frame_id)[item_index]) {
+                if let Some(local_rect) = frame_paint_item_local_rect(&scene.frame_items(paint_container_id)[item_index]) {
                     let mapped = transform_rect(
-                        &frame_transform_in_space(scene, Some(space_root_frame_id), frame_id),
+                        &paint_container_transform_in_space(scene, Some(space_root_paint_container_id), paint_container_id),
                         local_rect,
                     );
                     bounds = union_rect(bounds, mapped);
                 }
             }
-            ScenePaintCommand::ChildSpatialNode(child_frame_id) => {
+            ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => {
                 let child_is_separate_surface = scene
-                    .frame_surface(child_frame_id.0)
-                    .is_some_and(|surface_id| Some(surface_id) != scene.frame_surface(frame_id));
+                    .frame_surface(child_paint_container_id)
+                    .is_some_and(|surface_id| Some(surface_id) != scene.frame_surface(paint_container_id));
                 let child_bounds = if child_is_separate_surface {
-                    frame_subtree_bounds_in_space(
+                    paint_container_subtree_bounds_in_space(
                         scene,
-                        child_frame_id.0,
-                        child_frame_id.0,
+                        child_paint_container_id,
+                        child_paint_container_id,
                     )
                     .map(|rect| {
-                        transform_rect(
-                            &frame_transform_in_space(scene, Some(space_root_frame_id), child_frame_id.0),
+                        map_rect_between_paint_containers(
+                            scene,
+                            child_paint_container_id,
+                            space_root_paint_container_id,
                             rect,
                         )
                     })
                 } else {
-                    frame_subtree_bounds_in_space(
+                    paint_container_subtree_bounds_in_space(
                         scene,
-                        space_root_frame_id,
-                        child_frame_id.0,
+                        space_root_paint_container_id,
+                        child_paint_container_id,
                     )
                 };
                 if let Some(child_bounds) = child_bounds {

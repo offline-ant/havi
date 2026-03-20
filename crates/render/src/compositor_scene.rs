@@ -1,26 +1,24 @@
 use std::collections::HashMap;
 
-use crate::frame_tree::FrameId;
-use crate::scene::ScenePaintCommand;
 use crate::render_plan::{CompositorGroupMode, RenderParticipation};
-use crate::scene::RenderScene;
+use crate::scene::{PaintContainerId, RenderScene, ScenePaintCommand};
 
 pub(crate) type CompositorSurfaceId = usize;
 pub(crate) type CompositorGroupId = usize;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CompositorScene {
-    pub root_direct_frames: Vec<FrameId>,
+    pub root_direct_frames: Vec<PaintContainerId>,
     pub root_surfaces: Vec<CompositorSurfaceId>,
     pub surfaces: Vec<CompositorSurface>,
     pub groups: Vec<CompositorGroup>,
-    frame_surface: HashMap<FrameId, CompositorSurfaceId>,
+    frame_surface: HashMap<PaintContainerId, CompositorSurfaceId>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompositorSurface {
     pub parent_surface_id: Option<CompositorSurfaceId>,
-    pub direct_frames: Vec<FrameId>,
+    pub direct_frames: Vec<PaintContainerId>,
     pub child_surfaces: Vec<CompositorSurfaceId>,
     pub started_group_id: Option<CompositorGroupId>,
     pub participates_in_group_id: Option<CompositorGroupId>,
@@ -38,43 +36,43 @@ pub(crate) struct CompositorGroup {
 impl CompositorScene {
     pub(crate) fn build(scene: &RenderScene<'_>) -> Self {
         let mut compositor_scene = Self::default();
-        compositor_scene.visit_frame(scene, scene.root_frame_id(), None, None);
+        compositor_scene.visit_frame(scene, scene.root_paint_container_id(), None, None);
         compositor_scene
     }
 
-    pub(crate) fn frame_surface(&self, frame_id: FrameId) -> Option<CompositorSurfaceId> {
-        self.frame_surface.get(&frame_id).copied()
+    pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<CompositorSurfaceId> {
+        self.frame_surface.get(&paint_container_id).copied()
     }
 
     pub(crate) fn frame_parent_surface(
         &self,
-        frame_id: FrameId,
+        paint_container_id: PaintContainerId,
     ) -> Option<CompositorSurfaceId> {
-        let surface_id = self.frame_surface(frame_id)?;
+        let surface_id = self.frame_surface(paint_container_id)?;
         self.surfaces[surface_id].parent_surface_id
     }
 
     fn visit_frame(
         &mut self,
         scene: &RenderScene<'_>,
-        frame_id: FrameId,
+        paint_container_id: PaintContainerId,
         current_surface_id: Option<CompositorSurfaceId>,
         current_preserve_group_id: Option<CompositorGroupId>,
     ) {
-        match scene.frame_participation(frame_id) {
+        match scene.frame_participation(paint_container_id) {
             RenderParticipation::Direct2d => {
-                self.push_direct_frame(frame_id, current_surface_id);
-                for child_frame_id in child_frame_ids(scene, frame_id) {
+                self.push_direct_frame(paint_container_id, current_surface_id);
+                for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
                     self.visit_frame(
                         scene,
-                        child_frame_id,
+                        child_paint_container_id,
                         current_surface_id,
                         current_preserve_group_id,
                     );
                 }
             }
             RenderParticipation::Compositor { group } => {
-                let surface_id = self.push_surface(frame_id, current_surface_id, group);
+                let surface_id = self.push_surface(paint_container_id, current_surface_id, group);
                 if let Some(group_id) = current_preserve_group_id {
                     self.surfaces[surface_id].participates_in_group_id = Some(group_id);
                     self.groups[group_id].member_surfaces.push(surface_id);
@@ -93,11 +91,11 @@ impl CompositorScene {
                     },
                 };
 
-                self.push_direct_frame(frame_id, Some(surface_id));
-                for child_frame_id in child_frame_ids(scene, frame_id) {
+                self.push_direct_frame(paint_container_id, Some(surface_id));
+                for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
                     self.visit_frame(
                         scene,
-                        child_frame_id,
+                        child_paint_container_id,
                         Some(surface_id),
                         next_preserve_group_id,
                     );
@@ -108,19 +106,19 @@ impl CompositorScene {
 
     fn push_direct_frame(
         &mut self,
-        frame_id: FrameId,
+        paint_container_id: PaintContainerId,
         current_surface_id: Option<CompositorSurfaceId>,
     ) {
         if let Some(surface_id) = current_surface_id {
-            self.surfaces[surface_id].direct_frames.push(frame_id);
+            self.surfaces[surface_id].direct_frames.push(paint_container_id);
         } else {
-            self.root_direct_frames.push(frame_id);
+            self.root_direct_frames.push(paint_container_id);
         }
     }
 
     fn push_surface(
         &mut self,
-        frame_id: FrameId,
+        paint_container_id: PaintContainerId,
         parent_surface_id: Option<CompositorSurfaceId>,
         group_mode: CompositorGroupMode,
     ) -> CompositorSurfaceId {
@@ -134,7 +132,7 @@ impl CompositorScene {
             participates_in_group_id: None,
             flattening_boundary,
         });
-        self.frame_surface.insert(frame_id, surface_id);
+        self.frame_surface.insert(paint_container_id, surface_id);
         if let Some(parent_surface_id) = parent_surface_id {
             self.surfaces[parent_surface_id].child_surfaces.push(surface_id);
         } else {
@@ -162,12 +160,12 @@ impl CompositorScene {
     }
 }
 
-fn child_frame_ids(scene: &RenderScene<'_>, frame_id: FrameId) -> Vec<FrameId> {
+fn child_frame_ids(scene: &RenderScene<'_>, paint_container_id: PaintContainerId) -> Vec<PaintContainerId> {
     scene
-        .frame_paint_list(frame_id)
+        .frame_paint_list(paint_container_id)
         .iter()
         .filter_map(|command| match command {
-            ScenePaintCommand::ChildSpatialNode(child_frame_id) => Some(child_frame_id.0),
+            ScenePaintCommand::ChildPaintContainer(child_paint_container_id) => Some(*child_paint_container_id),
             ScenePaintCommand::Item(_) => None,
         })
         .collect()
@@ -184,7 +182,7 @@ mod tests {
         let scene = build_scene(&[], &crate::ScrollState::default(), dvec2(0.0, 0.0), dvec2(100.0, 100.0));
         let compositor = CompositorScene::build(&scene);
         assert!(compositor.root_surfaces.is_empty());
-        assert!(compositor.root_direct_frames.contains(&scene.root_frame_id()));
+        assert!(compositor.root_direct_frames.contains(&scene.root_paint_container_id()));
         let _ = RenderPlan::default();
     }
 }

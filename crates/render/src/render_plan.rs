@@ -294,16 +294,24 @@ mod tests {
     #[test]
     fn render_plan_defaults_unowned_frames_to_direct_2d() {
         let scene = RenderScene::new(
-            vec![crate::scene::SceneSpatialNode {
-                key: crate::frame_tree::FrameKey::Root,
+            vec![crate::scene::SpatialNode {
+                id: crate::scene::SpatialNodeId(0),
+                parent: None,
                 kind: crate::scene::SpatialNodeKind::Root,
                 owner_node_id: None,
                 world: Mat4f::identity(),
                 world_inverse: Mat4f::identity(),
+            }],
+            crate::scene::SpatialNodeId(0),
+            vec![crate::scene::PaintContainer {
+                key: crate::frame_tree::FrameKey::Root,
+                owner_node_id: None,
+                spatial_node_id: crate::scene::SpatialNodeId(0),
                 clip_id: crate::scene::SceneClipId::INVALID,
                 items: Vec::new(),
                 paint_list: Vec::new(),
             }],
+            0,
             Vec::new(),
             RenderPlan::default(),
             crate::compositor_scene::CompositorScene::default(),

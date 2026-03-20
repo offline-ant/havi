@@ -1,12 +1,11 @@
 use makepad_widgets::*;
 
-use crate::frame_tree::FrameId;
-use crate::scene::{RenderScene, SceneClipId, SpatialNodeId};
+use crate::scene::{PaintContainerId, RenderScene, SceneClipId, SpatialNodeId};
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     clip_id: SceneClipId,
 ) -> usize {
     if clip_id == SceneClipId::INVALID {
@@ -16,10 +15,10 @@ pub(crate) fn push_clip_chain(
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        chain.push(map_rect_between_frames(
+        chain.push(map_rect_between_paint_containers(
             scene,
-            node.parent_spatial_node_id.0,
-            frame_id,
+            spatial_node_owner_paint_container(scene, node.parent_spatial_node_id),
+            paint_container_id,
             node.rect,
         ));
         current = node.parent_clip_id;
@@ -34,7 +33,7 @@ pub(crate) fn push_clip_chain(
 pub(crate) fn push_local_clip_chain(
     cx: &mut Cx2d,
     scene: &RenderScene<'_>,
-    frame_id: FrameId,
+    paint_container_id: PaintContainerId,
     clip_id: SceneClipId,
 ) -> usize {
     if clip_id == SceneClipId::INVALID {
@@ -44,7 +43,7 @@ pub(crate) fn push_local_clip_chain(
     let mut current = clip_id;
     while current != SceneClipId::INVALID {
         let node = scene.clip_node(current).unwrap();
-        if node.parent_spatial_node_id != SpatialNodeId(frame_id) {
+        if node.parent_spatial_node_id != scene.paint_container_spatial_node_id(paint_container_id) {
             break;
         }
         chain.push(node.rect);
@@ -96,15 +95,26 @@ pub(crate) fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
     }
 }
 
-pub(crate) fn map_rect_between_frames(
+pub(crate) fn map_rect_between_paint_containers(
     scene: &RenderScene<'_>,
-    from_frame_id: FrameId,
-    to_frame_id: FrameId,
+    from_paint_container_id: PaintContainerId,
+    to_paint_container_id: PaintContainerId,
     rect: Rect,
 ) -> Rect {
-    if from_frame_id == to_frame_id {
+    if from_paint_container_id == to_paint_container_id {
         return rect;
     }
-    let world_rect = transform_rect(&scene.frame_world_transform(from_frame_id), rect);
-    transform_rect(&scene.frame_world_inverse(to_frame_id), world_rect)
+    let world_rect = transform_rect(&scene.frame_world_transform(from_paint_container_id), rect);
+    transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect)
+}
+
+fn spatial_node_owner_paint_container(
+    scene: &RenderScene<'_>,
+    spatial_node_id: SpatialNodeId,
+) -> PaintContainerId {
+    scene
+        .paint_containers
+        .iter()
+        .position(|paint_container| paint_container.spatial_node_id == spatial_node_id)
+        .unwrap()
 }
