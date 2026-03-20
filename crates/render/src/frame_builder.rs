@@ -1,13 +1,14 @@
-use crate::clip_tree::{ClipId, ClipTree};
-use crate::compositor_scene::CompositorScene;
-use crate::frame_tree::{FrameId, FrameKey, FrameKind, FrameTree};
+use crate::clip_tree::ClipId;
+use crate::frame_tree::{FrameId, FrameKey, FrameKind};
 use crate::layout_stacking_context::{
     build_stacking_context_tree, LayoutPaintItem, LayoutStackingContext,
     LayoutStackingContextContent, StackingContextSection,
 };
 use crate::paint_items::PaintSource;
-use crate::render_plan::{collect_owner_render_semantics, RenderPlan};
-use havi_types::{Fragment, IFrameFragment};
+use crate::render_plan::collect_owner_render_semantics;
+use crate::scene::RenderScene;
+use crate::scene_builder::RenderSceneBuilder;
+use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_widgets::*;
 
 #[derive(Clone, Copy)]
@@ -17,31 +18,35 @@ pub(crate) struct BuildContext {
     pub local_origin: DVec2,
 }
 
-pub(crate) struct BuiltScene<'a> {
-    pub frame_tree: FrameTree<'a>,
-    pub clip_tree: ClipTree,
-    pub render_plan: RenderPlan,
-    pub compositor_scene: CompositorScene,
+pub(crate) type BuiltScene<'a> = RenderScene<'a>;
+
+struct PaintListBuilder<'tree, 'a> {
+    scene_builder: &'tree mut RenderSceneBuilder<'a>,
 }
 
-struct SceneBuilder<'tree, 'a> {
-    frame_tree: &'tree mut FrameTree<'a>,
-    clip_tree: &'tree mut ClipTree,
-}
-
-impl<'tree, 'a> SceneBuilder<'tree, 'a> {
+impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
     fn build_stacking_context_into_scene(&mut self, sc: &LayoutStackingContext<'a>, cx: BuildContext) {
         sc.paint_in_order(&mut |item| self.build_paint_item_into_scene(item, cx));
     }
 
     fn build_paint_item_into_scene(&mut self, item: LayoutPaintItem<'a, '_>, cx: BuildContext) {
         match item {
-            LayoutPaintItem::Content(content) => self.build_content_into_scene(content, cx),
+            LayoutPaintItem::Content(content) => self.build_content_into_scene(content, cx, None),
+            LayoutPaintItem::Outline(content) => self.build_content_into_scene(
+                content,
+                cx,
+                Some(StackingContextSection::Outline),
+            ),
             LayoutPaintItem::ChildStackingContext(child) => self.build_stacking_context_into_scene(child, cx),
         }
     }
 
-    fn build_content_into_scene(&mut self, content: &LayoutStackingContextContent<'a>, cx: BuildContext) {
+    fn build_content_into_scene(
+        &mut self,
+        content: &LayoutStackingContextContent<'a>,
+        cx: BuildContext,
+        section_override: Option<StackingContextSection>,
+    ) {
         match content {
             LayoutStackingContextContent::Fragment {
                 section,
@@ -59,7 +64,7 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                             containing_block.origin.y.to_f32_px() as f64,
                         ),
                 };
-                self.build_fragment_into_scene(fragment, *section, item_cx);
+                self.build_fragment_into_scene(fragment, section_override.unwrap_or(*section), item_cx);
             }
             LayoutStackingContextContent::AtomicInlineStackingContainer { .. } => {}
         }
@@ -73,11 +78,11 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     ) {
         match source {
             Fragment::Box(_) | Fragment::Float(_) | Fragment::Text(_) | Fragment::Image(_) => {
-                self.frame_tree
+                self.scene_builder
                     .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
             }
             Fragment::IFrame(iframe) => {
-                self.frame_tree
+                self.scene_builder
                     .push_item(cx.frame_id, source, section, cx.local_origin, cx.clip_id);
                 self.build_iframe_into_scene(iframe, cx);
             }
@@ -88,14 +93,14 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
     fn build_iframe_into_scene(&mut self, iframe: &'a IFrameFragment, cx: BuildContext) {
         let key_id = frame_key_id_for_iframe(iframe);
         let iframe_origin = iframe_content_origin(iframe, cx.local_origin);
-        let frame_id = self.frame_tree.push_child_frame(
+        let frame_id = self.scene_builder.child_frame(
             cx.frame_id,
             FrameKey::NodeIFrameRoot(key_id),
             FrameKind::IFrameRoot,
             iframe.base.tag.map(|tag| tag.node.0),
             translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32),
         );
-        let clip_id = self.clip_tree.push_rect(
+        let clip_id = self.scene_builder.rect_clip(
             frame_id,
             cx.clip_id,
             Rect {
@@ -106,12 +111,11 @@ impl<'tree, 'a> SceneBuilder<'tree, 'a> {
                 ),
             },
         );
-        self.frame_tree.set_clip(frame_id, clip_id);
+        self.scene_builder.set_frame_clip(frame_id, clip_id);
         let child_owner_semantics = collect_owner_render_semantics(&iframe.child_fragments);
         let child_sc = build_stacking_context_tree(
             &iframe.child_fragments,
-            self.frame_tree,
-            self.clip_tree,
+            self.scene_builder,
             frame_id,
             clip_id,
             &crate::ScrollState::default(),
@@ -134,22 +138,19 @@ pub(crate) fn build_scene<'a>(
     scroll_origin: DVec2,
     _viewport_size: DVec2,
 ) -> BuiltScene<'a> {
-    let mut frame_tree = FrameTree::new();
-    let mut clip_tree = ClipTree::new();
-    let root_id = frame_tree.root_id();
     let owner_semantics = collect_owner_render_semantics(fragments);
+    let mut scene_builder = RenderSceneBuilder::new();
+    let root_id = scene_builder.root_frame_id();
     let semantic_tree = build_stacking_context_tree(
         fragments,
-        &mut frame_tree,
-        &mut clip_tree,
+        &mut scene_builder,
         root_id,
         ClipId::INVALID,
         scroll_state,
         &owner_semantics,
     );
-    SceneBuilder {
-        frame_tree: &mut frame_tree,
-        clip_tree: &mut clip_tree,
+    PaintListBuilder {
+        scene_builder: &mut scene_builder,
     }
     .build_stacking_context_into_scene(
         &semantic_tree,
@@ -159,14 +160,7 @@ pub(crate) fn build_scene<'a>(
             local_origin: scroll_origin,
         },
     );
-    let render_plan = RenderPlan::build(&frame_tree, owner_semantics);
-    let compositor_scene = CompositorScene::build(&frame_tree, &render_plan);
-    BuiltScene {
-        frame_tree,
-        clip_tree,
-        render_plan,
-        compositor_scene,
-    }
+    scene_builder.build(owner_semantics)
 }
 
 fn frame_key_id_for_iframe(iframe: &IFrameFragment) -> usize {

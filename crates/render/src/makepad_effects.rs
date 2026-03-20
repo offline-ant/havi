@@ -1,14 +1,14 @@
-use havi_types::Fragment;
+use havi_fragment_semantics::Fragment;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
 use makepad_widgets::makepad_draw::Texture;
 use makepad_widgets::*;
 
-use crate::frame_tree::{FrameId, FrameTree};
 use crate::makepad_builder::MakepadDrawState;
+use crate::scene::RenderScene;
 use crate::{CssFilters, FilterPass, OpacityPass};
 
-pub(crate) fn frame_effects_for_node(frame_tree: &FrameTree<'_>, frame_id: FrameId) -> (f32, CssFilters) {
-    let frame = frame_tree.frame(frame_id);
+pub(crate) fn frame_effects_for_node(scene: &RenderScene<'_>, frame_id: crate::frame_tree::FrameId) -> (f32, CssFilters) {
+    let frame = scene.frame(frame_id);
     for item in &frame.items {
         match item.source {
             Fragment::Box(bf) | Fragment::Float(bf) => {

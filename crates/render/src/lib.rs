@@ -1,14 +1,15 @@
 //! Render layout fragments using a Servo-shaped semantic scene with a Makepad backend.
 //!
 //! Architecture boundary:
-//! - layout publishes an enriched semantic fragment transport through shared state
-//! - render lowers that semantic fragment tree into stacking contexts and a spatial scene
-//! - hit testing and clip evaluation use that same frame/clip scene
+//! - layout publishes the shared semantic fragment model through shared state
+//! - render lowers that semantic fragment tree into stacking contexts and `RenderScene`
+//! - hit testing, clip evaluation, render planning, and compositor planning consume `RenderScene`
 //! - Makepad modules execute the already-built scene and do not reconstruct layout semantics
 //!
 //! Source-of-truth split:
-//! - semantic lowering: `layout_adapter`, `layout_stacking_context`, `frame_builder`,
-//!   `frame_tree`, `clip_tree`, `hit_test`
+//! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
+//!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
+//! - temporary scene internals behind the boundary: `frame_tree`, `clip_tree`
 //! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
 //!   `render_plan`, `compositor_scene`
 //! - backend-specific transform fallback: `transform`
@@ -28,6 +29,8 @@ mod makepad_fragments;
 mod paint_items;
 mod reference_frame;
 mod render_plan;
+mod scene;
+mod scene_builder;
 pub mod shaders;
 pub mod video_texture_map;
 pub(crate) mod layout_stacking_context;
@@ -57,8 +60,8 @@ pub(crate) mod color {
 use std::collections::HashMap;
 
 use base::id::WebViewId;
-use havi_types::fragment_tree::BoxFragment;
-use havi_types::Fragment;
+use havi_fragment_semantics::fragment_tree::BoxFragment;
+use havi_fragment_semantics::Fragment;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::Texture;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
@@ -255,10 +258,7 @@ pub fn render_fragments_clipped(
     };
     makepad_builder::paint_scene(
         cx,
-        &scene.frame_tree,
-        &scene.clip_tree,
-        &scene.render_plan,
-        &scene.compositor_scene,
+        &scene,
         viewport_size,
         &mut state,
         1.0,

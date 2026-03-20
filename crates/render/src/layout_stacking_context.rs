@@ -1,7 +1,8 @@
 //! Servo-shaped semantic stacking-context construction over the shared semantic fragment model.
 
-use havi_types::fragment_tree::{BoxFragment, FragmentFlags};
-use havi_types::{Fragment, PhysicalRect};
+use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
+use havi_fragment_semantics::Fragment;
+use havi_types::PhysicalRect;
 use makepad_widgets::{dvec2, Mat4f, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
@@ -81,6 +82,7 @@ pub(crate) enum StackingContextSection {
     OwnBackgroundsAndBorders,
     DescendantBackgroundsAndBorders,
     Foreground,
+    Outline,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -231,7 +233,9 @@ impl<'a> LayoutStackingContext<'a> {
             visitor(LayoutPaintItem::ChildStackingContext(child));
         }
 
-        let _ = outlines;
+        for content in outlines {
+            visitor(LayoutPaintItem::Outline(content));
+        }
     }
 }
 
@@ -252,13 +256,13 @@ fn emit_content<'a, 'b>(
 
 pub(crate) enum LayoutPaintItem<'a, 'b> {
     Content(&'b LayoutStackingContextContent<'a>),
+    Outline(&'b LayoutStackingContextContent<'a>),
     ChildStackingContext(&'b LayoutStackingContext<'a>),
 }
 
 pub(crate) fn build_stacking_context_tree<'a>(
     fragments: &'a [Fragment],
-    frame_tree: &mut crate::frame_tree::FrameTree<'a>,
-    clip_tree: &mut crate::clip_tree::ClipTree,
+    scene_builder: &mut crate::scene_builder::RenderSceneBuilder<'a>,
     root_frame_id: FrameId,
     root_clip_id: ClipId,
     scroll_state: &crate::ScrollState,
@@ -276,8 +280,7 @@ pub(crate) fn build_stacking_context_tree<'a>(
         for_absolute_and_fixed_descendants: root_cb,
     };
     let mut builder = StackingContextBuilder {
-        frame_tree,
-        clip_tree,
+        scene_builder,
         scroll_state,
         owner_semantics,
     };
@@ -300,8 +303,7 @@ pub(crate) enum StackingContextBuildMode {
 }
 
 struct StackingContextBuilder<'tree, 'a> {
-    frame_tree: &'tree mut crate::frame_tree::FrameTree<'a>,
-    clip_tree: &'tree mut crate::clip_tree::ClipTree,
+    scene_builder: &'tree mut crate::scene_builder::RenderSceneBuilder<'a>,
     scroll_state: &'tree crate::ScrollState,
     owner_semantics: &'tree std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 }
@@ -491,14 +493,13 @@ fn create_spatial_context_for_box(
         bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
     );
     if let Some(matrix) = crate::reference_frame::reference_frame_matrix(bf, current_origin, flatten_3d) {
-        let frame_id = self.frame_tree.push_child_frame(
+        let frame_id = self.scene_builder.child_frame(
             containing_block.frame_id,
             crate::frame_tree::FrameKey::NodeReferenceFrame(frame_key_id),
             crate::frame_tree::FrameKind::ReferenceFrame,
             owner_node_id,
             matrix,
         );
-        self.frame_tree.append_child_frame(containing_block.frame_id, frame_id);
         new_containing_block.frame_id = frame_id;
     }
 
@@ -509,20 +510,19 @@ fn create_spatial_context_for_box(
             _ => 0.0,
         };
         if dy.abs() >= 0.001 {
-            let frame_id = self.frame_tree.push_child_frame(
+            let frame_id = self.scene_builder.child_frame(
                 new_containing_block.frame_id,
                 crate::frame_tree::FrameKey::NodeStickyFrame(frame_key_id),
                 crate::frame_tree::FrameKind::StickyFrame,
                 owner_node_id,
                 translation_matrix(0.0, dy),
             );
-            self.frame_tree.append_child_frame(new_containing_block.frame_id, frame_id);
             new_containing_block.frame_id = frame_id;
         }
     }
 
     if let Some(rect) = bf.scrollable_overflow {
-        let clip_id = self.clip_tree.push_rect(
+        let clip_id = self.scene_builder.rect_clip(
             new_containing_block.frame_id,
             new_containing_block.clip_id,
             Rect {
@@ -536,15 +536,14 @@ fn create_spatial_context_for_box(
                 ),
             },
         );
-        let scroll_frame_id = self.frame_tree.push_child_frame(
+        let scroll_frame_id = self.scene_builder.child_frame(
             new_containing_block.frame_id,
             crate::frame_tree::FrameKey::NodeScrollFrame(frame_key_id),
             crate::frame_tree::FrameKind::ScrollFrame,
             owner_node_id,
             fragment_scroll_translation(bf, self.scroll_state).unwrap_or_else(Mat4f::identity),
         );
-        self.frame_tree.set_clip(scroll_frame_id, clip_id);
-        self.frame_tree.append_child_frame(new_containing_block.frame_id, scroll_frame_id);
+        self.scene_builder.set_frame_clip(scroll_frame_id, clip_id);
         new_containing_block.frame_id = scroll_frame_id;
         new_containing_block.clip_id = clip_id;
     }

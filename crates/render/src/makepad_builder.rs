@@ -1,4 +1,4 @@
-//! Paint traversal and composition for a pre-built frame tree.
+//! Paint traversal and composition for a pre-built render scene.
 
 use std::collections::HashMap;
 
@@ -6,15 +6,15 @@ use makepad_compositor::{MpCompositedQuad, MpCompositor, MpSurface, MpSurfaceCol
 use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
 use makepad_widgets::*;
 
-use crate::clip_tree::ClipTree;
-use crate::compositor_scene::{CompositorScene, CompositorSurfaceId};
-use crate::frame_tree::{FrameId, FramePaintCommand, FramePaintItem, FrameTree};
+use crate::compositor_scene::CompositorSurfaceId;
+use crate::frame_tree::{FrameId, FramePaintCommand, FramePaintItem};
 use crate::makepad_clip::{pop_clip_chain, push_clip_chain, push_local_clip_chain, transform_rect};
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
 };
 use crate::makepad_fragments::{paint_fragment_item, paint_selection_overlay};
-use crate::render_plan::{RenderParticipation, RenderPlan};
+use crate::render_plan::RenderParticipation;
+use crate::scene::RenderScene;
 use crate::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv, FilterState,
     FrameDrawList, FrameDrawListState, OpacityState, SelectionHighlight, TextureCache,
@@ -94,10 +94,7 @@ impl CompositorRuntime {
 
 pub(crate) fn paint_scene(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
@@ -105,12 +102,9 @@ pub(crate) fn paint_scene(
     let mut runtime = CompositorRuntime::new(cx.cx);
     paint_frame_target(
         cx,
-        frame_tree,
-        clip_tree,
-        render_plan,
-        compositor_scene,
+        scene,
         &mut runtime,
-        frame_tree.root,
+        scene.root_frame_id(),
         None,
         None,
         root_viewport_size,
@@ -122,10 +116,7 @@ pub(crate) fn paint_scene(
 
 fn paint_frame_target(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
@@ -139,25 +130,22 @@ fn paint_frame_target(
         let depth = d.get() + 1;
         d.set(depth);
         if depth % 200 == 0 {
-            eprintln!("[makepad-builder] paint_frame_target depth={} frame_id={} total_frames={}", depth, frame_id, frame_tree.frames.len());
+            eprintln!("[makepad-builder] paint_frame_target depth={} frame_id={} total_frames={}", depth, frame_id, scene.frame_count());
         }
         if depth > 2000 {
             eprintln!("[makepad-builder] ABORTING paint_frame_target depth={} — likely infinite recursion", depth);
             std::process::abort();
         }
     });
-    let frame_surface_id = compositor_scene.frame_surface(frame_id);
+    let frame_surface_id = scene.frame_surface(frame_id);
     let redirects_to_surface = frame_surface_id.is_some() && frame_surface_id != active_surface_id;
-    let participation = render_plan.frame_participation(frame_id);
+    let participation = scene.frame_participation(frame_id);
 
     match participation {
         RenderParticipation::Compositor { .. } if redirects_to_surface => {
             paint_compositor_surface(
                 cx,
-                frame_tree,
-                clip_tree,
-                render_plan,
-                compositor_scene,
+                scene,
                 runtime,
                 frame_surface_id.unwrap(),
                 frame_id,
@@ -170,10 +158,7 @@ fn paint_frame_target(
         RenderParticipation::Direct2d | RenderParticipation::Compositor { .. } => {
             paint_frame_direct_2d(
                 cx,
-                frame_tree,
-                clip_tree,
-                render_plan,
-                compositor_scene,
+                scene,
                 runtime,
                 frame_id,
                 active_surface_id,
@@ -189,10 +174,7 @@ fn paint_frame_target(
 
 fn paint_compositor_surface(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     surface_id: CompositorSurfaceId,
     surface_root_frame_id: FrameId,
@@ -202,8 +184,7 @@ fn paint_compositor_surface(
     parent_opacity: f32,
 ) {
     let Some(local_bounds) = frame_subtree_bounds_in_space(
-        frame_tree,
-        compositor_scene,
+        scene,
         surface_root_frame_id,
         surface_root_frame_id,
     ) else {
@@ -214,7 +195,7 @@ fn paint_compositor_surface(
     }
 
     let with_depth = matches!(
-        render_plan.frame_participation(surface_root_frame_id),
+        scene.frame_participation(surface_root_frame_id),
         RenderParticipation::Compositor { .. }
     );
     runtime.begin_surface(
@@ -226,10 +207,7 @@ fn paint_compositor_surface(
     );
     paint_frame_target(
         cx,
-        frame_tree,
-        clip_tree,
-        render_plan,
-        compositor_scene,
+        scene,
         runtime,
         surface_root_frame_id,
         Some(surface_id),
@@ -247,7 +225,7 @@ fn paint_compositor_surface(
             size: local_bounds.size,
         },
     );
-    let frame_transform = frame_transform_in_space(frame_tree, parent_space_root_frame_id, surface_root_frame_id);
+    let frame_transform = frame_transform_in_space(scene, parent_space_root_frame_id, surface_root_frame_id);
     quad.transform = Mat4f::mul(
         &frame_transform,
         &translation_matrix(local_bounds.pos.x as f32, local_bounds.pos.y as f32),
@@ -259,10 +237,7 @@ fn paint_compositor_surface(
 
 fn paint_frame_direct_2d(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
@@ -271,10 +246,10 @@ fn paint_frame_direct_2d(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let frame = frame_tree.frame(frame_id);
+    let frame = scene.frame(frame_id);
     let pass_size = cx.current_pass_size();
 
-    if frame_id == frame_tree.root {
+    if frame_id == scene.root_frame_id() {
         cx.begin_page_root_turtle(dvec2(0.0, 0.0), root_viewport_size, Layout::default());
         state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
         state.draw_bg.draw_abs(
@@ -286,10 +261,7 @@ fn paint_frame_direct_2d(
         );
         paint_frame_with_effects(
             cx,
-            frame_tree,
-            clip_tree,
-            render_plan,
-            compositor_scene,
+            scene,
             runtime,
             frame_id,
             active_surface_id,
@@ -309,11 +281,6 @@ fn paint_frame_direct_2d(
             draw_list: DrawList2d::new(cx.cx),
         });
     frame_draw_list.draw_list.begin_always(cx);
-    // Draw-list view transforms already map frame-local geometry into world
-    // space. Root-turtle clipping happens before that transform in Makepad,
-    // so deriving a local clip from the inverse-transformed viewport clips
-    // rotated/skewed content to an axis-aligned local box. Use an unclipped
-    // root turtle here and let explicit clip chains handle CSS overflow.
     cx.begin_unclipped_root_turtle(pass_size, Layout::default());
     state
         .frame_draw_lists
@@ -322,14 +289,11 @@ fn paint_frame_direct_2d(
         .draw_list
         .set_view_transform_self_only(
             cx.cx,
-            &frame_transform_in_space(frame_tree, space_root_frame_id, frame_id),
+            &frame_transform_in_space(scene, space_root_frame_id, frame_id),
         );
     paint_frame_with_effects(
         cx,
-        frame_tree,
-        clip_tree,
-        render_plan,
-        compositor_scene,
+        scene,
         runtime,
         frame_id,
         active_surface_id,
@@ -349,10 +313,7 @@ fn paint_frame_direct_2d(
 
 fn paint_frame_with_effects(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
@@ -361,21 +322,18 @@ fn paint_frame_with_effects(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let (element_opacity, css_filters) = frame_effects_for_node(frame_tree, frame_id);
+    let (element_opacity, css_filters) = frame_effects_for_node(scene, frame_id);
     let needs_filter = !css_filters.is_identity();
     let needs_opacity = element_opacity < 1.0 && !needs_filter;
 
-    if frame_id != frame_tree.root {
-        if let Some((node_id, bounds)) = frame_owner_bounds_in_space(frame_tree, frame_id, space_root_frame_id) {
+    if frame_id != scene.root_frame_id() {
+        if let Some((node_id, bounds)) = frame_owner_bounds_in_space(scene, frame_id, space_root_frame_id) {
             let size = dvec2(bounds.size.x.max(1.0), bounds.size.y.max(1.0));
             if needs_filter {
                 begin_filter_pass(cx, state, node_id, size, bounds.pos);
                 paint_frame_contents(
                     cx,
-                    frame_tree,
-                    clip_tree,
-                    render_plan,
-                    compositor_scene,
+                    scene,
                     runtime,
                     frame_id,
                     active_surface_id,
@@ -398,10 +356,7 @@ fn paint_frame_with_effects(
                 begin_opacity_pass(cx, state, node_id, size, bounds.pos);
                 paint_frame_contents(
                     cx,
-                    frame_tree,
-                    clip_tree,
-                    render_plan,
-                    compositor_scene,
+                    scene,
                     runtime,
                     frame_id,
                     active_surface_id,
@@ -418,10 +373,7 @@ fn paint_frame_with_effects(
 
     paint_frame_contents(
         cx,
-        frame_tree,
-        clip_tree,
-        render_plan,
-        compositor_scene,
+        scene,
         runtime,
         frame_id,
         active_surface_id,
@@ -434,10 +386,7 @@ fn paint_frame_with_effects(
 
 fn paint_frame_contents(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
-    render_plan: &RenderPlan,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     runtime: &mut CompositorRuntime,
     frame_id: FrameId,
     active_surface_id: Option<CompositorSurfaceId>,
@@ -446,33 +395,29 @@ fn paint_frame_contents(
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
-    let paint_list = frame_tree.frame(frame_id).paint_list.clone();
+    let paint_list = scene.frame_paint_list(frame_id).to_vec();
     for command in paint_list {
         match command {
             FramePaintCommand::Item(item_index) => {
-                let item = &frame_tree.frame(frame_id).items[item_index];
-                let pushed = push_local_clip_chain(cx, clip_tree, frame_id, item.clip_id);
+                let item = &scene.frame_items(frame_id)[item_index];
+                let pushed = push_local_clip_chain(cx, scene, frame_id, item.clip_id);
                 paint_fragment_item(cx, item, state, opacity);
                 pop_clip_chain(cx, pushed);
             }
             FramePaintCommand::ChildFrame(child_frame_id) => {
-                let child_parent_surface_id = compositor_scene.frame_parent_surface(child_frame_id);
+                let child_parent_surface_id = scene.frame_parent_surface(child_frame_id);
                 if child_parent_surface_id.is_some() && child_parent_surface_id != active_surface_id {
                     continue;
                 }
                 let pushed = push_clip_chain(
                     cx,
-                    frame_tree,
-                    clip_tree,
+                    scene,
                     frame_id,
-                    frame_tree.frame(child_frame_id).clip_id,
+                    scene.frame(child_frame_id).clip_id,
                 );
                 paint_frame_target(
                     cx,
-                    frame_tree,
-                    clip_tree,
-                    render_plan,
-                    compositor_scene,
+                    scene,
                     runtime,
                     child_frame_id,
                     active_surface_id,
@@ -488,28 +433,28 @@ fn paint_frame_contents(
 }
 
 fn frame_transform_in_space(
-    frame_tree: &FrameTree<'_>,
+    scene: &RenderScene<'_>,
     space_root_frame_id: Option<FrameId>,
     frame_id: FrameId,
 ) -> Mat4f {
     match space_root_frame_id {
         Some(space_root_frame_id) => Mat4f::mul(
-            &frame_tree.frame(space_root_frame_id).matrix.world_inverse,
-            &frame_tree.frame(frame_id).matrix.world,
+            &scene.frame_world_inverse(space_root_frame_id),
+            &scene.frame_world_transform(frame_id),
         ),
-        None => frame_tree.frame(frame_id).matrix.world,
+        None => scene.frame_world_transform(frame_id),
     }
 }
 
 fn frame_owner_bounds_in_space(
-    frame_tree: &FrameTree<'_>,
+    scene: &RenderScene<'_>,
     frame_id: FrameId,
     space_root_frame_id: Option<FrameId>,
 ) -> Option<(usize, Rect)> {
-    let frame = frame_tree.frame(frame_id);
+    let frame = scene.frame(frame_id);
     let owner_node_id = frame.owner_node_id?;
-    let transform = frame_transform_in_space(frame_tree, space_root_frame_id, frame_id);
-    for item in &frame.items {
+    let transform = frame_transform_in_space(scene, space_root_frame_id, frame_id);
+    for item in scene.frame_items(frame_id) {
         if let Some(local_rect) = frame_paint_item_local_rect(item) {
             return Some((owner_node_id, transform_rect(&transform, local_rect)));
         }
@@ -519,7 +464,7 @@ fn frame_owner_bounds_in_space(
 
 fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
     match item.source {
-        havi_types::Fragment::Box(bf) | havi_types::Fragment::Float(bf) => {
+        havi_fragment_semantics::Fragment::Box(bf) | havi_fragment_semantics::Fragment::Float(bf) => {
             let rect = bf.border_rect();
             Some(Rect {
                 pos: dvec2(
@@ -532,7 +477,7 @@ fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
                 ),
             })
         }
-        havi_types::Fragment::Text(tf) => {
+        havi_fragment_semantics::Fragment::Text(tf) => {
             let rect = tf.base.rect;
             Some(Rect {
                 pos: dvec2(
@@ -545,7 +490,7 @@ fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
                 ),
             })
         }
-        havi_types::Fragment::Image(img) => {
+        havi_fragment_semantics::Fragment::Image(img) => {
             let rect = img.base.rect;
             Some(Rect {
                 pos: dvec2(
@@ -558,7 +503,7 @@ fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
                 ),
             })
         }
-        havi_types::Fragment::IFrame(iframe) => {
+        havi_fragment_semantics::Fragment::IFrame(iframe) => {
             let rect = iframe.base.rect;
             Some(Rect {
                 pos: dvec2(
@@ -571,50 +516,47 @@ fn frame_paint_item_local_rect(item: &FramePaintItem<'_>) -> Option<Rect> {
                 ),
             })
         }
-        havi_types::Fragment::Positioning(_) | havi_types::Fragment::AbsoluteOrFixedPositioned { .. } => None,
+        havi_fragment_semantics::Fragment::Positioning(_) | havi_fragment_semantics::Fragment::AbsoluteOrFixedPositioned { .. } => None,
     }
 }
 
 fn frame_subtree_bounds_in_space(
-    frame_tree: &FrameTree<'_>,
-    compositor_scene: &CompositorScene,
+    scene: &RenderScene<'_>,
     space_root_frame_id: FrameId,
     frame_id: FrameId,
 ) -> Option<Rect> {
     let mut bounds = None;
-    let paint_list = frame_tree.frame(frame_id).paint_list.clone();
+    let paint_list = scene.frame_paint_list(frame_id).to_vec();
     for command in paint_list {
         match command {
             FramePaintCommand::Item(item_index) => {
-                if let Some(local_rect) = frame_paint_item_local_rect(&frame_tree.frame(frame_id).items[item_index]) {
+                if let Some(local_rect) = frame_paint_item_local_rect(&scene.frame_items(frame_id)[item_index]) {
                     let mapped = transform_rect(
-                        &frame_transform_in_space(frame_tree, Some(space_root_frame_id), frame_id),
+                        &frame_transform_in_space(scene, Some(space_root_frame_id), frame_id),
                         local_rect,
                     );
                     bounds = union_rect(bounds, mapped);
                 }
             }
             FramePaintCommand::ChildFrame(child_frame_id) => {
-                let child_is_separate_surface = compositor_scene
+                let child_is_separate_surface = scene
                     .frame_surface(child_frame_id)
-                    .is_some_and(|surface_id| Some(surface_id) != compositor_scene.frame_surface(frame_id));
+                    .is_some_and(|surface_id| Some(surface_id) != scene.frame_surface(frame_id));
                 let child_bounds = if child_is_separate_surface {
                     frame_subtree_bounds_in_space(
-                        frame_tree,
-                        compositor_scene,
+                        scene,
                         child_frame_id,
                         child_frame_id,
                     )
                     .map(|rect| {
                         transform_rect(
-                            &frame_transform_in_space(frame_tree, Some(space_root_frame_id), child_frame_id),
+                            &frame_transform_in_space(scene, Some(space_root_frame_id), child_frame_id),
                             rect,
                         )
                     })
                 } else {
                     frame_subtree_bounds_in_space(
-                        frame_tree,
-                        compositor_scene,
+                        scene,
                         space_root_frame_id,
                         child_frame_id,
                     )

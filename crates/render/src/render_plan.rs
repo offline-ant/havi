@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use havi_types::fragment_tree::BoxFragment;
-use havi_types::Fragment;
+use havi_fragment_semantics::fragment_tree::BoxFragment;
+use havi_fragment_semantics::Fragment;
 use style::computed_values::transform_style::T as ComputedTransformStyle;
 
-use crate::frame_tree::{FrameId, FrameTree};
+use crate::frame_tree::FrameId;
+use crate::scene::RenderScene;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct NodeRenderSemantics {
@@ -57,12 +58,13 @@ pub(crate) struct RenderPlan {
 }
 
 impl RenderPlan {
-    pub(crate) fn build<'a>(
-        frame_tree: &FrameTree<'a>,
+    pub(crate) fn build(
+        scene: &RenderScene<'_>,
         owner_semantics: HashMap<usize, NodeRenderSemantics>,
     ) -> Self {
-        let mut frame_participation = vec![RenderParticipation::Direct2d; frame_tree.frames.len()];
-        for (frame_id, frame) in frame_tree.frames.iter().enumerate() {
+        let mut frame_participation = vec![RenderParticipation::Direct2d; scene.frame_count()];
+        for frame_id in 0..scene.frame_count() {
+            let frame = scene.frame(frame_id);
             let participation = frame
                 .owner_node_id
                 .and_then(|node_id| owner_semantics.get(&node_id).copied())
@@ -195,9 +197,9 @@ fn collect_box_render_semantics(
 mod tests {
     use super::*;
     use app_units::Au;
-    use havi_types::fragment_tree::{BaseFragment, BaseFragmentInfo, Baselines};
+    use havi_fragment_semantics::fragment_tree::{BaseFragment, BaseFragmentInfo, Baselines};
+    use havi_fragment_semantics::OpaqueNode;
     use havi_types::geom::{PhysicalRect, PhysicalSides};
-    use havi_types::OpaqueNode;
     use makepad_widgets::dvec2;
     use style::properties::ComputedValues;
     use style::properties::generated::style_structs::Font;
@@ -292,9 +294,16 @@ mod tests {
 
     #[test]
     fn render_plan_defaults_unowned_frames_to_direct_2d() {
-        let frame_tree = FrameTree::new();
-        let plan = RenderPlan::build(&frame_tree, HashMap::new());
-        assert_eq!(plan.frame_participation(frame_tree.root_id()), RenderParticipation::Direct2d);
+        let frame_tree = crate::frame_tree::FrameTree::new();
+        let clip_tree = crate::clip_tree::ClipTree::new();
+        let scene = RenderScene::from_legacy_parts(
+            frame_tree,
+            clip_tree,
+            RenderPlan::default(),
+            crate::compositor_scene::CompositorScene::default(),
+        );
+        let plan = RenderPlan::build(&scene, HashMap::new());
+        assert_eq!(plan.frame_participation(scene.root_frame_id()), RenderParticipation::Direct2d);
         let _ = dvec2(0.0, 0.0);
     }
 }

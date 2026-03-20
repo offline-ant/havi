@@ -1,12 +1,12 @@
 use makepad_widgets::*;
 
-use crate::clip_tree::{ClipId, ClipTree};
-use crate::frame_tree::{FrameId, FrameTree};
+use crate::clip_tree::ClipId;
+use crate::frame_tree::FrameId;
+use crate::scene::RenderScene;
 
 pub(crate) fn push_clip_chain(
     cx: &mut Cx2d,
-    frame_tree: &FrameTree<'_>,
-    clip_tree: &ClipTree,
+    scene: &RenderScene<'_>,
     frame_id: FrameId,
     clip_id: ClipId,
 ) -> usize {
@@ -16,9 +16,9 @@ pub(crate) fn push_clip_chain(
     let mut chain = Vec::new();
     let mut current = clip_id;
     while current != ClipId::INVALID {
-        let node = clip_tree.get(current);
+        let node = scene.clip_tree.get(current);
         chain.push(map_rect_between_frames(
-            frame_tree,
+            scene,
             node.parent_frame_id,
             frame_id,
             node.rect,
@@ -34,7 +34,7 @@ pub(crate) fn push_clip_chain(
 
 pub(crate) fn push_local_clip_chain(
     cx: &mut Cx2d,
-    clip_tree: &ClipTree,
+    scene: &RenderScene<'_>,
     frame_id: FrameId,
     clip_id: ClipId,
 ) -> usize {
@@ -44,7 +44,7 @@ pub(crate) fn push_local_clip_chain(
     let mut chain = Vec::new();
     let mut current = clip_id;
     while current != ClipId::INVALID {
-        let node = clip_tree.get(current);
+        let node = scene.clip_tree.get(current);
         if node.parent_frame_id != frame_id {
             break;
         }
@@ -98,7 +98,7 @@ pub(crate) fn transform_rect(matrix: &Mat4f, rect: Rect) -> Rect {
 }
 
 pub(crate) fn map_rect_between_frames(
-    frame_tree: &FrameTree<'_>,
+    scene: &RenderScene<'_>,
     from_frame_id: FrameId,
     to_frame_id: FrameId,
     rect: Rect,
@@ -106,6 +106,6 @@ pub(crate) fn map_rect_between_frames(
     if from_frame_id == to_frame_id {
         return rect;
     }
-    let world_rect = transform_rect(&frame_tree.frame(from_frame_id).matrix.world, rect);
-    transform_rect(&frame_tree.frame(to_frame_id).matrix.world_inverse, world_rect)
+    let world_rect = transform_rect(&scene.frame(from_frame_id).matrix.world, rect);
+    transform_rect(&scene.frame(to_frame_id).matrix.world_inverse, world_rect)
 }
