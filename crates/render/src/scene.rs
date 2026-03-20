@@ -101,6 +101,13 @@ pub(crate) struct BackendClipExecution {
     pub kind: BackendClipExecutionKind,
     pub rect: Option<Rect>,
     pub quad: Option<[DVec2; 4]>,
+    pub clip_planes: Option<BackendClipPlanes>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BackendClipPlanes {
+    pub planes: [Vec4f; 4],
+    pub count: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -289,7 +296,13 @@ impl<'a> RenderScene<'a> {
                 rect,
             )),
         };
-        Some(BackendClipExecution { kind, rect, quad })
+        let clip_planes = quad.and_then(backend_clip_planes_from_quad);
+        Some(BackendClipExecution {
+            kind,
+            rect,
+            quad,
+            clip_planes,
+        })
     }
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
@@ -497,6 +510,23 @@ fn project_rect_to_paint_container_quad(
         dvec2(rect.pos.x, rect.pos.y + rect.size.y),
     ];
     corners.map(|point| transform_point(&to_local, transform_point(&to_world, point)))
+}
+
+fn backend_clip_planes_from_quad(quad: [DVec2; 4]) -> Option<BackendClipPlanes> {
+    let mut planes = [vec4(0.0, 0.0, 0.0, 0.0); 4];
+    for index in 0..4 {
+        let from = quad[index];
+        let to = quad[(index + 1) % 4];
+        let edge = dvec2(to.x - from.x, to.y - from.y);
+        let length = (edge.x * edge.x + edge.y * edge.y).sqrt();
+        if length <= 1e-6 {
+            return None;
+        }
+        let normal = dvec2(-edge.y / length, edge.x / length);
+        let distance = -(normal.x * from.x + normal.y * from.y);
+        planes[index] = vec4(normal.x as f32, normal.y as f32, 0.0, distance as f32);
+    }
+    Some(BackendClipPlanes { planes, count: 4 })
 }
 
 fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {

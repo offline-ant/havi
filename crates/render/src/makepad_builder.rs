@@ -8,8 +8,8 @@ use makepad_widgets::*;
 
 use crate::compositor_scene::CompositorSurfaceId;
 use crate::makepad_clip::{
-    map_rect_between_paint_containers, pop_clip_chain, push_clip_chain, push_local_clip_chain,
-    transform_rect, ClipPushResult,
+    classify_clip_chain, map_rect_between_paint_containers, pop_clip_chain, push_clip_chain,
+    push_local_clip_chain, transform_rect, ClipPushResult,
 };
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
@@ -208,6 +208,11 @@ fn paint_compositor_surface(
             size: local_bounds.size,
         },
     );
+    let projected_clip = projected_surface_clip(
+        scene,
+        parent_space_root_paint_container_id,
+        surface_root_paint_container_id,
+    );
     let frame_transform = paint_container_transform_in_space(
         scene,
         parent_space_root_paint_container_id,
@@ -219,6 +224,9 @@ fn paint_compositor_surface(
     );
     quad.opacity = parent_opacity.clamp(0.0, 1.0);
     quad.depth_write = true;
+    if let Some(clip_planes) = projected_clip {
+        quad.clip_planes = clip_planes.planes[..clip_planes.count].to_vec();
+    }
     runtime.compositor.draw_quad(cx, &quad);
 }
 
@@ -402,21 +410,38 @@ fn paint_paint_container_contents(
                     paint_container_id,
                     scene.effective_clip_chain_for_paint_container(child_paint_container_id),
                 );
-                paint_paint_container_target(
-                    cx,
-                    scene,
-                    runtime,
-                    child_paint_container_id,
-                    active_surface_id,
-                    space_root_paint_container_id,
-                    root_viewport_size,
-                    state,
-                    opacity,
-                );
+                if pushed.projected_quad_clip_planes.is_none() {
+                    paint_paint_container_target(
+                        cx,
+                        scene,
+                        runtime,
+                        child_paint_container_id,
+                        active_surface_id,
+                        space_root_paint_container_id,
+                        root_viewport_size,
+                        state,
+                        opacity,
+                    );
+                }
                 pop_clip_chain(cx, pushed.rect_pushes);
             }
         }
     }
+}
+
+fn projected_surface_clip(
+    scene: &RenderScene<'_>,
+    space_root_paint_container_id: Option<PaintContainerId>,
+    paint_container_id: PaintContainerId,
+) -> Option<crate::scene::BackendClipPlanes> {
+    let clip_id = scene.effective_clip_chain_for_paint_container(paint_container_id);
+    classify_clip_chain(
+        scene,
+        space_root_paint_container_id.unwrap_or(scene.root_paint_container_id()),
+        clip_id,
+    )
+    .push_result
+    .projected_quad_clip_planes
 }
 
 fn paint_container_transform_in_space(

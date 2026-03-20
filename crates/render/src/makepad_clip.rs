@@ -1,8 +1,8 @@
 use makepad_widgets::*;
 
 use crate::scene::{
-    BackendClipExecution, BackendClipExecutionKind, PaintContainerId, RenderScene, SceneClipGeometry,
-    SceneClipId,
+    BackendClipExecution, BackendClipExecutionKind, BackendClipPlanes, PaintContainerId, RenderScene,
+    SceneClipGeometry, SceneClipId,
 };
 
 pub(crate) fn push_clip_chain(
@@ -11,28 +11,51 @@ pub(crate) fn push_clip_chain(
     paint_container_id: PaintContainerId,
     clip_id: SceneClipId,
 ) -> ClipPushResult {
-    if clip_id == SceneClipId::INVALID {
-        return ClipPushResult::default();
+    let result = classify_clip_chain(scene, paint_container_id, clip_id);
+    for execution in result.executions {
+        match push_backend_clip_execution(cx, execution) {
+            BackendClipPush::Rect
+            | BackendClipPush::ProjectedQuad
+            | BackendClipPush::ProjectedQuadFallback
+            | BackendClipPush::MaskFallback
+            | BackendClipPush::None => {}
+        }
     }
-    let mut result = ClipPushResult::default();
+    result.push_result
+}
+
+pub(crate) fn classify_clip_chain(
+    scene: &RenderScene<'_>,
+    paint_container_id: PaintContainerId,
+    clip_id: SceneClipId,
+) -> ClassifiedClipChain {
+    if clip_id == SceneClipId::INVALID {
+        return ClassifiedClipChain::default();
+    }
+    let mut push_result = ClipPushResult::default();
     let mut current = clip_id;
-    let mut chain = Vec::new();
+    let mut executions = Vec::new();
     while current != SceneClipId::INVALID {
         if let Some(execution) = scene.backend_clip_execution(current, paint_container_id) {
-            chain.push(execution);
+            match execution.kind {
+                BackendClipExecutionKind::DirectRect => push_result.rect_pushes += execution.rect.is_some() as usize,
+                BackendClipExecutionKind::ProjectedQuadFallback => {
+                    if let Some(clip_planes) = execution.clip_planes {
+                        push_result.projected_quad_clip_planes = Some(clip_planes);
+                    }
+                    push_result.used_projected_quad_fallback = true;
+                }
+                BackendClipExecutionKind::MaskFallback => push_result.used_mask_fallback = true,
+            }
+            executions.push(execution);
         }
         current = scene.clip_node(current).unwrap().parent_clip_id;
     }
-    chain.reverse();
-    for execution in chain {
-        match push_backend_clip_execution(cx, execution) {
-            BackendClipPush::Rect => result.rect_pushes += 1,
-            BackendClipPush::ProjectedQuadFallback => result.used_projected_quad_fallback = true,
-            BackendClipPush::MaskFallback => result.used_mask_fallback = true,
-            BackendClipPush::None => {}
-        }
+    executions.reverse();
+    ClassifiedClipChain {
+        executions,
+        push_result,
     }
-    result
 }
 
 pub(crate) fn push_local_clip_chain(
@@ -68,17 +91,25 @@ pub(crate) fn pop_clip_chain(cx: &mut Cx2d, pushed_count: usize) {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ClassifiedClipChain {
+    pub executions: Vec<BackendClipExecution>,
+    pub push_result: ClipPushResult,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ClipPushResult {
     pub rect_pushes: usize,
+    pub projected_quad_clip_planes: Option<BackendClipPlanes>,
     pub used_projected_quad_fallback: bool,
     pub used_mask_fallback: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 enum BackendClipPush {
     None,
     Rect,
+    ProjectedQuad,
     ProjectedQuadFallback,
     MaskFallback,
 }
@@ -140,7 +171,9 @@ fn push_backend_clip_execution(cx: &mut Cx2d, execution: BackendClipExecution) -
             }
         }
         BackendClipExecutionKind::ProjectedQuadFallback => {
-            if let Some(rect) = execution.rect {
+            if execution.clip_planes.is_some() {
+                BackendClipPush::ProjectedQuad
+            } else if let Some(rect) = execution.rect {
                 let _quad = execution.quad;
                 cx.push_clip_rect(rect);
                 BackendClipPush::ProjectedQuadFallback
