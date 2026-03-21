@@ -260,7 +260,7 @@ impl App {
             .ok();
     }
 
-    fn complete_startup_navigation(&mut self, cx: &mut Cx) {
+    fn finish_startup(&mut self, cx: &mut Cx) {
         if self.start_navigation_done {
             return;
         }
@@ -270,14 +270,10 @@ impl App {
         self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
         self.sync_content_size_from_host_rect(cx);
 
-        // Startup opening is delivered through AppOpen. Finishing startup only
-        // enables that path and reveals chrome; it does not create a tab.
-        self.ui
-            .text_input(cx, ids!(url_input))
-            .set_text(cx, &self.start_url);
-        self.sync_toolbar_state(cx);
-        self.sync_tab_bar(cx);
-        self.maybe_start_screenshot_capture(cx);
+        // Startup creates the initial tab directly. Event::AppOpen is reserved
+        // for external open requests delivered after the shell is ready.
+        let start_url = self.start_url.clone();
+        self.open_tab(cx, &start_url);
     }
 
     pub(super) fn apply_menu_dock(&self, cx: &mut Cx) {
@@ -397,7 +393,7 @@ impl MatchEvent for App {
             if ke.key_code == KeyCode::Tab {
                 self.ui.text_input(cx, ids!(url_input)).set_key_focus(cx);
             } else if Self::is_primary_new_tab_shortcut(&ke) {
-                self.add_tab(cx);
+                self.open_home_tab(cx);
                 cx.set_cursor(MouseCursor::Default);
             }
         }
@@ -531,7 +527,7 @@ impl MatchEvent for App {
             self.scroll_tabs(cx, 1.0);
         }
         if self.ui.button(cx, ids!(new_tab_btn)).clicked(actions) {
-            self.add_tab(cx);
+            self.open_home_tab(cx);
             // Reset cursor — the button moves when a tab is added, so
             // the hover-out event may not fire, leaving cursor stuck as Hand.
             cx.set_cursor(MouseCursor::Default);
@@ -921,47 +917,8 @@ impl AppMain for App {
                 return;
             }
 
-            let open_items: Vec<String> = if items.is_empty() && !self.has_opened_any_tab {
-                vec![self.start_url.clone()]
-            } else {
-                items.clone()
-            };
-
-            for url in &open_items {
-                if let Some(webview) = self.create_webview(url) {
-                    let webview_id = webview.id();
-                    self.tabs.push(TabInfo {
-                        webview_id,
-                        root_pipeline_id: None,
-                        webview,
-                        title: title_from_url(url),
-                        url: url.clone(),
-                        widget_id: next_tab_live_id(),
-                        watch: Default::default(),
-                    });
-                    self.has_opened_any_tab = true;
-                    if self.startup_open_pending && *url == self.start_url {
-                        self.startup_open_pending = false;
-                    }
-                    self.active_tab_idx = self.tabs.len() - 1;
-                    self.attach_active_render_state(cx);
-                    self.activate_tab_webview(self.active_tab_idx);
-                    self.focus_active_webview(cx);
-                    #[cfg(any(target_os = "android", target_os = "ios"))]
-                    {
-                        self.pending_clipboard_menu = None;
-                        self.selection_handles_visible = false;
-                        cx.hide_clipboard_actions();
-                        cx.hide_selection_handles();
-                    }
-                    self.set_url_input_sanitized(cx, url);
-                    self.needs_paint = true;
-                    self.sync_toolbar_state(cx);
-                    self.sync_tab_bar(cx);
-                    self.idle_frames = 0;
-                    self.next_frame = cx.new_next_frame();
-                    self.maybe_start_screenshot_capture(cx);
-                }
+            for url in items {
+                self.open_tab(cx, &url);
             }
         }
 
@@ -1007,7 +964,7 @@ impl AppMain for App {
                             self.pylon_command_client = Some(cmd_client);
                         }
                         self.refresh_pylon_status(cx);
-                        self.complete_startup_navigation(cx);
+                        self.finish_startup(cx);
 
                         let pylon_bind = format!("127.0.0.1:{}", pylon_port);
                         println!("PYLON_BIND={}", pylon_bind);
@@ -1023,7 +980,7 @@ impl AppMain for App {
                         log!("[havishell] pylon failed: {}", reason);
                         self.pylon_status.health = pylon_menu::PylonHealth::Red;
                         self.update_pylon_dot(cx);
-                        self.complete_startup_navigation(cx);
+                        self.finish_startup(cx);
 
                         let mut state = crate::app::runtime::included_state_entries();
                         if let Some(bind) = crate::app::delegate::get_devtools_bind() {
@@ -1047,7 +1004,7 @@ impl AppMain for App {
                     self.startup_state = StartupState::Failed;
                     eprintln!("[havi] splash timeout: pylon did not finish in 3s, proceeding");
                 }
-                self.complete_startup_navigation(cx);
+                self.finish_startup(cx);
                 self.needs_paint = true;
                 self.idle_frames = 0;
                 self.next_frame = cx.new_next_frame();

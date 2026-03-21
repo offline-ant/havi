@@ -152,7 +152,6 @@ fn main() {
 
     let startup_url = std::env::var("HAVI_URL").ok().filter(|url| !url.is_empty());
     let items: Vec<&str> = startup_url.iter().map(|url| url.as_str()).collect();
-    havishell::makepad_widgets::makepad_platform::Cx::enable_initial_app_open(&items);
     match havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance_with_build(
         "dev.makepad.havi",
         BUILD_ID,

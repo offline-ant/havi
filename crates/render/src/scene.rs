@@ -21,14 +21,11 @@ pub(crate) enum SpatialNodeKind {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReferenceFrameData {
-    pub origin: DVec2,
     pub placement_origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
-    pub has_transform: bool,
     pub has_perspective: bool,
     pub preserves_3d: bool,
-    pub anchors_content: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -61,7 +58,6 @@ pub(crate) struct StickyNodeData {
 pub(crate) struct ScrollNodeData {
     pub scroll_offset: DVec2,
     pub scroll_frame_rect: Rect,
-    pub content_rect: Rect,
     pub sensitivity_x: bool,
     pub sensitivity_y: bool,
     pub external_scroll_node_id: Option<usize>,
@@ -133,8 +129,6 @@ pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
     pub spatial_node_id: SpatialNodeId,
     pub geometry: SceneClipGeometry,
-    pub scroll_node_id: Option<SpatialNodeId>,
-    pub overflow_root_spatial_node_id: Option<SpatialNodeId>,
     pub reference_frame_id: SpatialNodeId,
     pub kind: SceneClipKind,
 }
@@ -150,6 +144,7 @@ pub(crate) struct ScenePaintItem<'a> {
     pub source: PaintSource<'a>,
     pub section: StackingContextSection,
     pub local_origin: DVec2,
+    pub owning_paint_container_id: PaintContainerId,
     pub clip_id: SceneClipId,
 }
 
@@ -161,11 +156,9 @@ pub(crate) enum ScenePaintCommand {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpatialNode {
-    pub id: SpatialNodeId,
     pub parent: Option<SpatialNodeId>,
     pub kind: SpatialNodeKind,
     pub semantics: SpatialNodeSemantics,
-    pub owner_node_id: Option<usize>,
     pub world: Mat4f,
     pub world_inverse: Mat4f,
     pub nearest_reference_frame_id: SpatialNodeId,
@@ -245,21 +238,6 @@ impl<'a> RenderScene<'a> {
         }
     }
 
-    pub(crate) fn clip_chain_has_reference_frame_effects(&self, clip_id: SceneClipId) -> bool {
-        let mut current = clip_id;
-        while current != SceneClipId::INVALID {
-            let node = self.clip_node(current).unwrap();
-            let reference_frame = self.spatial_node(node.reference_frame_id);
-            if let SpatialNodeSemantics::ReferenceFrame(data) = reference_frame.semantics {
-                if data.has_perspective || data.preserves_3d {
-                    return true;
-                }
-            }
-            current = node.parent_clip_id;
-        }
-        false
-    }
-
     pub(crate) fn clip_contains_world_point(&self, clip_id: SceneClipId, point_world: DVec2) -> bool {
         let Some(node) = self.clip_node(clip_id) else {
             return true;
@@ -335,10 +313,6 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
         self.compositor_scene.frame_surface(paint_container_id)
-    }
-
-    pub(crate) fn frame_parent_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
-        self.compositor_scene.frame_parent_surface(paint_container_id)
     }
 
     pub(crate) fn compositor_scene(&self) -> &CompositorScene {

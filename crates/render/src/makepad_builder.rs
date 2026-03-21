@@ -5,11 +5,12 @@ use std::env;
 
 use makepad_compositor::{MpCompositedQuad, MpCompositor, MpSurface, MpSurfaceColorFormat};
 use makepad_widgets::*;
+use makepad_widgets::makepad_draw::draw_list_2d::{DrawList2d, DrawListExt};
 
 use crate::compositor_scene::CompositorSurfaceId;
 use crate::makepad_clip::{
     classify_clip_chain, map_rect_between_paint_containers, pop_clip_chain, push_clip_chain,
-    push_local_clip_chain, transform_rect, ClipPushResult, MaskRuntime,
+    push_local_clip_chain, transform_point, transform_rect, ClipPushResult, MaskRuntime,
 };
 use crate::makepad_effects::{
     begin_filter_pass, begin_opacity_pass, end_filter_pass, end_opacity_pass, frame_effects_for_node,
@@ -41,30 +42,12 @@ pub(crate) struct MakepadDrawState<'a> {
     #[allow(dead_code)]
     pub frame_draw_lists: &'a mut FrameDrawListState,
     pub image_overrides: &'a havi_types::ImageOverrides,
-    pub(crate) active_container_transform: Mat4f,
-}
-
-impl<'a> MakepadDrawState<'a> {
-    fn with_active_container_transform<R>(
-        &mut self,
-        transform: Mat4f,
-        f: impl FnOnce(&mut Self) -> R,
-    ) -> R {
-        let previous = self.active_container_transform;
-        self.active_container_transform = transform;
-        let result = f(self);
-        self.active_container_transform = previous;
-        result
-    }
-
-    pub(crate) fn active_container_transform(&self) -> Mat4f {
-        self.active_container_transform
-    }
 }
 
 struct CompositorTextureSurface {
     pass: DrawPass,
     color_texture: Texture,
+    solid_debug_texture: Texture,
     _depth_texture: Option<Texture>,
     size: DVec2,
     draw_list: DrawList2d,
@@ -83,6 +66,7 @@ struct BackendRuntime {
     debug_surface_identity_composite: bool,
     debug_surface_plain_paint: bool,
     debug_surface_trace: bool,
+    debug_surface_solid_composite: bool,
 }
 
 impl CompositorTextureSurface {
@@ -94,6 +78,15 @@ impl CompositorTextureSurface {
             TextureFormat::RenderBGRAu8 {
                 size: fixed_texture_size(initial_size),
                 initial: true,
+            },
+        );
+        let solid_debug_texture = Texture::new_with_format(
+            cx,
+            TextureFormat::VecBGRAu8_32 {
+                data: Some(vec![0xFF00FFFF]),
+                width: 1,
+                height: 1,
+                updated: TextureUpdated::Full,
             },
         );
         pass.set_color_texture(
@@ -116,6 +109,7 @@ impl CompositorTextureSurface {
         Self {
             pass,
             color_texture,
+            solid_debug_texture,
             _depth_texture: depth_texture,
             size: initial_size,
             draw_list: DrawList2d::new(cx),
@@ -165,6 +159,10 @@ impl CompositorTextureSurface {
     fn texture(&self) -> Texture {
         self.color_texture.clone()
     }
+
+    fn solid_debug_texture(&self) -> Texture {
+        self.solid_debug_texture.clone()
+    }
 }
 
 impl CompositorRuntime {
@@ -186,6 +184,7 @@ impl BackendRuntime {
             debug_surface_identity_composite: env::var("HAVI_DEBUG_SURFACE_IDENTITY_COMPOSITE").ok().as_deref() == Some("1"),
             debug_surface_plain_paint: env::var("HAVI_DEBUG_SURFACE_PLAIN_PAINT").ok().as_deref() == Some("1"),
             debug_surface_trace: env::var("HAVI_DEBUG_SURFACE_TRACE").ok().as_deref() == Some("1"),
+            debug_surface_solid_composite: env::var("HAVI_DEBUG_SURFACE_SOLID_COMPOSITE").ok().as_deref() == Some("1"),
         }
     }
 
@@ -254,6 +253,10 @@ impl CompositorRuntime {
     fn surface_texture(&self, surface_id: CompositorSurfaceId) -> Texture {
         self.surfaces.get(&surface_id).unwrap().texture()
     }
+
+    fn surface_solid_debug_texture(&self, surface_id: CompositorSurfaceId) -> Texture {
+        self.surfaces.get(&surface_id).unwrap().solid_debug_texture()
+    }
 }
 
 pub(crate) fn paint_scene(
@@ -297,6 +300,11 @@ fn paint_paint_container_target(
     let target_surface_id = scene.compositor_scene().frame_target_surface(paint_container_id);
     if target_surface_id != active_surface_id {
         if let Some(surface_id) = scene.frame_surface(paint_container_id) {
+            let next_space_root_paint_container_id = if active_surface_id.is_some() {
+                space_root_paint_container_id
+            } else {
+                Some(target_paint_container_id)
+            };
             paint_compositor_surface(
                 cx,
                 scene,
@@ -304,7 +312,7 @@ fn paint_paint_container_target(
                 surface_id,
                 paint_container_id,
                 target_paint_container_id,
-                space_root_paint_container_id,
+                next_space_root_paint_container_id,
                 backend_root_basis,
                 root_viewport_size,
                 state,
@@ -361,6 +369,20 @@ fn paint_compositor_surface(
         scene.frame_participation(surface_root_paint_container_id),
         RenderParticipation::Compositor { .. }
     );
+    if runtime.debug_surface_trace {
+        eprintln!(
+            "[havi][surface] begin surface_id={} root_frame={} world=({:.1},{:.1}) local_bounds=({:.1},{:.1})+({:.1},{:.1}) with_depth={}",
+            surface_id,
+            surface_root_paint_container_id,
+            scene.frame_world_transform(surface_root_paint_container_id).v[12],
+            scene.frame_world_transform(surface_root_paint_container_id).v[13],
+            local_bounds.pos.x,
+            local_bounds.pos.y,
+            local_bounds.size.x,
+            local_bounds.size.y,
+            with_depth,
+        );
+    }
     runtime.compositor.begin_surface(cx, surface_id, local_bounds.size, dvec2(0.0, 0.0), with_depth);
     let surface_area = cx.current_pass_size();
     paint_paint_container_target(
@@ -379,7 +401,11 @@ fn paint_compositor_surface(
     runtime.compositor.end_surface(cx, surface_id);
 
     let composite_pass_size = cx.current_pass_size();
-    let surface_texture = runtime.compositor.surface_texture(surface_id);
+    let surface_texture = if runtime.debug_surface_solid_composite {
+        runtime.compositor.surface_solid_debug_texture(surface_id)
+    } else {
+        runtime.compositor.surface_texture(surface_id)
+    };
     if runtime.debug_surface_trace {
         eprintln!(
             "[havi][surface] composite surface_id={} root_frame={} target_frame={} active_parent_space_root={:?} local_bounds=({:.1},{:.1})+({:.1},{:.1}) child_pass_size=({:.1},{:.1}) parent_pass_size=({:.1},{:.1})",
@@ -409,22 +435,22 @@ fn paint_compositor_surface(
         quad.clip_planes.clear();
         quad.opacity = parent_opacity.clamp(0.0, 1.0);
         quad.depth_write = true;
+        cx.push_draw_call_parent();
         runtime.compositor.compositor.draw_quad(cx, &quad);
+        cx.pop_draw_call_parent();
         return;
     }
 
     let projected_clip = projected_surface_clip(scene, target_paint_container_id, surface_root_paint_container_id);
-    let frame_transform = paint_container_transform_in_space(
+    let parent_space_transform = paint_container_transform_in_space(
         scene,
         parent_space_root_paint_container_id,
         surface_root_paint_container_id,
     );
+    let local_surface_translation = translation_matrix(local_bounds.pos.x as f32, local_bounds.pos.y as f32);
     let quad_transform = Mat4f::mul(
         &backend_root_basis.page_to_pass_transform(),
-        &Mat4f::mul(
-            &frame_transform,
-            &translation_matrix(local_bounds.pos.x as f32, local_bounds.pos.y as f32),
-        ),
+        &Mat4f::mul(&parent_space_transform, &local_surface_translation),
     );
 
     let mut quad = MpCompositedQuad::new(
@@ -437,25 +463,34 @@ fn paint_compositor_surface(
     quad.transform = quad_transform;
     if runtime.debug_surface_trace {
         eprintln!(
-            "[havi][surface] quad surface_id={} quad_rect=({:.1},{:.1})+({:.1},{:.1}) transform=[{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3}] projected_clip={}",
+            "[havi][surface] quad surface_id={} quad_rect=({:.1},{:.1})+({:.1},{:.1}) local_surface_translation=({:.1},{:.1}) projected_clip={} parent_space_transform=[{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3}] final_transform=[{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3};{:.3},{:.3},{:.3},{:.3}]",
             surface_id,
             quad.local_rect.pos.x,
             quad.local_rect.pos.y,
             quad.local_rect.size.x,
             quad.local_rect.size.y,
+            local_bounds.pos.x,
+            local_bounds.pos.y,
+            projected_clip.is_some(),
+            parent_space_transform.v[0], parent_space_transform.v[1], parent_space_transform.v[2], parent_space_transform.v[3],
+            parent_space_transform.v[4], parent_space_transform.v[5], parent_space_transform.v[6], parent_space_transform.v[7],
+            parent_space_transform.v[8], parent_space_transform.v[9], parent_space_transform.v[10], parent_space_transform.v[11],
+            parent_space_transform.v[12], parent_space_transform.v[13], parent_space_transform.v[14], parent_space_transform.v[15],
             quad_transform.v[0], quad_transform.v[1], quad_transform.v[2], quad_transform.v[3],
             quad_transform.v[4], quad_transform.v[5], quad_transform.v[6], quad_transform.v[7],
             quad_transform.v[8], quad_transform.v[9], quad_transform.v[10], quad_transform.v[11],
             quad_transform.v[12], quad_transform.v[13], quad_transform.v[14], quad_transform.v[15],
-            projected_clip.is_some(),
         );
     }
     if let Some(clip_planes) = projected_clip {
         quad.clip_planes = clip_planes.planes[..clip_planes.count].to_vec();
     }
     quad.opacity = parent_opacity.clamp(0.0, 1.0);
+    quad.premultiplied = !runtime.debug_surface_solid_composite;
     quad.depth_write = true;
+    cx.push_draw_call_parent();
     runtime.compositor.compositor.draw_quad(cx, &quad);
+    cx.pop_draw_call_parent();
 }
 
 fn paint_paint_container_direct_2d(
@@ -471,77 +506,31 @@ fn paint_paint_container_direct_2d(
     state: &mut MakepadDrawState<'_>,
     parent_opacity: f32,
 ) {
-    let active_container_transform = if paint_container_id == scene.root_paint_container_id() {
-        Mat4f::identity()
-    } else {
-        paint_container_transform_in_space(
-            scene,
-            space_root_paint_container_id,
-            paint_container_id,
-        )
-    };
-
-    state.with_active_container_transform(active_container_transform, |state| {
-        if paint_container_id == scene.root_paint_container_id() {
-            cx.begin_page_root_turtle(backend_root_basis.webview_origin, root_viewport_size, Layout::default());
-            state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
-            state.draw_bg.draw_abs(
-                cx,
-                Rect {
-                    pos: backend_root_basis.webview_origin,
-                    size: root_viewport_size,
-                },
-            );
-            paint_paint_container_with_effects(
-                cx,
-                scene,
-                runtime,
-                paint_container_id,
-                active_surface_id,
-                target_paint_container_id,
-                space_root_paint_container_id,
-                backend_root_basis,
-                root_viewport_size,
-                state,
-                parent_opacity,
-            );
-            cx.end_pass_sized_turtle();
-            return;
-        }
-
-        if active_surface_id.is_some() {
-            cx.begin_root_turtle_for_pass(Layout::default());
+    if paint_container_id == scene.root_paint_container_id() {
+        if runtime.debug_surface_trace {
             let pass_size = cx.current_pass_size();
-            if runtime.debug_surface_trace {
-                eprintln!(
-                    "[havi][surface] begin surface-local frame={} active_surface={:?} pass_size=({:.1},{:.1})",
-                    paint_container_id,
-                    active_surface_id,
-                    pass_size.x,
-                    pass_size.y,
-                );
-            }
-            cx.turtle_mut().set_used(pass_size.x, pass_size.y);
-            paint_paint_container_with_effects(
-                cx,
-                scene,
-                runtime,
-                paint_container_id,
-                active_surface_id,
-                target_paint_container_id,
-                None,
-                backend_root_basis,
-                root_viewport_size,
-                state,
-                parent_opacity,
+            eprintln!(
+                "[havi][root] webview_origin=({:.1},{:.1}) viewport_top={:.1} root_viewport_size=({:.1},{:.1}) current_pass_size=({:.1},{:.1}) page_to_pass=({:.1},{:.1})",
+                backend_root_basis.webview_origin.x,
+                backend_root_basis.webview_origin.y,
+                backend_root_basis.viewport_top,
+                root_viewport_size.x,
+                root_viewport_size.y,
+                pass_size.x,
+                pass_size.y,
+                backend_root_basis.page_to_pass_translation().x,
+                backend_root_basis.page_to_pass_translation().y,
             );
-            cx.end_pass_sized_turtle();
-            return;
         }
-
-        let pass_size = cx.current_pass_size();
-        let frame_origin = backend_root_basis.page_to_pass_point(dvec2(0.0, 0.0));
-        cx.begin_page_root_turtle(frame_origin, pass_size, Layout::default());
+        cx.begin_page_root_turtle(backend_root_basis.webview_origin, root_viewport_size, Layout::default());
+        state.draw_bg.color = vec4(1.0, 1.0, 1.0, 1.0);
+        state.draw_bg.draw_abs(
+            cx,
+            Rect {
+                pos: backend_root_basis.webview_origin,
+                size: root_viewport_size,
+            },
+        );
         paint_paint_container_with_effects(
             cx,
             scene,
@@ -556,7 +545,56 @@ fn paint_paint_container_direct_2d(
             parent_opacity,
         );
         cx.end_pass_sized_turtle();
-    });
+        return;
+    }
+
+    if active_surface_id.is_some() {
+        cx.begin_root_turtle_for_pass(Layout::default());
+        let pass_size = cx.current_pass_size();
+        if runtime.debug_surface_trace {
+            eprintln!(
+                "[havi][surface] begin surface-local frame={} active_surface={:?} pass_size=({:.1},{:.1})",
+                paint_container_id,
+                active_surface_id,
+                pass_size.x,
+                pass_size.y,
+            );
+        }
+        cx.turtle_mut().set_used(pass_size.x, pass_size.y);
+        paint_paint_container_with_effects(
+            cx,
+            scene,
+            runtime,
+            paint_container_id,
+            active_surface_id,
+            target_paint_container_id,
+            None,
+            backend_root_basis,
+            root_viewport_size,
+            state,
+            parent_opacity,
+        );
+        cx.end_pass_sized_turtle();
+        return;
+    }
+
+    let pass_size = cx.current_pass_size();
+    let frame_origin = backend_root_basis.webview_origin;
+    cx.begin_page_root_turtle(frame_origin, pass_size, Layout::default());
+    paint_paint_container_with_effects(
+        cx,
+        scene,
+        runtime,
+        paint_container_id,
+        active_surface_id,
+        target_paint_container_id,
+        space_root_paint_container_id,
+        backend_root_basis,
+        root_viewport_size,
+        state,
+        parent_opacity,
+    );
+    cx.end_pass_sized_turtle();
 }
 
 fn should_use_surface_plain_paint(
@@ -692,11 +730,12 @@ fn paint_paint_container_contents(
         match command {
             ScenePaintCommand::Item(item_index) => {
                 let item = &scene.frame_items(paint_container_id)[item_index];
+                let item_origin = item_origin_in_paint_container(scene, item, paint_container_id);
                 if should_use_surface_plain_paint(scene, runtime, paint_container_id, active_surface_id) {
-                    paint_fragment_item(cx, item, state, opacity);
+                    paint_fragment_item(cx, item, item_origin, state, opacity);
                 } else {
                     let pushed = push_local_clip_chain(cx, scene, paint_container_id, item.clip_id);
-                    paint_fragment_item(cx, item, state, opacity);
+                    paint_fragment_item(cx, item, item_origin, state, opacity);
                     pop_clip_chain(cx, pushed);
                 }
             }
@@ -843,21 +882,22 @@ fn paint_container_owner_bounds_in_pass(
         &paint_container_transform_in_space(scene, space_root_paint_container_id, paint_container_id),
     );
     for item in scene.frame_items(paint_container_id) {
-        if let Some(local_rect) = frame_paint_item_local_rect(item) {
+        if let Some(local_rect) = frame_paint_item_local_rect(scene, item) {
             return Some((owner_node_id, transform_rect(&transform, local_rect)));
         }
     }
     None
 }
 
-fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
-    match item.source {
+fn frame_paint_item_local_rect(scene: &RenderScene<'_>, item: &ScenePaintItem<'_>) -> Option<Rect> {
+    let item_origin = item_origin_in_paint_container(scene, item, item.owning_paint_container_id);
+    let rect = match item.source {
         havi_fragment_semantics::Fragment::Box(bf) | havi_fragment_semantics::Fragment::Float(bf) => {
             let rect = bf.border_rect();
             Some(Rect {
                 pos: dvec2(
-                    item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                    item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                    item_origin.x + rect.origin.x.to_f32_px() as f64,
+                    item_origin.y + rect.origin.y.to_f32_px() as f64,
                 ),
                 size: dvec2(
                     rect.size.width.to_f32_px() as f64,
@@ -867,23 +907,36 @@ fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
         }
         havi_fragment_semantics::Fragment::Text(tf) => {
             let rect = tf.base.rect;
+            let width = if tf.glyphs.is_empty() {
+                rect.size.width.to_f32_px() as f64
+            } else {
+                tf.glyphs
+                    .iter()
+                    .fold(0.0_f64, |max_x, glyph| {
+                        max_x.max((glyph.x_offset + glyph.advance).to_f32_px() as f64)
+                    })
+                    .max(0.0)
+                    .min(rect.size.width.to_f32_px() as f64)
+            };
+            let height = rect.size.height.to_f32_px() as f64;
+            if width <= 0.0 || height <= 0.0 {
+                return None;
+            }
+            let right_edge = item_origin.x + rect.origin.x.to_f32_px() as f64 + rect.size.width.to_f32_px() as f64;
             Some(Rect {
                 pos: dvec2(
-                    item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                    item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                    right_edge - width,
+                    item_origin.y + rect.origin.y.to_f32_px() as f64,
                 ),
-                size: dvec2(
-                    rect.size.width.to_f32_px() as f64,
-                    rect.size.height.to_f32_px() as f64,
-                ),
+                size: dvec2(width, height),
             })
         }
         havi_fragment_semantics::Fragment::Image(img) => {
             let rect = img.base.rect;
             Some(Rect {
                 pos: dvec2(
-                    item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                    item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                    item_origin.x + rect.origin.x.to_f32_px() as f64,
+                    item_origin.y + rect.origin.y.to_f32_px() as f64,
                 ),
                 size: dvec2(
                     rect.size.width.to_f32_px() as f64,
@@ -895,8 +948,8 @@ fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
             let rect = iframe.base.rect;
             Some(Rect {
                 pos: dvec2(
-                    item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                    item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                    item_origin.x + rect.origin.x.to_f32_px() as f64,
+                    item_origin.y + rect.origin.y.to_f32_px() as f64,
                 ),
                 size: dvec2(
                     rect.size.width.to_f32_px() as f64,
@@ -905,7 +958,26 @@ fn frame_paint_item_local_rect(item: &ScenePaintItem<'_>) -> Option<Rect> {
             })
         }
         havi_fragment_semantics::Fragment::Positioning(_) | havi_fragment_semantics::Fragment::AbsoluteOrFixedPositioned { .. } => None,
+    };
+    rect
+}
+
+fn item_origin_in_paint_container(
+    scene: &RenderScene<'_>,
+    item: &ScenePaintItem<'_>,
+    target_paint_container_id: PaintContainerId,
+) -> DVec2 {
+    if item.owning_paint_container_id == target_paint_container_id {
+        return item.local_origin;
     }
+    let mapped = transform_point(
+        &Mat4f::mul(
+            &scene.frame_world_inverse(target_paint_container_id),
+            &scene.frame_world_transform(item.owning_paint_container_id),
+        ),
+        item.local_origin,
+    );
+    dvec2(mapped.x, mapped.y)
 }
 
 fn paint_container_subtree_bounds_in_space(
@@ -919,7 +991,8 @@ fn paint_container_subtree_bounds_in_space(
     for command in paint_list {
         match command {
             ScenePaintCommand::Item(item_index) => {
-                if let Some(local_rect) = frame_paint_item_local_rect(&scene.frame_items(paint_container_id)[item_index]) {
+                let item = &scene.frame_items(paint_container_id)[item_index];
+                if let Some(local_rect) = frame_paint_item_local_rect(scene, item) {
                     let mapped = transform_rect(
                         &paint_container_transform_in_space(scene, Some(space_root_paint_container_id), paint_container_id),
                         local_rect,

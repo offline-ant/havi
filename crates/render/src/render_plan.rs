@@ -62,24 +62,13 @@ impl RenderPlan {
         scene: &RenderScene<'_>,
         owner_semantics: HashMap<usize, NodeRenderSemantics>,
     ) -> Self {
-        let frame_parents = frame_parent_indices(scene);
         let mut frame_participation = vec![RenderParticipation::Direct2d; scene.frame_count()];
         for frame_id in 0..scene.frame_count() {
             let owner_node_id = scene.frame_owner_node_id(frame_id);
-            let mut participation = owner_node_id
+            let participation = owner_node_id
                 .and_then(|node_id| owner_semantics.get(&node_id).copied())
                 .map(NodeRenderSemantics::participation)
                 .unwrap_or(RenderParticipation::Direct2d);
-            if matches!(participation, RenderParticipation::Compositor { .. }) {
-                let mut ancestor = frame_parents[frame_id];
-                while let Some(parent_frame_id) = ancestor {
-                    if scene.frame_owner_node_id(parent_frame_id) == owner_node_id {
-                        participation = RenderParticipation::Direct2d;
-                        break;
-                    }
-                    ancestor = frame_parents[parent_frame_id];
-                }
-            }
             frame_participation[frame_id] = participation;
         }
         Self {
@@ -109,18 +98,6 @@ impl RenderPlan {
     pub(crate) fn owner_semantics(&self, node_id: usize) -> Option<NodeRenderSemantics> {
         self.owner_semantics.get(&node_id).copied()
     }
-}
-
-fn frame_parent_indices(scene: &RenderScene<'_>) -> Vec<Option<usize>> {
-    let mut parents = vec![None; scene.frame_count()];
-    for parent_frame_id in 0..scene.frame_count() {
-        for command in scene.frame_paint_list(parent_frame_id) {
-            if let crate::scene::ScenePaintCommand::ChildPaintContainer(child_frame_id) = command {
-                parents[*child_frame_id] = Some(parent_frame_id);
-            }
-        }
-    }
-    parents
 }
 
 pub(crate) fn collect_owner_render_semantics(
@@ -213,7 +190,6 @@ mod tests {
     use makepad_widgets::dvec2;
     use style::properties::ComputedValues;
     use style::properties::generated::style_structs::Font;
-    use style::values::computed::length::NonNegativeLength;
     use style::values::specified::TransformStyle;
 
     fn make_rect(x: f32, y: f32, w: f32, h: f32) -> PhysicalRect<Au> {
@@ -274,43 +250,14 @@ mod tests {
         assert_eq!(node.participation(), RenderParticipation::Direct2d);
     }
 
-    #[test]
-    fn perspective_only_boxes_stay_on_direct_2d_path() {
-        let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
-        servo_arc::Arc::make_mut(&mut style)
-            .mutate_box()
-            .set_perspective(style::values::generics::box_::Perspective::Length(NonNegativeLength::new(600.0)));
-        let fragments = [base_box(13, style.to_arc())];
-        let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&(13 << 8)).copied().unwrap();
-        assert_eq!(node.participation(), RenderParticipation::Direct2d);
-    }
-
-    #[test]
-    fn perspective_with_2d_translate_stays_on_direct_2d_path() {
-        let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
-        let box_style = servo_arc::Arc::make_mut(&mut style).mutate_box();
-        box_style.set_perspective(style::values::generics::box_::Perspective::Length(NonNegativeLength::new(600.0)));
-        box_style.set_translate(style::values::generics::transform::GenericTranslate::Translate(
-            style::values::computed::LengthPercentage::new_length(style::values::computed::length::Length::new(10.0)),
-            style::values::computed::LengthPercentage::zero_percent(),
-            style::values::computed::length::Length::new(0.0),
-        ));
-        let fragments = [base_box(14, style.to_arc())];
-        let semantics = collect_owner_render_semantics(&fragments);
-        let node = semantics.get(&(14 << 8)).copied().unwrap();
-        assert_eq!(node.participation(), RenderParticipation::Direct2d);
-    }
 
     #[test]
     fn render_plan_defaults_unowned_frames_to_direct_2d() {
         let scene = RenderScene::new(
             vec![crate::scene::SpatialNode {
-                id: crate::scene::SpatialNodeId(0),
                 parent: None,
                 kind: crate::scene::SpatialNodeKind::Root,
                 semantics: crate::scene::SpatialNodeSemantics::Root,
-                owner_node_id: None,
                 world: Mat4f::identity(),
                 world_inverse: Mat4f::identity(),
                 nearest_reference_frame_id: crate::scene::SpatialNodeId(0),

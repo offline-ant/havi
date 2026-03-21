@@ -105,30 +105,34 @@ pub(crate) fn draw_text_run(
     draw_text: &mut DrawText,
     draw_text_bold: &mut DrawText,
     draw_text_mono: &mut DrawText,
-    transform: Mat4f,
 ) {
     let computed = &tf.base.style;
-    let restore_transform = cx.get_current_draw_list_id().map(|draw_list_id| {
-        let current = cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform;
-        cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform = transform;
-        (draw_list_id, current)
-    });
 
     let mut color = inherited_color(computed);
     color.w *= opacity;
+
+    let font_size = computed.get_font().font_size.computed_size().px();
+    let baseline_ascent_px = tf.baseline_ascent.to_f32_px();
+    let tight_width = if tf.glyphs.is_empty() {
+        w as f64
+    } else {
+        tf.glyphs
+            .iter()
+            .fold(0.0_f64, |max_x, glyph| {
+                max_x.max((glyph.x_offset + glyph.advance).to_f32_px() as f64)
+            })
+            .min(w as f64)
+    };
 
     let mut bg = resolve_color(
         &computed.get_background().background_color,
         &computed.get_inherited_text().color,
     );
     bg.w *= opacity;
-    if bg.w > 0.001 && w > 0.0 && h > 0.0 {
+    if bg.w > 0.001 && tight_width > 0.0 && h > 0.0 {
         draw_bg.color = bg;
-        draw_bg.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, h as f64) });
+        draw_bg.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(tight_width, h as f64) });
     }
-
-    let font_size = computed.get_font().font_size.computed_size().px();
-    let baseline_ascent_px = tf.baseline_ascent.to_f32_px();
 
     // Text shadows
     let shadows = &computed.get_inherited_text().text_shadow.0;
@@ -139,7 +143,7 @@ pub(crate) fn draw_text_run(
             let mut shadow_color = abs_to_vec4(&shadow.color.resolve_to_absolute(&computed.get_inherited_text().color));
             shadow_color.w *= opacity;
             if shadow_color.w < 0.001 { continue; }
-            draw_text_at(cx, tf, x + h_off, y + v_off, w, h, font_size, baseline_ascent_px,
+            draw_text_at(cx, tf, x + h_off, y + v_off, tight_width as f32, h, font_size, baseline_ascent_px,
                 shadow_color, draw_bg, draw_text, draw_text_bold, draw_text_mono);
         }
     }
@@ -155,17 +159,17 @@ pub(crate) fn draw_text_run(
             let ul_y = baseline_y + tf.underline_offset.to_f32_px() as f64;
             let ul_h = tf.underline_size.to_f32_px() as f64;
             draw_bg.color = deco_color;
-            draw_bg.draw_abs(cx, Rect { pos: dvec2(x, ul_y), size: dvec2(w as f64, ul_h) });
+            draw_bg.draw_abs(cx, Rect { pos: dvec2(x, ul_y), size: dvec2(tight_width, ul_h) });
         }
 
         if deco_line.contains(style::values::specified::TextDecorationLine::OVERLINE) {
             let ol_h = tf.underline_size.to_f32_px() as f64;
             draw_bg.color = deco_color;
-            draw_bg.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(w as f64, ol_h) });
+            draw_bg.draw_abs(cx, Rect { pos: dvec2(x, y), size: dvec2(tight_width, ol_h) });
         }
     }
 
-    draw_text_at(cx, tf, x, y, w, h, font_size, baseline_ascent_px,
+    draw_text_at(cx, tf, x, y, tight_width as f32, h, font_size, baseline_ascent_px,
         color, draw_bg, draw_text, draw_text_bold, draw_text_mono);
 
     if has_decorations && deco_line.contains(style::values::specified::TextDecorationLine::LINE_THROUGH) {
@@ -174,12 +178,9 @@ pub(crate) fn draw_text_run(
         let lt_y = baseline_y - tf.strikeout_offset.to_f32_px() as f64;
         let lt_h = tf.strikeout_size.to_f32_px() as f64;
         draw_bg.color = deco_color;
-        draw_bg.draw_abs(cx, Rect { pos: dvec2(x, lt_y), size: dvec2(w as f64, lt_h) });
+        draw_bg.draw_abs(cx, Rect { pos: dvec2(x, lt_y), size: dvec2(tight_width, lt_h) });
     }
 
-    if let Some((draw_list_id, previous)) = restore_transform {
-        cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform = previous;
-    }
 }
 
 fn draw_text_at(

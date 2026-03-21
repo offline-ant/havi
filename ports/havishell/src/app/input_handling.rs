@@ -257,7 +257,7 @@ impl App {
                             }
                         }
                         if Self::is_primary_new_tab_shortcut(key_event) {
-                            self.add_tab(cx);
+                            self.open_home_tab(cx);
                             handled_input = true;
                         } else {
                             // Suppress primary-modifier clipboard shortcuts.

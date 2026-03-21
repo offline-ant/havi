@@ -49,7 +49,6 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                 section,
                 fragment,
                 attachment,
-                containing_block: _,
             } => {
                 let item_cx = BuildContext {
                     attachment: *attachment,
@@ -74,6 +73,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                     source,
                     section,
                     cx.local_origin,
+                    cx.attachment.paint_container_id,
                     cx.attachment.clip_id,
                 );
             }
@@ -83,6 +83,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                     source,
                     section,
                     cx.local_origin,
+                    cx.attachment.paint_container_id,
                     cx.attachment.clip_id,
                 );
                 self.build_iframe_into_scene(iframe, cx);
@@ -100,14 +101,11 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
         let spatial_node_id = self.scene_builder.child_spatial_node(
             spatial_node_id,
             SpatialNodeSemantics::ReferenceFrame(ReferenceFrameData {
-                origin: iframe_origin,
                 placement_origin: dvec2(0.0, 0.0),
                 transform_matrix: Some(translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32)),
                 perspective_matrix: None,
-                has_transform: true,
                 has_perspective: false,
                 preserves_3d: false,
-                anchors_content: true,
             }),
             iframe.base.tag.map(|tag| tag.node.0),
         );

@@ -23,11 +23,9 @@ impl<'a> RenderSceneBuilder<'a> {
         let root_paint_container_id = 0;
         Self {
             spatial_nodes: vec![SpatialNode {
-                id: root_spatial_node_id,
                 parent: None,
                 kind: crate::scene::SpatialNodeKind::Root,
                 semantics: SpatialNodeSemantics::Root,
-                owner_node_id: None,
                 world: Mat4f::identity(),
                 world_inverse: Mat4f::identity(),
                 nearest_reference_frame_id: root_spatial_node_id,
@@ -47,10 +45,6 @@ impl<'a> RenderSceneBuilder<'a> {
         }
     }
 
-    pub(crate) fn root_spatial_node_id(&self) -> SpatialNodeId {
-        self.root_spatial_node_id
-    }
-
     pub(crate) fn root_paint_container_id(&self) -> PaintContainerId {
         self.root_paint_container_id
     }
@@ -63,7 +57,7 @@ impl<'a> RenderSceneBuilder<'a> {
         &mut self,
         parent_spatial_node_id: SpatialNodeId,
         semantics: SpatialNodeSemantics,
-        owner_node_id: Option<usize>,
+        _owner_node_id: Option<usize>,
     ) -> SpatialNodeId {
         let parent = self.spatial_nodes[parent_spatial_node_id.0];
         let spatial_node_id = SpatialNodeId(self.spatial_nodes.len());
@@ -76,11 +70,9 @@ impl<'a> RenderSceneBuilder<'a> {
             _ => parent.nearest_scroll_node_id,
         };
         self.spatial_nodes.push(SpatialNode {
-            id: spatial_node_id,
             parent: Some(parent_spatial_node_id),
             kind: semantics.kind(),
             semantics,
-            owner_node_id,
             world: Mat4f::identity(),
             world_inverse: Mat4f::identity(),
             nearest_reference_frame_id,
@@ -174,8 +166,6 @@ impl<'a> RenderSceneBuilder<'a> {
             parent_clip_id,
             spatial_node_id,
             geometry: crate::scene::SceneClipGeometry::Rect { rect },
-            scroll_node_id: self.spatial_nodes[spatial_node_id.0].nearest_scroll_node_id,
-            overflow_root_spatial_node_id: Some(spatial_node_id),
             reference_frame_id: self.spatial_nodes[spatial_node_id.0].nearest_reference_frame_id,
             kind,
         });
@@ -194,6 +184,7 @@ impl<'a> RenderSceneBuilder<'a> {
         source: PaintSource<'a>,
         section: StackingContextSection,
         local_origin: DVec2,
+        owning_paint_container_id: PaintContainerId,
         clip_id: SceneClipId,
     ) {
         let item_index = self.paint_containers[paint_container_id].items.len();
@@ -201,6 +192,7 @@ impl<'a> RenderSceneBuilder<'a> {
             source,
             section,
             local_origin,
+            owning_paint_container_id,
             clip_id,
         });
         self.paint_containers[paint_container_id]

@@ -10,13 +10,10 @@ use crate::transform::{
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReferenceFrameSemantics {
-    pub has_transform: bool,
     pub has_perspective: bool,
-    pub origin: DVec2,
     pub placement_origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
-    pub is_invertible: bool,
 }
 
 /// Compute the scene-owned reference-frame semantics for a box fragment, if any.
@@ -38,7 +35,6 @@ pub(crate) fn reference_frame_semantics(
     let border_rect = bf.border_rect();
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();
-    let origin = border_origin_absolute(bf, current_origin);
     let transform_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d);
     let perspective_matrix = compute_css_descendant_perspective_matrix(style, bw, bh)
         .map(|matrix| Mat4f { v: matrix });
@@ -49,28 +45,16 @@ pub(crate) fn reference_frame_semantics(
         (None, Some(transform)) => Some(transform),
         (None, None) => None,
     };
-    let is_invertible = combined.map(|matrix| matrix.invert()).is_some();
-    if !is_invertible {
+    if combined.map(|matrix| matrix.invert()).is_none() {
         return None;
     }
 
     Some(ReferenceFrameSemantics {
-        has_transform: presence.has_transform,
         has_perspective: presence.has_perspective,
-        origin,
         placement_origin: current_origin,
         transform_matrix,
         perspective_matrix,
-        is_invertible,
     })
-}
-
-pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) -> DVec2 {
-    let border_rect = bf.border_rect();
-    dvec2(
-        current_origin.x + border_rect.origin.x.to_f32_px() as f64,
-        current_origin.y + border_rect.origin.y.to_f32_px() as f64,
-    )
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

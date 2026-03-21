@@ -13,6 +13,7 @@ use crate::text::draw_text_run;
 pub(crate) fn paint_fragment_item(
     cx: &mut Cx2d,
     item: &ScenePaintItem<'_>,
+    item_origin: DVec2,
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
 ) {
@@ -28,8 +29,8 @@ pub(crate) fn paint_fragment_item(
             | crate::layout_stacking_context::StackingContextSection::Foreground
             | crate::layout_stacking_context::StackingContextSection::Outline => {
                 let border_rect = bf.border_rect();
-                let bx = item.local_origin.x + border_rect.origin.x.to_f32_px() as f64;
-                let by = item.local_origin.y + border_rect.origin.y.to_f32_px() as f64;
+                let bx = item_origin.x + border_rect.origin.x.to_f32_px() as f64;
+                let by = item_origin.y + border_rect.origin.y.to_f32_px() as f64;
                 let bw = border_rect.size.width.to_f32_px();
                 let bh = border_rect.size.height.to_f32_px();
                 draw_element_box(
@@ -69,8 +70,8 @@ pub(crate) fn paint_fragment_item(
             draw_text_run(
                 cx,
                 text_fragment,
-                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                item_origin.x + rect.origin.x.to_f32_px() as f64,
+                item_origin.y + rect.origin.y.to_f32_px() as f64,
                 rect.size.width.to_f32_px(),
                 rect.size.height.to_f32_px(),
                 opacity,
@@ -78,7 +79,6 @@ pub(crate) fn paint_fragment_item(
                 state.draw_text,
                 state.draw_text_bold,
                 state.draw_text_mono,
-                state.active_container_transform(),
             );
         }
         Fragment::Image(img) => {
@@ -89,8 +89,8 @@ pub(crate) fn paint_fragment_item(
             draw_image_fragment(
                 cx,
                 img,
-                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                item_origin.x + rect.origin.x.to_f32_px() as f64,
+                item_origin.y + rect.origin.y.to_f32_px() as f64,
                 rect.size.width.to_f32_px(),
                 rect.size.height.to_f32_px(),
                 state.draw_image,
@@ -108,8 +108,8 @@ pub(crate) fn paint_fragment_item(
             draw_element_box(
                 cx,
                 &iframe.base.style,
-                item.local_origin.x + rect.origin.x.to_f32_px() as f64,
-                item.local_origin.y + rect.origin.y.to_f32_px() as f64,
+                item_origin.x + rect.origin.x.to_f32_px() as f64,
+                item_origin.y + rect.origin.y.to_f32_px() as f64,
                 rect.size.width.to_f32_px(),
                 rect.size.height.to_f32_px(),
                 state.draw_bg,

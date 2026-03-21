@@ -37,7 +37,7 @@ use clipboard::ClipboardState;
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
 use pylon_menu::PylonStatus;
-use tabs::{HOME_URL, TabInfo, next_tab_live_id, title_from_url};
+use tabs::{HOME_URL, TabInfo, title_from_url};
 
 use crate::servo_web_view::ServoWebViewWidgetRefExt;
 
@@ -939,13 +939,6 @@ pub struct App {
     #[rust]
     start_navigation_done: bool,
 
-    /// True until the initial AppOpen-driven startup open is received.
-    #[rust]
-    startup_open_pending: bool,
-
-    /// True once at least one tab has been opened in this process.
-    #[rust]
-    has_opened_any_tab: bool,
 
     /// Startup state machine.
     #[rust]

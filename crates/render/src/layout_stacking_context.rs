@@ -53,21 +53,6 @@ impl ContainingBlockInfo {
         }
     }
 
-    pub(crate) fn new_for_absolute_descendants(&self, containing_block: ContainingBlock) -> Self {
-        Self {
-            for_non_absolute_descendants: containing_block,
-            for_absolute_descendants: containing_block,
-            ..*self
-        }
-    }
-
-    pub(crate) fn new_for_absolute_and_fixed_descendants(&self, containing_block: ContainingBlock) -> Self {
-        Self {
-            for_non_absolute_descendants: containing_block,
-            for_absolute_descendants: containing_block,
-            for_absolute_and_fixed_descendants: containing_block,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -99,7 +84,6 @@ pub(crate) enum LayoutStackingContextContent<'a> {
         section: StackingContextSection,
         fragment: &'a Fragment,
         attachment: SpatialAttachment,
-        containing_block: PhysicalRect<app_units::Au>,
     },
     AtomicInlineStackingContainer { index: usize },
 }
@@ -372,7 +356,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: StackingContextSection::Foreground,
                     fragment,
                     attachment: attachment_from_containing_block(containing_block),
-                    containing_block: containing_block.rect,
                 });
             }
             Fragment::Image(img) => {
@@ -383,7 +366,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: StackingContextSection::Foreground,
                     fragment,
                     attachment: attachment_from_containing_block(containing_block),
-                    containing_block: containing_block.rect,
                 });
             }
             Fragment::IFrame(iframe) => {
@@ -394,7 +376,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: StackingContextSection::Foreground,
                     fragment,
                     attachment: attachment_from_containing_block(containing_block),
-                    containing_block: containing_block.rect,
                 });
             }
         }
@@ -426,7 +407,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: StackingContextSection::OwnBackgroundsAndBorders,
                     fragment,
                     attachment,
-                    containing_block: child_info.for_non_absolute_descendants.rect,
                 });
                 self.build_box_children(bf, &child_info, &mut child_sc);
 
@@ -446,7 +426,6 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: get_section_for_non_sc(bf),
                     fragment,
                     attachment,
-                    containing_block: child_info.for_non_absolute_descendants.rect,
                 });
                 self.build_box_children(bf, &child_info, parent_sc);
             }
@@ -609,14 +588,11 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         );
         if let Some(reference_frame) = crate::reference_frame::reference_frame_semantics(bf, current_origin, flatten_3d) {
             descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
-                origin: reference_frame.origin,
                 placement_origin: reference_frame.placement_origin,
                 transform_matrix: reference_frame.transform_matrix,
                 perspective_matrix: reference_frame.perspective_matrix,
-                has_transform: reference_frame.has_transform,
                 has_perspective: reference_frame.has_perspective,
                 preserves_3d: !flatten_3d,
-                anchors_content: reference_frame.is_invertible,
             }));
         }
 
@@ -667,14 +643,13 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             }
         }
 
-        if let Some(scrollable_overflow) = bf.scrollable_overflow {
+        if bf.scrollable_overflow.is_some() {
             let scroll_offset = fragment_scroll_offset(bf, self.scroll_state)
                 .unwrap_or_else(|| dvec2(0.0, 0.0));
             let overflow = bf.base.style.get_box();
             descriptors.push(SpatialDescriptor::Scroll(ScrollNodeData {
                 scroll_offset,
                 scroll_frame_rect: physical_rect_to_rect(bf.cumulative_containing_block_rect),
-                content_rect: physical_rect_to_rect(scrollable_overflow),
                 sensitivity_x: matches!(overflow.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll),
                 sensitivity_y: matches!(overflow.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll),
                 external_scroll_node_id: bf.base.tag.map(|tag| tag.node.0),

@@ -327,10 +327,8 @@ impl App {
         self.sync_tab_bar(cx);
     }
 
-    /// Add a new tab and switch to it.
-    pub(super) fn add_tab(&mut self, cx: &mut Cx) {
-        self.sync_content_size_from_host_rect(cx);
-        let Some(webview) = self.create_webview(HOME_URL) else {
+    pub(super) fn open_tab(&mut self, cx: &mut Cx, url: &str) {
+        let Some(webview) = self.create_webview(url) else {
             return;
         };
         let webview_id = webview.id();
@@ -338,8 +336,8 @@ impl App {
             webview_id,
             root_pipeline_id: None,
             webview,
-            title: title_from_url(HOME_URL),
-            url: HOME_URL.to_string(),
+            title: title_from_url(url),
+            url: url.to_string(),
             widget_id: next_tab_live_id(),
             watch: Default::default(),
         });
@@ -355,12 +353,19 @@ impl App {
             cx.hide_clipboard_actions();
             cx.hide_selection_handles();
         }
-        self.ui
-            .text_input(cx, ids!(url_input))
-            .set_text(cx, HOME_URL);
+        self.set_url_input_sanitized(cx, url);
         self.sync_toolbar_state(cx);
         self.needs_paint = true;
         self.sync_tab_bar(cx);
+        self.idle_frames = 0;
+        self.next_frame = cx.new_next_frame();
+        self.maybe_start_screenshot_capture(cx);
+    }
+
+    /// Open a new home tab and switch to it.
+    pub(super) fn open_home_tab(&mut self, cx: &mut Cx) {
+        self.sync_content_size_from_host_rect(cx);
+        self.open_tab(cx, HOME_URL);
     }
 
     /// Close tab at given index. Quits when the last tab is closed.
@@ -369,9 +374,6 @@ impl App {
             return;
         }
         if self.tabs.len() <= 1 {
-            if self.startup_open_pending && !self.has_opened_any_tab {
-                return;
-            }
             cx.quit();
             return;
         }

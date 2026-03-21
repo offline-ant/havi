@@ -100,17 +100,6 @@ impl BackendRootBasis {
         }
     }
 
-    pub(crate) fn page_to_pass_point(self, point: DVec2) -> DVec2 {
-        let translation = self.page_to_pass_translation();
-        dvec2(translation.x + point.x, translation.y + point.y)
-    }
-
-    pub(crate) fn page_to_pass_rect(self, rect: Rect) -> Rect {
-        Rect {
-            pos: self.page_to_pass_point(rect.pos),
-            size: rect.size,
-        }
-    }
 }
 
 /// Cache for image textures, keyed by OpaqueNode id.
@@ -283,7 +272,6 @@ pub fn render_fragments_clipped(
         draw_filter_image,
         frame_draw_lists,
         image_overrides,
-        active_container_transform: Mat4f::identity(),
     };
     makepad_builder::paint_scene(
         cx,

@@ -69,7 +69,7 @@ impl ToSemanticFragment for LayoutFragment {
             LayoutFragment::Text(arc) => {
                 let fragment = arc.borrow();
                 let font_size_px = fragment.font_metrics.em_size.to_f32_px();
-                let glyphs = fragment
+                let glyphs: Vec<semantics::ShapedGlyph> = fragment
                     .glyphs
                     .iter()
                     .flat_map(|store| {

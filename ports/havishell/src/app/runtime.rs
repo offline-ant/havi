@@ -129,8 +129,6 @@ impl App {
                 output_path: path.into(),
             });
         self.start_navigation_done = pylon_mode == PylonMode::None;
-        self.startup_open_pending = true;
-        self.has_opened_any_tab = false;
 
         // Startup state machine: Booting -> Ready/Failed.
         self.startup_state = if pylon_mode == PylonMode::None {
