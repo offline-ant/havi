@@ -410,7 +410,7 @@ fn draw_background_images(
 pub(crate) fn draw_background_url_images(
     cx: &mut Cx2d,
     computed: &ComputedValues,
-    background_images: &[havi_types::BackgroundImage],
+    background_images: &[havi_fragment_semantics::BackgroundImage],
     x: f64, y: f64, w: f32, h: f32,
     draw_image: &mut DrawImage,
     texture_cache: &mut crate::TextureCache,

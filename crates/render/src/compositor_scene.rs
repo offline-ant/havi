@@ -14,11 +14,13 @@ pub(crate) struct CompositorScene {
     pub surfaces: Vec<CompositorSurface>,
     pub groups: Vec<CompositorGroup>,
     frame_surface: HashMap<PaintContainerId, CompositorSurfaceId>,
+    frame_target_surface: HashMap<PaintContainerId, Option<CompositorSurfaceId>>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompositorSurface {
     pub parent_surface_id: Option<CompositorSurfaceId>,
+    pub root_paint_container_id: PaintContainerId,
     pub direct_frames: Vec<PaintContainerId>,
     pub child_surfaces: Vec<CompositorSurfaceId>,
     pub started_group_id: Option<CompositorGroupId>,
@@ -82,8 +84,8 @@ impl CompositorScene {
             Some(surface_id) => {
                 let surface = &self.surfaces[surface_id];
                 surface.projected_clip_surface
-                    && Some(target_paint_container_id) != surface.parent_surface_id.and_then(|parent_surface_id| {
-                        self.surfaces[parent_surface_id].direct_frames.first().copied()
+                    && Some(target_paint_container_id) != surface.parent_surface_id.map(|parent_surface_id| {
+                        self.surfaces[parent_surface_id].root_paint_container_id
                     })
             }
         }
@@ -101,6 +103,13 @@ impl CompositorScene {
         self.surfaces[surface_id].parent_surface_id
     }
 
+    pub(crate) fn frame_target_surface(
+        &self,
+        paint_container_id: PaintContainerId,
+    ) -> Option<CompositorSurfaceId> {
+        self.frame_target_surface.get(&paint_container_id).copied().flatten()
+    }
+
     fn visit_frame(
         &mut self,
         scene: &RenderScene<'_>,
@@ -110,15 +119,19 @@ impl CompositorScene {
     ) {
         let target_paint_container_id = current_surface_id
             .and_then(|surface_id| self.surfaces.get(surface_id))
-            .and_then(|surface| surface.direct_frames.first().copied())
+            .map(|surface| surface.root_paint_container_id)
             .unwrap_or(scene.root_paint_container_id());
         let requires_projected_clip_surface = self.frame_requires_projected_clip_surface(
             scene,
             paint_container_id,
             target_paint_container_id,
         );
+        let shares_owner_with_current_surface = current_surface_id.is_some_and(|surface_id| {
+            scene.frame_owner_node_id(self.surfaces[surface_id].root_paint_container_id)
+                == scene.frame_owner_node_id(paint_container_id)
+        });
         match scene.frame_participation(paint_container_id) {
-            RenderParticipation::Direct2d if !requires_projected_clip_surface => {
+            RenderParticipation::Direct2d if !requires_projected_clip_surface || shares_owner_with_current_surface => {
                 self.push_direct_frame(paint_container_id, current_surface_id);
                 for child_paint_container_id in child_frame_ids(scene, paint_container_id) {
                     self.visit_frame(
@@ -190,6 +203,7 @@ impl CompositorScene {
         paint_container_id: PaintContainerId,
         current_surface_id: Option<CompositorSurfaceId>,
     ) {
+        self.frame_target_surface.insert(paint_container_id, current_surface_id);
         if let Some(surface_id) = current_surface_id {
             self.surfaces[surface_id].direct_frames.push(paint_container_id);
         } else {
@@ -208,6 +222,7 @@ impl CompositorScene {
         let surface_id = self.surfaces.len();
         self.surfaces.push(CompositorSurface {
             parent_surface_id,
+            root_paint_container_id: paint_container_id,
             direct_frames: Vec::new(),
             child_surfaces: Vec::new(),
             started_group_id: None,

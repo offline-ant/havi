@@ -41,7 +41,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
     fn build_content_into_scene(
         &mut self,
         content: &LayoutStackingContextContent<'a>,
-        cx: BuildContext,
+        _cx: BuildContext,
         section_override: Option<StackingContextSection>,
     ) {
         match content {
@@ -49,15 +49,11 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                 section,
                 fragment,
                 attachment,
-                containing_block,
+                containing_block: _,
             } => {
                 let item_cx = BuildContext {
                     attachment: *attachment,
-                    local_origin: cx.local_origin
-                        + dvec2(
-                            containing_block.origin.x.to_f32_px() as f64,
-                            containing_block.origin.y.to_f32_px() as f64,
-                        ),
+                    local_origin: attachment.scene_origin,
                 };
                 self.build_fragment_into_scene(fragment, section_override.unwrap_or(*section), item_cx);
             }
@@ -105,6 +101,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
             spatial_node_id,
             SpatialNodeSemantics::ReferenceFrame(ReferenceFrameData {
                 origin: iframe_origin,
+                placement_origin: dvec2(0.0, 0.0),
                 transform_matrix: Some(translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32)),
                 perspective_matrix: None,
                 has_transform: true,
@@ -148,6 +145,7 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                     paint_container_id,
                     spatial_node_id,
                     clip_id,
+                    scene_origin: dvec2(0.0, 0.0),
                 },
                 local_origin: dvec2(0.0, 0.0),
             },
@@ -158,7 +156,6 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
 pub(crate) fn build_scene<'a>(
     fragments: &'a [Fragment],
     scroll_state: &crate::ScrollState,
-    scroll_origin: DVec2,
     _viewport_size: DVec2,
 ) -> BuiltScene<'a> {
     let owner_semantics = collect_owner_render_semantics(fragments);
@@ -183,8 +180,9 @@ pub(crate) fn build_scene<'a>(
                 paint_container_id: root_id,
                 spatial_node_id: root_spatial_node_id,
                 clip_id: SceneClipId::INVALID,
+                scene_origin: dvec2(0.0, 0.0),
             },
-            local_origin: scroll_origin,
+            local_origin: dvec2(0.0, 0.0),
         },
     );
     scene_builder.build(owner_semantics)

@@ -91,6 +91,7 @@ pub(crate) struct SpatialAttachment {
     pub paint_container_id: usize,
     pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
+    pub scene_origin: makepad_widgets::DVec2,
 }
 
 pub(crate) enum LayoutStackingContextContent<'a> {
@@ -270,6 +271,7 @@ pub(crate) fn build_stacking_context_tree<'a>(
         paint_container_id: root_frame_id,
         spatial_node_id: scene_builder.paint_container_spatial_node_id(root_frame_id),
         clip_id: root_clip_id,
+        scene_origin: dvec2(0.0, 0.0),
     };
     let mut root = LayoutStackingContext::new_root(root_attachment);
     let root_cb = ContainingBlock {
@@ -408,10 +410,11 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         parent_sc: &mut LayoutStackingContext<'a>,
     ) {
         let context_type = get_stacking_context_type(bf, is_float);
-        let attachment = attachment_from_containing_block(containing_block);
 
         match context_type {
             Some(ct) => {
+                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                let attachment = attachment_from_containing_block(child_info.for_non_absolute_descendants);
                 if ct == StackingContextType::AtomicInlineStackingContainer {
                     parent_sc.contents.push(LayoutStackingContextContent::AtomicInlineStackingContainer {
                         index: parent_sc.atomic_inline_stacking_containers.len(),
@@ -423,9 +426,8 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     section: StackingContextSection::OwnBackgroundsAndBorders,
                     fragment,
                     attachment,
-                    containing_block: containing_block.rect,
+                    containing_block: child_info.for_non_absolute_descendants.rect,
                 });
-                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
                 self.build_box_children(bf, &child_info, &mut child_sc);
 
                 let mut stolen = Vec::new();
@@ -438,13 +440,14 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 parent_sc.real_stacking_contexts_and_positioned_stacking_containers.append(&mut stolen);
             }
             None => {
+                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                let attachment = attachment_from_containing_block(child_info.for_non_absolute_descendants);
                 parent_sc.contents.push(LayoutStackingContextContent::Fragment {
                     section: get_section_for_non_sc(bf),
                     fragment,
                     attachment,
-                    containing_block: containing_block.rect,
+                    containing_block: child_info.for_non_absolute_descendants.rect,
                 });
-                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
                 self.build_box_children(bf, &child_info, parent_sc);
             }
         }
@@ -506,6 +509,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                     data,
                 ),
             };
+            let parent_rect_origin = new_containing_block.rect.origin;
             let paint_container_id = self.scene_builder.child_paint_container(
                 new_containing_block.paint_container_id,
                 spatial_node_id,
@@ -513,6 +517,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             );
             new_containing_block.paint_container_id = paint_container_id;
             new_containing_block.spatial_node_id = spatial_node_id;
+            new_containing_block.rect.origin = new_containing_block.rect.origin - parent_rect_origin.to_vector();
         }
 
         if let Some(css_clip_rect) = css_clip_rect(bf, new_containing_block.rect) {
@@ -596,7 +601,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
 
         let flatten_3d = owner_node_id
             .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
-            .map(|semantics| !semantics.requires_compositor())
+            .map(|semantics| !semantics.requires_surface_composition())
             .unwrap_or(true);
         let current_origin = dvec2(
             bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
@@ -605,6 +610,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         if let Some(reference_frame) = crate::reference_frame::reference_frame_semantics(bf, current_origin, flatten_3d) {
             descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
                 origin: reference_frame.origin,
+                placement_origin: reference_frame.placement_origin,
                 transform_matrix: reference_frame.transform_matrix,
                 perspective_matrix: reference_frame.perspective_matrix,
                 has_transform: reference_frame.has_transform,
@@ -684,6 +690,10 @@ fn attachment_from_containing_block(containing_block: ContainingBlock) -> Spatia
         paint_container_id: containing_block.paint_container_id,
         spatial_node_id: containing_block.spatial_node_id,
         clip_id: containing_block.clip_id,
+        scene_origin: dvec2(
+            containing_block.rect.origin.x.to_f32_px() as f64,
+            containing_block.rect.origin.y.to_f32_px() as f64,
+        ),
     }
 }
 

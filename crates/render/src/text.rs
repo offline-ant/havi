@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use havi_fonts::FontHandle;
-use havi_types::ShapedGlyph;
+use havi_fragment_semantics::ShapedGlyph;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::text::font::FontId;
 use makepad_widgets::makepad_draw::text::font_face::CanonicalVariations;
@@ -95,7 +95,7 @@ fn ensure_font_family(cx: &mut Cx2d, font_id: FontId) -> FontFamilyId {
 
 pub(crate) fn draw_text_run(
     cx: &mut Cx2d,
-    tf: &havi_types::TextFragment,
+    tf: &havi_fragment_semantics::TextFragment,
     x: f64,
     y: f64,
     w: f32,
@@ -105,8 +105,15 @@ pub(crate) fn draw_text_run(
     draw_text: &mut DrawText,
     draw_text_bold: &mut DrawText,
     draw_text_mono: &mut DrawText,
+    transform: Mat4f,
 ) {
     let computed = &tf.base.style;
+    let restore_transform = cx.get_current_draw_list_id().map(|draw_list_id| {
+        let current = cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform;
+        cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform = transform;
+        (draw_list_id, current)
+    });
+
     let mut color = inherited_color(computed);
     color.w *= opacity;
 
@@ -169,11 +176,15 @@ pub(crate) fn draw_text_run(
         draw_bg.color = deco_color;
         draw_bg.draw_abs(cx, Rect { pos: dvec2(x, lt_y), size: dvec2(w as f64, lt_h) });
     }
+
+    if let Some((draw_list_id, previous)) = restore_transform {
+        cx.cx.draw_lists[draw_list_id].draw_list_uniforms.view_transform = previous;
+    }
 }
 
 fn draw_text_at(
     cx: &mut Cx2d,
-    tf: &havi_types::TextFragment,
+    tf: &havi_fragment_semantics::TextFragment,
     x: f64, y: f64, _w: f32, h: f32,
     font_size: f32, baseline_ascent_px: f32,
     color: Vec4f,

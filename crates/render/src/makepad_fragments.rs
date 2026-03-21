@@ -78,6 +78,7 @@ pub(crate) fn paint_fragment_item(
                 state.draw_text,
                 state.draw_text_bold,
                 state.draw_text_mono,
+                state.active_container_transform(),
             );
         }
         Fragment::Image(img) => {

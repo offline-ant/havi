@@ -70,13 +70,48 @@ use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::Texture;
-use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 
 pub use shaders::{
     DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
 pub use fragment_source::CachedFragmentSource;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BackendRootBasis {
+    pub webview_origin: DVec2,
+    pub viewport_top: f64,
+}
+
+impl BackendRootBasis {
+    pub(crate) fn page_to_pass_translation(self) -> DVec2 {
+        dvec2(self.webview_origin.x, self.webview_origin.y - self.viewport_top)
+    }
+
+    pub(crate) fn page_to_pass_transform(self) -> Mat4f {
+        let translation = self.page_to_pass_translation();
+        Mat4f {
+            v: [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                translation.x as f32, translation.y as f32, 0.0, 1.0,
+            ],
+        }
+    }
+
+    pub(crate) fn page_to_pass_point(self, point: DVec2) -> DVec2 {
+        let translation = self.page_to_pass_translation();
+        dvec2(translation.x + point.x, translation.y + point.y)
+    }
+
+    pub(crate) fn page_to_pass_rect(self, rect: Rect) -> Rect {
+        Rect {
+            pos: self.page_to_pass_point(rect.pos),
+            size: rect.size,
+        }
+    }
+}
 
 /// Cache for image textures, keyed by OpaqueNode id.
 /// Each entry tracks the texture and the byte-range hash used to create it,
@@ -101,11 +136,7 @@ pub struct SelectionHighlight {
 /// Per-element scroll offsets for overflow containers, keyed by OpaqueNode id.
 pub type ScrollState = HashMap<usize, DVec2>;
 
-pub struct FrameDrawList {
-    pub draw_list: DrawList2d,
-}
-
-pub type FrameDrawListState = HashMap<usize, FrameDrawList>;
+pub type FrameDrawListState = HashMap<usize, ()>;
 
 /// Render-to-texture state for opacity isolation (CSS stacking context).
 /// When an element has opacity < 1.0, its subtree must be composited as a group
@@ -188,18 +219,10 @@ pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) 
     f
 }
 
-/// Draw fragments with viewport clipping, using a pre-built stacking context tree.
+/// Draw fragments with viewport clipping, using a pre-built semantic scene.
 ///
-/// Fragment coordinates are page-relative (starting at 0,0). `cx.turtle().rect()`
-/// reports the current widget rect in the active Makepad pass, and that pass is
-/// not always the same kind of surface. During ordinary `CachedView`
-/// texture-caching the webview draws into its own cache texture, so
-/// `widget_rect.pos` is `(0,0)` in that local texture space. During framebuffer
-/// readback paths such as `webview.take_screenshot`, Makepad renders the widget
-/// into the window framebuffer and `widget_rect.pos` is the webview's actual
-/// window-space position. The scene origin therefore has to include
-/// `widget_rect.pos` so fragment draw positions line up in both passes; only the
-/// viewport scroll offset is always subtracted from y.
+/// Scene construction stays in page space. Backend placement from page space
+/// into the active Makepad pass is owned explicitly by `BackendRootBasis`.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     webview_id: WebViewId,
@@ -225,10 +248,10 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    // Fragment coordinates are page-relative. Keep the widget's absolute pass
-    // position in the scene origin so cached texture passes and direct window
-    // passes both line up with Makepad's clip space.
-    let scroll_origin = dvec2(widget_rect.pos.x, widget_rect.pos.y - viewport_top as f64);
+    let backend_root_basis = BackendRootBasis {
+        webview_origin: widget_rect.pos,
+        viewport_top: viewport_top as f64,
+    };
     let viewport_size = dvec2(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
@@ -240,7 +263,6 @@ pub fn render_fragments_clipped(
     let scene = frame_builder::build_scene(
         &fragments,
         scroll_state,
-        scroll_origin,
         viewport_size,
     );
     frame_draw_lists.clear();
@@ -261,10 +283,12 @@ pub fn render_fragments_clipped(
         draw_filter_image,
         frame_draw_lists,
         image_overrides,
+        active_container_transform: Mat4f::identity(),
     };
     makepad_builder::paint_scene(
         cx,
         &scene,
+        backend_root_basis,
         viewport_size,
         &mut state,
         1.0,

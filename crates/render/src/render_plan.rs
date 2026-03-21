@@ -8,18 +8,19 @@ use crate::scene::RenderScene;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct NodeRenderSemantics {
+    pub has_transform: bool,
     pub has_perspective: bool,
     pub has_true_3d_transform: bool,
     pub preserve_3d: bool,
 }
 
 impl NodeRenderSemantics {
-    pub(crate) fn requires_compositor(self) -> bool {
-        self.has_true_3d_transform || self.preserve_3d
+    pub(crate) fn requires_surface_composition(self) -> bool {
+        self.has_transform || self.has_perspective || self.has_true_3d_transform || self.preserve_3d
     }
 
     pub(crate) fn participation(self) -> RenderParticipation {
-        if !self.requires_compositor() {
+        if !self.requires_surface_composition() {
             return RenderParticipation::Direct2d;
         }
         RenderParticipation::Compositor {
@@ -61,13 +62,24 @@ impl RenderPlan {
         scene: &RenderScene<'_>,
         owner_semantics: HashMap<usize, NodeRenderSemantics>,
     ) -> Self {
+        let frame_parents = frame_parent_indices(scene);
         let mut frame_participation = vec![RenderParticipation::Direct2d; scene.frame_count()];
         for frame_id in 0..scene.frame_count() {
-            let participation = scene
-                .frame_owner_node_id(frame_id)
+            let owner_node_id = scene.frame_owner_node_id(frame_id);
+            let mut participation = owner_node_id
                 .and_then(|node_id| owner_semantics.get(&node_id).copied())
                 .map(NodeRenderSemantics::participation)
                 .unwrap_or(RenderParticipation::Direct2d);
+            if matches!(participation, RenderParticipation::Compositor { .. }) {
+                let mut ancestor = frame_parents[frame_id];
+                while let Some(parent_frame_id) = ancestor {
+                    if scene.frame_owner_node_id(parent_frame_id) == owner_node_id {
+                        participation = RenderParticipation::Direct2d;
+                        break;
+                    }
+                    ancestor = frame_parents[parent_frame_id];
+                }
+            }
             frame_participation[frame_id] = participation;
         }
         Self {
@@ -97,6 +109,18 @@ impl RenderPlan {
     pub(crate) fn owner_semantics(&self, node_id: usize) -> Option<NodeRenderSemantics> {
         self.owner_semantics.get(&node_id).copied()
     }
+}
+
+fn frame_parent_indices(scene: &RenderScene<'_>) -> Vec<Option<usize>> {
+    let mut parents = vec![None; scene.frame_count()];
+    for parent_frame_id in 0..scene.frame_count() {
+        for command in scene.frame_paint_list(parent_frame_id) {
+            if let crate::scene::ScenePaintCommand::ChildPaintContainer(child_frame_id) = command {
+                parents[*child_frame_id] = Some(parent_frame_id);
+            }
+        }
+    }
+    parents
 }
 
 pub(crate) fn collect_owner_render_semantics(
@@ -171,6 +195,7 @@ fn collect_box_render_semantics(
     semantics.insert(
         node_id,
         NodeRenderSemantics {
+            has_transform,
             has_perspective,
             has_true_3d_transform,
             preserve_3d,

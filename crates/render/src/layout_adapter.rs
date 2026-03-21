@@ -1,13 +1,12 @@
 //! Render-facing adapter for semantic fragment traversal.
 //!
 //! The active render path reads the semantic fragment tree from the shared
-//! layout publication boundary. The current shared semantic transport is the
-//! enriched `havi_types::Fragment` model.
+//! layout publication boundary using `havi-fragment-semantics`.
 
 use std::sync::Arc;
 
 use base::id::WebViewId;
-use havi_types::Fragment;
+use havi_fragment_semantics::Fragment;
 use layout_api::{shared_layout_fragment_tree_for, SharedLayoutFragmentTree};
 
 pub(crate) type LayoutFragmentTree = Arc<Vec<Fragment>>;

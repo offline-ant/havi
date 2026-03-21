@@ -295,12 +295,9 @@ impl App {
                     cx.hide_selection_handles();
                 }
             }
-        } else {
-            self.navigate(&self.start_url);
-            if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-                tab.url = self.start_url.clone();
-                tab.title = title_from_url(&self.start_url);
-            }
+        } else if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+            tab.url = self.start_url.clone();
+            tab.title = title_from_url(&self.start_url);
         }
 
         // Splash is already hidden above. Show chrome.

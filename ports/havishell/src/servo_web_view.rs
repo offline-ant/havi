@@ -329,6 +329,8 @@ impl Widget for ServoWebView {
         // Use the pre-computed peek_rect dimensions, since the inner turtle's
         // rect() may return 0x0 when sizing is not yet resolved.
         cx.turtle_mut().set_used(peek_rect.size.x, peek_rect.size.y);
+        self.draw_bg.end(cx);
+        let rect = self.draw_bg.area().rect(cx);
 
         if fragments.is_some() {
             // Rebuild stacking context tree only when fragments change.
@@ -341,8 +343,12 @@ impl Widget for ServoWebView {
                     Some(havi_render::CachedFragmentSource::new(frag_ptr));
             }
 
-            let rect = cx.turtle().rect();
-            // Read scroll state from layout's shared state.
+            // Use the resolved widget area after draw_bg.end(). This gives the
+            // render backend a stable target rect and avoids emitting composed
+            // child-surface quads while the current pass rect is still 0x0.
+            // The visual content is drawn with draw_abs, so it does not depend
+            // on the inner turtle remaining open after the hit-test area is
+            // established.
             let scroll_state = self
                 .shared_scroll_state
                 .as_ref()
@@ -352,14 +358,12 @@ impl Widget for ServoWebView {
             let viewport_top = scroll_y as f32;
             let viewport_bottom = (scroll_y + rect.size.y) as f32;
 
-            // Build render-side scroll state from layout's per-element offsets.
             let render_scroll: havi_render::ScrollState = scroll_state
                 .element_offsets
                 .iter()
                 .map(|(&id, &(x, y))| (id, dvec2(x, y)))
                 .collect();
 
-            // Build image overrides from the Paint-layer image store.
             let image_overrides = self
                 .image_store
                 .as_ref()
@@ -413,8 +417,6 @@ impl Widget for ServoWebView {
             );
         }
 
-        self.draw_bg.end(cx);
-        let rect = self.draw_bg.area().rect(cx);
         self.draw_scroll_overlay(cx, &rect);
 
         DrawStep::done()

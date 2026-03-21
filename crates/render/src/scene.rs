@@ -22,6 +22,7 @@ pub(crate) enum SpatialNodeKind {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReferenceFrameData {
     pub origin: DVec2,
+    pub placement_origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
     pub has_transform: bool,
@@ -448,7 +449,7 @@ fn local_execution_transform(semantics: SpatialNodeSemantics) -> Mat4f {
 }
 
 fn reference_frame_execution_transform(data: ReferenceFrameData) -> Mat4f {
-    let mut transform = Mat4f::identity();
+    let mut transform = translation_matrix(data.placement_origin.x as f32, data.placement_origin.y as f32);
     if let Some(perspective) = data.perspective_matrix {
         transform = Mat4f::mul(&transform, &perspective);
     }

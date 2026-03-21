@@ -13,6 +13,7 @@ pub(crate) struct ReferenceFrameSemantics {
     pub has_transform: bool,
     pub has_perspective: bool,
     pub origin: DVec2,
+    pub placement_origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
     pub is_invertible: bool,
@@ -38,10 +39,9 @@ pub(crate) fn reference_frame_semantics(
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();
     let origin = border_origin_absolute(bf, current_origin);
-    let transform_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d)
-        .map(|matrix| compose_reference_frame_transform(origin, matrix));
+    let transform_matrix = compute_css_reference_frame_matrix(style, bw, bh, flatten_3d);
     let perspective_matrix = compute_css_descendant_perspective_matrix(style, bw, bh)
-        .map(|matrix| compose_reference_frame_transform(origin, Mat4f { v: matrix }));
+        .map(|matrix| Mat4f { v: matrix });
 
     let combined = match (perspective_matrix, transform_matrix) {
         (Some(perspective), Some(transform)) => Some(Mat4f::mul(&perspective, &transform)),
@@ -58,6 +58,7 @@ pub(crate) fn reference_frame_semantics(
         has_transform: presence.has_transform,
         has_perspective: presence.has_perspective,
         origin,
+        placement_origin: current_origin,
         transform_matrix,
         perspective_matrix,
         is_invertible,
@@ -70,12 +71,6 @@ pub(crate) fn border_origin_absolute(bf: &BoxFragment, current_origin: DVec2) ->
         current_origin.x + border_rect.origin.x.to_f32_px() as f64,
         current_origin.y + border_rect.origin.y.to_f32_px() as f64,
     )
-}
-
-fn compose_reference_frame_transform(anchor: DVec2, transform: Mat4f) -> Mat4f {
-    let t_pos = translation_matrix(anchor.x as f32, anchor.y as f32);
-    let t_neg = translation_matrix(-(anchor.x as f32), -(anchor.y as f32));
-    Mat4f::mul(&t_pos, &Mat4f::mul(&transform, &t_neg))
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -101,13 +96,4 @@ fn transform_presence(style: &ComputedValues) -> TransformPresence {
     }
 }
 
-fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
-    Mat4f {
-        v: [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            tx, ty, 0.0, 1.0,
-        ],
-    }
-}
+

@@ -83,6 +83,7 @@ glib-sys = "0.22"
 glow = "0.16.0"
 harfbuzz-sys = "0.6.1"
 havi-render = { path = "crates/render" }
+havi-fragment-semantics = { path = "crates/fragment-semantics" }
 havi-types = { path = "crates/types" }
 headers = "0.4"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"] }
