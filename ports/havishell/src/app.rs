@@ -935,9 +935,17 @@ pub struct App {
     #[rust]
     start_url: String,
 
-    /// True once startup navigation has been issued.
+    /// True once startup open delivery is allowed.
     #[rust]
     start_navigation_done: bool,
+
+    /// True until the initial AppOpen-driven startup open is received.
+    #[rust]
+    startup_open_pending: bool,
+
+    /// True once at least one tab has been opened in this process.
+    #[rust]
+    has_opened_any_tab: bool,
 
     /// Startup state machine.
     #[rust]

@@ -129,6 +129,8 @@ impl App {
                 output_path: path.into(),
             });
         self.start_navigation_done = pylon_mode == PylonMode::None;
+        self.startup_open_pending = true;
+        self.has_opened_any_tab = false;
 
         // Startup state machine: Booting -> Ready/Failed.
         self.startup_state = if pylon_mode == PylonMode::None {
@@ -329,26 +331,8 @@ impl App {
 
         self.servo = Some(servo);
 
-        // Step 5: Create first WebView or show splash screen.
+        // Step 5: wait for AppOpen-driven startup delivery after shell init.
         if pylon_mode == PylonMode::None {
-            // No pylon boot — create webview immediately, hide splash.
-            let initial_url_str = self.start_url.clone();
-            if let Some(webview) = self.create_webview(&initial_url_str) {
-                let webview_id = webview.id();
-                self.tabs.push(TabInfo {
-                    webview_id,
-                    root_pipeline_id: None,
-                    webview,
-                    title: title_from_url(&initial_url_str),
-                    url: initial_url_str.clone(),
-                    widget_id: next_tab_live_id(),
-                    watch: Default::default(),
-                });
-                self.active_tab_idx = 0;
-                // Wire shared fragment tree for direct Makepad rendering.
-                self.attach_active_render_state(cx);
-                self.focus_active_webview(cx);
-            }
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
             self.ui
                 .text_input(cx, ids!(url_input))
@@ -360,7 +344,6 @@ impl App {
                 state.push(("HAVI_DEVTOOLS".to_string(), bind));
             }
             write_state_file(&state);
-            self.maybe_start_screenshot_capture(cx);
         } else {
             // Pylon booting — show splash screen, start 3s timeout.
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);

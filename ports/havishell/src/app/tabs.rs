@@ -369,6 +369,9 @@ impl App {
             return;
         }
         if self.tabs.len() <= 1 {
+            if self.startup_open_pending && !self.has_opened_any_tab {
+                return;
+            }
             cx.quit();
             return;
         }

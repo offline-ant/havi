@@ -270,37 +270,8 @@ impl App {
         self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
         self.sync_content_size_from_host_rect(cx);
 
-        // Create the first webview if none exists yet (splash screen path).
-        if self.tabs.is_empty() {
-            if let Some(webview) = self.create_webview(&self.start_url) {
-                let webview_id = webview.id();
-                self.tabs.push(TabInfo {
-                    webview_id,
-                    root_pipeline_id: None,
-                    webview,
-                    title: title_from_url(&self.start_url),
-                    url: self.start_url.clone(),
-                    widget_id: next_tab_live_id(),
-                    watch: Default::default(),
-                });
-                self.active_tab_idx = 0;
-                self.attach_active_render_state(cx);
-                self.activate_tab_webview(0);
-                self.focus_active_webview(cx);
-                #[cfg(any(target_os = "android", target_os = "ios"))]
-                {
-                    self.pending_clipboard_menu = None;
-                    self.selection_handles_visible = false;
-                    cx.hide_clipboard_actions();
-                    cx.hide_selection_handles();
-                }
-            }
-        } else if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-            tab.url = self.start_url.clone();
-            tab.title = title_from_url(&self.start_url);
-        }
-
-        // Splash is already hidden above. Show chrome.
+        // Startup opening is delivered through AppOpen. Finishing startup only
+        // enables that path and reveals chrome; it does not create a tab.
         self.ui
             .text_input(cx, ids!(url_input))
             .set_text(cx, &self.start_url);
@@ -946,7 +917,17 @@ impl AppMain for App {
         }
 
         if let Event::AppOpen(items) = event {
-            for url in items {
+            if !self.start_navigation_done {
+                return;
+            }
+
+            let open_items: Vec<String> = if items.is_empty() && !self.has_opened_any_tab {
+                vec![self.start_url.clone()]
+            } else {
+                items.clone()
+            };
+
+            for url in &open_items {
                 if let Some(webview) = self.create_webview(url) {
                     let webview_id = webview.id();
                     self.tabs.push(TabInfo {
@@ -958,6 +939,10 @@ impl AppMain for App {
                         widget_id: next_tab_live_id(),
                         watch: Default::default(),
                     });
+                    self.has_opened_any_tab = true;
+                    if self.startup_open_pending && *url == self.start_url {
+                        self.startup_open_pending = false;
+                    }
                     self.active_tab_idx = self.tabs.len() - 1;
                     self.attach_active_render_state(cx);
                     self.activate_tab_webview(self.active_tab_idx);
@@ -971,9 +956,11 @@ impl AppMain for App {
                     }
                     self.set_url_input_sanitized(cx, url);
                     self.needs_paint = true;
+                    self.sync_toolbar_state(cx);
                     self.sync_tab_bar(cx);
                     self.idle_frames = 0;
                     self.next_frame = cx.new_next_frame();
+                    self.maybe_start_screenshot_capture(cx);
                 }
             }
         }
