@@ -37,14 +37,30 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                 cx,
                 Some(StackingContextSection::Outline),
             ),
-            LayoutPaintItem::ChildStackingContext(child) => self.build_stacking_context_into_scene(child, cx),
+            LayoutPaintItem::ChildStackingContext(child) => {
+                if child.entry_paint_container_id != child.insertion_attachment.paint_container_id {
+                    self.scene_builder.append_child_paint_container(
+                        child.insertion_attachment.paint_container_id,
+                        child.entry_paint_container_id,
+                    );
+                }
+                let mut child_attachment = child.attachment;
+                child_attachment.paint_container_id = child.entry_paint_container_id;
+                self.build_stacking_context_into_scene(
+                    child,
+                    BuildContext {
+                        attachment: child_attachment,
+                        local_origin: child.attachment.scene_origin,
+                    },
+                );
+            }
         }
     }
 
     fn build_content_into_scene(
         &mut self,
         content: &LayoutStackingContextContent<'a>,
-        _cx: BuildContext,
+        cx: BuildContext,
         section_override: Option<StackingContextSection>,
     ) {
         match content {
@@ -53,10 +69,22 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                 fragment,
                 attachment,
             } => {
+                let differs_from_current_container =
+                    attachment.paint_container_id != cx.attachment.paint_container_id;
                 let item_cx = BuildContext {
                     attachment: *attachment,
-                    local_origin: attachment.scene_origin,
+                    local_origin: if differs_from_current_container {
+                        dvec2(0.0, 0.0)
+                    } else {
+                        attachment.scene_origin
+                    },
                 };
+                if differs_from_current_container {
+                    self.scene_builder.append_child_paint_container(
+                        cx.attachment.paint_container_id,
+                        item_cx.attachment.paint_container_id,
+                    );
+                }
                 self.build_fragment_into_scene(fragment, section_override.unwrap_or(*section), item_cx);
             }
             LayoutStackingContextContent::AtomicInlineStackingContainer { .. } => {}
@@ -123,6 +151,10 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                     iframe.base.rect.size.height.to_f32_px() as f64,
                 ),
             },
+        );
+        self.scene_builder.append_child_paint_container(
+            cx.attachment.paint_container_id,
+            paint_container_id,
         );
         let clip_id = self.scene_builder.rect_clip(
             paint_container_id,

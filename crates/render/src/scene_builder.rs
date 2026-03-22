@@ -33,6 +33,7 @@ impl<'a> RenderSceneBuilder<'a> {
                 clip_chain_root: SceneClipId::INVALID,
             }],
             paint_containers: vec![PaintContainer {
+                parent_paint_container_id: None,
                 owner_node_id: None,
                 kind: PaintContainerKind::Root,
                 spatial_node_id: root_spatial_node_id,
@@ -173,6 +174,7 @@ impl<'a> RenderSceneBuilder<'a> {
     ) -> PaintContainerId {
         let paint_container_id = self.paint_containers.len();
         self.paint_containers.push(PaintContainer {
+            parent_paint_container_id: Some(parent_paint_container_id),
             owner_node_id,
             kind,
             spatial_node_id,
@@ -180,10 +182,25 @@ impl<'a> RenderSceneBuilder<'a> {
             items: Vec::new(),
             paint_list: Vec::new(),
         });
-        self.paint_containers[parent_paint_container_id]
-            .paint_list
-            .push(ScenePaintCommand::ChildPaintContainer(paint_container_id));
         paint_container_id
+    }
+
+    pub(crate) fn append_child_paint_container(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        child_paint_container_id: PaintContainerId,
+    ) {
+        if child_paint_container_id == parent_paint_container_id {
+            return;
+        }
+        let paint_list = &mut self.paint_containers[parent_paint_container_id].paint_list;
+        if matches!(
+            paint_list.last(),
+            Some(ScenePaintCommand::ChildPaintContainer(existing)) if *existing == child_paint_container_id
+        ) {
+            return;
+        }
+        paint_list.push(ScenePaintCommand::ChildPaintContainer(child_paint_container_id));
     }
 
     pub(crate) fn clip(

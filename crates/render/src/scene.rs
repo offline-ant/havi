@@ -148,6 +148,7 @@ pub(crate) enum PaintContainerKind {
 }
 
 pub(crate) struct PaintContainer<'a> {
+    pub parent_paint_container_id: Option<PaintContainerId>,
     pub owner_node_id: Option<usize>,
     pub kind: PaintContainerKind,
     pub spatial_node_id: SpatialNodeId,

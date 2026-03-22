@@ -41,6 +41,10 @@ pub(crate) fn draw_render_scene(
         true,
     );
     let scene = lowering.lower_scene(cx, state);
+    if std::env::var_os("HAVI_RENDER_DEBUG").is_some() {
+        debug_dump_render_scene(render_scene);
+        debug_dump_mp_scene(&scene);
+    }
     if let Err(err) = state
         .frame_draw_lists
         .renderer
@@ -400,13 +404,23 @@ impl<'a> MpSceneLowering<'a> {
             return;
         }
         let texture = self.paint_item_run_surface(cx, state, paint_container_id, run_index, item_indices, bounds);
-        scene.push(MpNode::Surface(MpSurfaceNode {
+        let node_id = scene.push(MpNode::Surface(MpSurfaceNode {
             parent,
             clip: None,
             local_rect: bounds,
             source: MpSurfaceSource::SurfaceTexture(texture),
             backface_visibility: MpBackfaceVisibility::Visible,
         }));
+        if std::env::var_os("HAVI_RENDER_DEBUG").is_some() {
+            eprintln!(
+                "[havi][render][debug] lowered item run paint_container={} run_index={} parent={} bounds={:?} node_id={}",
+                paint_container_id,
+                run_index,
+                parent,
+                bounds,
+                node_id,
+            );
+        }
     }
 
     fn paint_item_run_surface(
@@ -833,5 +847,126 @@ fn union_rect(current: Option<Rect>, next: Rect) -> Option<Rect> {
                 size: dvec2((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
             })
         }
+    }
+}
+
+fn debug_dump_render_scene(render_scene: &RenderScene<'_>) {
+    eprintln!("[havi][render][debug] root_paint_container={}", render_scene.root_paint_container_id());
+    for (index, container) in render_scene.paint_containers.iter().enumerate() {
+        eprintln!(
+            "[havi][render][debug] paint_container[{index}] parent={:?} kind={:?} spatial={:?} clip={:?} owner={:?} items={} commands={}",
+            container.parent_paint_container_id,
+            container.kind,
+            container.spatial_node_id,
+            container.clip_id,
+            container.owner_node_id,
+            container.items.len(),
+            container.paint_list.len(),
+        );
+        for (item_index, item) in container.items.iter().enumerate() {
+            eprintln!(
+                "[havi][render][debug]   item[{item_index}] section={:?} origin={:?} owner_container={} clip={:?} kind={}",
+                item.section,
+                item.local_origin,
+                item.owning_paint_container_id,
+                item.clip_id,
+                debug_fragment_kind(item.source),
+            );
+        }
+        for (command_index, command) in container.paint_list.iter().enumerate() {
+            eprintln!(
+                "[havi][render][debug]   command[{command_index}]={:?}",
+                command,
+            );
+        }
+    }
+    for (index, node) in render_scene.spatial_nodes.iter().enumerate() {
+        eprintln!(
+            "[havi][render][debug] spatial[{index}] parent={:?} kind={:?} clip_root={:?} world={:?}",
+            node.parent,
+            node.kind,
+            node.clip_chain_root,
+            node.world.v,
+        );
+    }
+    for (index, clip) in render_scene.clip_nodes.iter().enumerate() {
+        eprintln!(
+            "[havi][render][debug] clip[{index}] parent={:?} spatial={:?} geometry={:?}",
+            clip.parent_clip_id,
+            clip.spatial_node_id,
+            clip.geometry,
+        );
+    }
+}
+
+fn debug_dump_mp_scene(scene: &MpScene) {
+    eprintln!(
+        "[havi][render][debug] mp_scene root host_rect={:?} page_to_host={:?} root_clip={:?}",
+        scene.root.host_rect,
+        scene.root.page_to_host.v,
+        scene.root.clip,
+    );
+    for (index, node) in scene.nodes.iter().enumerate() {
+        match node {
+            MpNode::ReferenceFrame(frame) => eprintln!(
+                "[havi][render][debug] mp_node[{index}] ref parent={:?} clip={:?} local_rect={:?} transform={:?} perspective={:?} style={:?} flatten={} backface={:?}",
+                frame.parent,
+                frame.clip,
+                frame.local_rect,
+                frame.transform.v,
+                frame.perspective.map(|m| m.v),
+                frame.transform_style,
+                frame.flattens_descendants,
+                frame.backface_visibility,
+            ),
+            MpNode::Clip(clip) => eprintln!(
+                "[havi][render][debug] mp_node[{index}] clip parent={:?} prev={:?} shape={:?}",
+                clip.parent,
+                clip.prev,
+                clip.shape,
+            ),
+            MpNode::Surface(surface) => eprintln!(
+                "[havi][render][debug] mp_node[{index}] surface parent={} clip={:?} local_rect={:?} backface={:?}",
+                surface.parent,
+                surface.clip,
+                surface.local_rect,
+                surface.backface_visibility,
+            ),
+            MpNode::Effect(effect) => eprintln!(
+                "[havi][render][debug] mp_node[{index}] effect parent={} clip={:?} opacity={} isolated={} blend={:?} mask={:?}",
+                effect.parent,
+                effect.clip,
+                effect.opacity,
+                effect.is_isolated,
+                effect.blend_mode,
+                effect.mask.as_ref().map(debug_mask_source),
+            ),
+            MpNode::Embed(embed) => eprintln!(
+                "[havi][render][debug] mp_node[{index}] embed parent={} clip={:?} local_rect={:?} child_nodes={}",
+                embed.parent,
+                embed.clip,
+                embed.local_rect,
+                embed.child_scene.nodes.len(),
+            ),
+        }
+    }
+}
+
+fn debug_fragment_kind(fragment: &havi_fragment_semantics::Fragment) -> &'static str {
+    match fragment {
+        havi_fragment_semantics::Fragment::Box(_) => "box",
+        havi_fragment_semantics::Fragment::Float(_) => "float",
+        havi_fragment_semantics::Fragment::Text(_) => "text",
+        havi_fragment_semantics::Fragment::Image(_) => "image",
+        havi_fragment_semantics::Fragment::IFrame(_) => "iframe",
+        havi_fragment_semantics::Fragment::Positioning(_) => "positioning",
+        havi_fragment_semantics::Fragment::AbsoluteOrFixedPositioned { .. } => "absolute-or-fixed",
+    }
+}
+
+fn debug_mask_source(mask: &MpMaskSource) -> String {
+    match mask {
+        MpMaskSource::Clip(id) => format!("clip:{id}"),
+        MpMaskSource::SurfaceTexture(_) => "surface-texture".to_string(),
     }
 }

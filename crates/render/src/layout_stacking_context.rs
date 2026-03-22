@@ -112,6 +112,9 @@ impl LayoutStackingContextContent<'_> {
 }
 
 pub(crate) struct LayoutStackingContext<'a> {
+    pub attachment: SpatialAttachment,
+    pub insertion_attachment: SpatialAttachment,
+    pub entry_paint_container_id: usize,
     pub initializing_fragment: Option<&'a BoxFragment>,
     pub context_type: StackingContextType,
     pub contents: Vec<LayoutStackingContextContent<'a>>,
@@ -121,8 +124,11 @@ pub(crate) struct LayoutStackingContext<'a> {
 }
 
 impl<'a> LayoutStackingContext<'a> {
-    fn new_root(_attachment: SpatialAttachment) -> Self {
+    fn new_root(attachment: SpatialAttachment) -> Self {
         Self {
+            attachment,
+            insertion_attachment: attachment,
+            entry_paint_container_id: attachment.paint_container_id,
             initializing_fragment: None,
             context_type: StackingContextType::RealStackingContext,
             contents: Vec::new(),
@@ -135,9 +141,14 @@ impl<'a> LayoutStackingContext<'a> {
     fn new_child(
         bf: &'a BoxFragment,
         context_type: StackingContextType,
-        _attachment: SpatialAttachment,
+        attachment: SpatialAttachment,
+        insertion_attachment: SpatialAttachment,
+        entry_paint_container_id: usize,
     ) -> Self {
         Self {
+            attachment,
+            insertion_attachment,
+            entry_paint_container_id,
             initializing_fragment: Some(bf),
             context_type,
             contents: Vec::new(),
@@ -298,6 +309,11 @@ enum SpatialDescriptor {
     Scroll(ScrollNodeData),
 }
 
+struct CreatedSpatialContext {
+    entry_paint_container_id: usize,
+    containing_block_info: ContainingBlockInfo,
+}
+
 struct StackingContextBuilder<'tree, 'a> {
     scene_builder: &'tree mut crate::scene_builder::RenderSceneBuilder<'a>,
     scroll_state: &'tree crate::ScrollState,
@@ -392,21 +408,33 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
 
         match context_type {
             Some(ct) => {
-                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
-                let attachment = attachment_from_containing_block(child_info.for_non_absolute_descendants);
+                let child_context = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                let attachment =
+                    attachment_from_containing_block(child_context.containing_block_info.for_non_absolute_descendants);
+                let insertion_attachment = attachment_from_containing_block(containing_block);
                 if ct == StackingContextType::AtomicInlineStackingContainer {
                     parent_sc.contents.push(LayoutStackingContextContent::AtomicInlineStackingContainer {
                         index: parent_sc.atomic_inline_stacking_containers.len(),
                     });
                 }
 
-                let mut child_sc = LayoutStackingContext::new_child(bf, ct, attachment);
+                let mut child_sc = LayoutStackingContext::new_child(
+                    bf,
+                    ct,
+                    attachment,
+                    insertion_attachment,
+                    child_context.entry_paint_container_id,
+                );
                 child_sc.contents.push(LayoutStackingContextContent::Fragment {
                     section: StackingContextSection::OwnBackgroundsAndBorders,
                     fragment,
                     attachment,
                 });
-                self.build_box_children(bf, &child_info, &mut child_sc);
+                self.build_box_children(
+                    bf,
+                    &child_context.containing_block_info,
+                    &mut child_sc,
+                );
 
                 let mut stolen = Vec::new();
                 if ct != StackingContextType::RealStackingContext {
@@ -418,14 +446,16 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 parent_sc.real_stacking_contexts_and_positioned_stacking_containers.append(&mut stolen);
             }
             None => {
-                let child_info = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
-                let attachment = attachment_from_containing_block(child_info.for_non_absolute_descendants);
+                let child_context = self.create_spatial_context_for_box(bf, containing_block, containing_block_info);
+                let attachment = attachment_from_containing_block(
+                    child_context.containing_block_info.for_non_absolute_descendants,
+                );
                 parent_sc.contents.push(LayoutStackingContextContent::Fragment {
                     section: get_section_for_non_sc(bf),
                     fragment,
                     attachment,
                 });
-                self.build_box_children(bf, &child_info, parent_sc);
+                self.build_box_children(bf, &child_context.containing_block_info, parent_sc);
             }
         }
     }
@@ -451,7 +481,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         bf: &'a BoxFragment,
         containing_block: ContainingBlock,
         containing_block_info: &ContainingBlockInfo,
-    ) -> ContainingBlockInfo {
+    ) -> CreatedSpatialContext {
         let owner_node_id = bf.base.tag.map(|tag| {
             let pseudo_key = match bf.base.style.pseudo() {
                 Some(style::selector_parser::PseudoElement::Before) => 1,
@@ -468,6 +498,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
         });
         let mut new_containing_block = containing_block;
         let mut created_scene_boundary = false;
+        let mut entry_paint_container_id = containing_block.paint_container_id;
 
         for descriptor in self.spatial_descriptors_for_box(bf) {
             let spatial_node_id = match descriptor {
@@ -493,6 +524,9 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 spatial_node_id,
                 owner_node_id,
             );
+            if !created_scene_boundary {
+                entry_paint_container_id = paint_container_id;
+            }
             new_containing_block.paint_container_id = paint_container_id;
             new_containing_block.spatial_node_id = spatial_node_id;
             new_containing_block.rect.origin =
@@ -506,11 +540,12 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
                 new_containing_block.spatial_node_id,
                 owner_node_id,
             );
+            entry_paint_container_id = new_containing_block.paint_container_id;
         }
 
-        let border_rect = bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
-        let padding_rect = bf.padding_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
-        let content_rect = bf.content_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        let border_rect = bf.border_rect().translate(new_containing_block.rect.origin.to_vector());
+        let padding_rect = bf.padding_rect().translate(new_containing_block.rect.origin.to_vector());
+        let content_rect = bf.content_rect().translate(new_containing_block.rect.origin.to_vector());
 
         if let Some(css_clip_rect) = css_clip_rect(bf, new_containing_block.rect) {
             let clip_id = self.scene_builder.rect_clip(
@@ -586,7 +621,7 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             rect: border_rect,
         };
 
-        if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
+        let containing_block_info = if crate::transform::has_effective_transform_or_perspective(&bf.base.style) {
             ContainingBlockInfo {
                 for_non_absolute_descendants,
                 for_absolute_descendants,
@@ -600,6 +635,11 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             }
         } else {
             containing_block_info.new_for_non_absolute_descendants(for_non_absolute_descendants)
+        };
+
+        CreatedSpatialContext {
+            entry_paint_container_id,
+            containing_block_info,
         }
     }
 
