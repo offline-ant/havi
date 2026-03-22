@@ -17,6 +17,9 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 
+DEFAULT_RENDER_TIMEOUT_SECONDS = 30.0
+
+
 @dataclass
 class ReftestCase:
     operator: str
@@ -135,20 +138,41 @@ def build_havi(havi_root: Path) -> None:
     raise SystemExit(result.stdout or "HAVI build failed")
 
 
-def render_page(havi_bin: Path, page: Path, output: Path, log_path: Path) -> None:
+def decode_process_output(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return output
+
+
+def render_page(
+    havi_bin: Path,
+    page: Path,
+    output: Path,
+    log_path: Path,
+    timeout_seconds: float = DEFAULT_RENDER_TIMEOUT_SECONDS,
+) -> None:
     env = dict(os.environ)
     env["HAVI_URL"] = page.resolve().as_uri()
-    result = subprocess.run(
-        [str(havi_bin), "--no-pylon", "--screenshot", str(output)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    log_path.write_text(result.stdout or "", encoding="utf-8")
+    try:
+        result = subprocess.run(
+            [str(havi_bin), "--no-pylon", "--screenshot", str(output)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as err:
+        output_text = decode_process_output(err.stdout)
+        log_path.write_text(output_text, encoding="utf-8")
+        raise RuntimeError(f"render timed out after {timeout_seconds:.0f}s for {page}")
+    output_text = decode_process_output(result.stdout)
+    log_path.write_text(output_text, encoding="utf-8")
     if result.returncode == 0 and output.is_file():
         return
-    raise SystemExit(result.stdout or f"render failed for {page}")
+    raise RuntimeError(output_text or f"render failed for {page}")
 
 
 def compare_images(test_png: Path, ref_png: Path, diff_png: Path) -> tuple[bool, str]:

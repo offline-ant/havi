@@ -52,27 +52,27 @@ pub(crate) fn resolve_border_radii(computed: &ComputedValues) -> BorderRadii {
 // ---------------------------------------------------------------------------
 
 /// Resolved geometry for one background layer.
-struct BackgroundLayerGeom {
+pub(crate) struct BackgroundLayerGeom {
     /// Origin and size of the area to draw into (window coords).
-    bounds_x: f64,
-    bounds_y: f64,
-    bounds_w: f32,
-    bounds_h: f32,
+    pub bounds_x: f64,
+    pub bounds_y: f64,
+    pub bounds_w: f32,
+    pub bounds_h: f32,
     /// Size of one tile (the gradient/image is rendered at this size).
-    tile_w: f32,
-    tile_h: f32,
+    pub tile_w: f32,
+    pub tile_h: f32,
 }
 
 /// Insets from the border rect to a sub-rect (padding or content).
-struct BoxInsets {
-    top: f32,
-    right: f32,
-    bottom: f32,
-    left: f32,
+pub(crate) struct BoxInsets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
 }
 
 /// Compute border and padding insets from computed style.
-fn resolve_insets(computed: &ComputedValues) -> (BoxInsets, BoxInsets) {
+pub(crate) fn resolve_insets(computed: &ComputedValues) -> (BoxInsets, BoxInsets) {
     use style::values::specified::border::BorderStyle;
     let b = computed.get_border();
     let bw = |style: BorderStyle, width: style::values::computed::BorderSideWidth| -> f32 {
@@ -134,7 +134,7 @@ fn get_cyclic<T>(values: &[T], index: usize) -> &T {
 /// Compute per-layer background geometry following the CSS Backgrounds spec.
 /// `(x, y, w, h)` is the border rect in window coordinates.
 /// `natural_w/h` are the intrinsic dimensions of an image (None for gradients).
-fn layout_background_layer(
+pub(crate) fn layout_background_layer(
     computed: &ComputedValues,
     layer_index: usize,
     x: f64, y: f64, w: f32, h: f32,

@@ -53,6 +53,8 @@ Environment variables:
 - `HAVI_URL` — startup URL override
 - `HAVI_SCREENSHOT` — internal screenshot output path set by
   `--screenshot <output.png>`
+- `HAVI_DISABLE_BROWSER_SCENE` — force legacy renderer path for cutover
+  diagnostics
 
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
@@ -122,6 +124,22 @@ Current HAVI behavior:
 - enabling shadow mode sets tab watch to scope=App, navigate=on
 
 Shadow mode is a HAVI workflow feature, not a generic HPPR browser requirement.
+
+## Renderer architecture
+
+HAVI now attempts a scene-level retained `makepad-browser-scene` submission
+before using the legacy fragment-to-surface path.
+
+Current cutover rule:
+
+- supported pages render through the retained browser-scene path
+- unsupported pages fall back wholesale to the legacy path
+- HAVI does not mix old and new rendering within one scene
+- adapter and renderer fallback reasons are logged for coverage work
+- current retained coverage includes rounded solid boxes, uniform rounded borders,
+  box shadows, rectangular background gradients, retained text, and clipped images
+
+This preserves scene ordering and effect semantics during the cutover.
 
 ## Diagnostics
 

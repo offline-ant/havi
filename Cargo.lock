@@ -3050,6 +3050,7 @@ dependencies = [
  "havi-platform-fonts",
  "havi-types",
  "layout_api",
+ "makepad-browser-scene",
  "makepad-compositor",
  "makepad-widgets",
  "rustybuzz 0.20.1",
@@ -4818,6 +4819,14 @@ name = "makepad-apple-sys"
 version = "1.0.0"
 dependencies = [
  "makepad-objc-sys",
+]
+
+[[package]]
+name = "makepad-browser-scene"
+version = "0.1.0"
+dependencies = [
+ "makepad-compositor",
+ "makepad-widgets",
 ]
 
 [[package]]

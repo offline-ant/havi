@@ -9,10 +9,12 @@
 //! Source-of-truth split:
 //! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
 //!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
-//! - Makepad boundary lowering: `mp_scene_lowering`, `makepad_builder`
+//! - retained browser-scene cutover boundary: `browser_scene_adapter`
+//! - legacy Makepad compositor fallback: `mp_scene_lowering`, `makepad_builder`
 //! - backend-specific transform fallback: `transform`
 
 mod background;
+mod browser_scene_adapter;
 mod frame_builder;
 mod fragment_source;
 mod hit_test;
@@ -56,6 +58,7 @@ use std::collections::HashMap;
 use base::id::WebViewId;
 use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
+use makepad_browser_scene::MpBrowserRenderer;
 use makepad_compositor::{MpRenderer, MpSurface};
 use makepad_widgets::*;
 use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
@@ -103,16 +106,34 @@ pub(crate) struct SceneSurfaceCacheEntry {
     pub draw_list: DrawList2d,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RenderPathCounters {
+    pub scene_rebuild_count: u64,
+    pub scene_submit_count: u64,
+    pub widget_presentation_count: u64,
+    pub browser_scene_present_count: u64,
+    pub browser_scene_fallback_count: u64,
+    pub legacy_present_count: u64,
+    pub legacy_surface_count: u64,
+}
+
 #[derive(Default)]
 pub struct FrameDrawListState {
     pub(crate) renderer: Option<MpRenderer>,
+    pub(crate) browser_renderer: Option<MpBrowserRenderer>,
     pub(crate) surfaces: HashMap<SceneSurfaceKey, SceneSurfaceCacheEntry>,
+    pub counters: RenderPathCounters,
 }
 
 impl FrameDrawListState {
     pub fn clear(&mut self) {
         self.surfaces.clear();
+        self.counters.legacy_surface_count = 0;
     }
+}
+
+pub fn browser_scene_script_mod(vm: &mut ScriptVm) -> ScriptValue {
+    makepad_browser_scene::script_mod(vm)
 }
 
 /// Draw fragments with viewport clipping, using a pre-built semantic scene.
@@ -140,6 +161,8 @@ pub fn render_fragments_clipped(
     frame_draw_lists: &mut FrameDrawListState,
     image_overrides: &havi_types::ImageOverrides,
 ) {
+    frame_draw_lists.counters.widget_presentation_count += 1;
+
     let widget_rect = cx.turtle().rect();
     let webview_origin = widget_rect.pos;
     let viewport_size = dvec2(
@@ -155,6 +178,57 @@ pub fn render_fragments_clipped(
         scroll_state,
         viewport_size,
     );
+    frame_draw_lists.counters.scene_rebuild_count += 1;
+
+    let browser_scene_enabled = std::env::var("HAVI_DISABLE_BROWSER_SCENE")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .is_none();
+    if browser_scene_enabled {
+        match browser_scene_adapter::try_build_browser_document(cx, &scene) {
+            Ok(browser_document) => {
+                if frame_draw_lists.browser_renderer.is_none() {
+                    frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+                }
+                frame_draw_lists.counters.scene_submit_count += 1;
+                frame_draw_lists.counters.browser_scene_present_count += 1;
+                frame_draw_lists.counters.legacy_surface_count = 0;
+                if let Err(err) = frame_draw_lists
+                    .browser_renderer
+                    .as_mut()
+                    .unwrap()
+                    .draw_document(
+                        cx,
+                        &browser_document,
+                        Rect {
+                            pos: webview_origin,
+                            size: viewport_size,
+                        },
+                    )
+                {
+                    frame_draw_lists.counters.browser_scene_fallback_count += 1;
+                    eprintln!("[havi][render] browser_scene fallback: {err:?}");
+                } else {
+                    if let Some(selection) = selection {
+                        draw_bg.color = selection.color;
+                        for rect in &selection.rects {
+                            if rect.size.x > 0.0 && rect.size.y > 0.0 {
+                                draw_bg.draw_abs(cx, *rect);
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+            Err(err) => {
+                frame_draw_lists.counters.browser_scene_fallback_count += 1;
+                eprintln!("[havi][render] browser_scene adapter fallback: {err}");
+            }
+        }
+    } else {
+        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
+    }
+
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -170,6 +244,8 @@ pub fn render_fragments_clipped(
         frame_draw_lists,
         image_overrides,
     };
+    state.frame_draw_lists.counters.scene_submit_count += 1;
+    state.frame_draw_lists.counters.legacy_present_count += 1;
     makepad_builder::paint_scene(
         cx,
         &scene,
@@ -177,6 +253,7 @@ pub fn render_fragments_clipped(
         viewport_size,
         &mut state,
     );
+    state.frame_draw_lists.counters.legacy_surface_count = state.frame_draw_lists.surfaces.len() as u64;
 }
 
 /// Compute the visual offset for a sticky-positioned element.
