@@ -1,9 +1,9 @@
 use makepad_widgets::*;
 
-use crate::compositor_scene::CompositorScene;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
-use crate::render_plan::RenderPlan;
+use crate::render_plan::{NodeRenderSemantics, RenderPlan};
+use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 
 pub(crate) type PaintContainerId = usize;
 
@@ -24,8 +24,9 @@ pub(crate) struct ReferenceFrameData {
     pub placement_origin: DVec2,
     pub transform_matrix: Option<Mat4f>,
     pub perspective_matrix: Option<Mat4f>,
-    pub has_perspective: bool,
-    pub preserves_3d: bool,
+    pub transform_style: MpTransformStyle,
+    pub flattens_descendants: bool,
+    pub backface_visibility: MpBackfaceVisibility,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -94,34 +95,9 @@ pub(crate) enum SceneClipKind {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SceneClipGeometry {
     Rect { rect: Rect },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BackendClipExecutionKind {
-    DirectRect,
-    ProjectedQuadFallback,
-    MaskFallback,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct BackendClipExecution {
-    pub kind: BackendClipExecutionKind,
-    pub rect: Option<Rect>,
-    pub quad: Option<[DVec2; 4]>,
-    pub clip_planes: Option<BackendClipPlanes>,
-    pub projected_clip_limit: Option<BackendProjectedClipLimit>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct BackendClipPlanes {
-    pub planes: [Vec4f; 4],
-    pub count: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BackendProjectedClipLimit {
-    DegenerateQuad,
-    ClipPlaneCapacity,
+    RoundedRect { rect: Rect, radius: f32 },
+    PlaneSet { planes: [Vec4f; 4], count: usize },
+    DeferredMask { rect: Rect },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -129,8 +105,6 @@ pub(crate) struct SceneClipNode {
     pub parent_clip_id: SceneClipId,
     pub spatial_node_id: SpatialNodeId,
     pub geometry: SceneClipGeometry,
-    pub reference_frame_id: SpatialNodeId,
-    pub kind: SceneClipKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -166,8 +140,16 @@ pub(crate) struct SpatialNode {
     pub clip_chain_root: SceneClipId,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PaintContainerKind {
+    Root,
+    Normal,
+    IFrameRoot { size: DVec2 },
+}
+
 pub(crate) struct PaintContainer<'a> {
     pub owner_node_id: Option<usize>,
+    pub kind: PaintContainerKind,
     pub spatial_node_id: SpatialNodeId,
     pub clip_id: SceneClipId,
     pub items: Vec<ScenePaintItem<'a>>,
@@ -176,12 +158,10 @@ pub(crate) struct PaintContainer<'a> {
 
 pub(crate) struct RenderScene<'a> {
     pub(crate) spatial_nodes: Vec<SpatialNode>,
-    root_spatial_node: SpatialNodeId,
     root_paint_container: PaintContainerId,
     pub(crate) paint_containers: Vec<PaintContainer<'a>>,
     pub(crate) clip_nodes: Vec<SceneClipNode>,
     pub(crate) render_plan: RenderPlan,
-    compositor_scene: CompositorScene,
 }
 
 impl<'a> RenderScene<'a> {
@@ -192,22 +172,15 @@ impl<'a> RenderScene<'a> {
         root_paint_container: PaintContainerId,
         clip_nodes: Vec<SceneClipNode>,
         render_plan: RenderPlan,
-        compositor_scene: CompositorScene,
     ) -> Self {
         recompute_spatial_execution(&mut spatial_nodes, root_spatial_node);
         Self {
             spatial_nodes,
-            root_spatial_node,
             root_paint_container,
             paint_containers,
             clip_nodes,
             render_plan,
-            compositor_scene,
         }
-    }
-
-    pub(crate) fn root_spatial_node(&self) -> SpatialNodeId {
-        self.root_spatial_node
     }
 
     pub(crate) fn spatial_node(&self, id: SpatialNodeId) -> &SpatialNode {
@@ -216,10 +189,6 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn root_paint_container_id(&self) -> PaintContainerId {
         self.root_paint_container
-    }
-
-    pub(crate) fn frame_count(&self) -> usize {
-        self.paint_containers.len()
     }
 
     pub(crate) fn frame_items(&self, paint_container_id: PaintContainerId) -> &[ScenePaintItem<'a>] {
@@ -260,72 +229,8 @@ impl<'a> RenderScene<'a> {
         ))
     }
 
-    pub(crate) fn backend_clip_execution(
-        &self,
-        clip_id: SceneClipId,
-        paint_container_id: PaintContainerId,
-    ) -> Option<BackendClipExecution> {
-        let node = self.clip_node(clip_id)?;
-        let geometry = self.clip_geometry_in_paint_container(clip_id, paint_container_id)?;
-        let reference_frame = self.spatial_node(node.reference_frame_id);
-        let projected_clip = matches!(
-            reference_frame.semantics,
-            SpatialNodeSemantics::ReferenceFrame(data) if data.has_perspective || data.preserves_3d
-        );
-        let kind = if projected_clip {
-            BackendClipExecutionKind::ProjectedQuadFallback
-        } else {
-            match geometry {
-                SceneClipGeometry::Rect { .. } => BackendClipExecutionKind::DirectRect,
-            }
-        };
-        let rect = match geometry {
-            SceneClipGeometry::Rect { rect } => Some(rect),
-        };
-        let quad = match node.geometry {
-            SceneClipGeometry::Rect { rect } => Some(project_rect_to_paint_container_quad(
-                self,
-                node.spatial_node_id,
-                paint_container_id,
-                rect,
-            )),
-        };
-        let (clip_planes, projected_clip_limit) = match quad {
-            Some(quad) => match backend_clip_planes_from_quad(quad) {
-                Ok(clip_planes) => (Some(clip_planes), None),
-                Err(limit) => (None, Some(limit)),
-            },
-            None => (None, None),
-        };
-        let kind = if projected_clip && clip_planes.is_none() {
-            BackendClipExecutionKind::MaskFallback
-        } else {
-            kind
-        };
-        Some(BackendClipExecution {
-            kind,
-            rect,
-            quad,
-            clip_planes,
-            projected_clip_limit,
-        })
-    }
-
-    pub(crate) fn frame_surface(&self, paint_container_id: PaintContainerId) -> Option<usize> {
-        self.compositor_scene.frame_surface(paint_container_id)
-    }
-
-    pub(crate) fn compositor_scene(&self) -> &CompositorScene {
-        &self.compositor_scene
-    }
-
-    pub(crate) fn with_compositor_scene(mut self, compositor_scene: CompositorScene) -> Self {
-        self.compositor_scene = compositor_scene;
-        self
-    }
-
-    pub(crate) fn frame_participation(&self, paint_container_id: PaintContainerId) -> crate::render_plan::RenderParticipation {
-        self.render_plan.frame_participation(paint_container_id)
+    pub(crate) fn owner_semantics(&self, node_id: usize) -> Option<NodeRenderSemantics> {
+        self.render_plan.owner_semantics(node_id)
     }
 
     pub(crate) fn paint_container_spatial_node_id(&self, paint_container_id: PaintContainerId) -> SpatialNodeId {
@@ -350,6 +255,10 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn frame_owner_node_id(&self, paint_container_id: PaintContainerId) -> Option<usize> {
         self.paint_containers[paint_container_id].owner_node_id
+    }
+
+    pub(crate) fn paint_container_kind(&self, paint_container_id: PaintContainerId) -> PaintContainerKind {
+        self.paint_containers[paint_container_id].kind
     }
 
     pub(crate) fn frame_clip_id(&self, paint_container_id: PaintContainerId) -> SceneClipId {
@@ -508,12 +417,13 @@ fn sticky_used_offset(data: StickyNodeData) -> DVec2 {
 
 fn clip_geometry_contains_point(geometry: SceneClipGeometry, point: DVec2) -> bool {
     match geometry {
-        SceneClipGeometry::Rect { rect } => {
-            point.x >= rect.pos.x
-                && point.x < rect.pos.x + rect.size.x
-                && point.y >= rect.pos.y
-                && point.y < rect.pos.y + rect.size.y
+        SceneClipGeometry::Rect { rect } | SceneClipGeometry::DeferredMask { rect } => {
+            point_in_rect(point, rect)
         }
+        SceneClipGeometry::RoundedRect { rect, radius } => rounded_rect_contains_point(rect, radius, point),
+        SceneClipGeometry::PlaneSet { planes, count } => planes[..count].iter().all(|plane| {
+            plane.x as f64 * point.x + plane.y as f64 * point.y + plane.w as f64 >= 0.0
+        }),
     }
 }
 
@@ -523,52 +433,156 @@ fn map_clip_geometry_from_spatial_to_paint_container(
     to_paint_container_id: PaintContainerId,
     geometry: SceneClipGeometry,
 ) -> SceneClipGeometry {
+    let map = Mat4f::mul(
+        &scene.frame_world_inverse(to_paint_container_id),
+        &scene.spatial_to_world_transform(from_spatial_node_id),
+    );
     match geometry {
-        SceneClipGeometry::Rect { rect } => {
-            let world_rect = transform_rect(&scene.spatial_to_world_transform(from_spatial_node_id), rect);
-            let mapped = transform_rect(&scene.frame_world_inverse(to_paint_container_id), world_rect);
-            SceneClipGeometry::Rect { rect: mapped }
+        SceneClipGeometry::Rect { rect } => map_rect_clip_geometry(&map, rect),
+        SceneClipGeometry::RoundedRect { rect, radius } => {
+            if transform_is_axis_aligned_2d(&map) {
+                SceneClipGeometry::RoundedRect {
+                    rect: transform_rect(&map, rect),
+                    radius: mapped_axis_aligned_radius(&map, radius),
+                }
+            } else {
+                SceneClipGeometry::DeferredMask {
+                    rect: transform_rect(&map, rect),
+                }
+            }
         }
+        SceneClipGeometry::PlaneSet { planes, count } => {
+            let plane_transform = map.invert().transpose();
+            let mut mapped = [vec4(0.0, 0.0, 0.0, 0.0); 4];
+            for index in 0..count {
+                mapped[index] = plane_transform.transform_vec4(planes[index]);
+            }
+            SceneClipGeometry::PlaneSet {
+                planes: mapped,
+                count,
+            }
+        }
+        SceneClipGeometry::DeferredMask { rect } => SceneClipGeometry::DeferredMask {
+            rect: transform_rect(&map, rect),
+        },
     }
 }
 
-fn project_rect_to_paint_container_quad(
-    scene: &RenderScene<'_>,
-    from_spatial_node_id: SpatialNodeId,
-    to_paint_container_id: PaintContainerId,
-    rect: Rect,
-) -> [DVec2; 4] {
-    let to_local = scene.frame_world_inverse(to_paint_container_id);
-    let to_world = scene.spatial_to_world_transform(from_spatial_node_id);
-    let corners = [
-        dvec2(rect.pos.x, rect.pos.y),
-        dvec2(rect.pos.x + rect.size.x, rect.pos.y),
-        dvec2(rect.pos.x + rect.size.x, rect.pos.y + rect.size.y),
-        dvec2(rect.pos.x, rect.pos.y + rect.size.y),
-    ];
-    corners.map(|point| transform_point(&to_local, transform_point(&to_world, point)))
+fn map_rect_clip_geometry(map: &Mat4f, rect: Rect) -> SceneClipGeometry {
+    if transform_is_axis_aligned_2d(map) {
+        return SceneClipGeometry::Rect {
+            rect: transform_rect(map, rect),
+        };
+    }
+    let quad = transform_rect_quad(map, rect);
+    match quad_as_plane_set(quad) {
+        Some((planes, count)) => SceneClipGeometry::PlaneSet { planes, count },
+        None => SceneClipGeometry::DeferredMask {
+            rect: transform_rect(map, rect),
+        },
+    }
 }
 
-fn backend_clip_planes_from_quad(
-    quad: [DVec2; 4],
-) -> Result<BackendClipPlanes, BackendProjectedClipLimit> {
+fn transform_rect_quad(matrix: &Mat4f, rect: Rect) -> [DVec2; 4] {
+    [
+        transform_point(matrix, rect.pos),
+        transform_point(matrix, dvec2(rect.pos.x + rect.size.x, rect.pos.y)),
+        transform_point(matrix, rect.pos + rect.size),
+        transform_point(matrix, dvec2(rect.pos.x, rect.pos.y + rect.size.y)),
+    ]
+}
+
+fn quad_as_plane_set(quad: [DVec2; 4]) -> Option<([Vec4f; 4], usize)> {
     let mut planes = [vec4(0.0, 0.0, 0.0, 0.0); 4];
-    if planes.len() > makepad_compositor::MP_MAX_CLIP_PLANES {
-        return Err(BackendProjectedClipLimit::ClipPlaneCapacity);
-    }
     for index in 0..4 {
         let from = quad[index];
         let to = quad[(index + 1) % 4];
         let edge = dvec2(to.x - from.x, to.y - from.y);
         let length = (edge.x * edge.x + edge.y * edge.y).sqrt();
         if length <= 1e-6 {
-            return Err(BackendProjectedClipLimit::DegenerateQuad);
+            return None;
         }
         let normal = dvec2(-edge.y / length, edge.x / length);
         let distance = -(normal.x * from.x + normal.y * from.y);
         planes[index] = vec4(normal.x as f32, normal.y as f32, 0.0, distance as f32);
     }
-    Ok(BackendClipPlanes { planes, count: 4 })
+    Some((planes, 4))
+}
+
+fn point_in_rect(point: DVec2, rect: Rect) -> bool {
+    point.x >= rect.pos.x
+        && point.x < rect.pos.x + rect.size.x
+        && point.y >= rect.pos.y
+        && point.y < rect.pos.y + rect.size.y
+}
+
+fn rounded_rect_contains_point(rect: Rect, radius: f32, point: DVec2) -> bool {
+    if !point_in_rect(point, rect) {
+        return false;
+    }
+    let radius = radius.max(0.0) as f64;
+    if radius <= 0.0 {
+        return true;
+    }
+    let clamped_radius = radius.min(rect.size.x * 0.5).min(rect.size.y * 0.5);
+    let inner = Rect {
+        pos: dvec2(rect.pos.x + clamped_radius, rect.pos.y + clamped_radius),
+        size: dvec2(
+            (rect.size.x - clamped_radius * 2.0).max(0.0),
+            (rect.size.y - clamped_radius * 2.0).max(0.0),
+        ),
+    };
+    if point_in_rect(
+        point,
+        Rect {
+            pos: dvec2(rect.pos.x + clamped_radius, rect.pos.y),
+            size: dvec2((rect.size.x - clamped_radius * 2.0).max(0.0), rect.size.y),
+        },
+    ) || point_in_rect(
+        point,
+        Rect {
+            pos: dvec2(rect.pos.x, rect.pos.y + clamped_radius),
+            size: dvec2(rect.size.x, (rect.size.y - clamped_radius * 2.0).max(0.0)),
+        },
+    ) || point_in_rect(point, inner)
+    {
+        return true;
+    }
+    let corners = [
+        dvec2(rect.pos.x + clamped_radius, rect.pos.y + clamped_radius),
+        dvec2(rect.pos.x + rect.size.x - clamped_radius, rect.pos.y + clamped_radius),
+        dvec2(
+            rect.pos.x + rect.size.x - clamped_radius,
+            rect.pos.y + rect.size.y - clamped_radius,
+        ),
+        dvec2(rect.pos.x + clamped_radius, rect.pos.y + rect.size.y - clamped_radius),
+    ];
+    corners.iter().any(|center| {
+        let dx = point.x - center.x;
+        let dy = point.y - center.y;
+        dx * dx + dy * dy <= clamped_radius * clamped_radius
+    })
+}
+
+fn transform_is_axis_aligned_2d(matrix: &Mat4f) -> bool {
+    matrix.v[1].abs() <= 1e-6
+        && matrix.v[2].abs() <= 1e-6
+        && matrix.v[3].abs() <= 1e-6
+        && matrix.v[4].abs() <= 1e-6
+        && matrix.v[6].abs() <= 1e-6
+        && matrix.v[7].abs() <= 1e-6
+        && matrix.v[8].abs() <= 1e-6
+        && matrix.v[9].abs() <= 1e-6
+        && (matrix.v[10] - 1.0).abs() <= 1e-6
+        && matrix.v[11].abs() <= 1e-6
+        && matrix.v[14].abs() <= 1e-6
+        && (matrix.v[15] - 1.0).abs() <= 1e-6
+}
+
+fn mapped_axis_aligned_radius(matrix: &Mat4f, radius: f32) -> f32 {
+    let sx = matrix.v[0].abs();
+    let sy = matrix.v[5].abs();
+    radius * sx.max(sy)
 }
 
 fn transform_point(matrix: &Mat4f, point: DVec2) -> DVec2 {
@@ -612,5 +626,104 @@ fn translation_matrix(tx: f32, ty: f32) -> Mat4f {
             0.0, 0.0, 1.0, 0.0,
             tx, ty, 0.0, 1.0,
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
+        Rect {
+            pos: dvec2(x, y),
+            size: dvec2(w, h),
+        }
+    }
+
+    fn scene_with_child_transform(transform: Mat4f) -> RenderScene<'static> {
+        let root_spatial_node = SpatialNodeId(0);
+        let child_spatial_node = SpatialNodeId(1);
+        RenderScene::new(
+            vec![
+                SpatialNode {
+                    parent: None,
+                    kind: SpatialNodeKind::Root,
+                    semantics: SpatialNodeSemantics::Root,
+                    world: Mat4f::identity(),
+                    world_inverse: Mat4f::identity(),
+                    nearest_reference_frame_id: root_spatial_node,
+                    nearest_scroll_node_id: None,
+                    clip_chain_root: SceneClipId::INVALID,
+                },
+                SpatialNode {
+                    parent: Some(root_spatial_node),
+                    kind: SpatialNodeKind::ReferenceFrame,
+                    semantics: SpatialNodeSemantics::ReferenceFrame(ReferenceFrameData {
+                        placement_origin: dvec2(0.0, 0.0),
+                        transform_matrix: Some(transform),
+                        perspective_matrix: None,
+                        transform_style: MpTransformStyle::Flat,
+                        flattens_descendants: true,
+                        backface_visibility: MpBackfaceVisibility::Visible,
+                    }),
+                    world: Mat4f::identity(),
+                    world_inverse: Mat4f::identity(),
+                    nearest_reference_frame_id: child_spatial_node,
+                    nearest_scroll_node_id: None,
+                    clip_chain_root: SceneClipId::INVALID,
+                },
+            ],
+            root_spatial_node,
+            vec![
+                PaintContainer {
+                    owner_node_id: None,
+                    kind: PaintContainerKind::Root,
+                    spatial_node_id: root_spatial_node,
+                    clip_id: SceneClipId::INVALID,
+                    items: Vec::new(),
+                    paint_list: Vec::new(),
+                },
+                PaintContainer {
+                    owner_node_id: Some(1),
+                    kind: PaintContainerKind::Normal,
+                    spatial_node_id: child_spatial_node,
+                    clip_id: SceneClipId::INVALID,
+                    items: Vec::new(),
+                    paint_list: Vec::new(),
+                },
+            ],
+            0,
+            vec![SceneClipNode {
+                parent_clip_id: SceneClipId::INVALID,
+                spatial_node_id: child_spatial_node,
+                geometry: SceneClipGeometry::Rect {
+                    rect: rect(0.0, 0.0, 40.0, 20.0),
+                },
+            }],
+            RenderPlan::build(HashMap::new()),
+        )
+    }
+
+    #[test]
+    fn rotated_rect_clip_maps_to_plane_set() {
+        let scene = scene_with_child_transform(Mat4f::rotation(vec3(0.0, 0.0, 0.4)));
+        let geometry = scene
+            .clip_geometry_in_paint_container(SceneClipId(0), 0)
+            .unwrap();
+        match geometry {
+            SceneClipGeometry::PlaneSet { count, .. } => assert_eq!(count, 4),
+            other => panic!("expected plane-set clip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rounded_rect_contains_point_uses_corner_radius() {
+        let geometry = SceneClipGeometry::RoundedRect {
+            rect: rect(0.0, 0.0, 10.0, 10.0),
+            radius: 5.0,
+        };
+        assert!(clip_geometry_contains_point(geometry, dvec2(3.0, 3.0)));
+        assert!(!clip_geometry_contains_point(geometry, dvec2(1.0, 1.0)));
     }
 }

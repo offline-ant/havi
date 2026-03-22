@@ -1,11 +1,11 @@
-use crate::compositor_scene::CompositorScene;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::PaintSource;
 use crate::render_plan::RenderPlan;
 use crate::scene::{
-    PaintContainer, PaintContainerId, ReferenceFrameData, RenderScene, SceneClipId, SceneClipKind,
-    SceneClipNode, ScenePaintCommand, ScenePaintItem, ScrollNodeData, SpatialNode, SpatialNodeId,
-    SpatialNodeSemantics, StickyNodeData,
+    PaintContainer, PaintContainerId, PaintContainerKind, ReferenceFrameData, RenderScene,
+    SceneClipGeometry, SceneClipId, SceneClipKind, SceneClipNode, ScenePaintCommand,
+    ScenePaintItem, ScrollNodeData, SpatialNode, SpatialNodeId, SpatialNodeSemantics,
+    StickyNodeData,
 };
 use makepad_widgets::*;
 
@@ -34,6 +34,7 @@ impl<'a> RenderSceneBuilder<'a> {
             }],
             paint_containers: vec![PaintContainer {
                 owner_node_id: None,
+                kind: PaintContainerKind::Root,
                 spatial_node_id: root_spatial_node_id,
                 clip_id: SceneClipId::INVALID,
                 items: Vec::new(),
@@ -49,7 +50,10 @@ impl<'a> RenderSceneBuilder<'a> {
         self.root_paint_container_id
     }
 
-    pub(crate) fn paint_container_spatial_node_id(&self, paint_container_id: PaintContainerId) -> SpatialNodeId {
+    pub(crate) fn paint_container_spatial_node_id(
+        &self,
+        paint_container_id: PaintContainerId,
+    ) -> SpatialNodeId {
         self.paint_containers[paint_container_id].spatial_node_id
     }
 
@@ -101,7 +105,8 @@ impl<'a> RenderSceneBuilder<'a> {
         owner_node_id: Option<usize>,
         mut data: StickyNodeData,
     ) -> SpatialNodeId {
-        data.nearest_scroll_node_id = self.spatial_nodes[parent_spatial_node_id.0].nearest_scroll_node_id;
+        data.nearest_scroll_node_id =
+            self.spatial_nodes[parent_spatial_node_id.0].nearest_scroll_node_id;
         if let Some(scroll_node_id) = data.nearest_scroll_node_id {
             if let SpatialNodeSemantics::Scroll(scroll) = self.spatial_nodes[scroll_node_id.0].semantics {
                 data.scroll_port_rect = Rect {
@@ -113,7 +118,11 @@ impl<'a> RenderSceneBuilder<'a> {
                 };
             }
         }
-        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Sticky(data), owner_node_id)
+        self.child_spatial_node(
+            parent_spatial_node_id,
+            SpatialNodeSemantics::Sticky(data),
+            owner_node_id,
+        )
     }
 
     pub(crate) fn child_scroll_node(
@@ -122,7 +131,11 @@ impl<'a> RenderSceneBuilder<'a> {
         owner_node_id: Option<usize>,
         data: ScrollNodeData,
     ) -> SpatialNodeId {
-        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::Scroll(data), owner_node_id)
+        self.child_spatial_node(
+            parent_spatial_node_id,
+            SpatialNodeSemantics::Scroll(data),
+            owner_node_id,
+        )
     }
 
     pub(crate) fn child_iframe_root_node(
@@ -130,7 +143,11 @@ impl<'a> RenderSceneBuilder<'a> {
         parent_spatial_node_id: SpatialNodeId,
         owner_node_id: Option<usize>,
     ) -> SpatialNodeId {
-        self.child_spatial_node(parent_spatial_node_id, SpatialNodeSemantics::IFrameRoot, owner_node_id)
+        self.child_spatial_node(
+            parent_spatial_node_id,
+            SpatialNodeSemantics::IFrameRoot,
+            owner_node_id,
+        )
     }
 
     pub(crate) fn child_paint_container(
@@ -139,9 +156,25 @@ impl<'a> RenderSceneBuilder<'a> {
         spatial_node_id: SpatialNodeId,
         owner_node_id: Option<usize>,
     ) -> PaintContainerId {
+        self.child_paint_container_with_kind(
+            parent_paint_container_id,
+            spatial_node_id,
+            owner_node_id,
+            PaintContainerKind::Normal,
+        )
+    }
+
+    pub(crate) fn child_paint_container_with_kind(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        spatial_node_id: SpatialNodeId,
+        owner_node_id: Option<usize>,
+        kind: PaintContainerKind,
+    ) -> PaintContainerId {
         let paint_container_id = self.paint_containers.len();
         self.paint_containers.push(PaintContainer {
             owner_node_id,
+            kind,
             spatial_node_id,
             clip_id: self.spatial_nodes[spatial_node_id.0].clip_chain_root,
             items: Vec::new(),
@@ -153,6 +186,23 @@ impl<'a> RenderSceneBuilder<'a> {
         paint_container_id
     }
 
+    pub(crate) fn clip(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        parent_clip_id: SceneClipId,
+        geometry: SceneClipGeometry,
+        _kind: SceneClipKind,
+    ) -> SceneClipId {
+        let spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
+        let clip_id = SceneClipId(self.clip_nodes.len());
+        self.clip_nodes.push(SceneClipNode {
+            parent_clip_id,
+            spatial_node_id,
+            geometry,
+        });
+        clip_id
+    }
+
     pub(crate) fn rect_clip(
         &mut self,
         parent_paint_container_id: PaintContainerId,
@@ -160,16 +210,43 @@ impl<'a> RenderSceneBuilder<'a> {
         rect: Rect,
         kind: SceneClipKind,
     ) -> SceneClipId {
-        let spatial_node_id = self.paint_containers[parent_paint_container_id].spatial_node_id;
-        let clip_id = SceneClipId(self.clip_nodes.len());
-        self.clip_nodes.push(SceneClipNode {
+        self.clip(
+            parent_paint_container_id,
             parent_clip_id,
-            spatial_node_id,
-            geometry: crate::scene::SceneClipGeometry::Rect { rect },
-            reference_frame_id: self.spatial_nodes[spatial_node_id.0].nearest_reference_frame_id,
+            SceneClipGeometry::Rect { rect },
             kind,
-        });
-        clip_id
+        )
+    }
+
+    pub(crate) fn rounded_rect_clip(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        parent_clip_id: SceneClipId,
+        rect: Rect,
+        radius: f32,
+        kind: SceneClipKind,
+    ) -> SceneClipId {
+        self.clip(
+            parent_paint_container_id,
+            parent_clip_id,
+            SceneClipGeometry::RoundedRect { rect, radius },
+            kind,
+        )
+    }
+
+    pub(crate) fn deferred_mask_clip(
+        &mut self,
+        parent_paint_container_id: PaintContainerId,
+        parent_clip_id: SceneClipId,
+        rect: Rect,
+        kind: SceneClipKind,
+    ) -> SceneClipId {
+        self.clip(
+            parent_paint_container_id,
+            parent_clip_id,
+            SceneClipGeometry::DeferredMask { rect },
+            kind,
+        )
     }
 
     pub(crate) fn set_frame_clip(&mut self, paint_container_id: PaintContainerId, clip_id: SceneClipId) {
@@ -204,28 +281,13 @@ impl<'a> RenderSceneBuilder<'a> {
         self,
         owner_semantics: std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
     ) -> RenderScene<'a> {
-        let provisional = RenderScene::new(
+        RenderScene::new(
             self.spatial_nodes,
             self.root_spatial_node_id,
             self.paint_containers,
             self.root_paint_container_id,
             self.clip_nodes,
-            RenderPlan::default(),
-            CompositorScene::default(),
-        );
-        let render_plan = RenderPlan::build(&provisional, owner_semantics);
-        let root_spatial_node_id = provisional.root_spatial_node();
-        let root_paint_container_id = provisional.root_paint_container_id();
-        let provisional = RenderScene::new(
-            provisional.spatial_nodes.clone(),
-            root_spatial_node_id,
-            provisional.paint_containers,
-            root_paint_container_id,
-            provisional.clip_nodes,
-            render_plan,
-            CompositorScene::default(),
-        );
-        let compositor_scene = CompositorScene::build(&provisional);
-        provisional.with_compositor_scene(compositor_scene)
+            RenderPlan::build(owner_semantics),
+        )
     }
 }

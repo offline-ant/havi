@@ -14,6 +14,7 @@ use style::values::computed::ClipRectOrAuto;
 use style::values::specified::box_::DisplayOutside;
 use style::Zero;
 
+use crate::background::resolve_border_radii;
 use crate::scene::{
     ReferenceFrameData, SceneClipId, SceneClipKind, ScrollNodeData, SpatialNodeId,
     StickyNodeData, StickyOffsetBounds,
@@ -249,7 +250,6 @@ pub(crate) fn build_stacking_context_tree<'a>(
     root_frame_id: usize,
     root_clip_id: SceneClipId,
     scroll_state: &crate::ScrollState,
-    owner_semantics: &std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 ) -> LayoutStackingContext<'a> {
     let root_attachment = SpatialAttachment {
         paint_container_id: root_frame_id,
@@ -272,7 +272,6 @@ pub(crate) fn build_stacking_context_tree<'a>(
     let mut builder = StackingContextBuilder {
         scene_builder,
         scroll_state,
-        owner_semantics,
     };
     for fragment in fragments {
         builder.fragment_build_stacking_context_tree(
@@ -302,7 +301,6 @@ enum SpatialDescriptor {
 struct StackingContextBuilder<'tree, 'a> {
     scene_builder: &'tree mut crate::scene_builder::RenderSceneBuilder<'a>,
     scroll_state: &'tree crate::ScrollState,
-    owner_semantics: &'tree std::collections::HashMap<usize, crate::render_plan::NodeRenderSemantics>,
 }
 
 impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
@@ -469,8 +467,9 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             (tag.node.0 << 8) ^ pseudo_key
         });
         let mut new_containing_block = containing_block;
+        let mut created_scene_boundary = false;
 
-        for descriptor in self.spatial_descriptors_for_box(bf, owner_node_id) {
+        for descriptor in self.spatial_descriptors_for_box(bf) {
             let spatial_node_id = match descriptor {
                 SpatialDescriptor::ReferenceFrame(data) => self.scene_builder.child_reference_frame(
                     new_containing_block.spatial_node_id,
@@ -496,8 +495,22 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
             );
             new_containing_block.paint_container_id = paint_container_id;
             new_containing_block.spatial_node_id = spatial_node_id;
-            new_containing_block.rect.origin = new_containing_block.rect.origin - parent_rect_origin.to_vector();
+            new_containing_block.rect.origin =
+                new_containing_block.rect.origin - parent_rect_origin.to_vector();
+            created_scene_boundary = true;
         }
+
+        if !created_scene_boundary && needs_effect_boundary(&bf.base.style) {
+            new_containing_block.paint_container_id = self.scene_builder.child_paint_container(
+                new_containing_block.paint_container_id,
+                new_containing_block.spatial_node_id,
+                owner_node_id,
+            );
+        }
+
+        let border_rect = bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        let padding_rect = bf.padding_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        let content_rect = bf.content_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
 
         if let Some(css_clip_rect) = css_clip_rect(bf, new_containing_block.rect) {
             let clip_id = self.scene_builder.rect_clip(
@@ -512,28 +525,47 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
 
         if let Some(rect) = bf.scrollable_overflow {
             let overflow_kind = overflow_clip_kind(&bf.base.style);
-            let clip_id = self.scene_builder.rect_clip(
-                new_containing_block.paint_container_id,
-                new_containing_block.clip_id,
-                Rect {
-                    pos: dvec2(
-                        new_containing_block.rect.origin.x.to_f32_px() as f64 + rect.origin.x.to_f32_px() as f64,
-                        new_containing_block.rect.origin.y.to_f32_px() as f64 + rect.origin.y.to_f32_px() as f64,
-                    ),
-                    size: dvec2(
-                        rect.size.width.to_f32_px() as f64,
-                        rect.size.height.to_f32_px() as f64,
-                    ),
-                },
-                overflow_kind,
-            );
+            let overflow_rect = Rect {
+                pos: dvec2(
+                    new_containing_block.rect.origin.x.to_f32_px() as f64 + rect.origin.x.to_f32_px() as f64,
+                    new_containing_block.rect.origin.y.to_f32_px() as f64 + rect.origin.y.to_f32_px() as f64,
+                ),
+                size: dvec2(
+                    rect.size.width.to_f32_px() as f64,
+                    rect.size.height.to_f32_px() as f64,
+                ),
+            };
+            let radius = resolve_border_radii(&bf.base.style).max();
+            let clip_id = if radius > 0.0 {
+                self.scene_builder.rounded_rect_clip(
+                    new_containing_block.paint_container_id,
+                    new_containing_block.clip_id,
+                    overflow_rect,
+                    radius,
+                    overflow_kind,
+                )
+            } else {
+                self.scene_builder.rect_clip(
+                    new_containing_block.paint_container_id,
+                    new_containing_block.clip_id,
+                    overflow_rect,
+                    overflow_kind,
+                )
+            };
             self.scene_builder.set_frame_clip(new_containing_block.paint_container_id, clip_id);
             new_containing_block.clip_id = clip_id;
         }
 
-        let border_rect = bf.border_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
-        let padding_rect = bf.padding_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
-        let content_rect = bf.content_rect().translate(bf.cumulative_containing_block_rect.origin.to_vector());
+        if bf.base.style.get_svg().clip_path != ClipPath::None {
+            let clip_id = self.scene_builder.deferred_mask_clip(
+                new_containing_block.paint_container_id,
+                new_containing_block.clip_id,
+                physical_rect_to_rect(border_rect),
+                SceneClipKind::CssClip,
+            );
+            self.scene_builder.set_frame_clip(new_containing_block.paint_container_id, clip_id);
+            new_containing_block.clip_id = clip_id;
+        }
 
         let for_absolute_descendants = ContainingBlock {
             paint_container_id: new_containing_block.paint_container_id,
@@ -574,25 +606,21 @@ impl<'tree, 'a> StackingContextBuilder<'tree, 'a> {
     fn spatial_descriptors_for_box(
         &self,
         bf: &'a BoxFragment,
-        owner_node_id: Option<usize>,
     ) -> Vec<SpatialDescriptor> {
         let mut descriptors = Vec::new();
 
-        let flatten_3d = owner_node_id
-            .and_then(|node_id| self.owner_semantics.get(&node_id).copied())
-            .map(|semantics| !semantics.requires_surface_composition())
-            .unwrap_or(true);
         let current_origin = dvec2(
             bf.cumulative_containing_block_rect.origin.x.to_f32_px() as f64,
             bf.cumulative_containing_block_rect.origin.y.to_f32_px() as f64,
         );
-        if let Some(reference_frame) = crate::reference_frame::reference_frame_semantics(bf, current_origin, flatten_3d) {
+        if let Some(reference_frame) = crate::reference_frame::reference_frame_semantics(bf, current_origin) {
             descriptors.push(SpatialDescriptor::ReferenceFrame(ReferenceFrameData {
                 placement_origin: reference_frame.placement_origin,
                 transform_matrix: reference_frame.transform_matrix,
                 perspective_matrix: reference_frame.perspective_matrix,
-                has_perspective: reference_frame.has_perspective,
-                preserves_3d: !flatten_3d,
+                transform_style: reference_frame.transform_style,
+                flattens_descendants: reference_frame.flattens_descendants,
+                backface_visibility: reference_frame.backface_visibility,
             }));
         }
 
@@ -782,16 +810,7 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
     {
         return true;
     }
-    if style.get_effects().opacity != 1.0 {
-        return true;
-    }
-    if !style.get_effects().filter.0.is_empty() {
-        return true;
-    }
-    if style.get_effects().mix_blend_mode != ComputedMixBlendMode::Normal {
-        return true;
-    }
-    if style.get_svg().clip_path != ClipPath::None {
+    if needs_effect_boundary(style) {
         return true;
     }
     if flags.intersects(FragmentFlags::IS_ROOT_ELEMENT) {
@@ -804,4 +823,11 @@ fn establishes_stacking_context(style: &ComputedValues, flags: FragmentFlags) ->
         return true;
     }
     false
+}
+
+fn needs_effect_boundary(style: &ComputedValues) -> bool {
+    style.get_effects().opacity != 1.0
+        || !style.get_effects().filter.0.is_empty()
+        || style.get_effects().mix_blend_mode != ComputedMixBlendMode::Normal
+        || style.get_svg().clip_path != ClipPath::None
 }

@@ -131,7 +131,6 @@ pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
     bh: f32,
-    flatten_3d: bool,
 ) -> Option<Mat4f> {
     let box_style = computed.get_box();
     let has_transform = !box_style.transform.0.is_empty()
@@ -143,11 +142,6 @@ pub(crate) fn compute_css_reference_frame_matrix(
     }
 
     let matrix = compute_css_self_transform_3d(computed, bw, bh)?;
-    let matrix = if flatten_3d && is_3d_matrix(&matrix) {
-        flatten_3d_reference_frame_to_2d(&matrix, bw, bh)?
-    } else {
-        matrix
-    };
     Some(Mat4f { v: matrix })
 }
 
@@ -347,6 +341,7 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
 /// exact projected corner positions, not just a basis sampled from the local
 /// axes. Solve the affine map from the projected top-left, top-right, and
 /// bottom-left corners so translation and shear match the projected quad.
+#[cfg(test)]
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
         let p = Mat4f { v: *m }.transform_vec4(makepad_widgets::vec4f(x, y, 0.0, 1.0));

@@ -2,99 +2,57 @@ use std::collections::HashMap;
 
 use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
+use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
+use style::computed_values::backface_visibility::T as ComputedBackfaceVisibility;
+use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
+use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::computed_values::transform_style::T as ComputedTransformStyle;
+use style::properties::ComputedValues;
+use style::values::computed::basic_shape::ClipPath;
 
-use crate::scene::RenderScene;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct NodeRenderSemantics {
     pub has_transform: bool,
     pub has_perspective: bool,
     pub has_true_3d_transform: bool,
-    pub preserve_3d: bool,
+    pub transform_style: MpTransformStyle,
+    pub flattens_descendants: bool,
+    pub backface_visibility: MpBackfaceVisibility,
+    pub opacity: f32,
+    pub needs_filter: bool,
+    pub needs_blend: bool,
+    pub needs_mask: bool,
+    pub needs_isolation: bool,
 }
 
-impl NodeRenderSemantics {
-    pub(crate) fn requires_surface_composition(self) -> bool {
-        self.has_transform || self.has_perspective || self.has_true_3d_transform || self.preserve_3d
-    }
-
-    pub(crate) fn participation(self) -> RenderParticipation {
-        if !self.requires_surface_composition() {
-            return RenderParticipation::Direct2d;
-        }
-        RenderParticipation::Compositor {
-            group: if self.preserve_3d {
-                CompositorGroupMode::Preserve3d
-            } else {
-                CompositorGroupMode::Flat
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CompositorGroupMode {
-    Flat,
-    Preserve3d,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RenderParticipation {
-    Direct2d,
-    Compositor { group: CompositorGroupMode },
-}
-
-impl Default for RenderParticipation {
+impl Default for NodeRenderSemantics {
     fn default() -> Self {
-        Self::Direct2d
+        Self {
+            has_transform: false,
+            has_perspective: false,
+            has_true_3d_transform: false,
+            transform_style: MpTransformStyle::Flat,
+            flattens_descendants: true,
+            backface_visibility: MpBackfaceVisibility::Visible,
+            opacity: 1.0,
+            needs_filter: false,
+            needs_blend: false,
+            needs_mask: false,
+            needs_isolation: false,
+        }
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RenderPlan {
-    frame_participation: Vec<RenderParticipation>,
     owner_semantics: HashMap<usize, NodeRenderSemantics>,
 }
 
 impl RenderPlan {
-    pub(crate) fn build(
-        scene: &RenderScene<'_>,
-        owner_semantics: HashMap<usize, NodeRenderSemantics>,
-    ) -> Self {
-        let mut frame_participation = vec![RenderParticipation::Direct2d; scene.frame_count()];
-        for frame_id in 0..scene.frame_count() {
-            let owner_node_id = scene.frame_owner_node_id(frame_id);
-            let participation = owner_node_id
-                .and_then(|node_id| owner_semantics.get(&node_id).copied())
-                .map(NodeRenderSemantics::participation)
-                .unwrap_or(RenderParticipation::Direct2d);
-            frame_participation[frame_id] = participation;
-        }
-        Self {
-            frame_participation,
-            owner_semantics,
-        }
+    pub(crate) fn build(owner_semantics: HashMap<usize, NodeRenderSemantics>) -> Self {
+        Self { owner_semantics }
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_frame_participation(
-        frame_participation: Vec<RenderParticipation>,
-    ) -> Self {
-        Self {
-            frame_participation,
-            owner_semantics: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn frame_participation(&self, frame_id: usize) -> RenderParticipation {
-        self.frame_participation
-            .get(frame_id)
-            .copied()
-            .unwrap_or(RenderParticipation::Direct2d)
-    }
-
-    #[allow(dead_code)]
     pub(crate) fn owner_semantics(&self, node_id: usize) -> Option<NodeRenderSemantics> {
         self.owner_semantics.get(&node_id).copied()
     }
@@ -108,6 +66,27 @@ pub(crate) fn collect_owner_render_semantics(
         collect_fragment_render_semantics(fragment, &mut semantics);
     }
     semantics
+}
+
+pub(crate) fn compute_used_transform_style(style: &ComputedValues) -> MpTransformStyle {
+    if style.get_box().transform_style != ComputedTransformStyle::Preserve3d {
+        return MpTransformStyle::Flat;
+    }
+    if grouping_properties_flatten(style) {
+        return MpTransformStyle::Flat;
+    }
+    MpTransformStyle::Preserve3D
+}
+
+pub(crate) fn grouping_properties_flatten(style: &ComputedValues) -> bool {
+    let effects = style.get_effects();
+    let overflow = style.get_box();
+    effects.opacity != 1.0
+        || !effects.filter.0.is_empty()
+        || effects.mix_blend_mode != ComputedMixBlendMode::Normal
+        || style.get_svg().clip_path != ClipPath::None
+        || !matches!(overflow.overflow_x, ComputedOverflow::Visible)
+        || !matches!(overflow.overflow_y, ComputedOverflow::Visible)
 }
 
 fn collect_fragment_render_semantics(
@@ -160,14 +139,21 @@ fn collect_box_render_semantics(
     let bh = border_rect.size.height.to_f32_px();
     let style = &bf.base.style;
     let box_style = style.get_box();
-    let preserve_3d = box_style.transform_style == ComputedTransformStyle::Preserve3d;
-    let has_perspective = !matches!(box_style.perspective, style::values::generics::box_::Perspective::None);
+    let has_perspective = !matches!(
+        box_style.perspective,
+        style::values::generics::box_::Perspective::None
+    );
     let has_transform = !box_style.transform.0.is_empty()
         || box_style.scale != style::values::generics::transform::GenericScale::None
         || box_style.rotate != style::values::generics::transform::GenericRotate::None
         || box_style.translate != style::values::generics::transform::GenericTranslate::None;
     let has_true_3d_transform = has_transform
         && crate::transform::has_true_3d_transform(style, bw, bh);
+    let transform_style = compute_used_transform_style(style);
+    let needs_filter = !style.get_effects().filter.0.is_empty();
+    let needs_blend = style.get_effects().mix_blend_mode != ComputedMixBlendMode::Normal;
+    let needs_mask = style.get_svg().clip_path != ClipPath::None;
+    let opacity = style.get_effects().opacity;
 
     semantics.insert(
         node_id,
@@ -175,7 +161,17 @@ fn collect_box_render_semantics(
             has_transform,
             has_perspective,
             has_true_3d_transform,
-            preserve_3d,
+            transform_style,
+            flattens_descendants: !matches!(transform_style, MpTransformStyle::Preserve3D),
+            backface_visibility: match box_style.backface_visibility {
+                ComputedBackfaceVisibility::Hidden => MpBackfaceVisibility::Hidden,
+                ComputedBackfaceVisibility::Visible => MpBackfaceVisibility::Visible,
+            },
+            opacity,
+            needs_filter,
+            needs_blend,
+            needs_mask,
+            needs_isolation: opacity != 1.0 || needs_filter || needs_blend || needs_mask,
         },
     );
 }
@@ -183,26 +179,30 @@ fn collect_box_render_semantics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use app_units::Au;
     use havi_fragment_semantics::fragment_tree::{BaseFragment, BaseFragmentInfo, Baselines};
     use havi_fragment_semantics::OpaqueNode;
     use havi_types::geom::{PhysicalRect, PhysicalSides};
-    use makepad_widgets::dvec2;
     use style::properties::ComputedValues;
     use style::properties::generated::style_structs::Font;
     use style::values::specified::TransformStyle;
 
-    fn make_rect(x: f32, y: f32, w: f32, h: f32) -> PhysicalRect<Au> {
+    fn make_rect(x: f32, y: f32, w: f32, h: f32) -> PhysicalRect<app_units::Au> {
         use style_traits::CSSPixel;
         PhysicalRect::new(
-            euclid::Point2D::<Au, CSSPixel>::new(Au::from_f32_px(x), Au::from_f32_px(y)),
-            euclid::Size2D::<Au, CSSPixel>::new(Au::from_f32_px(w), Au::from_f32_px(h)),
+            euclid::Point2D::<app_units::Au, CSSPixel>::new(
+                app_units::Au::from_f32_px(x),
+                app_units::Au::from_f32_px(y),
+            ),
+            euclid::Size2D::<app_units::Au, CSSPixel>::new(
+                app_units::Au::from_f32_px(w),
+                app_units::Au::from_f32_px(h),
+            ),
         )
     }
 
     fn base_box(node_id: usize, style: servo_arc::Arc<ComputedValues>) -> Fragment {
-        let sides = PhysicalSides::new(Au(0), Au(0), Au(0), Au(0));
-        Fragment::Box(BoxFragment {
+        let sides = PhysicalSides::new(app_units::Au(0), app_units::Au(0), app_units::Au(0), app_units::Au(0));
+        Fragment::Box(havi_fragment_semantics::fragment_tree::BoxFragment {
             base: BaseFragment::new(
                 BaseFragmentInfo::new(OpaqueNode(node_id)),
                 style,
@@ -221,12 +221,8 @@ mod tests {
         })
     }
 
-    fn initial_style() -> servo_arc::Arc<ComputedValues> {
-        ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
-    }
-
     #[test]
-    fn preserve_3d_boxes_require_preserve3d_compositor_group() {
+    fn preserve_3d_survives_without_grouping_properties() {
         let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
         servo_arc::Arc::make_mut(&mut style)
             .mutate_box()
@@ -234,51 +230,21 @@ mod tests {
         let fragments = [base_box(11, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
         let node = semantics.get(&(11 << 8)).copied().unwrap();
-        assert_eq!(
-            node.participation(),
-            RenderParticipation::Compositor {
-                group: CompositorGroupMode::Preserve3d,
-            }
-        );
+        assert_eq!(node.transform_style, MpTransformStyle::Preserve3D);
+        assert!(!node.flattens_descendants);
     }
 
     #[test]
-    fn plain_boxes_stay_on_direct_2d_path() {
-        let fragments = [base_box(12, initial_style())];
+    fn opacity_flattens_used_transform_style() {
+        let mut style = ComputedValues::initial_values_with_font_override(Font::initial_values());
+        let style_mut = servo_arc::Arc::make_mut(&mut style);
+        style_mut.mutate_box().set_transform_style(TransformStyle::Preserve3d);
+        style_mut.mutate_effects().set_opacity(0.5);
+        let fragments = [base_box(12, style.to_arc())];
         let semantics = collect_owner_render_semantics(&fragments);
         let node = semantics.get(&(12 << 8)).copied().unwrap();
-        assert_eq!(node.participation(), RenderParticipation::Direct2d);
-    }
-
-
-    #[test]
-    fn render_plan_defaults_unowned_frames_to_direct_2d() {
-        let scene = RenderScene::new(
-            vec![crate::scene::SpatialNode {
-                parent: None,
-                kind: crate::scene::SpatialNodeKind::Root,
-                semantics: crate::scene::SpatialNodeSemantics::Root,
-                world: Mat4f::identity(),
-                world_inverse: Mat4f::identity(),
-                nearest_reference_frame_id: crate::scene::SpatialNodeId(0),
-                nearest_scroll_node_id: None,
-                clip_chain_root: crate::scene::SceneClipId::INVALID,
-            }],
-            crate::scene::SpatialNodeId(0),
-            vec![crate::scene::PaintContainer {
-                owner_node_id: None,
-                spatial_node_id: crate::scene::SpatialNodeId(0),
-                clip_id: crate::scene::SceneClipId::INVALID,
-                items: Vec::new(),
-                paint_list: Vec::new(),
-            }],
-            0,
-            Vec::new(),
-            RenderPlan::default(),
-            crate::compositor_scene::CompositorScene::default(),
-        );
-        let plan = RenderPlan::build(&scene, HashMap::new());
-        assert_eq!(plan.frame_participation(scene.root_paint_container_id()), RenderParticipation::Direct2d);
-        let _ = dvec2(0.0, 0.0);
+        assert_eq!(node.transform_style, MpTransformStyle::Flat);
+        assert!(node.flattens_descendants);
+        assert!(node.needs_isolation);
     }
 }

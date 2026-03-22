@@ -3,8 +3,11 @@ use crate::layout_stacking_context::{
     LayoutStackingContextContent, SpatialAttachment, StackingContextSection,
 };
 use crate::paint_items::PaintSource;
-use crate::render_plan::collect_owner_render_semantics;
-use crate::scene::{ReferenceFrameData, RenderScene, SceneClipId, SceneClipKind, SpatialNodeSemantics};
+use crate::scene::{
+    PaintContainerKind, ReferenceFrameData, RenderScene, SceneClipId, SceneClipKind,
+    SpatialNodeSemantics,
+};
+use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 use crate::scene_builder::RenderSceneBuilder;
 use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_widgets::*;
@@ -104,19 +107,26 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
                 placement_origin: dvec2(0.0, 0.0),
                 transform_matrix: Some(translation_matrix(iframe_origin.x as f32, iframe_origin.y as f32)),
                 perspective_matrix: None,
-                has_perspective: false,
-                preserves_3d: false,
+                transform_style: MpTransformStyle::Flat,
+                flattens_descendants: true,
+                backface_visibility: MpBackfaceVisibility::Visible,
             }),
             iframe.base.tag.map(|tag| tag.node.0),
         );
-        let paint_container_id = self.scene_builder.child_paint_container(
+        let paint_container_id = self.scene_builder.child_paint_container_with_kind(
             cx.attachment.paint_container_id,
             spatial_node_id,
             iframe.base.tag.map(|tag| tag.node.0),
+            PaintContainerKind::IFrameRoot {
+                size: dvec2(
+                    iframe.base.rect.size.width.to_f32_px() as f64,
+                    iframe.base.rect.size.height.to_f32_px() as f64,
+                ),
+            },
         );
         let clip_id = self.scene_builder.rect_clip(
             paint_container_id,
-            cx.attachment.clip_id,
+            SceneClipId::INVALID,
             Rect {
                 pos: dvec2(0.0, 0.0),
                 size: dvec2(
@@ -127,14 +137,12 @@ impl<'tree, 'a> PaintListBuilder<'tree, 'a> {
             SceneClipKind::Overflow,
         );
         self.scene_builder.set_frame_clip(paint_container_id, clip_id);
-        let child_owner_semantics = collect_owner_render_semantics(&iframe.child_fragments);
         let child_sc = build_stacking_context_tree(
             &iframe.child_fragments,
             self.scene_builder,
             paint_container_id,
             clip_id,
             &crate::ScrollState::default(),
-            &child_owner_semantics,
         );
         self.build_stacking_context_into_scene(
             &child_sc,
@@ -156,7 +164,7 @@ pub(crate) fn build_scene<'a>(
     scroll_state: &crate::ScrollState,
     _viewport_size: DVec2,
 ) -> BuiltScene<'a> {
-    let owner_semantics = collect_owner_render_semantics(fragments);
+    let owner_semantics = crate::render_plan::collect_owner_render_semantics(fragments);
     let mut scene_builder = RenderSceneBuilder::new();
     let root_id = scene_builder.root_paint_container_id();
     let root_spatial_node_id = scene_builder.paint_container_spatial_node_id(root_id);
@@ -166,7 +174,6 @@ pub(crate) fn build_scene<'a>(
         root_id,
         SceneClipId::INVALID,
         scroll_state,
-        &owner_semantics,
     );
     PaintListBuilder {
         scene_builder: &mut scene_builder,

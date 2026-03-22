@@ -3,7 +3,7 @@ use std::sync::Arc;
 use makepad_widgets::*;
 
 use havi_render::{
-    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
+    DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
 
 // ---------------------------------------------------------------------------
@@ -28,12 +28,6 @@ struct ImageTextures(havi_render::TextureCache);
 
 #[derive(Default)]
 struct FrameDrawLists(havi_render::FrameDrawListState);
-
-#[derive(Default)]
-struct OpacityPasses(havi_render::OpacityState);
-
-#[derive(Default)]
-struct FilterPasses(havi_render::FilterState);
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -135,17 +129,11 @@ pub struct ServoWebView {
     #[live]
     draw_video_yuv: DrawVideoYuv,
     #[live]
-    draw_filter_image: DrawFilterImage,
-    #[live]
     draw_image: DrawImage,
     #[rust]
     texture_cache: ImageTextures,
     #[rust]
     frame_draw_lists: FrameDrawLists,
-    #[rust]
-    opacity_passes: OpacityPasses,
-    #[rust]
-    filter_passes: FilterPasses,
     /// Shared semantic fragment tree from layout. When set, draw_walk renders
     /// through havi-render's semantic path.
     #[rust]
@@ -410,9 +398,6 @@ impl Widget for ServoWebView {
                     })
                     .as_ref(),
                 &mut self.frame_draw_lists.0,
-                &mut self.opacity_passes.0,
-                &mut self.filter_passes.0,
-                &mut self.draw_filter_image,
                 &image_overrides,
             );
         }
@@ -493,11 +478,10 @@ impl ServoWebViewRef {
             inner.image_store = Some(image_store);
             // Clear image textures since they are content-dependent.
             inner.texture_cache.0.clear();
-            // NOTE: Do NOT clear opacity_passes, filter_passes, or
-            // frame_draw_lists. Makepad's DrawPass pool does not properly
-            // clean up freed entries — dropped passes remain in the pool
-            // with stale paint_dirty/parent fields, causing cycle panics.
-            // These passes are reconfigured each frame so reuse is safe.
+            // NOTE: Do NOT clear frame_draw_lists. Makepad's DrawPass pool does
+            // not properly clean up freed entries — dropped passes remain in the
+            // pool with stale paint_dirty/parent fields, causing cycle panics.
+            // Surface passes are reconfigured each frame so reuse is safe.
             inner.redraw(cx);
         }
     }

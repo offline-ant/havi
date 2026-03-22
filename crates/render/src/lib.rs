@@ -3,35 +3,23 @@
 //! Architecture boundary:
 //! - layout publishes the shared semantic fragment model through shared state
 //! - render lowers that semantic fragment tree into stacking contexts and `RenderScene`
-//! - hit testing, clip evaluation, render planning, and compositor planning consume `RenderScene`
+//! - hit testing, clip evaluation, semantic planning, and Makepad lowering consume `RenderScene`
 //! - Makepad modules execute the already-built scene and do not reconstruct layout semantics
 //!
 //! Source-of-truth split:
 //! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
 //!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
-//! - scene-native storage now lives in `scene` and `scene_builder`
-//! - active scene identity is split into spatial nodes and paint containers
-//! - builder APIs expose spatial-node creation and paint-container attachment separately
-//! - stacking-context lowering carries scene-native spatial attachments and descriptors
-//! - spatial nodes store scene-native semantic carriers for reference-frame, sticky,
-//!   scroll, and clip linkage state
-//! - execution transforms are derived from scene semantics and spatial ancestry in `scene`
-//! - scene consumers are moving onto semantic carriers and explicit linkage instead of
-//!   matrix-only truth and coarse kind checks
-//! - backend execution: `makepad_builder`, `makepad_fragments`, `makepad_effects`,
-//!   `render_plan`, `compositor_scene`
+//! - Makepad boundary lowering: `mp_scene_lowering`, `makepad_builder`
 //! - backend-specific transform fallback: `transform`
 
 mod background;
-mod compositor_scene;
 mod frame_builder;
 mod fragment_source;
 mod hit_test;
 mod layout_adapter;
 mod makepad_builder;
-mod makepad_clip;
-mod makepad_effects;
 mod makepad_fragments;
+mod mp_scene_lowering;
 mod paint_items;
 mod reference_frame;
 mod render_plan;
@@ -68,12 +56,14 @@ use std::collections::HashMap;
 use base::id::WebViewId;
 use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
+use makepad_compositor::{MpRenderer, MpSurface};
 use makepad_widgets::*;
+use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
 use makepad_widgets::makepad_draw::Texture;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 
 pub use shaders::{
-    DrawBoxShadow, DrawFilterImage, DrawGradient, DrawRoundedColor, DrawVideoYuv,
+    DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
 pub use fragment_source::CachedFragmentSource;
 
@@ -125,87 +115,27 @@ pub struct SelectionHighlight {
 /// Per-element scroll offsets for overflow containers, keyed by OpaqueNode id.
 pub type ScrollState = HashMap<usize, DVec2>;
 
-pub type FrameDrawListState = HashMap<usize, ()>;
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct SceneSurfaceKey {
+    pub paint_container_id: usize,
+    pub run_index: usize,
+}
 
-/// Render-to-texture state for opacity isolation (CSS stacking context).
-/// When an element has opacity < 1.0, its subtree must be composited as a group
-/// to avoid double-blending at overlapping child regions.
-pub struct OpacityPass {
-    pub pass: DrawPass,
-    pub texture: Texture,
+pub(crate) struct SceneSurfaceCacheEntry {
+    pub surface: MpSurface,
     pub draw_list: DrawList2d,
 }
 
-/// Per-element opacity passes, keyed by OpaqueNode id.
-pub type OpacityState = HashMap<usize, OpacityPass>;
-
-/// Render-to-texture state for CSS filter effects.
-/// Like OpacityPass but composited with a filter shader.
-pub struct FilterPass {
-    pub pass: DrawPass,
-    pub texture: Texture,
-    pub draw_list: DrawList2d,
+#[derive(Default)]
+pub struct FrameDrawListState {
+    pub(crate) renderer: Option<MpRenderer>,
+    pub(crate) surfaces: HashMap<SceneSurfaceKey, SceneSurfaceCacheEntry>,
 }
 
-/// Per-element filter passes, keyed by OpaqueNode id.
-pub type FilterState = HashMap<usize, FilterPass>;
-
-/// CSS filter parameters resolved from computed values.
-pub(crate) struct CssFilters {
-    pub(crate) blur_radius: f32,
-    pub(crate) brightness: f32,
-    pub(crate) contrast: f32,
-    pub(crate) grayscale: f32,
-    pub(crate) hue_rotate_deg: f32,
-    pub(crate) invert: f32,
-    pub(crate) saturate: f32,
-    pub(crate) sepia: f32,
-    pub(crate) filter_opacity: f32,
-}
-
-impl CssFilters {
-    pub(crate) fn identity() -> Self {
-        Self {
-            blur_radius: 0.0, brightness: 1.0, contrast: 1.0,
-            grayscale: 0.0, hue_rotate_deg: 0.0, invert: 0.0,
-            saturate: 1.0, sepia: 0.0, filter_opacity: 1.0,
-        }
+impl FrameDrawListState {
+    pub fn clear(&mut self) {
+        self.surfaces.clear();
     }
-
-    pub(crate) fn is_identity(&self) -> bool {
-        self.blur_radius < 0.001
-            && (self.brightness - 1.0).abs() < 0.001
-            && (self.contrast - 1.0).abs() < 0.001
-            && self.grayscale < 0.001
-            && self.hue_rotate_deg.abs() < 0.001
-            && self.invert < 0.001
-            && (self.saturate - 1.0).abs() < 0.001
-            && self.sepia < 0.001
-            && (self.filter_opacity - 1.0).abs() < 0.001
-    }
-}
-
-/// Extract CSS filter parameters from computed values.
-pub(crate) fn resolve_css_filters(computed: &style::properties::ComputedValues) -> CssFilters {
-    use style::values::computed::Filter;
-    let effects = computed.get_effects();
-    let mut f = CssFilters::identity();
-    for filter in effects.filter.0.iter() {
-        match *filter {
-            Filter::Blur(ref radius) => f.blur_radius = radius.0.px(),
-            Filter::Brightness(ref amount) => f.brightness = amount.0,
-            Filter::Contrast(ref amount) => f.contrast = amount.0,
-            Filter::Grayscale(ref amount) => f.grayscale = amount.0,
-            Filter::HueRotate(angle) => f.hue_rotate_deg = angle.degrees(),
-            Filter::Invert(ref amount) => f.invert = amount.0,
-            Filter::Opacity(ref amount) => f.filter_opacity = amount.0,
-            Filter::Saturate(ref amount) => f.saturate = amount.0,
-            Filter::Sepia(ref amount) => f.sepia = amount.0,
-            Filter::DropShadow(_) => {} // TODO: drop-shadow filter
-            Filter::Url(_) => {}
-        }
-    }
-    f
 }
 
 /// Draw fragments with viewport clipping, using a pre-built semantic scene.
@@ -231,9 +161,6 @@ pub fn render_fragments_clipped(
     draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
     frame_draw_lists: &mut FrameDrawListState,
-    opacity_state: &mut OpacityState,
-    filter_state: &mut FilterState,
-    draw_filter_image: &mut DrawFilterImage,
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
@@ -254,7 +181,6 @@ pub fn render_fragments_clipped(
         scroll_state,
         viewport_size,
     );
-    frame_draw_lists.clear();
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
         draw_text,
@@ -267,9 +193,6 @@ pub fn render_fragments_clipped(
         draw_gradient,
         draw_video_yuv,
         selection,
-        opacity_state,
-        filter_state,
-        draw_filter_image,
         frame_draw_lists,
         image_overrides,
     };
