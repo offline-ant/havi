@@ -375,9 +375,22 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
     ])
 }
 
-/// T(x,y,z) * M * T(-x,-y,-z)
+/// CSS change-of-basis: T(origin) * M * T(-origin) in column-vector convention.
+///
+/// Euclid uses row-vector convention where `A.then(B)` computes the row-vector
+/// product `A * B`. The `transform_to_array` function stores the result in
+/// row-major order, which Makepad's column-major `Mat4f` reads as the transpose.
+/// Transposing a row-vector transform gives the equivalent column-vector
+/// transform. So the row-vector computation must be the transpose of the
+/// desired column-vector result:
+///
+///   column target: T(o) * M * T(-o)
+///   row equivalent: (T(o) * M * T(-o))^T = T(-o)^T * M^T * T(o)^T
+///                 = T(-o)_row * M_row * T(o)_row
+///
+/// In euclid chaining: `T(-o).then(M).then_translate(o)`.
 fn change_basis<U, V>(m: &euclid::Transform3D<f32, U, V>, x: f32, y: f32, z: f32) -> euclid::Transform3D<f32, U, V> {
-    euclid::Transform3D::translation(x, y, z)
+    euclid::Transform3D::translation(-x, -y, -z)
         .then(m)
-        .then_translate(euclid::Vector3D::new(-x, -y, -z))
+        .then_translate(euclid::Vector3D::new(x, y, z))
 }

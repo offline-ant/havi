@@ -89,7 +89,6 @@ impl BackendRootBasis {
             ],
         }
     }
-
 }
 
 /// Cache for image textures, keyed by OpaqueNode id.

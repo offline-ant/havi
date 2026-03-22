@@ -164,6 +164,7 @@ fn lower_render_scene_to_mp_scene<'a>(
     if let Some(MpNode::ReferenceFrame(root)) = scene.nodes.get_mut(root_mp_id) {
         root.clip = root_frame.clip.and_then(|id| clip_map.get(&id).copied());
     }
+
     scene
 }
 
@@ -255,21 +256,7 @@ fn mp_blend_mode(blend_mode: &RenderBlendMode) -> MpBlendMode {
 fn reference_frame_transform(frame: &RenderReferenceFrame) -> Mat4f {
     let mut transform = translation_matrix(frame.placement_origin.x as f32, frame.placement_origin.y as f32);
     if let Some(matrix) = frame.transform {
-        let before = transform;
         transform = Mat4f::mul(&transform, &matrix);
-        eprintln!(
-            "[ref_frame_transform] placement=({}, {}), css_transform tx/ty=({}, {}), result tx/ty=({}, {}), kind={:?}",
-            frame.placement_origin.x, frame.placement_origin.y,
-            matrix.v[12], matrix.v[13],
-            transform.v[12], transform.v[13],
-            frame.kind,
-        );
-    } else {
-        eprintln!(
-            "[ref_frame_transform] placement=({}, {}), no css_transform, kind={:?}",
-            frame.placement_origin.x, frame.placement_origin.y,
-            frame.kind,
-        );
     }
     match &frame.kind {
         RenderReferenceFrameKind::Root
