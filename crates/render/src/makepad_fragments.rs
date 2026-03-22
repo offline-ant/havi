@@ -6,13 +6,13 @@ use style::computed_values::visibility::T as Visibility;
 use crate::DrawVideoYuv;
 
 use crate::background::draw_element_box;
-use crate::scene::ScenePaintItem;
+use crate::scene::RenderPaintItem;
 use crate::makepad_builder::MakepadDrawState;
 use crate::text::draw_text_run;
 
 pub(crate) fn paint_fragment_item(
     cx: &mut Cx2d,
-    item: &ScenePaintItem<'_>,
+    item: &RenderPaintItem<'_>,
     item_origin: DVec2,
     state: &mut MakepadDrawState<'_>,
     opacity: f32,
@@ -69,7 +69,7 @@ pub(crate) fn paint_fragment_item(
             let rect = text_fragment.base.rect;
             draw_text_run(
                 cx,
-                text_fragment,
+                &text_fragment,
                 item_origin.x + rect.origin.x.to_f32_px() as f64,
                 item_origin.y + rect.origin.y.to_f32_px() as f64,
                 rect.size.width.to_f32_px(),
@@ -88,7 +88,7 @@ pub(crate) fn paint_fragment_item(
             let rect = img.base.rect;
             draw_image_fragment(
                 cx,
-                img,
+                &img,
                 item_origin.x + rect.origin.x.to_f32_px() as f64,
                 item_origin.y + rect.origin.y.to_f32_px() as f64,
                 rect.size.width.to_f32_px(),
