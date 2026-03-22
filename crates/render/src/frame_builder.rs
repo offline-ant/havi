@@ -267,29 +267,27 @@ fn build_iframe_fragment<'a>(
     scene_builder: &mut RenderSceneBuilder<'a>,
     cx: BuildContext,
 ) {
-    let local_bounds = fragment_local_bounds(fragment, cx.containing_block_origin);
+    let content_bounds = fragment_local_bounds(fragment, cx.containing_block_origin);
+    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style));
+    let iframe_rect = physical_rect_to_rect(iframe.base.rect);
     push_single_item_run(
         scene_builder,
         cx.parent_node_id,
         cx.active_clip,
         iframe.base.tag.map(|tag| tag.node.0),
-        local_bounds,
+        border_bounds,
         RenderPaintItem {
             section: StackingContextSection::Foreground,
-            local_origin: cx.containing_block_origin,
+            local_origin: border_bounds.pos - iframe_rect.pos,
             source: fragment,
         },
     );
 
-    let child_size = dvec2(
-        iframe.base.rect.size.width.to_f32_px() as f64,
-        iframe.base.rect.size.height.to_f32_px() as f64,
-    );
-    let child_scene = build_scene(iframe.child_fragments.as_ref(), scroll_state, child_size);
+    let child_scene = build_scene(iframe.child_fragments.as_ref(), scroll_state, content_bounds.size);
     scene_builder.push_embed(RenderEmbed {
         parent: cx.parent_node_id,
         clip: cx.active_clip,
-        local_rect: local_bounds,
+        local_rect: content_bounds,
         owner_node_id: iframe.base.tag.map(|tag| tag.node.0),
         child_scene: Box::new(child_scene),
     });
@@ -455,6 +453,38 @@ fn fragment_owner_node_id(fragment: &Fragment) -> Option<usize> {
         Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
         Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
         Fragment::AbsoluteOrFixedPositioned { .. } => None,
+    }
+}
+
+fn box_content_insets(style: &style::properties::ComputedValues) -> (f64, f64, f64, f64) {
+    use style::values::specified::border::BorderStyle;
+
+    let border = style.get_border();
+    let border_width = |style: BorderStyle, width: style::values::computed::BorderSideWidth| -> f64 {
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+            0.0
+        } else {
+            width.0.to_f32_px().max(0.0) as f64
+        }
+    };
+    let padding = style.get_padding();
+    (
+        border_width(border.clone_border_left_style(), border.clone_border_left_width())
+            + padding.padding_left.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_top_style(), border.clone_border_top_width())
+            + padding.padding_top.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_right_style(), border.clone_border_right_width())
+            + padding.padding_right.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_bottom_style(), border.clone_border_bottom_width())
+            + padding.padding_bottom.0.to_length().map_or(0.0, |l| l.px()) as f64,
+    )
+}
+
+fn outset_rect(rect: Rect, insets: (f64, f64, f64, f64)) -> Rect {
+    let (left, top, right, bottom) = insets;
+    Rect {
+        pos: rect.pos - dvec2(left, top),
+        size: dvec2(rect.size.x + left + right, rect.size.y + top + bottom),
     }
 }
 
