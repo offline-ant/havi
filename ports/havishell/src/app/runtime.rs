@@ -329,19 +329,19 @@ impl App {
 
         self.servo = Some(servo);
 
-        // Step 5: wait for AppOpen-driven startup delivery after shell init.
+        // Step 5: startup navigation.
         if pylon_mode == PylonMode::None {
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
-            self.ui
-                .text_input(cx, ids!(url_input))
-                .set_text(cx, &self.start_url);
-            self.sync_toolbar_state(cx);
 
             let mut state = included_state_entries();
             if let Some(bind) = crate::app::delegate::get_devtools_bind() {
                 state.push(("HAVI_DEVTOOLS".to_string(), bind));
             }
             write_state_file(&state);
+
+            self.sync_content_size_from_host_rect(cx);
+            let start_url = self.start_url.clone();
+            self.open_tab(cx, &start_url);
         } else {
             // Pylon booting — show splash screen, start 3s timeout.
             self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);
