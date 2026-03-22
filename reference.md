@@ -137,7 +137,8 @@ Current cutover rule:
 - HAVI does not mix old and new rendering within one scene
 - adapter and renderer fallback reasons are logged for coverage work
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
-  box shadows, rectangular background gradients, retained text, and clipped images
+  exact rounded background clips for retained gradients and images, box shadows,
+  retained text, and clipped images
 
 This preserves scene ordering and effect semantics during the cutover.
 

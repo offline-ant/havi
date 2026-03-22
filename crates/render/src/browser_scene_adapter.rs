@@ -337,9 +337,6 @@ fn lower_box_primitives(
     let border = border_paint(computed, &current_abs);
     let outline = outline_paint(computed, &current_abs);
     let radius = uniform_border_radius(computed)?;
-    if radius > 0.0 && !computed.get_background().background_image.0.is_empty() {
-        return Err("rounded background image layers are not supported by browser-scene adapter yet".to_string());
-    }
 
     let mut primitives = Vec::new();
     append_box_shadow_primitives(
@@ -383,6 +380,7 @@ fn lower_box_primitives(
         computed,
         &bf.background_images,
         bounds,
+        radius,
         spatial_id,
         clip_chain_id,
         effect_id,
@@ -592,11 +590,15 @@ fn background_layer_clip_chain(
     spatial_id: MpSpatialId,
     clip_chain_id: MpClipChainId,
     layer: &BackgroundLayerGeom,
+    radius: f32,
 ) -> MpClipChainId {
+    let rect = background_layer_bounds(layer);
     let clip_id = scene.push_clip(MpClipNode {
         spatial_id,
-        kind: MpClipKind::Rect {
-            rect: background_layer_bounds(layer),
+        kind: if radius > 0.0 {
+            MpClipKind::RoundedRect { rect, radius }
+        } else {
+            MpClipKind::Rect { rect }
         },
     });
     scene.push_clip_chain(MpClipChain {
@@ -611,6 +613,7 @@ fn append_background_layer_primitives(
     computed: &ComputedValues,
     background_images: &[havi_fragment_semantics::fragment_tree::BackgroundImage],
     bounds: Rect,
+    clip_radius: f32,
     spatial_id: MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -654,10 +657,11 @@ fn append_background_layer_primitives(
                 ) else {
                     continue;
                 };
-                let layer_clip_chain_id = if (layer.bounds_w - layer.tile_w).abs() > 0.01
+                let layer_clip_chain_id = if clip_radius > 0.0
+                    || (layer.bounds_w - layer.tile_w).abs() > 0.01
                     || (layer.bounds_h - layer.tile_h).abs() > 0.01
                 {
-                    background_layer_clip_chain(scene, spatial_id, clip_chain_id, &layer)
+                    background_layer_clip_chain(scene, spatial_id, clip_chain_id, &layer, clip_radius)
                 } else {
                     clip_chain_id
                 };
@@ -807,10 +811,11 @@ fn append_background_layer_primitives(
                 ) else {
                     continue;
                 };
-                let layer_clip_chain_id = if (layer.bounds_w - layer.tile_w).abs() > 0.01
+                let layer_clip_chain_id = if clip_radius > 0.0
+                    || (layer.bounds_w - layer.tile_w).abs() > 0.01
                     || (layer.bounds_h - layer.tile_h).abs() > 0.01
                 {
-                    background_layer_clip_chain(scene, spatial_id, clip_chain_id, &layer)
+                    background_layer_clip_chain(scene, spatial_id, clip_chain_id, &layer, clip_radius)
                 } else {
                     clip_chain_id
                 };
