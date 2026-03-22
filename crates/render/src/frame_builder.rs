@@ -115,6 +115,16 @@ fn build_box_fragment<'a>(
     let mut uses_box_local_basis = false;
 
     if let Some(semantics) = reference_frame_semantics(bf, box_origin_in_parent) {
+        eprintln!(
+            "[build_box] transform ref frame: box_origin_in_parent=({}, {}), border_rect=({}, {}, {}, {}), cb_origin=({}, {}), has_transform={}, has_perspective={}",
+            box_origin_in_parent.x, box_origin_in_parent.y,
+            border_rect.pos.x, border_rect.pos.y, border_rect.size.x, border_rect.size.y,
+            cx.containing_block_origin.x, cx.containing_block_origin.y,
+            semantics.transform_matrix.is_some(), semantics.perspective_matrix.is_some(),
+        );
+        if let Some(m) = &semantics.transform_matrix {
+            eprintln!("[build_box] css transform matrix: {:?}", &m.v);
+        }
         parent_node_id = scene_builder.push_reference_frame(RenderReferenceFrame {
             parent: Some(parent_node_id),
             clip: active_clip,
@@ -134,6 +144,12 @@ fn build_box_fragment<'a>(
     }
 
     if let Some(scroll_info) = scroll_info_for_box(bf, scroll_state, border_rect.size) {
+        eprintln!(
+            "[build_box] scroll ref frame: uses_box_local_basis={}, placement=({}, {})",
+            uses_box_local_basis,
+            if uses_box_local_basis { 0.0 } else { box_origin_in_parent.x },
+            if uses_box_local_basis { 0.0 } else { box_origin_in_parent.y },
+        );
         parent_node_id = scene_builder.push_reference_frame(RenderReferenceFrame {
             parent: Some(parent_node_id),
             clip: active_clip,
@@ -183,24 +199,26 @@ fn build_box_fragment<'a>(
         }));
     }
 
-    if let Some(rect) = bf.scrollable_overflow.map(physical_rect_to_rect) {
-        let radius = resolve_border_radii(&bf.base.style).max();
-        let rect = map_box_rect_to_parent_space(
-            rect,
-            cx.containing_block_origin,
-            border_rect.pos,
-            uses_box_local_basis,
-        );
-        let geometry = if radius > 0.0 {
-            RenderClipGeometry::RoundedRect { rect, radius }
-        } else {
-            RenderClipGeometry::Rect { rect }
-        };
-        active_clip = Some(scene_builder.push_clip(RenderClip {
-            parent: Some(parent_node_id),
-            prev: active_clip,
-            geometry,
-        }));
+    if needs_overflow_clip(bf) {
+        if let Some(rect) = bf.scrollable_overflow.map(physical_rect_to_rect) {
+            let radius = resolve_border_radii(&bf.base.style).max();
+            let rect = map_box_rect_to_parent_space(
+                rect,
+                cx.containing_block_origin,
+                border_rect.pos,
+                uses_box_local_basis,
+            );
+            let geometry = if radius > 0.0 {
+                RenderClipGeometry::RoundedRect { rect, radius }
+            } else {
+                RenderClipGeometry::Rect { rect }
+            };
+            active_clip = Some(scene_builder.push_clip(RenderClip {
+                parent: Some(parent_node_id),
+                prev: active_clip,
+                geometry,
+            }));
+        }
     }
 
     if let Some(effect) = effect_for_box(bf, parent_node_id, active_clip, box_local_bounds) {
@@ -369,11 +387,20 @@ fn effect_for_box(
     })
 }
 
+fn needs_overflow_clip(bf: &BoxFragment) -> bool {
+    let overflow = bf.base.style.get_box();
+    !matches!(overflow.overflow_x, ComputedOverflow::Visible)
+        || !matches!(overflow.overflow_y, ComputedOverflow::Visible)
+}
+
 fn scroll_info_for_box(
     bf: &BoxFragment,
     scroll_state: &crate::ScrollState,
     size: DVec2,
 ) -> Option<RenderScrollInfo> {
+    if !needs_overflow_clip(bf) {
+        return None;
+    }
     bf.scrollable_overflow?;
     let scroll_offset = bf
         .base
