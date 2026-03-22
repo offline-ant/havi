@@ -4,7 +4,7 @@ use makepad_widgets::*;
 
 use crate::mp_scene_lowering;
 use crate::{
-    BackendRootBasis, DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
+    DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
     FrameDrawListState, SelectionHighlight, TextureCache,
 };
 
@@ -27,15 +27,14 @@ pub(crate) struct MakepadDrawState<'a> {
 pub(crate) fn paint_scene(
     cx: &mut Cx2d,
     scene: &crate::scene::RenderScene<'_>,
-    backend_root_basis: BackendRootBasis,
+    webview_origin: DVec2,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
-    _parent_opacity: f32,
 ) {
     mp_scene_lowering::draw_render_scene(
         cx,
         scene,
-        backend_root_basis,
+        webview_origin,
         root_viewport_size,
         state,
     );

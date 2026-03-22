@@ -67,29 +67,7 @@ pub use shaders::{
 };
 pub use fragment_source::CachedFragmentSource;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct BackendRootBasis {
-    pub webview_origin: DVec2,
-    pub viewport_top: f64,
-}
 
-impl BackendRootBasis {
-    pub(crate) fn page_to_pass_translation(self) -> DVec2 {
-        dvec2(self.webview_origin.x, self.webview_origin.y - self.viewport_top)
-    }
-
-    pub(crate) fn page_to_pass_transform(self) -> Mat4f {
-        let translation = self.page_to_pass_translation();
-        Mat4f {
-            v: [
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                translation.x as f32, translation.y as f32, 0.0, 1.0,
-            ],
-        }
-    }
-}
 
 /// Cache for image textures, keyed by OpaqueNode id.
 /// Each entry tracks the texture and the byte-range hash used to create it,
@@ -139,8 +117,8 @@ impl FrameDrawListState {
 
 /// Draw fragments with viewport clipping, using a pre-built semantic scene.
 ///
-/// Scene construction stays in page space. Backend placement from page space
-/// into the active Makepad pass is owned explicitly by `BackendRootBasis`.
+/// Scene construction stays in page space. The compositor owns all placement
+/// via `host_rect` and `page_to_host` on the scene root.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     webview_id: WebViewId,
@@ -163,10 +141,7 @@ pub fn render_fragments_clipped(
     image_overrides: &havi_types::ImageOverrides,
 ) {
     let widget_rect = cx.turtle().rect();
-    let backend_root_basis = BackendRootBasis {
-        webview_origin: widget_rect.pos,
-        viewport_top: viewport_top as f64,
-    };
+    let webview_origin = widget_rect.pos;
     let viewport_size = dvec2(
         widget_rect.size.x,
         (viewport_bottom - viewport_top) as f64,
@@ -198,10 +173,9 @@ pub fn render_fragments_clipped(
     makepad_builder::paint_scene(
         cx,
         &scene,
-        backend_root_basis,
+        webview_origin,
         viewport_size,
         &mut state,
-        1.0,
     );
 }
 

@@ -14,12 +14,12 @@ use crate::scene::{
     RenderBlendMode, RenderClipGeometry, RenderClipId, RenderMask, RenderNode, RenderNodeId,
     RenderPaintRun, RenderReferenceFrame, RenderReferenceFrameKind, RenderScene, RenderStickyInfo,
 };
-use crate::{BackendRootBasis, SceneSurfaceCacheEntry, SceneSurfaceKey};
+use crate::{SceneSurfaceCacheEntry, SceneSurfaceKey};
 
 pub(crate) fn draw_render_scene(
     cx: &mut Cx2d,
     render_scene: &RenderScene<'_>,
-    backend_root_basis: BackendRootBasis,
+    webview_origin: DVec2,
     root_viewport_size: DVec2,
     state: &mut MakepadDrawState<'_>,
 ) {
@@ -28,11 +28,10 @@ pub(crate) fn draw_render_scene(
     }
 
     let host_rect = Rect {
-        pos: backend_root_basis.webview_origin,
+        pos: webview_origin,
         size: root_viewport_size,
     };
-    let page_to_host = backend_root_basis.page_to_pass_transform();
-    let scene = lower_render_scene_to_mp_scene(cx, render_scene, host_rect, page_to_host, state);
+    let scene = lower_render_scene_to_mp_scene(cx, render_scene, host_rect, Mat4f::identity(), state);
     if let Err(err) = state
         .frame_draw_lists
         .renderer
