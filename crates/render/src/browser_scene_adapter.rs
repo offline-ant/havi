@@ -61,9 +61,9 @@ impl AdapterIds {
     }
 }
 
-struct AdapterState {
-    resources: MpResourceStore,
-    child_documents: Vec<MpChildDocument>,
+pub(crate) struct AdapterState {
+    pub(crate) resources: MpResourceStore,
+    pub(crate) child_documents: Vec<MpChildDocument>,
 }
 
 pub(crate) fn try_build_browser_document(
@@ -407,7 +407,7 @@ fn paint_run_to_primitives(
     Ok(primitives)
 }
 
-fn paint_run_item_to_primitives(
+pub(crate) fn paint_run_item_to_primitives(
     cx: &mut Cx2d,
     scene: &mut MpScene,
     state: &mut AdapterState,
