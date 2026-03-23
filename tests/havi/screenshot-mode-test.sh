@@ -12,7 +12,7 @@ setup_acl u test
 
 HPPR_SIGNER='ring1:ring0#init' "$HPPR" add //u/test/screenshot-mode.html \
     -H "Seal-By: oldest" -H "Content-Type: text/html" \
-    <<< '<!doctype html><style>html,body{margin:0;background:#ffffff}body{font:32px monospace}.box{width:160px;height:120px;background:#3366cc;margin:40px}</style><div class="box"></div>'
+    <<< '<!doctype html><style>html,body{margin:0;background:#ffffff}.box{position:absolute;width:50px;height:50px}.red{left:0;top:0;background:#ff0000}.blue{left:100px;top:0;background:#0000ff}.green{left:0;top:100px;background:#008000}</style><div class="box red"></div><div class="box blue"></div><div class="box green"></div>'
 
 havi_bin="$HAVI_ROOT/target/debug/havi"
 if [[ ! -x "$havi_bin" ]]; then
@@ -51,7 +51,7 @@ from PIL import Image
 path = sys.argv[1]
 img = Image.open(path).convert('RGBA')
 width, height = img.size
-if width <= 100 or height <= 100:
+if width <= 150 or height <= 150:
     raise SystemExit(f"image too small: {img.size}")
 
 # Screenshot mode must capture the webview only, not shell chrome.
@@ -60,37 +60,16 @@ for pixel in img.getdata():
     if pixel[:3] == chrome:
         raise SystemExit("shell chrome color leaked into screenshot")
 
-# The HPPR fixture page is mostly white and should render real page content in
-# the webview capture. Verify the page-shaped result directly.
-white = (255, 255, 255)
-white_count = 0
-for pixel in img.getdata():
-    if pixel[:3] == white:
-        white_count += 1
-
-total = width * height
-if white_count < total * 0.90:
-    raise SystemExit(f"expected mostly white page background, got {white_count}/{total} white pixels")
-
-# The rendered document should not be empty: find the tight bounds of all
-# non-white pixels and require a meaningful content region near the page origin.
-xs = []
-ys = []
-for y in range(height):
-    for x in range(width):
-        if img.getpixel((x, y))[:3] != white:
-            xs.append(x)
-            ys.append(y)
-if not xs:
-    raise SystemExit("expected visible rendered content, got all-white screenshot")
-min_x, max_x = min(xs), max(xs)
-min_y, max_y = min(ys), max(ys)
-content_width = max_x - min_x + 1
-content_height = max_y - min_y + 1
-if content_width < 120 or content_height < 90:
-    raise SystemExit(f"content bounds too small: {content_width}x{content_height}")
-if min_x > 80 or min_y > 80:
-    raise SystemExit(f"content not near expected top-left area: ({min_x}, {min_y})")
+checks = {
+    (25, 25): (255, 0, 0),
+    (125, 25): (0, 0, 255),
+    (25, 125): (0, 128, 0),
+    (80, 80): (255, 255, 255),
+}
+for point, expected in checks.items():
+    actual = img.getpixel(point)[:3]
+    if actual != expected:
+        raise SystemExit(f"pixel {point} = {actual}, expected {expected}")
 PY
 rm -f "$SCREENSHOT" "$run_log"
 log "PASS"

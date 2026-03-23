@@ -1,6 +1,7 @@
 == cases/block-basic.html refs/block-basic-ref.html
 == cases/inline-whitespace.html refs/inline-whitespace-ref.html
 == cases/stacking-order.html refs/stacking-order-ref.html
+== cases/direct-host-origin.html refs/direct-host-origin-ref.html
 == cases/transform-reference-frame.html refs/transform-reference-frame-ref.html
 == cases/overflow-hidden-scroll-clip.html refs/overflow-hidden-scroll-clip-ref.html
 == cases/opacity-group.html refs/opacity-group-ref.html
