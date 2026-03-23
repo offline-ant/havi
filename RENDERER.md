@@ -181,6 +181,8 @@ Current task kinds:
 - `Blur` task: filter another task output
 
 This graph is explicit retained execution data, not hidden browser-scene logic.
+`makepad/compositor/src/browser_scene.rs` is the runtime owner for this task
+execution.
 
 ## Picture nodes
 
@@ -204,9 +206,10 @@ Browser-scene lowers text runs into compositor text resources:
 - decoration data
 - shadow data
 
-The compositor executes those runs directly when they can stay in the retained
-text path and routes the rest through picture/task boundaries when required by a
-higher-level picture boundary.
+The compositor executes those runs directly inside the retained browser scene.
+Current direct text execution uses the retained text-run path when the run can
+stay on the local clip-rect fast path. Higher-level picture boundaries still
+route that content through picture/task composition as needed.
 
 ## Retained cache model
 
@@ -218,8 +221,9 @@ Current intended uses:
 - reused task outputs across frames
 - cached embed/effect outputs when stable
 
-This cache is explicit and inspectable through compositor browser-scene frame
-stats.
+The current cache implementation is task-level and key-driven. It is explicit,
+inspectable through compositor browser-scene frame stats, and does not reintroduce
+generic browser-scene texture ownership.
 
 ## HAVI frame lifecycle
 
@@ -328,6 +332,8 @@ Current retained picture/task execution covers:
 - embeds
 - retained task caching
 
+Current task kinds are `Scene` and `Blur`.
+
 ## HAVI builder behaviors that matter
 
 ### Repeating backgrounds
@@ -385,11 +391,27 @@ This logs browser-scene stats from the HAVI render crate.
 Those stats now describe the retained compositor picture/task model rather than
 legacy scratch ownership.
 
+The current `MpRendererStats` field names remain continuity-oriented and still
+include names such as:
+
+- `direct_primitive_count`
+- `isolated_boundary_count`
+- `compositor_surface_count`
+- scratch-surface counters
+
+Interpret them as renderer telemetry for the retained compositor path, not as a
+description of the old texture-first ownership model.
+
 ## Test coverage
 
 Renderer integration coverage lives in:
 
 - `havi/tests/havi/reftest/reftest.list`
+- `havi/tests/havi/reftest/cases/filter-opacity-group.html`
+- `havi/tests/havi/reftest/cases/repeating-background-image.html`
+- `havi/tests/havi/reftest/cases/text-dense-retained.html`
+- `havi/tests/havi/reftest/cases/long-scroll-snapshot.html`
+- `havi/tests/havi/reftest/cases/embed-inline.html`
 - `havi/tests/havi/benchmark/dense-text.html`
 - `havi/tests/havi/benchmark/long-scroll.html`
 

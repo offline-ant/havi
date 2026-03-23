@@ -1,4 +1,3 @@
-//! CSS transform extraction.
 
 use makepad_widgets::Mat4f;
 use style::properties::ComputedValues;
@@ -106,12 +105,6 @@ mod tests {
     }
 }
 
-/// Compute the renderer's 2D reference-frame matrix for the element's own
-/// transform chain.
-///
-/// CSS `perspective` affects descendants, not the element's own geometry, so it
-/// is not folded into the direct reference-frame transform here. Perspective is
-/// handled structurally elsewhere.
 pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
@@ -254,7 +247,6 @@ fn transform_to_array<U, V>(transform: &euclid::Transform3D<f32, U, V>) -> [f32;
     ]
 }
 
-/// Check if a column-major 4x4 matrix has 3D components (not a pure 2D affine).
 #[cfg(test)]
 pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     // In column-major layout:
@@ -272,14 +264,6 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     (m[15] - 1.0).abs() > 1e-5                       // m44
 }
 
-/// Flatten a 3D reference frame into a 2D affine matrix when the transformed
-/// z=0 plane remains planar in screen space.
-///
-/// CSS 3D transforms used without `preserve-3d` are painted as the projection
-/// of the element's local z=0 plane. An affine 2D fallback therefore needs the
-/// exact projected corner positions, not just a basis sampled from the local
-/// axes. Solve the affine map from the projected top-left, top-right, and
-/// bottom-left corners so translation and shear match the projected quad.
 #[cfg(test)]
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
@@ -314,20 +298,6 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
     ])
 }
 
-/// CSS change-of-basis: T(origin) * M * T(-origin) in column-vector convention.
-///
-/// Euclid uses row-vector convention where `A.then(B)` computes the row-vector
-/// product `A * B`. The `transform_to_array` function stores the result in
-/// row-major order, which Makepad's column-major `Mat4f` reads as the transpose.
-/// Transposing a row-vector transform gives the equivalent column-vector
-/// transform. So the row-vector computation must be the transpose of the
-/// desired column-vector result:
-///
-///   column target: T(o) * M * T(-o)
-///   row equivalent: (T(o) * M * T(-o))^T = T(-o)^T * M^T * T(o)^T
-///                 = T(-o)_row * M_row * T(o)_row
-///
-/// In euclid chaining: `T(-o).then(M).then_translate(o)`.
 fn change_basis<U, V>(m: &euclid::Transform3D<f32, U, V>, x: f32, y: f32, z: f32) -> euclid::Transform3D<f32, U, V> {
     euclid::Transform3D::translation(-x, -y, -z)
         .then(m)

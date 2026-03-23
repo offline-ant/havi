@@ -1,7 +1,3 @@
-//! VideoTextureMap: maps raw image keys to coherent video texture bindings.
-//!
-//! Accessed only from the Makepad main thread, so `thread_local!` storage
-//! is used (Texture is Rc-based and not Send).
 
 use makepad_widgets::makepad_platform::event::video_playback::VideoYuvMetadata;
 use makepad_widgets::makepad_platform::Texture;
@@ -32,12 +28,10 @@ impl VideoBinding {
 }
 
 thread_local! {
-    /// Maps (namespace, index) image key → full video binding.
     static VIDEO_BINDINGS: std::cell::RefCell<HashMap<(u32, u32), VideoBinding>> =
         std::cell::RefCell::new(HashMap::new());
 }
 
-/// Register or update the external video texture for an image key.
 pub fn set_external_texture(image_key: (u32, u32), texture: Texture) {
     VIDEO_BINDINGS.with(|m| {
         let mut m = m.borrow_mut();
@@ -46,7 +40,6 @@ pub fn set_external_texture(image_key: (u32, u32), texture: Texture) {
     });
 }
 
-/// Register or update YUV plane textures for an image key.
 pub fn set_yuv_planes(
     image_key: (u32, u32),
     tex_y: Texture,
@@ -64,7 +57,6 @@ pub fn set_yuv_planes(
     });
 }
 
-/// Update latest platform-provided YUV metadata for an image key.
 pub fn set_yuv_metadata(image_key: (u32, u32), yuv_metadata: VideoYuvMetadata) {
     VIDEO_BINDINGS.with(|m| {
         let mut m = m.borrow_mut();
@@ -73,14 +65,12 @@ pub fn set_yuv_metadata(image_key: (u32, u32), yuv_metadata: VideoYuvMetadata) {
     });
 }
 
-/// Remove full video binding for an image key.
 pub fn remove_video_binding(image_key: (u32, u32)) {
     VIDEO_BINDINGS.with(|m| {
         m.borrow_mut().remove(&image_key);
     });
 }
 
-/// Look up full video binding for an image key.
 pub fn get_video_binding(image_key: (u32, u32)) -> Option<VideoBinding> {
     VIDEO_BINDINGS.with(|m| m.borrow().get(&image_key).cloned())
 }

@@ -1,4 +1,3 @@
-//! Render layout fragments through the retained browser-scene renderer.
 
 mod background;
 mod browser_scene_builder;
@@ -13,7 +12,6 @@ pub mod video_texture_map;
 pub(crate) mod layout_stacking_context;
 mod transform;
 
-// Color helpers shared across modules.
 pub(crate) mod color {
     use makepad_widgets::Vec4f;
     use style::color::{AbsoluteColor, ColorSpace};
@@ -47,14 +45,12 @@ pub use shaders::{
     DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
 
-/// Pre-computed selection highlight rectangles in root visual coordinates.
 #[derive(Clone, Debug)]
 pub struct SelectionHighlight {
     pub color: Vec4f,
     pub rects: Vec<Rect>,
 }
 
-/// Per-element scroll offsets for overflow containers, keyed by OpaqueNode id.
 pub type ScrollState = HashMap<usize, DVec2>;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -165,7 +161,6 @@ fn paint_selection_overlay(cx: &mut Cx2d, draw_bg: &mut DrawColor, selection: Op
     }
 }
 
-/// Draw fragments with viewport clipping through the retained browser-scene renderer.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     webview_id: WebViewId,
@@ -303,25 +298,12 @@ pub fn render_fragments_clipped(
     }
 }
 
-/// Compute the visual offset for a sticky-positioned element.
-///
-/// Returns (dx, dy) offset to apply to the element's rendered position.
-/// For non-sticky elements, returns (0, 0).
-/// Check if a box fragment establishes a scroll container (overflow != visible).
 pub fn is_scroll_container(bf: &BoxFragment) -> bool {
     let ov = bf.base.style.get_box();
     matches!(ov.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll)
         || matches!(ov.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll)
 }
 
-/// Compute the scrollable content bounds for a box fragment.
-///
-/// Returns (max_scroll_x, max_scroll_y) — the maximum scroll offsets.
-/// The scroll port is the padding box (per CSS spec). The scrollable extent
-/// is the maximum of children's border-rect extents (in content-rect coords).
-/// Max scroll = content_extent - content_rect_size (since children are in
-/// content-rect coordinates, the visible area in that coordinate system is
-/// the content rect size).
 pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
     let content_w = bf.content_rect().size.width.to_f32_px() as f64;
     let content_h = bf.content_rect().size.height.to_f32_px() as f64;

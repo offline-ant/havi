@@ -1,4 +1,3 @@
-//! GPU shader definitions: DrawRoundedColor, DrawBoxShadow, DrawGradient, DrawVideoYuv.
 
 use makepad_widgets::*;
 
@@ -319,7 +318,6 @@ script_mod! {
     }
 }
 
-/// Dedicated YUV draw primitive for video planes.
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawVideoYuv {
@@ -343,7 +341,6 @@ impl DrawVideoYuv {
     }
 }
 
-/// CSS filter post-processing (blur, brightness, contrast, etc).
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawFilterImage {
@@ -381,7 +378,6 @@ impl DrawFilterImage {
     }
 }
 
-/// SDF-based per-corner border-radius.
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawRoundedColor {
@@ -407,7 +403,6 @@ impl DrawRoundedColor {
     }
 }
 
-/// GPU-evaluated CSS gradient (linear, radial, conic; up to 8 color stops).
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawGradient {
@@ -438,7 +433,6 @@ impl DrawGradient {
     }
 }
 
-/// GPU-accelerated box shadow using Makepad's GaussShadow Gaussian blur.
 #[derive(Script, ScriptHook, Debug)]
 #[repr(C)]
 pub struct DrawBoxShadow {

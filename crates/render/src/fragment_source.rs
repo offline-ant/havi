@@ -1,8 +1,3 @@
-/// Cached fragment source for the active render path.
-///
-/// This cache tracks the shared layout fragment tree identity. Paint ordering
-/// and frame construction are derived from semantic layout traversal at render
-/// time.
 pub struct CachedFragmentSource {
     frag_ptr: usize,
 }

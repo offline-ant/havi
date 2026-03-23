@@ -1,4 +1,3 @@
-//! Shared CSS background and border geometry helpers.
 
 use style::computed_values::background_clip::single_value::T as Clip;
 use style::computed_values::background_origin::single_value::T as Origin;
@@ -9,7 +8,6 @@ use style::values::specified::background::{
     BackgroundRepeat as RepeatXY, BackgroundRepeatKeyword as Repeat,
 };
 
-/// Per-corner border radii resolved to px.
 #[derive(Clone, Copy)]
 pub(crate) struct BorderRadii {
     pub tl: f32,
@@ -24,7 +22,6 @@ impl BorderRadii {
     }
 }
 
-/// Extract per-corner border radii from computed values.
 pub(crate) fn resolve_border_radii(computed: &ComputedValues) -> BorderRadii {
     let border = computed.get_border();
     let resolve = |r: &style::values::computed::LengthPercentage| -> f32 {
@@ -38,19 +35,15 @@ pub(crate) fn resolve_border_radii(computed: &ComputedValues) -> BorderRadii {
     }
 }
 
-/// Resolved geometry for one background layer.
 pub(crate) struct BackgroundLayerGeom {
-    /// Origin and size of the area to draw into.
     pub bounds_x: f64,
     pub bounds_y: f64,
     pub bounds_w: f32,
     pub bounds_h: f32,
-    /// Size of one tile.
     pub tile_w: f32,
     pub tile_h: f32,
 }
 
-/// Insets from the border rect to a sub-rect.
 pub(crate) struct BoxInsets {
     pub top: f32,
     pub right: f32,
@@ -58,7 +51,6 @@ pub(crate) struct BoxInsets {
     pub left: f32,
 }
 
-/// Compute border and padding insets from computed style.
 pub(crate) fn resolve_insets(computed: &ComputedValues) -> (BoxInsets, BoxInsets) {
     use style::values::specified::border::BorderStyle;
 
@@ -126,7 +118,6 @@ fn get_cyclic<T>(values: &[T], index: usize) -> &T {
     &values[index % values.len()]
 }
 
-/// Compute per-layer background geometry following the CSS Backgrounds spec.
 pub(crate) fn layout_background_layer(
     computed: &ComputedValues,
     layer_index: usize,

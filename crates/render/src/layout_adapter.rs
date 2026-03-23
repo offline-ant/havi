@@ -1,7 +1,3 @@
-//! Render-facing adapter for semantic fragment traversal.
-//!
-//! The active render path reads the semantic fragment tree from the shared
-//! layout publication boundary using `havi-fragment-semantics`.
 
 use std::sync::Arc;
 

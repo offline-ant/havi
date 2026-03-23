@@ -20,10 +20,6 @@ pub(crate) struct ReferenceFrameSemantics {
     pub backface_visibility: MpBackfaceVisibility,
 }
 
-/// Compute the semantic reference-frame inputs for a box fragment.
-///
-/// HAVI lowers used transform style, flattening, and backface semantics here.
-/// Makepad owns the later flat-vs-3D execution decision.
 pub(crate) fn reference_frame_semantics(
     bf: &BoxFragment,
     current_origin: DVec2,
