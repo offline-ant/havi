@@ -78,10 +78,6 @@ fn build_browser_document(
     render_scene: &RenderScene<'_>,
     ids: &mut AdapterIds,
 ) -> Result<MpDocument, String> {
-    if render_scene.root.clip.is_some() {
-        return Err("root clip not supported by browser-scene adapter yet".to_string());
-    }
-
     let document_id = ids.alloc_document_id();
     let scene_id = ids.alloc_scene_id();
     let mut scene = MpScene::new(scene_id, render_scene.root_reference_frame().local_rect);
@@ -101,6 +97,21 @@ fn build_browser_document(
         },
     );
     let mut clip_chains = HashMap::new();
+    let root_clip_chain_id = render_scene
+        .root
+        .clip
+        .map(|clip_id| ensure_clip_chain(render_scene, &mut scene, clip_id, &node_contexts, &mut clip_chains))
+        .transpose()?
+        .unwrap_or(scene.root_clip_chain_id);
+    scene.set_root_clip_chain(root_clip_chain_id);
+    node_contexts.insert(
+        root_id,
+        NodeContext {
+            spatial_id: scene.root_spatial_id,
+            clip_chain_id: root_clip_chain_id,
+            effect_id: None,
+        },
+    );
 
     for (index, node) in render_scene.nodes.iter().enumerate().skip(1) {
         let render_id = RenderNodeId(index);
@@ -110,6 +121,19 @@ fn build_browser_document(
                     .get(&frame.parent.ok_or_else(|| "missing reference-frame parent".to_string())?)
                     .copied()
                     .ok_or_else(|| "reference-frame parent context missing".to_string())?;
+                let clip_chain_id = frame
+                    .clip
+                    .map(|clip_id| {
+                        ensure_clip_chain(
+                            render_scene,
+                            &mut scene,
+                            clip_id,
+                            &node_contexts,
+                            &mut clip_chains,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(parent_ctx.clip_chain_id);
                 let spatial_id = scene.push_spatial_node(MpSpatialNode {
                     parent: Some(parent_ctx.spatial_id),
                     kind: match &frame.kind {
@@ -148,40 +172,19 @@ fn build_browser_document(
                     render_id,
                     NodeContext {
                         spatial_id,
-                        clip_chain_id: frame
-                            .clip
-                            .and_then(|clip_id| clip_chains.get(&clip_id).copied())
-                            .unwrap_or(parent_ctx.clip_chain_id),
+                        clip_chain_id,
                         effect_id: parent_ctx.effect_id,
                     },
                 );
             }
-            RenderNode::Clip(clip) => {
-                let owner = clip
-                    .parent
-                    .ok_or_else(|| "clip owner missing".to_string())?;
-                let owner_ctx = node_contexts
-                    .get(&owner)
-                    .copied()
-                    .ok_or_else(|| "clip owner context missing".to_string())?;
-                let clip_id = scene.push_clip(MpClipNode {
-                    spatial_id: owner_ctx.spatial_id,
-                    kind: match &clip.geometry {
-                        RenderClipGeometry::Rect { rect } => MpClipKind::Rect { rect: *rect },
-                        RenderClipGeometry::RoundedRect { rect, radius } => MpClipKind::RoundedRect {
-                            rect: *rect,
-                            radius: MpPerCornerRadius::uniform(*radius),
-                        },
-                        RenderClipGeometry::PlaneSet { .. } => {
-                            return Err("plane-set clip not supported by browser-scene adapter yet".to_string())
-                        }
-                    },
-                });
-                let chain_id = scene.push_clip_chain(MpClipChain {
-                    parent: clip.prev.and_then(|prev| clip_chains.get(&prev).copied()),
-                    clips: vec![clip_id],
-                });
-                clip_chains.insert(crate::scene::RenderClipId(index), chain_id);
+            RenderNode::Clip(_) => {
+                ensure_clip_chain(
+                    render_scene,
+                    &mut scene,
+                    crate::scene::RenderClipId(index),
+                    &node_contexts,
+                    &mut clip_chains,
+                )?;
             }
             RenderNode::Effect(effect) => {
                 if !effect.filter.entries.is_empty() {
@@ -194,12 +197,22 @@ fn build_browser_document(
                     .get(&effect.parent)
                     .copied()
                     .ok_or_else(|| "effect parent context missing".to_string())?;
+                let clip_chain_id = effect
+                    .clip
+                    .map(|clip_id| {
+                        ensure_clip_chain(
+                            render_scene,
+                            &mut scene,
+                            clip_id,
+                            &node_contexts,
+                            &mut clip_chains,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(parent_ctx.clip_chain_id);
                 let effect_id = scene.push_effect(MpEffectNode {
                     spatial_id: parent_ctx.spatial_id,
-                    clip_chain_id: effect
-                        .clip
-                        .and_then(|clip_id| clip_chains.get(&clip_id).copied())
-                        .unwrap_or(parent_ctx.clip_chain_id),
+                    clip_chain_id,
                     opacity: effect.opacity,
                     filters: Vec::new(),
                     blend_mode: match &effect.blend_mode {
@@ -217,10 +230,7 @@ fn build_browser_document(
                     render_id,
                     NodeContext {
                         spatial_id: parent_ctx.spatial_id,
-                        clip_chain_id: effect
-                            .clip
-                            .and_then(|clip_id| clip_chains.get(&clip_id).copied())
-                            .unwrap_or(parent_ctx.clip_chain_id),
+                        clip_chain_id,
                         effect_id: Some(effect_id),
                     },
                 );
@@ -230,15 +240,26 @@ fn build_browser_document(
                     .get(&run.parent)
                     .copied()
                     .ok_or_else(|| "paint-run parent context missing".to_string())?;
+                let clip_chain_id = run
+                    .clip
+                    .map(|clip_id| {
+                        ensure_clip_chain(
+                            render_scene,
+                            &mut scene,
+                            clip_id,
+                            &node_contexts,
+                            &mut clip_chains,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(parent_ctx.clip_chain_id);
                 let primitives = paint_run_to_primitives(
                     cx,
                     &mut scene,
                     &mut state,
                     run,
                     parent_ctx.spatial_id,
-                    run.clip
-                        .and_then(|clip_id| clip_chains.get(&clip_id).copied())
-                        .unwrap_or(parent_ctx.clip_chain_id),
+                    clip_chain_id,
                     parent_ctx.effect_id,
                 )?;
                 for primitive in primitives {
@@ -250,16 +271,26 @@ fn build_browser_document(
                     .get(&embed.parent)
                     .copied()
                     .ok_or_else(|| "embed parent context missing".to_string())?;
+                let clip_chain_id = embed
+                    .clip
+                    .map(|clip_id| {
+                        ensure_clip_chain(
+                            render_scene,
+                            &mut scene,
+                            clip_id,
+                            &node_contexts,
+                            &mut clip_chains,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(parent_ctx.clip_chain_id);
                 let child_document = build_browser_document(cx, &embed.child_scene, ids)?;
                 let pipeline_id = ids.alloc_pipeline_id();
                 scene.push_embed(MpEmbed {
                     scene_id: child_document.scene.id,
                     pipeline_id,
                     spatial_id: parent_ctx.spatial_id,
-                    clip_chain_id: embed
-                        .clip
-                        .and_then(|clip_id| clip_chains.get(&clip_id).copied())
-                        .unwrap_or(parent_ctx.clip_chain_id),
+                    clip_chain_id,
                     effect_id: parent_ctx.effect_id,
                     bounds: embed.local_rect,
                     hit_test_tag: embed.owner_node_id.map(|id| MpHitTestTag(id as u64)),
@@ -279,6 +310,50 @@ fn build_browser_document(
         resources: state.resources,
         child_documents: state.child_documents,
     })
+}
+
+fn ensure_clip_chain(
+    render_scene: &RenderScene<'_>,
+    scene: &mut MpScene,
+    clip_id: crate::scene::RenderClipId,
+    node_contexts: &HashMap<RenderNodeId, NodeContext>,
+    clip_chains: &mut HashMap<crate::scene::RenderClipId, MpClipChainId>,
+) -> Result<MpClipChainId, String> {
+    if let Some(chain_id) = clip_chains.get(&clip_id).copied() {
+        return Ok(chain_id);
+    }
+    let clip = render_scene
+        .clip(clip_id)
+        .ok_or_else(|| "clip missing".to_string())?;
+    let owner = clip.parent.ok_or_else(|| "clip owner missing".to_string())?;
+    let owner_ctx = node_contexts
+        .get(&owner)
+        .copied()
+        .ok_or_else(|| "clip owner context missing".to_string())?;
+    let parent_chain_id = clip
+        .prev
+        .map(|prev| ensure_clip_chain(render_scene, scene, prev, node_contexts, clip_chains))
+        .transpose()?
+        .unwrap_or(owner_ctx.clip_chain_id);
+    let clip_id_out = scene.push_clip(MpClipNode {
+        spatial_id: owner_ctx.spatial_id,
+        kind: match &clip.geometry {
+            RenderClipGeometry::Rect { rect } => MpClipKind::Rect { rect: *rect },
+            RenderClipGeometry::RoundedRect { rect, radius } => MpClipKind::RoundedRect {
+                rect: *rect,
+                radius: MpPerCornerRadius::uniform(*radius),
+            },
+            RenderClipGeometry::PlaneSet { .. } => {
+                return Err("plane-set clip not supported by browser-scene adapter yet".to_string())
+            }
+        },
+    });
+    let chain_id = scene.push_clip_chain(MpClipChain {
+        parent: Some(parent_chain_id),
+        clips: vec![clip_id_out],
+    });
+    clip_chains.insert(clip_id, chain_id);
+    Ok(chain_id)
 }
 
 fn paint_run_to_primitives(
