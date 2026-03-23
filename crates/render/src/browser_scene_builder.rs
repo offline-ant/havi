@@ -1,7 +1,8 @@
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::{
-    MpDocument, MpDocumentId, MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpSpatialId,
+    MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId, MpPerCornerRadius,
+    MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpScrollFrame, MpSpatialId,
     MpSpatialKind, MpSpatialNode,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
@@ -10,6 +11,7 @@ use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::values::computed::basic_shape::ClipPath;
 use style::values::computed::ClipRectOrAuto;
 
+use crate::background::resolve_border_radii;
 use crate::browser_scene_adapter::{paint_run_item_to_primitives, AdapterState};
 use crate::layout_stacking_context::StackingContextSection;
 use crate::reference_frame::reference_frame_semantics;
@@ -150,17 +152,8 @@ fn build_box_fragment(
         return Ok(());
     }
 
-    if needs_overflow_clip(bf) {
-        return Err("direct browser-scene builder does not lower overflow clips yet".to_string());
-    }
-    if css_clip_rect(bf).is_some() {
-        return Err("direct browser-scene builder does not lower css clip yet".to_string());
-    }
     if has_box_effects(bf) {
         return Err("direct browser-scene builder does not lower box effects yet".to_string());
-    }
-    if has_scroll_state(bf, scroll_state) {
-        return Err("direct browser-scene builder does not lower scroll frames yet".to_string());
     }
     if has_sticky_frame(bf) {
         return Err("direct browser-scene builder does not lower sticky frames yet".to_string());
@@ -191,6 +184,22 @@ fn build_box_fragment(
         uses_box_local_basis = true;
     }
 
+    if let Some(rect) = css_clip_rect(bf) {
+        box_cx.clip_chain_id = push_clip_chain(
+            scene,
+            box_cx.clip_chain_id,
+            box_cx.spatial_id,
+            MpClipKind::Rect {
+                rect: map_box_rect_to_spatial_space(
+                    rect,
+                    build_cx.containing_block_origin,
+                    border_rect.pos,
+                    uses_box_local_basis,
+                ),
+            },
+        );
+    }
+
     let item_origin = if uses_box_local_basis {
         dvec2(-border_rect.pos.x, -border_rect.pos.y)
     } else {
@@ -209,22 +218,60 @@ fn build_box_fragment(
         box_cx,
     )?;
 
-    let child_containing_block_origin = if uses_box_local_basis {
+    let mut child_cx = box_cx;
+    if needs_overflow_clip(bf) {
+        if let Some(rect) = bf.scrollable_overflow.map(physical_rect_to_rect) {
+            let radius = resolve_border_radii(&bf.base.style).max();
+            let rect = map_box_rect_to_spatial_space(
+                rect,
+                build_cx.containing_block_origin,
+                border_rect.pos,
+                uses_box_local_basis,
+            );
+            child_cx.clip_chain_id = push_clip_chain(
+                scene,
+                child_cx.clip_chain_id,
+                box_cx.spatial_id,
+                if radius > 0.0 {
+                    MpClipKind::RoundedRect {
+                        rect,
+                        radius: MpPerCornerRadius::uniform(radius),
+                    }
+                } else {
+                    MpClipKind::Rect { rect }
+                },
+            );
+        }
+    }
+
+    if let Some(scroll_offset) = scroll_offset_for_box(bf, scroll_state) {
+        child_cx.spatial_id = scene.push_spatial_node(MpSpatialNode {
+            parent: Some(box_cx.spatial_id),
+            kind: MpSpatialKind::ScrollFrame(MpScrollFrame {
+                viewport_rect: Rect {
+                    pos: if uses_box_local_basis {
+                        dvec2(0.0, 0.0)
+                    } else {
+                        box_origin_in_parent
+                    },
+                    size: border_rect.size,
+                },
+                content_rect: Rect {
+                    pos: dvec2(0.0, 0.0),
+                    size: border_rect.size,
+                },
+                scroll_offset,
+            }),
+        });
+        uses_box_local_basis = true;
+    }
+
+    child_cx.containing_block_origin = if uses_box_local_basis {
         content_rect.pos - border_rect.pos
     } else {
         build_cx.containing_block_origin + content_rect.pos
     };
-    build_fragment_list(
-        cx,
-        &bf.children,
-        scroll_state,
-        scene,
-        state,
-        BuildContext {
-            containing_block_origin: child_containing_block_origin,
-            ..box_cx
-        },
-    )
+    build_fragment_list(cx, &bf.children, scroll_state, scene, state, child_cx)
 }
 
 fn push_fragment_primitives(
@@ -259,9 +306,20 @@ fn has_box_effects(bf: &BoxFragment) -> bool {
         || svg.clip_path != ClipPath::None
 }
 
-fn has_scroll_state(bf: &BoxFragment, scroll_state: &crate::ScrollState) -> bool {
-    let _ = scroll_state;
-    bf.scrollable_overflow.is_some() && needs_overflow_clip(bf)
+fn scroll_offset_for_box(
+    bf: &BoxFragment,
+    scroll_state: &crate::ScrollState,
+) -> Option<DVec2> {
+    if !needs_overflow_clip(bf) {
+        return None;
+    }
+    bf.scrollable_overflow?;
+    Some(
+        bf.base
+            .tag
+            .and_then(|tag| scroll_state.get(&tag.node.0).copied())
+            .unwrap_or_else(|| dvec2(0.0, 0.0)),
+    )
 }
 
 fn has_sticky_frame(bf: &BoxFragment) -> bool {
@@ -283,6 +341,35 @@ fn css_clip_rect(bf: &BoxFragment) -> Option<Rect> {
         _ => return None,
     };
     Some(physical_rect_to_rect(clip_rect.for_border_rect(bf.border_rect())))
+}
+
+fn push_clip_chain(
+    scene: &mut MpScene,
+    parent: makepad_browser_scene::MpClipChainId,
+    spatial_id: MpSpatialId,
+    kind: MpClipKind,
+) -> makepad_browser_scene::MpClipChainId {
+    let clip_id = scene.push_clip(MpClipNode { spatial_id, kind });
+    scene.push_clip_chain(MpClipChain {
+        parent: Some(parent),
+        clips: vec![clip_id],
+    })
+}
+
+fn map_box_rect_to_spatial_space(
+    rect: Rect,
+    containing_block_origin: DVec2,
+    border_box_origin: DVec2,
+    uses_box_local_basis: bool,
+) -> Rect {
+    Rect {
+        pos: if uses_box_local_basis {
+            rect.pos - border_box_origin
+        } else {
+            containing_block_origin + rect.pos
+        },
+        size: rect.size,
+    }
 }
 
 fn owner_node_id_for_box(bf: &BoxFragment) -> Option<usize> {
