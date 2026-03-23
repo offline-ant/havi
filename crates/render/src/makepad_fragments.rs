@@ -28,43 +28,38 @@ pub(crate) fn paint_fragment_item(
     }
 
     match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => match item.section {
-            crate::layout_stacking_context::StackingContextSection::OwnBackgroundsAndBorders
-            | crate::layout_stacking_context::StackingContextSection::DescendantBackgroundsAndBorders
-            | crate::layout_stacking_context::StackingContextSection::Foreground
-            | crate::layout_stacking_context::StackingContextSection::Outline => {
-                let border_rect = bf.border_rect();
-                let bx = item_origin.x + border_rect.origin.x.to_f32_px() as f64;
-                let by = item_origin.y + border_rect.origin.y.to_f32_px() as f64;
-                let bw = border_rect.size.width.to_f32_px();
-                let bh = border_rect.size.height.to_f32_px();
-                draw_element_box(
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            let border_rect = bf.border_rect();
+            let bx = item_origin.x + border_rect.origin.x.to_f32_px() as f64;
+            let by = item_origin.y + border_rect.origin.y.to_f32_px() as f64;
+            let bw = border_rect.size.width.to_f32_px();
+            let bh = border_rect.size.height.to_f32_px();
+            draw_element_box(
+                cx,
+                &bf.base.style,
+                bx,
+                by,
+                bw,
+                bh,
+                state.draw_bg,
+                state.draw_rounded_bg,
+                state.draw_box_shadow,
+                state.draw_gradient,
+                opacity,
+            );
+            if !bf.background_images.is_empty() {
+                crate::background::draw_background_url_images(
                     cx,
                     &bf.base.style,
+                    &bf.background_images,
                     bx,
                     by,
                     bw,
                     bh,
-                    state.draw_bg,
-                    state.draw_rounded_bg,
-                    state.draw_box_shadow,
-                    state.draw_gradient,
+                    state.draw_image,
+                    state.texture_cache,
                     opacity,
                 );
-                if !bf.background_images.is_empty() {
-                    crate::background::draw_background_url_images(
-                        cx,
-                        &bf.base.style,
-                        &bf.background_images,
-                        bx,
-                        by,
-                        bw,
-                        bh,
-                        state.draw_image,
-                        state.texture_cache,
-                        opacity,
-                    );
-                }
             }
         },
         Fragment::Text(text_fragment) => {

@@ -17,7 +17,7 @@ use crate::makepad_builder::MakepadDrawState;
 use crate::makepad_fragments::paint_fragment_item;
 use crate::scene::{
     RenderBlendMode, RenderClipGeometry, RenderClipId, RenderMask, RenderNode, RenderNodeId,
-    RenderPaintRun, RenderReferenceFrame, RenderReferenceFrameKind, RenderScene, RenderStickyInfo,
+    RenderPaintRun, RenderReferenceFrame, RenderReferenceFrameKind, RenderScene,
 };
 use crate::{SceneSurfaceCacheEntry, SceneSurfaceKey};
 
@@ -225,22 +225,12 @@ fn clip_shape(geometry: &RenderClipGeometry) -> MpClipShape {
             rect: *rect,
             radius: *radius,
         },
-        RenderClipGeometry::PlaneSet { planes } => MpClipShape::PlaneSet {
-            planes: planes.clone(),
-        },
     }
 }
 
 fn lower_mask_clip(scene: &mut MpScene, parent: MpNodeId, mask: &RenderMask) -> MpMaskSource {
     let shape = match mask {
         RenderMask::Rect { rect } => MpClipShape::Rect { rect: *rect },
-        RenderMask::RoundedRect { rect, radius } => MpClipShape::RoundedRect {
-            rect: *rect,
-            radius: *radius,
-        },
-        RenderMask::PlaneSet { planes } => MpClipShape::PlaneSet {
-            planes: planes.clone(),
-        },
     };
     let clip_id = scene.push(MpNode::Clip(MpClipNode {
         parent: Some(parent),
@@ -263,97 +253,15 @@ fn reference_frame_transform(frame: &RenderReferenceFrame) -> Mat4f {
         transform = Mat4f::mul(&transform, &matrix);
     }
     match &frame.kind {
-        RenderReferenceFrameKind::Root
-        | RenderReferenceFrameKind::Transform
-        | RenderReferenceFrameKind::IFrameRoot { .. } => {}
+        RenderReferenceFrameKind::Root | RenderReferenceFrameKind::Transform => {}
         RenderReferenceFrameKind::Scroll(info) => {
             transform = Mat4f::mul(
                 &transform,
                 &translation_matrix(-(info.scroll_offset.x as f32), -(info.scroll_offset.y as f32)),
             );
         }
-        RenderReferenceFrameKind::Sticky(info) => {
-            let offset = sticky_used_offset(info);
-            transform = Mat4f::mul(
-                &transform,
-                &translation_matrix(offset.x as f32, offset.y as f32),
-            );
-        }
     }
     transform
-}
-
-fn sticky_used_offset(info: &RenderStickyInfo) -> DVec2 {
-    if info.margins.top.is_none()
-        && info.margins.right.is_none()
-        && info.margins.bottom.is_none()
-        && info.margins.left.is_none()
-    {
-        return dvec2(0.0, 0.0);
-    }
-
-    let mut sticky_rect = info.frame_rect;
-    let mut sticky_offset = dvec2(0.0, 0.0);
-
-    if let Some(margin) = info.margins.top {
-        let top_viewport_edge = info.scroll_port_rect.pos.y + margin as f64;
-        if sticky_rect.pos.y < top_viewport_edge {
-            sticky_offset.y = top_viewport_edge - sticky_rect.pos.y;
-        }
-    }
-
-    if sticky_offset.y <= 0.0 {
-        if let Some(margin) = info.margins.bottom {
-            sticky_rect.pos.y += sticky_offset.y;
-            let bottom_viewport_edge =
-                info.scroll_port_rect.pos.y + info.scroll_port_rect.size.y - margin as f64;
-            let sticky_bottom = sticky_rect.pos.y + sticky_rect.size.y;
-            if sticky_bottom > bottom_viewport_edge {
-                sticky_offset.y += bottom_viewport_edge - sticky_bottom;
-            }
-        }
-    }
-
-    if let Some(margin) = info.margins.left {
-        let left_viewport_edge = info.scroll_port_rect.pos.x + margin as f64;
-        if sticky_rect.pos.x < left_viewport_edge {
-            sticky_offset.x = left_viewport_edge - sticky_rect.pos.x;
-        }
-    }
-
-    if sticky_offset.x <= 0.0 {
-        if let Some(margin) = info.margins.right {
-            sticky_rect.pos.x += sticky_offset.x;
-            let right_viewport_edge =
-                info.scroll_port_rect.pos.x + info.scroll_port_rect.size.x - margin as f64;
-            let sticky_right = sticky_rect.pos.x + sticky_rect.size.x;
-            if sticky_right > right_viewport_edge {
-                sticky_offset.x += right_viewport_edge - sticky_right;
-            }
-        }
-    }
-
-    sticky_offset.y = sticky_offset
-        .y
-        .max(info.vertical_offset_bounds.min as f64)
-        .min(info.vertical_offset_bounds.max as f64);
-    sticky_offset.x = sticky_offset
-        .x
-        .max(info.horizontal_offset_bounds.min as f64)
-        .min(info.horizontal_offset_bounds.max as f64);
-
-    let frame_left = info.frame_rect.pos.x;
-    let frame_top = info.frame_rect.pos.y;
-    let frame_right = info.frame_rect.pos.x + info.frame_rect.size.x;
-    let frame_bottom = info.frame_rect.pos.y + info.frame_rect.size.y;
-    let cb_left = info.containing_block_rect.pos.x;
-    let cb_top = info.containing_block_rect.pos.y;
-    let cb_right = info.containing_block_rect.pos.x + info.containing_block_rect.size.x;
-    let cb_bottom = info.containing_block_rect.pos.y + info.containing_block_rect.size.y;
-    sticky_offset.x = sticky_offset.x.max(cb_left - frame_left).min(cb_right - frame_right);
-    sticky_offset.y = sticky_offset.y.max(cb_top - frame_top).min(cb_bottom - frame_bottom);
-
-    dvec2(sticky_offset.x, sticky_offset.y)
 }
 
 fn translation_matrix(tx: f32, ty: f32) -> Mat4f {

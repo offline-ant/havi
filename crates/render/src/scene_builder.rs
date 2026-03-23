@@ -7,9 +7,8 @@ use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 use makepad_widgets::{dvec2, Rect};
 
 use crate::scene::{
-    RenderClip, RenderClipId, RenderEmbed, RenderEffect, RenderMask, RenderNode, RenderNodeId,
-    RenderPaintItem, RenderPaintRun, RenderReferenceFrame, RenderReferenceFrameKind, RenderScene,
-    RenderSceneRoot,
+    RenderClip, RenderClipId, RenderEmbed, RenderEffect, RenderNode, RenderNodeId, RenderPaintItem,
+    RenderPaintRun, RenderReferenceFrame, RenderReferenceFrameKind, RenderScene, RenderSceneRoot,
 };
 
 pub(crate) struct RenderSceneBuilder<'a> {
@@ -52,10 +51,6 @@ impl<'a> RenderSceneBuilder<'a> {
         self.scene.root_reference_frame_mut()
     }
 
-    pub(crate) fn set_root_clip(&mut self, clip_id: RenderClipId) {
-        self.scene.root.clip = Some(clip_id);
-    }
-
     pub(crate) fn push_reference_frame(&mut self, frame: RenderReferenceFrame) -> RenderNodeId {
         self.push_node(RenderNode::ReferenceFrame(frame))
     }
@@ -83,12 +78,6 @@ impl<'a> RenderSceneBuilder<'a> {
 
     pub(crate) fn push_embed(&mut self, embed: RenderEmbed<'a>) -> RenderNodeId {
         self.push_node(RenderNode::Embed(embed))
-    }
-
-    pub(crate) fn set_effect_mask(&mut self, effect_id: RenderNodeId, mask: RenderMask) {
-        if let Some(effect) = self.scene.effect_mut(effect_id) {
-            effect.mask = Some(mask);
-        }
     }
 
     pub(crate) fn build(self) -> RenderScene<'a> {

@@ -15,86 +15,6 @@ pub(crate) struct RenderNodeId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct RenderClipId(pub usize);
 
-impl RenderClipId {
-    pub(crate) const INVALID: Self = Self(usize::MAX);
-
-    pub(crate) fn is_valid(self) -> bool {
-        self != Self::INVALID
-    }
-}
-
-pub(crate) type PaintContainerId = usize;
-pub(crate) type SpatialNodeId = RenderNodeId;
-pub(crate) type SceneClipId = RenderClipId;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ReferenceFrameData {
-    pub placement_origin: DVec2,
-    pub transform_matrix: Option<Mat4f>,
-    pub perspective_matrix: Option<Mat4f>,
-    pub transform_style: MpTransformStyle,
-    pub flattens_descendants: bool,
-    pub backface_visibility: MpBackfaceVisibility,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct StickyOffsetConstraints {
-    pub top: Option<f32>,
-    pub right: Option<f32>,
-    pub bottom: Option<f32>,
-    pub left: Option<f32>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct StickyOffsetBounds {
-    pub min: f32,
-    pub max: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct StickyNodeData {
-    pub frame_rect: Rect,
-    pub margins: StickyOffsetConstraints,
-    pub vertical_offset_bounds: StickyOffsetBounds,
-    pub horizontal_offset_bounds: StickyOffsetBounds,
-    pub containing_block_rect: Rect,
-    pub scroll_frame_rect: Rect,
-    pub scroll_port_rect: Rect,
-    pub nearest_scroll_node_id: Option<SpatialNodeId>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ScrollNodeData {
-    pub scroll_offset: DVec2,
-    pub scroll_frame_rect: Rect,
-    pub sensitivity_x: bool,
-    pub sensitivity_y: bool,
-    pub external_scroll_node_id: Option<usize>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum SpatialNodeSemantics {
-    Root,
-    ReferenceFrame(ReferenceFrameData),
-    Scroll(ScrollNodeData),
-    Sticky(StickyNodeData),
-    IFrameRoot,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SceneClipKind {
-    Overflow,
-    OverflowClip,
-    CssClip,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum PaintContainerKind {
-    Root,
-    Normal,
-    IFrameRoot { size: DVec2 },
-}
-
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RenderSceneRoot {
     pub clip: Option<RenderClipId>,
@@ -119,42 +39,11 @@ pub(crate) enum RenderReferenceFrameKind {
     Root,
     Transform,
     Scroll(RenderScrollInfo),
-    Sticky(RenderStickyInfo),
-    IFrameRoot { size: DVec2 },
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RenderScrollInfo {
     pub scroll_offset: DVec2,
-    pub scroll_frame_rect: Rect,
-    pub sensitivity_x: bool,
-    pub sensitivity_y: bool,
-    pub external_scroll_node_id: Option<usize>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct RenderStickyOffsetConstraints {
-    pub top: Option<f32>,
-    pub right: Option<f32>,
-    pub bottom: Option<f32>,
-    pub left: Option<f32>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct RenderStickyOffsetBounds {
-    pub min: f32,
-    pub max: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct RenderStickyInfo {
-    pub frame_rect: Rect,
-    pub margins: RenderStickyOffsetConstraints,
-    pub vertical_offset_bounds: RenderStickyOffsetBounds,
-    pub horizontal_offset_bounds: RenderStickyOffsetBounds,
-    pub containing_block_rect: Rect,
-    pub scroll_frame_rect: Rect,
-    pub scroll_port_rect: Rect,
 }
 
 #[derive(Clone, Debug)]
@@ -168,7 +57,6 @@ pub(crate) struct RenderClip {
 pub(crate) enum RenderClipGeometry {
     Rect { rect: Rect },
     RoundedRect { rect: Rect, radius: f32 },
-    PlaneSet { planes: Vec<Vec4f> },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -186,8 +74,6 @@ pub(crate) enum RenderBlendMode {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RenderMask {
     Rect { rect: Rect },
-    RoundedRect { rect: Rect, radius: f32 },
-    PlaneSet { planes: Vec<Vec4f> },
 }
 
 #[derive(Clone, Debug)]
@@ -205,7 +91,6 @@ pub(crate) struct RenderEffect {
 pub(crate) struct RenderPaintRun<'a> {
     pub parent: RenderNodeId,
     pub clip: Option<RenderClipId>,
-    pub owner_node_id: Option<usize>,
     pub local_bounds: Rect,
     pub items: Vec<RenderPaintItem<'a>>,
 }
@@ -222,7 +107,6 @@ pub(crate) struct RenderEmbed<'a> {
     pub parent: RenderNodeId,
     pub clip: Option<RenderClipId>,
     pub local_rect: Rect,
-    pub owner_node_id: Option<usize>,
     pub child_scene: Box<RenderScene<'a>>,
 }
 
@@ -255,10 +139,6 @@ impl<'a> RenderScene<'a> {
 
     pub(crate) fn root_reference_frame_id(&self) -> RenderNodeId {
         RenderNodeId(0)
-    }
-
-    pub(crate) fn root_paint_container_id(&self) -> PaintContainerId {
-        0
     }
 
     pub(crate) fn root_reference_frame(&self) -> &RenderReferenceFrame {
@@ -297,89 +177,10 @@ impl<'a> RenderScene<'a> {
         }
     }
 
-    pub(crate) fn clip(&self, id: RenderClipId) -> Option<&RenderClip> {
-        if !id.is_valid() {
-            return None;
-        }
-        match self.nodes.get(id.0) {
-            Some(RenderNode::Clip(clip)) => Some(clip),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn clip_mut(&mut self, id: RenderClipId) -> Option<&mut RenderClip> {
-        if !id.is_valid() {
-            return None;
-        }
-        match self.nodes.get_mut(id.0) {
-            Some(RenderNode::Clip(clip)) => Some(clip),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn effect(&self, id: RenderNodeId) -> Option<&RenderEffect> {
-        match self.node(id) {
-            RenderNode::Effect(effect) => Some(effect),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn effect_mut(&mut self, id: RenderNodeId) -> Option<&mut RenderEffect> {
-        match self.node_mut(id) {
-            RenderNode::Effect(effect) => Some(effect),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn paint_run(&self, id: RenderNodeId) -> Option<&RenderPaintRun<'a>> {
-        match self.node(id) {
-            RenderNode::PaintRun(run) => Some(run),
-            _ => None,
-        }
-    }
-
     pub(crate) fn paint_run_mut(&mut self, id: RenderNodeId) -> Option<&mut RenderPaintRun<'a>> {
         match self.node_mut(id) {
             RenderNode::PaintRun(run) => Some(run),
             _ => None,
         }
-    }
-
-    pub(crate) fn embed(&self, id: RenderNodeId) -> Option<&RenderEmbed<'a>> {
-        match self.node(id) {
-            RenderNode::Embed(embed) => Some(embed),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn embed_mut(&mut self, id: RenderNodeId) -> Option<&mut RenderEmbed<'a>> {
-        match self.node_mut(id) {
-            RenderNode::Embed(embed) => Some(embed),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn parent(&self, id: RenderNodeId) -> Option<RenderNodeId> {
-        match self.node(id) {
-            RenderNode::ReferenceFrame(frame) => frame.parent,
-            RenderNode::Clip(clip) => clip.parent,
-            RenderNode::Effect(effect) => Some(effect.parent),
-            RenderNode::PaintRun(run) => Some(run.parent),
-            RenderNode::Embed(embed) => Some(embed.parent),
-        }
-    }
-
-    pub(crate) fn children_of(
-        &self,
-        parent: RenderNodeId,
-    ) -> impl Iterator<Item = (RenderNodeId, &RenderNode<'a>)> + '_ {
-        self.nodes.iter().enumerate().filter_map(move |(index, node)| {
-            let node_id = RenderNodeId(index);
-            (node_id != parent && self.parent(node_id) == Some(parent)).then_some((node_id, node))
-        })
-    }
-
-    pub(crate) fn root_children(&self) -> impl Iterator<Item = (RenderNodeId, &RenderNode<'a>)> + '_ {
-        self.children_of(self.root_reference_frame_id())
     }
 }

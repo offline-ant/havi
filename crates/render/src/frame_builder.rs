@@ -114,8 +114,6 @@ fn build_box_fragment<'a>(
     let border_rect = physical_rect_to_rect(bf.border_rect());
     let content_rect = physical_rect_to_rect(bf.content_rect());
     let box_origin_in_parent = cx.containing_block_origin + border_rect.pos;
-    let owner_node_id = owner_node_id_for_box(bf);
-
     let mut parent_node_id = cx.parent_node_id;
     let mut active_clip = cx.active_clip;
     let mut uses_box_local_basis = false;
@@ -224,7 +222,6 @@ fn build_box_fragment<'a>(
         scene_builder,
         parent_node_id,
         active_clip,
-        owner_node_id,
         box_local_bounds,
         RenderPaintItem {
             section: StackingContextSection::OwnBackgroundsAndBorders,
@@ -256,7 +253,6 @@ fn build_leaf_fragment<'a>(
         scene_builder,
         cx.parent_node_id,
         cx.active_clip,
-        fragment_owner_node_id(fragment),
         local_bounds,
         RenderPaintItem {
             section,
@@ -280,7 +276,6 @@ fn build_iframe_fragment<'a>(
         scene_builder,
         cx.parent_node_id,
         cx.active_clip,
-        iframe.base.tag.map(|tag| tag.node.0),
         border_bounds,
         RenderPaintItem {
             section: StackingContextSection::Foreground,
@@ -294,7 +289,6 @@ fn build_iframe_fragment<'a>(
         parent: cx.parent_node_id,
         clip: cx.active_clip,
         local_rect: content_bounds,
-        owner_node_id: iframe.base.tag.map(|tag| tag.node.0),
         child_scene: Box::new(child_scene),
     });
 }
@@ -303,14 +297,12 @@ fn push_single_item_run<'a>(
     scene_builder: &mut RenderSceneBuilder<'a>,
     parent: RenderNodeId,
     clip: Option<RenderClipId>,
-    owner_node_id: Option<usize>,
     local_bounds: Rect,
     item: RenderPaintItem<'a>,
 ) {
     let run_id = scene_builder.push_paint_run(RenderPaintRun {
         parent,
         clip,
-        owner_node_id,
         local_bounds,
         items: Vec::new(),
     });
@@ -392,7 +384,7 @@ fn needs_overflow_clip(bf: &BoxFragment) -> bool {
 fn scroll_info_for_box(
     bf: &BoxFragment,
     scroll_state: &crate::ScrollState,
-    size: DVec2,
+    _size: DVec2,
 ) -> Option<RenderScrollInfo> {
     if !needs_overflow_clip(bf) {
         return None;
@@ -403,17 +395,7 @@ fn scroll_info_for_box(
         .tag
         .and_then(|tag| scroll_state.get(&tag.node.0).copied())
         .unwrap_or_else(|| dvec2(0.0, 0.0));
-    let overflow = bf.base.style.get_box();
-    Some(RenderScrollInfo {
-        scroll_offset,
-        scroll_frame_rect: Rect {
-            pos: dvec2(0.0, 0.0),
-            size,
-        },
-        sensitivity_x: matches!(overflow.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll),
-        sensitivity_y: matches!(overflow.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll),
-        external_scroll_node_id: bf.base.tag.map(|tag| tag.node.0),
-    })
+    Some(RenderScrollInfo { scroll_offset })
 }
 
 fn css_clip_rect(bf: &BoxFragment) -> Option<Rect> {
@@ -440,33 +422,6 @@ fn map_box_rect_to_parent_space(
             containing_block_origin + rect.pos
         },
         size: rect.size,
-    }
-}
-
-fn owner_node_id_for_box(bf: &BoxFragment) -> Option<usize> {
-    let node_id = bf.base.tag.map(|tag| tag.node.0)?;
-    let pseudo_key = match bf.base.style.pseudo() {
-        Some(style::selector_parser::PseudoElement::Before) => 1,
-        Some(style::selector_parser::PseudoElement::After) => 2,
-        Some(style::selector_parser::PseudoElement::Marker) => 3,
-        Some(style::selector_parser::PseudoElement::ServoAnonymousBox) => 4,
-        Some(style::selector_parser::PseudoElement::ServoAnonymousTable) => 5,
-        Some(style::selector_parser::PseudoElement::ServoAnonymousTableCell) => 6,
-        Some(style::selector_parser::PseudoElement::ServoAnonymousTableRow) => 7,
-        Some(_) => 15,
-        None => 0,
-    };
-    Some((node_id << 8) ^ pseudo_key)
-}
-
-fn fragment_owner_node_id(fragment: &Fragment) -> Option<usize> {
-    match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => owner_node_id_for_box(bf),
-        Fragment::Text(text) => text.base.tag.map(|tag| tag.node.0),
-        Fragment::Image(image) => image.base.tag.map(|tag| tag.node.0),
-        Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
-        Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
-        Fragment::AbsoluteOrFixedPositioned { .. } => None,
     }
 }
 
