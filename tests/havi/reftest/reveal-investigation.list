@@ -1,10 +1,9 @@
-# Minimal reveal.js investigation cases for the current presentation bugs.
-# These are not part of the default reftest list yet.
+# Minimal self-contained investigation cases.
 # Run with:
 #   ./.venv/bin/python3 tests/havi/reftest.py --manifest tests/havi/reftest/reveal-investigation.list
 
-# Case 1: default reveal init currently paints the pause overlay path with a top band.
+# Screenshot capture settles too early. Final DOM appears after 500ms.
 == cases/reveal-overlay-probe.html refs/reveal-overlay-probe-ref.html
 
-# Case 2: explicit unpause currently drops transformed slide content entirely.
+# Perspective ancestor drops transformed centered content.
 == cases/reveal-unpaused-box.html refs/reveal-unpaused-box-ref.html
