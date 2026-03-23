@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use havi_fragment_semantics::fragment_tree::{BoxFragment, ImageFragment, TextFragment};
+use havi_fragment_semantics::fragment_tree::{ImageFragment, TextFragment};
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::{
     MpBlendMode as BrowserBlendMode, MpChildDocument, MpClipChain, MpClipChainId, MpClipKind,
@@ -425,7 +425,19 @@ pub(crate) fn paint_run_item_to_primitives(
             scene,
             &mut state.resources,
             bounds,
-            bf,
+            &bf.base.style,
+            &bf.background_images,
+            spatial_id,
+            clip_chain_id,
+            effect_id,
+            owner_node_id,
+        ),
+        (StackingContextSection::Foreground, Fragment::IFrame(iframe)) => lower_box_primitives(
+            scene,
+            &mut state.resources,
+            bounds,
+            &iframe.base.style,
+            &[],
             spatial_id,
             clip_chain_id,
             effect_id,
@@ -540,13 +552,13 @@ fn lower_box_primitives(
     scene: &mut MpScene,
     resources: &mut MpResourceStore,
     bounds: Rect,
-    bf: &BoxFragment,
+    computed: &ComputedValues,
+    background_images: &[havi_fragment_semantics::fragment_tree::BackgroundImage],
     spatial_id: MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
 ) -> Result<Vec<MpPrimitive>, String> {
-    let computed = &bf.base.style;
     if has_unsupported_background_layers(computed) {
         return Err("background images not supported by browser-scene adapter yet".to_string());
     }
@@ -596,7 +608,7 @@ fn lower_box_primitives(
         scene,
         &mut primitives,
         computed,
-        &bf.background_images,
+        background_images,
         bounds,
         radius,
         spatial_id,

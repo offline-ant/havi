@@ -1,9 +1,10 @@
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
-use havi_fragment_semantics::Fragment;
+use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_browser_scene::{
-    MpBlendMode, MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId, MpEffectNode,
-    MpFilter, MpIsolation, MpPerCornerRadius, MpReferenceFrame, MpResourceStore, MpScene,
-    MpSceneId, MpScrollFrame, MpSpatialId, MpSpatialKind, MpSpatialNode,
+    MpBlendMode, MpChildDocument, MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId,
+    MpEffectNode, MpEmbed, MpFilter, MpHitTestTag, MpIsolation, MpPerCornerRadius,
+    MpPipelineId, MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpScrollFrame,
+    MpSpatialId, MpSpatialKind, MpSpatialNode,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
@@ -26,17 +27,51 @@ struct BuildContext {
     containing_block_origin: DVec2,
 }
 
+#[derive(Default)]
+struct DirectBuilderIds {
+    next_document_id: u64,
+    next_scene_id: u64,
+    next_pipeline_id: u64,
+}
+
+impl DirectBuilderIds {
+    fn alloc_document_id(&mut self) -> MpDocumentId {
+        self.next_document_id += 1;
+        MpDocumentId(self.next_document_id)
+    }
+
+    fn alloc_scene_id(&mut self) -> MpSceneId {
+        self.next_scene_id += 1;
+        MpSceneId(self.next_scene_id)
+    }
+
+    fn alloc_pipeline_id(&mut self) -> MpPipelineId {
+        self.next_pipeline_id += 1;
+        MpPipelineId(self.next_pipeline_id)
+    }
+}
+
 pub(crate) fn try_build_browser_document(
     cx: &mut Cx2d,
     fragments: &[Fragment],
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
 ) -> Result<MpDocument, String> {
+    build_browser_document(cx, fragments, scroll_state, viewport_size, &mut DirectBuilderIds::default())
+}
+
+fn build_browser_document(
+    cx: &mut Cx2d,
+    fragments: &[Fragment],
+    scroll_state: &crate::ScrollState,
+    viewport_size: DVec2,
+    ids: &mut DirectBuilderIds,
+) -> Result<MpDocument, String> {
     let viewport_rect = Rect {
         pos: dvec2(0.0, 0.0),
         size: viewport_size,
     };
-    let mut scene = MpScene::new(MpSceneId(0), viewport_rect);
+    let mut scene = MpScene::new(ids.alloc_scene_id(), viewport_rect);
     let root_spatial_id = scene.root_spatial_id;
     let root_clip_chain_id = scene.root_clip_chain_id;
     let mut state = AdapterState {
@@ -49,6 +84,7 @@ pub(crate) fn try_build_browser_document(
         scroll_state,
         &mut scene,
         &mut state,
+        ids,
         BuildContext {
             spatial_id: root_spatial_id,
             clip_chain_id: root_clip_chain_id,
@@ -57,7 +93,7 @@ pub(crate) fn try_build_browser_document(
         },
     )?;
     Ok(MpDocument {
-        id: MpDocumentId(0),
+        id: ids.alloc_document_id(),
         epoch: 0,
         scene,
         resources: state.resources,
@@ -71,10 +107,11 @@ fn build_fragment_list(
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     state: &mut AdapterState,
+    ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
 ) -> Result<(), String> {
     for fragment in fragments {
-        build_fragment(cx, fragment, scroll_state, scene, state, build_cx)?;
+        build_fragment(cx, fragment, scroll_state, scene, state, ids, build_cx)?;
     }
     Ok(())
 }
@@ -85,11 +122,12 @@ fn build_fragment(
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     state: &mut AdapterState,
+    ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
 ) -> Result<(), String> {
     match fragment {
         Fragment::Box(bf) | Fragment::Float(bf) => {
-            build_box_fragment(cx, fragment, bf, scroll_state, scene, state, build_cx)
+            build_box_fragment(cx, fragment, bf, scroll_state, scene, state, ids, build_cx)
         }
         Fragment::Text(tf) => {
             if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
@@ -131,12 +169,22 @@ fn build_fragment(
             scroll_state,
             scene,
             state,
+            ids,
             build_cx,
         ),
         Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            build_fragment(cx, resolved, scroll_state, scene, state, build_cx)
+            build_fragment(cx, resolved, scroll_state, scene, state, ids, build_cx)
         }
-        Fragment::IFrame(_) => Err("direct browser-scene builder does not lower iframes yet".to_string()),
+        Fragment::IFrame(iframe) => build_iframe_fragment(
+            cx,
+            fragment,
+            iframe,
+            scroll_state,
+            scene,
+            state,
+            ids,
+            build_cx,
+        ),
     }
 }
 
@@ -147,6 +195,7 @@ fn build_box_fragment(
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     state: &mut AdapterState,
+    ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
 ) -> Result<(), String> {
     if bf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
@@ -273,7 +322,64 @@ fn build_box_fragment(
     } else {
         build_cx.containing_block_origin + content_rect.pos
     };
-    build_fragment_list(cx, &bf.children, scroll_state, scene, state, child_cx)
+    build_fragment_list(cx, &bf.children, scroll_state, scene, state, ids, child_cx)
+}
+
+fn build_iframe_fragment(
+    cx: &mut Cx2d,
+    fragment: &Fragment,
+    iframe: &IFrameFragment,
+    scroll_state: &crate::ScrollState,
+    scene: &mut MpScene,
+    state: &mut AdapterState,
+    ids: &mut DirectBuilderIds,
+    build_cx: BuildContext,
+) -> Result<(), String> {
+    if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+        return Ok(());
+    }
+
+    let content_bounds = fragment_local_bounds(fragment, build_cx.containing_block_origin);
+    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style));
+    let iframe_rect = physical_rect_to_rect(iframe.base.rect);
+    push_fragment_primitives(
+        cx,
+        scene,
+        state,
+        &RenderPaintItem {
+            section: StackingContextSection::Foreground,
+            local_origin: border_bounds.pos - iframe_rect.pos,
+            source: fragment,
+        },
+        iframe.base.tag.map(|tag| tag.node.0),
+        build_cx,
+    )?;
+
+    let child_document = build_browser_document(
+        cx,
+        iframe.child_fragments.as_ref(),
+        scroll_state,
+        content_bounds.size,
+        ids,
+    )?;
+    let pipeline_id = ids.alloc_pipeline_id();
+    scene.push_embed(MpEmbed {
+        scene_id: child_document.scene.id,
+        pipeline_id,
+        spatial_id: build_cx.spatial_id,
+        clip_chain_id: build_cx.clip_chain_id,
+        effect_id: build_cx.effect_id,
+        bounds: content_bounds,
+        hit_test_tag: iframe
+            .base
+            .tag
+            .map(|tag| MpHitTestTag(tag.node.0 as u64)),
+    });
+    state.child_documents.push(MpChildDocument {
+        pipeline_id,
+        document: Box::new(child_document),
+    });
+    Ok(())
 }
 
 fn push_fragment_primitives(
@@ -436,8 +542,58 @@ fn owner_node_id_for_fragment(fragment: &Fragment) -> Option<usize> {
         Fragment::Box(bf) | Fragment::Float(bf) => owner_node_id_for_box(bf),
         Fragment::Text(tf) => tf.base.tag.map(|tag| tag.node.0),
         Fragment::Image(image) => image.base.tag.map(|tag| tag.node.0),
+        Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
         Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
-        Fragment::AbsoluteOrFixedPositioned { .. } | Fragment::IFrame(_) => None,
+        Fragment::AbsoluteOrFixedPositioned { .. } => None,
+    }
+}
+
+fn fragment_local_bounds(fragment: &Fragment, containing_block_origin: DVec2) -> Rect {
+    let rect = match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.border_rect()),
+        Fragment::Text(text) => physical_rect_to_rect(text.base.rect),
+        Fragment::Image(image) => physical_rect_to_rect(image.base.rect),
+        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
+        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => Rect {
+            pos: dvec2(0.0, 0.0),
+            size: dvec2(0.0, 0.0),
+        },
+    };
+    Rect {
+        pos: containing_block_origin + rect.pos,
+        size: rect.size,
+    }
+}
+
+fn box_content_insets(style: &style::properties::ComputedValues) -> (f64, f64, f64, f64) {
+    use style::values::specified::border::BorderStyle;
+
+    let border = style.get_border();
+    let border_width = |style: BorderStyle, width: style::values::computed::BorderSideWidth| -> f64 {
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+            0.0
+        } else {
+            width.0.to_f32_px().max(0.0) as f64
+        }
+    };
+    let padding = style.get_padding();
+    (
+        border_width(border.clone_border_left_style(), border.clone_border_left_width())
+            + padding.padding_left.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_top_style(), border.clone_border_top_width())
+            + padding.padding_top.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_right_style(), border.clone_border_right_width())
+            + padding.padding_right.0.to_length().map_or(0.0, |l| l.px()) as f64,
+        border_width(border.clone_border_bottom_style(), border.clone_border_bottom_width())
+            + padding.padding_bottom.0.to_length().map_or(0.0, |l| l.px()) as f64,
+    )
+}
+
+fn outset_rect(rect: Rect, insets: (f64, f64, f64, f64)) -> Rect {
+    let (left, top, right, bottom) = insets;
+    Rect {
+        pos: rect.pos - dvec2(left, top),
+        size: dvec2(rect.size.x + left + right, rect.size.y + top + bottom),
     }
 }
 
