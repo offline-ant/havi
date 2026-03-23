@@ -1,3 +1,8 @@
+//! Legacy `RenderScene` construction helpers used only by the fallback path.
+//!
+//! This path remains only for `HAVI_DISABLE_BROWSER_SCENE=1` and direct-builder
+//! fallback failures.
+
 use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 use makepad_widgets::{dvec2, Rect};
 

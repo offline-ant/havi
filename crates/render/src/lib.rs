@@ -9,7 +9,7 @@
 //! Source-of-truth split:
 //! - retained browser-scene lowering: `browser_scene_builder`, `browser_scene_primitives`
 //! - legacy Makepad compositor fallback: `frame_builder`, `scene`, `scene_builder`,
-//!   `mp_scene_lowering`, `makepad_builder`, `hit_test`
+//!   `mp_scene_lowering`, `makepad_builder`, `makepad_fragments`
 //! - backend-specific transform fallback: `transform`
 
 mod background;
@@ -17,7 +17,6 @@ mod browser_scene_builder;
 mod browser_scene_primitives;
 mod frame_builder;
 mod fragment_source;
-mod hit_test;
 mod layout_adapter;
 mod makepad_builder;
 mod makepad_fragments;

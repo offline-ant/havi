@@ -1,3 +1,8 @@
+//! Legacy compositor lowering used only by the fallback render path.
+//!
+//! This path remains only for `HAVI_DISABLE_BROWSER_SCENE=1` and direct-builder
+//! fallback failures.
+
 use std::collections::HashMap;
 
 use makepad_compositor::{

@@ -1,3 +1,8 @@
+//! Legacy fragment painting helpers used only by the fallback render path.
+//!
+//! This path remains only for `HAVI_DISABLE_BROWSER_SCENE=1` and direct-builder
+//! fallback failures.
+
 use havi_fragment_semantics::{Fragment, ImageFragment};
 use makepad_widgets::makepad_draw::ImageBuffer;
 use makepad_widgets::*;
