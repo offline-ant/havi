@@ -290,24 +290,48 @@ fn paint_run_to_primitives(
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
 ) -> Result<Vec<MpPrimitive>, String> {
-    if run.items.len() != 1 {
-        return Err("multi-item paint runs not supported by browser-scene adapter yet".to_string());
+    let mut primitives = Vec::new();
+    for item in &run.items {
+        primitives.extend(paint_run_item_to_primitives(
+            cx,
+            scene,
+            state,
+            item,
+            run.owner_node_id,
+            spatial_id,
+            clip_chain_id,
+            effect_id,
+        )?);
     }
-    let item = &run.items[0];
+    Ok(primitives)
+}
+
+fn paint_run_item_to_primitives(
+    cx: &mut Cx2d,
+    scene: &mut MpScene,
+    state: &mut AdapterState,
+    item: &crate::scene::RenderPaintItem<'_>,
+    run_owner_node_id: Option<usize>,
+    spatial_id: MpSpatialId,
+    clip_chain_id: MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+) -> Result<Vec<MpPrimitive>, String> {
+    let bounds = paint_item_bounds(item);
+    let owner_node_id = paint_item_owner_node_id(item.source).or(run_owner_node_id);
     match (item.section, item.source) {
         (StackingContextSection::OwnBackgroundsAndBorders, Fragment::Box(bf))
         | (StackingContextSection::OwnBackgroundsAndBorders, Fragment::Float(bf)) => lower_box_primitives(
             scene,
             &mut state.resources,
-            run.local_bounds,
+            bounds,
             bf,
             spatial_id,
             clip_chain_id,
             effect_id,
-            run.owner_node_id,
+            owner_node_id,
         ),
         (StackingContextSection::Foreground, Fragment::Text(tf)) => {
-            let (glyph_run_key, glyph_run) = make_glyph_run_resource(cx, run, tf)?;
+            let (glyph_run_key, glyph_run) = make_glyph_run_resource(cx, owner_node_id, bounds, tf)?;
             state.resources.glyph_runs.insert(glyph_run_key, glyph_run);
             let (font_key, font_resource) = font_resource_for_text(cx, tf)?;
             state.resources.fonts.entry(font_key).or_insert(font_resource);
@@ -316,12 +340,12 @@ fn paint_run_to_primitives(
                 makepad_browser_scene::MpPrimitiveId(0),
                 spatial_id,
                 clip_chain_id,
-                run.local_bounds,
+                bounds,
                 glyph_run_key,
                 inherited_color(&tf.base.style),
             );
             primitive.effect_id = effect_id;
-            primitive.hit_test_tag = run.owner_node_id.map(|id| MpHitTestTag(id as u64));
+            primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
             Ok(vec![primitive])
         }
         (StackingContextSection::Foreground, Fragment::Image(image)) => {
@@ -332,16 +356,51 @@ fn paint_run_to_primitives(
                 spatial_id,
                 clip_chain_id,
                 effect_id,
-                bounds: run.local_bounds,
+                bounds,
                 kind: makepad_browser_scene::MpPrimitiveKind::Image(makepad_browser_scene::MpImage {
                     image_key,
                 }),
-                hit_test_tag: run.owner_node_id.map(|id| MpHitTestTag(id as u64)),
+                hit_test_tag: owner_node_id.map(|id| MpHitTestTag(id as u64)),
             };
             primitive.effect_id = effect_id;
             Ok(vec![primitive])
         }
         _ => Err("paint run not supported by browser-scene adapter yet".to_string()),
+    }
+}
+
+fn paint_item_owner_node_id(fragment: &Fragment) -> Option<usize> {
+    match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => bf.base.tag.map(|tag| tag.node.0),
+        Fragment::Text(tf) => tf.base.tag.map(|tag| tag.node.0),
+        Fragment::Image(image) => image.base.tag.map(|tag| tag.node.0),
+        Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
+        Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
+        Fragment::AbsoluteOrFixedPositioned { .. } => None,
+    }
+}
+
+fn paint_item_bounds(item: &crate::scene::RenderPaintItem<'_>) -> Rect {
+    let rect = match item.source {
+        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.border_rect()),
+        Fragment::Text(tf) => physical_rect_to_rect(tf.base.rect),
+        Fragment::Image(image) => physical_rect_to_rect(image.base.rect),
+        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
+        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => Rect {
+            pos: dvec2(0.0, 0.0),
+            size: dvec2(0.0, 0.0),
+        },
+    };
+    Rect {
+        pos: item.local_origin + rect.pos,
+        size: rect.size,
+    }
+}
+
+fn physical_rect_to_rect(rect: havi_types::PhysicalRect<app_units::Au>) -> Rect {
+    Rect {
+        pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
+        size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
     }
 }
 
@@ -1476,7 +1535,8 @@ fn lighten(color: makepad_widgets::Vec4f, factor: f32) -> makepad_widgets::Vec4f
 
 fn make_glyph_run_resource(
     cx: &mut Cx2d,
-    run: &RenderPaintRun<'_>,
+    owner_node_id: Option<usize>,
+    bounds: Rect,
     tf: &TextFragment,
 ) -> Result<(MpGlyphRunKey, MpGlyphRunResource), String> {
     if tf.glyphs.is_empty() {
@@ -1484,7 +1544,7 @@ fn make_glyph_run_resource(
     }
     let (font_key, _) = font_resource_for_text(cx, tf)?;
     let glyph_run_key = MpGlyphRunKey(hash_value(&(
-        run.owner_node_id,
+        owner_node_id,
         tf.text.as_str(),
         tf.base.rect.origin.x.0,
         tf.base.rect.origin.y.0,
@@ -1544,7 +1604,7 @@ fn make_glyph_run_resource(
             font_keys: vec![font_key],
             glyphs,
             metrics: MpGlyphRunMetrics {
-                advance_width_px: advance_width.min(run.local_bounds.size.x as f32),
+                advance_width_px: advance_width.min(bounds.size.x as f32),
                 baseline_ascent_px: tf.baseline_ascent.to_f32_px(),
                 underline_offset_px: tf.underline_offset.to_f32_px(),
                 underline_thickness_px: tf.underline_size.to_f32_px(),
