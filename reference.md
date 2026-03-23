@@ -53,8 +53,6 @@ Environment variables:
 - `HAVI_URL` — startup URL override
 - `HAVI_SCREENSHOT` — internal screenshot output path set by
   `--screenshot <output.png>`
-- `HAVI_DISABLE_BROWSER_SCENE` — force legacy renderer path for cutover
-  diagnostics
 
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.

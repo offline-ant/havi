@@ -18,8 +18,8 @@ use style::values::computed::ClipRectOrAuto;
 use crate::background::resolve_border_radii;
 use crate::browser_scene_primitives::{paint_run_item_to_primitives, AdapterState};
 use crate::layout_stacking_context::StackingContextSection;
+use crate::paint_items::RenderPaintItem;
 use crate::reference_frame::reference_frame_semantics;
-use crate::scene::RenderPaintItem;
 
 #[derive(Clone, Copy)]
 struct BuildContext {

@@ -1,31 +1,13 @@
-//! Render layout fragments using a Servo-shaped semantic scene with a Makepad backend.
-//!
-//! Architecture boundary:
-//! - layout publishes the shared semantic fragment model through shared state
-//! - render lowers fragments directly into the retained browser scene when enabled
-//! - the legacy `RenderScene` path remains only as a fallback and disable escape hatch
-//! - Makepad modules execute the already-built scene and do not reconstruct layout semantics
-//!
-//! Source-of-truth split:
-//! - retained browser-scene lowering: `browser_scene_builder`, `browser_scene_primitives`
-//! - legacy Makepad compositor fallback: `frame_builder`, `scene`, `scene_builder`,
-//!   `mp_scene_lowering`, `makepad_builder`, `makepad_fragments`
-//! - backend-specific transform fallback: `transform`
+//! Render layout fragments through the retained browser-scene renderer.
 
 mod background;
 mod browser_scene_builder;
 mod browser_scene_primitives;
-mod frame_builder;
 mod fragment_source;
 mod layout_adapter;
-mod makepad_builder;
-mod makepad_fragments;
-mod mp_scene_lowering;
 mod paint_items;
 mod reference_frame;
 mod render_plan;
-mod scene;
-mod scene_builder;
 pub mod shaders;
 pub mod video_texture_map;
 pub(crate) mod layout_stacking_context;
@@ -58,18 +40,14 @@ use base::id::WebViewId;
 use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::MpBrowserRenderer;
-use makepad_compositor::{MpRenderer, MpSurface};
 use makepad_widgets::*;
-use makepad_widgets::makepad_draw::draw_list_2d::DrawList2d;
 use makepad_widgets::makepad_draw::Texture;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 
+pub use fragment_source::CachedFragmentSource;
 pub use shaders::{
     DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
-pub use fragment_source::CachedFragmentSource;
-
-
 
 /// Cache for image textures, keyed by OpaqueNode id.
 /// Each entry tracks the texture and the byte-range hash used to create it,
@@ -94,17 +72,6 @@ pub struct SelectionHighlight {
 /// Per-element scroll offsets for overflow containers, keyed by OpaqueNode id.
 pub type ScrollState = HashMap<usize, DVec2>;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct SceneSurfaceKey {
-    pub paint_container_id: usize,
-    pub run_index: usize,
-}
-
-pub(crate) struct SceneSurfaceCacheEntry {
-    pub surface: MpSurface,
-    pub draw_list: DrawList2d,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderPathCounters {
     pub scene_rebuild_count: u64,
@@ -112,8 +79,6 @@ pub struct RenderPathCounters {
     pub widget_presentation_count: u64,
     pub browser_scene_present_count: u64,
     pub browser_scene_fallback_count: u64,
-    pub legacy_present_count: u64,
-    pub legacy_surface_count: u64,
 }
 
 #[derive(Clone)]
@@ -127,17 +92,14 @@ struct BrowserDocumentCacheEntry {
 
 #[derive(Default)]
 pub struct FrameDrawListState {
-    pub(crate) renderer: Option<MpRenderer>,
     pub(crate) browser_renderer: Option<MpBrowserRenderer>,
     pub(crate) browser_document_cache: Option<BrowserDocumentCacheEntry>,
-    pub(crate) surfaces: HashMap<SceneSurfaceKey, SceneSurfaceCacheEntry>,
     pub counters: RenderPathCounters,
 }
 
 impl FrameDrawListState {
     pub fn clear(&mut self) {
-        self.surfaces.clear();
-        self.counters.legacy_surface_count = 0;
+        self.browser_document_cache = None;
     }
 }
 
@@ -218,10 +180,7 @@ fn paint_selection_overlay(cx: &mut Cx2d, draw_bg: &mut DrawColor, selection: Op
     }
 }
 
-/// Draw fragments with viewport clipping, using a pre-built semantic scene.
-///
-/// Scene construction stays in page space. The compositor owns all placement
-/// via `host_rect` and `page_to_host` on the scene root.
+/// Draw fragments with viewport clipping through the retained browser-scene renderer.
 pub fn render_fragments_clipped(
     cx: &mut Cx2d,
     webview_id: WebViewId,
@@ -229,19 +188,19 @@ pub fn render_fragments_clipped(
     viewport_top: f32,
     viewport_bottom: f32,
     draw_bg: &mut DrawColor,
-    draw_text: &mut DrawText,
-    draw_text_bold: &mut DrawText,
-    draw_text_mono: &mut DrawText,
-    draw_image: &mut DrawImage,
-    texture_cache: &mut TextureCache,
+    _draw_text: &mut DrawText,
+    _draw_text_bold: &mut DrawText,
+    _draw_text_mono: &mut DrawText,
+    _draw_image: &mut DrawImage,
+    _texture_cache: &mut TextureCache,
     scroll_state: &ScrollState,
-    draw_rounded_bg: &mut DrawRoundedColor,
-    draw_box_shadow: &mut DrawBoxShadow,
-    draw_gradient: &mut DrawGradient,
-    draw_video_yuv: &mut DrawVideoYuv,
+    _draw_rounded_bg: &mut DrawRoundedColor,
+    _draw_box_shadow: &mut DrawBoxShadow,
+    _draw_gradient: &mut DrawGradient,
+    _draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
     frame_draw_lists: &mut FrameDrawListState,
-    image_overrides: &havi_types::ImageOverrides,
+    _image_overrides: &havi_types::ImageOverrides,
 ) {
     frame_draw_lists.counters.widget_presentation_count += 1;
 
@@ -256,162 +215,116 @@ pub fn render_fragments_clipped(
         return;
     };
     let frag_ptr = std::sync::Arc::as_ptr(&fragments) as usize;
-    let browser_scene_enabled = std::env::var("HAVI_DISABLE_BROWSER_SCENE")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .is_none();
     let scroll_hash = hash_scroll_state(scroll_state);
+    let log_render_stats = render_stats_enabled();
 
-    if browser_scene_enabled {
-        let log_render_stats = render_stats_enabled();
-
-        let cached_draw = if let Some(cache) = frame_draw_lists.browser_document_cache.as_mut().filter(|cache| {
-            cache.fragment_ptr == frag_ptr && cache.viewport_size == viewport_size
-        }) {
-            if cache.scroll_hash != scroll_hash {
-                update_cached_browser_document_scroll_offsets(
-                    &mut cache.document,
-                    &cache.scroll_nodes,
-                    scroll_state,
-                );
-                cache.scroll_hash = scroll_hash;
-            }
-            if frame_draw_lists.browser_renderer.is_none() {
-                frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
-            }
-            frame_draw_lists.counters.scene_submit_count += 1;
-            frame_draw_lists.counters.browser_scene_present_count += 1;
-            frame_draw_lists.counters.legacy_surface_count = 0;
-            Some(
-                frame_draw_lists
-                    .browser_renderer
-                    .as_mut()
-                    .unwrap()
-                    .draw_document(
-                        cx,
-                        &cache.document,
-                        Rect {
-                            pos: webview_origin,
-                            size: viewport_size,
-                        },
-                    ),
-            )
-        } else {
-            None
-        };
-        if let Some(cached_draw) = cached_draw {
-            match cached_draw {
-                Ok(stats) => {
-                    if log_render_stats {
-                        log_browser_scene_stats(&stats);
-                    }
-                    paint_selection_overlay(cx, draw_bg, selection);
-                    return;
-                }
-                Err(err) => {
-                    frame_draw_lists.counters.browser_scene_fallback_count += 1;
-                    frame_draw_lists.browser_document_cache = None;
-                    eprintln!("[havi][render] browser_scene cached fallback: {err:?}");
-                }
-            }
-        }
-
-        let browser_document = {
-            let previous_document = frame_draw_lists
-                .browser_document_cache
-                .as_ref()
-                .filter(|cache| cache.fragment_ptr == frag_ptr)
-                .map(|cache| &cache.document);
-            browser_scene_builder::try_build_browser_document(
-                cx,
-                &fragments,
+    let cached_draw = if let Some(cache) = frame_draw_lists.browser_document_cache.as_mut().filter(|cache| {
+        cache.fragment_ptr == frag_ptr && cache.viewport_size == viewport_size
+    }) {
+        if cache.scroll_hash != scroll_hash {
+            update_cached_browser_document_scroll_offsets(
+                &mut cache.document,
+                &cache.scroll_nodes,
                 scroll_state,
-                viewport_size,
-                previous_document,
-            )
-        };
-        match browser_document {
-            Ok(browser_document) => {
-                if frame_draw_lists.browser_renderer.is_none() {
-                    frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+            );
+            cache.scroll_hash = scroll_hash;
+        }
+        if frame_draw_lists.browser_renderer.is_none() {
+            frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+        }
+        frame_draw_lists.counters.scene_submit_count += 1;
+        frame_draw_lists.counters.browser_scene_present_count += 1;
+        Some(
+            frame_draw_lists
+                .browser_renderer
+                .as_mut()
+                .unwrap()
+                .draw_document(
+                    cx,
+                    &cache.document,
+                    Rect {
+                        pos: webview_origin,
+                        size: viewport_size,
+                    },
+                ),
+        )
+    } else {
+        None
+    };
+    if let Some(cached_draw) = cached_draw {
+        match cached_draw {
+            Ok(stats) => {
+                if log_render_stats {
+                    log_browser_scene_stats(&stats);
                 }
-                frame_draw_lists.counters.scene_rebuild_count += 1;
-                frame_draw_lists.counters.scene_submit_count += 1;
-                frame_draw_lists.counters.browser_scene_present_count += 1;
-                frame_draw_lists.counters.legacy_surface_count = 0;
-                match frame_draw_lists
-                    .browser_renderer
-                    .as_mut()
-                    .unwrap()
-                    .draw_document(
-                        cx,
-                        &browser_document.document,
-                        Rect {
-                            pos: webview_origin,
-                            size: viewport_size,
-                        },
-                    ) {
-                    Ok(stats) => {
-                        if log_render_stats {
-                            log_browser_scene_stats(&stats);
-                        }
-                        frame_draw_lists.browser_document_cache = Some(BrowserDocumentCacheEntry {
-                            fragment_ptr: frag_ptr,
-                            viewport_size,
-                            scroll_hash,
-                            document: browser_document.document.clone(),
-                            scroll_nodes: browser_document.scroll_nodes,
-                        });
-                        paint_selection_overlay(cx, draw_bg, selection);
-                        return;
-                    }
-                    Err(err) => {
-                        frame_draw_lists.counters.browser_scene_fallback_count += 1;
-                        eprintln!("[havi][render] browser_scene direct fallback: {err:?}");
-                    }
-                }
+                paint_selection_overlay(cx, draw_bg, selection);
+                return;
             }
             Err(err) => {
                 frame_draw_lists.counters.browser_scene_fallback_count += 1;
-                eprintln!("[havi][render] browser_scene direct builder fallback: {err}");
+                frame_draw_lists.browser_document_cache = None;
+                eprintln!("[havi][render] browser_scene cached draw failed: {err:?}");
             }
         }
-    } else {
-        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
     }
 
-    let scene = frame_builder::build_scene(
+    let previous_document = frame_draw_lists
+        .browser_document_cache
+        .as_ref()
+        .filter(|cache| cache.fragment_ptr == frag_ptr)
+        .map(|cache| &cache.document);
+    let browser_document = match browser_scene_builder::try_build_browser_document(
+        cx,
         &fragments,
         scroll_state,
         viewport_size,
-    );
-    frame_draw_lists.counters.scene_rebuild_count += 1;
-
-    let mut state = makepad_builder::MakepadDrawState {
-        draw_bg,
-        draw_text,
-        draw_text_bold,
-        draw_text_mono,
-        draw_image,
-        texture_cache,
-        draw_rounded_bg,
-        draw_box_shadow,
-        draw_gradient,
-        draw_video_yuv,
-        selection,
-        frame_draw_lists,
-        image_overrides,
+        previous_document,
+    ) {
+        Ok(browser_document) => browser_document,
+        Err(err) => {
+            frame_draw_lists.counters.browser_scene_fallback_count += 1;
+            eprintln!("[havi][render] browser_scene builder failed: {err}");
+            return;
+        }
     };
-    state.frame_draw_lists.counters.scene_submit_count += 1;
-    state.frame_draw_lists.counters.legacy_present_count += 1;
-    makepad_builder::paint_scene(
-        cx,
-        &scene,
-        webview_origin,
-        viewport_size,
-        &mut state,
-    );
-    state.frame_draw_lists.counters.legacy_surface_count = state.frame_draw_lists.surfaces.len() as u64;
+
+    if frame_draw_lists.browser_renderer.is_none() {
+        frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+    }
+    frame_draw_lists.counters.scene_rebuild_count += 1;
+    frame_draw_lists.counters.scene_submit_count += 1;
+    frame_draw_lists.counters.browser_scene_present_count += 1;
+    match frame_draw_lists
+        .browser_renderer
+        .as_mut()
+        .unwrap()
+        .draw_document(
+            cx,
+            &browser_document.document,
+            Rect {
+                pos: webview_origin,
+                size: viewport_size,
+            },
+        ) {
+        Ok(stats) => {
+            if log_render_stats {
+                log_browser_scene_stats(&stats);
+            }
+            frame_draw_lists.browser_document_cache = Some(BrowserDocumentCacheEntry {
+                fragment_ptr: frag_ptr,
+                viewport_size,
+                scroll_hash,
+                document: browser_document.document.clone(),
+                scroll_nodes: browser_document.scroll_nodes,
+            });
+            paint_selection_overlay(cx, draw_bg, selection);
+        }
+        Err(err) => {
+            frame_draw_lists.counters.browser_scene_fallback_count += 1;
+            frame_draw_lists.browser_document_cache = None;
+            eprintln!("[havi][render] browser_scene draw failed: {err:?}");
+        }
+    }
 }
 
 /// Compute the visual offset for a sticky-positioned element.
@@ -437,8 +350,6 @@ pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
     let content_w = bf.content_rect().size.width.to_f32_px() as f64;
     let content_h = bf.content_rect().size.height.to_f32_px() as f64;
 
-    // Compute content bounds as the union of all children's border rects
-    // (children are positioned in content-rect coordinates).
     let mut max_x: f64 = 0.0;
     let mut max_y: f64 = 0.0;
     for child in &bf.children {

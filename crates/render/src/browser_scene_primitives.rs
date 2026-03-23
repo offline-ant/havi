@@ -22,7 +22,7 @@ use crate::background::{
 };
 use crate::color::{inherited_color, resolve_color};
 use crate::layout_stacking_context::StackingContextSection;
-use crate::scene::RenderPaintItem;
+use crate::paint_items::RenderPaintItem;
 
 pub(crate) struct AdapterState {
     pub(crate) resources: MpResourceStore,
