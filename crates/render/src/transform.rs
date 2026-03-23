@@ -132,6 +132,8 @@ pub(crate) fn compute_css_self_transform_3d(
     Some(transform_to_array(&transform))
 }
 
+// CSS `perspective` affects descendants, not the element's own geometry, so it
+// is lowered separately from the element's self transform.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn compute_css_descendant_perspective_matrix(
     computed: &ComputedValues,
@@ -264,6 +266,9 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     (m[15] - 1.0).abs() > 1e-5                       // m44
 }
 
+// Flatten a 3D reference frame by solving the affine map from projected corner
+// positions on the local z=0 plane. Sampling only basis vectors is not enough
+// once perspective and shear are involved.
 #[cfg(test)]
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
@@ -298,6 +303,7 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
     ])
 }
 
+// Apply CSS transform-origin in euclid's row-vector convention.
 fn change_basis<U, V>(m: &euclid::Transform3D<f32, U, V>, x: f32, y: f32, z: f32) -> euclid::Transform3D<f32, U, V> {
     euclid::Transform3D::translation(-x, -y, -z)
         .then(m)

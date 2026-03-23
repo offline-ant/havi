@@ -304,6 +304,8 @@ pub fn is_scroll_container(bf: &BoxFragment) -> bool {
         || matches!(ov.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll)
 }
 
+// Child fragment coordinates are measured in content-box space, so max scroll
+// is content extent minus visible content size.
 pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
     let content_w = bf.content_rect().size.width.to_f32_px() as f64;
     let content_h = bf.content_rect().size.height.to_f32_px() as f64;

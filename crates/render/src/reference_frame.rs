@@ -20,6 +20,8 @@ pub(crate) struct ReferenceFrameSemantics {
     pub backface_visibility: MpBackfaceVisibility,
 }
 
+// HAVI resolves semantic reference-frame inputs here. The compositor owns the
+// later flat-vs-3D execution decision.
 pub(crate) fn reference_frame_semantics(
     bf: &BoxFragment,
     current_origin: DVec2,

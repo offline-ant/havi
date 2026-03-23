@@ -27,6 +27,8 @@ impl VideoBinding {
     }
 }
 
+// Accessed only from the Makepad main thread. `Texture` is Rc-backed and not
+// `Send`, so this state stays thread-local.
 thread_local! {
     static VIDEO_BINDINGS: std::cell::RefCell<HashMap<(u32, u32), VideoBinding>> =
         std::cell::RefCell::new(HashMap::new());
