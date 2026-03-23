@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_fragment_semantics::{Fragment, IFrameFragment};
@@ -63,6 +64,16 @@ pub(crate) struct BrowserDocumentScrollNodes {
 pub(crate) struct BuiltBrowserDocument {
     pub document: MpDocument,
     pub scroll_nodes: BrowserDocumentScrollNodes,
+}
+
+fn log_builder_skip_once(reason: impl Into<String>) {
+    static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let reason = reason.into();
+    let logged = LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut logged = logged.lock().unwrap();
+    if logged.insert(reason.clone()) {
+        eprintln!("[havi][render] browser_scene builder skipped unsupported content: {reason}");
+    }
 }
 
 pub(crate) fn try_build_browser_document(
@@ -324,7 +335,14 @@ fn build_box_fragment(
         );
     }
 
-    if let Some(effect) = lower_box_effect_node(bf, box_cx.spatial_id, box_cx.clip_chain_id)? {
+    let effect = match lower_box_effect_node(bf, box_cx.spatial_id, box_cx.clip_chain_id) {
+        Ok(effect) => effect,
+        Err(reason) => {
+            log_builder_skip_once(reason);
+            return Ok(());
+        }
+    };
+    if let Some(effect) = effect {
         box_cx.effect_id = Some(scene.push_effect(effect));
     }
 
@@ -490,7 +508,7 @@ fn push_fragment_primitives(
     owner_node_id: Option<usize>,
     build_cx: BuildContext,
 ) -> Result<(), String> {
-    for primitive in paint_run_item_to_primitives(
+    let primitives = match paint_run_item_to_primitives(
         cx,
         scene,
         state,
@@ -499,7 +517,14 @@ fn push_fragment_primitives(
         build_cx.spatial_id,
         build_cx.clip_chain_id,
         build_cx.effect_id,
-    )? {
+    ) {
+        Ok(primitives) => primitives,
+        Err(reason) => {
+            log_builder_skip_once(reason);
+            return Ok(());
+        }
+    };
+    for primitive in primitives {
         scene.push_primitive(primitive);
     }
     Ok(())
