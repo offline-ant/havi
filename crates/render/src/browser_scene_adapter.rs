@@ -10,8 +10,8 @@ use makepad_browser_scene::{
     MpBlendMode as BrowserBlendMode, MpChildDocument, MpClipChain, MpClipChainId, MpClipKind,
     MpClipNode, MpDocument, MpDocumentId, MpEffectNode, MpEmbed, MpFontKey, MpFontResource,
     MpGlyphRunKey, MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag, MpIsolation,
-    MpPipelineId, MpPositionedGlyph, MpPrimitive, MpResourceStore, MpScene, MpSceneId,
-    MpSpatialId, MpSpatialKind, MpSpatialNode, MpScrollFrame, MpStickyFrame,
+    MpPerCornerRadius, MpPipelineId, MpPositionedGlyph, MpPrimitive, MpResourceStore, MpScene,
+    MpSceneId, MpSpatialId, MpSpatialKind, MpSpatialNode, MpScrollFrame, MpStickyFrame,
     MpStickyOffsets, MpTextDecorations, MpTextShadow,
 };
 use makepad_widgets::{dvec2, vec2, Cx2d, Rect, Vec2f};
@@ -170,7 +170,7 @@ fn build_browser_document(
                         RenderClipGeometry::Rect { rect } => MpClipKind::Rect { rect: *rect },
                         RenderClipGeometry::RoundedRect { rect, radius } => MpClipKind::RoundedRect {
                             rect: *rect,
-                            radius: *radius,
+                            radius: MpPerCornerRadius::uniform(*radius),
                         },
                         RenderClipGeometry::PlaneSet { .. } => {
                             return Err("plane-set clip not supported by browser-scene adapter yet".to_string())
@@ -453,14 +453,14 @@ fn lower_box_primitives(
     let current_abs = AbsoluteColor::new(ColorSpace::Srgb, current.x, current.y, current.z, current.w);
     let border = border_paint(computed, &current_abs);
     let outline = outline_paint(computed, &current_abs);
-    let radius = uniform_border_radius(computed)?;
+    let radius = border_radius(computed);
 
     let mut primitives = Vec::new();
     append_box_shadow_primitives(
         &mut primitives,
         computed,
         bounds,
-        radius,
+        radius.max(),
         spatial_id,
         clip_chain_id,
         effect_id,
@@ -469,7 +469,7 @@ fn lower_box_primitives(
     );
     let background_color = resolve_color(&computed.get_background().background_color, &current_abs);
     if background_color.w > 0.001 {
-        let mut primitive = if radius > 0.0 {
+        let mut primitive = if radius.max() > 0.0 {
             MpPrimitive::rounded_rect(
                 makepad_browser_scene::MpPrimitiveId(0),
                 spatial_id,
@@ -506,7 +506,7 @@ fn lower_box_primitives(
         resources,
     )?;
 
-    if radius > 0.0 {
+    if radius.max() > 0.0 {
         if let Some((width, color)) = uniform_rounded_border(&border) {
             let mut primitive = MpPrimitive::border(
                 makepad_browser_scene::MpPrimitiveId(0),
@@ -543,7 +543,7 @@ fn lower_box_primitives(
                     expanded,
                     outline.color,
                     outline.width as f32,
-                    radius + outline.offset as f32 + outline.width as f32,
+                    radius.outset(outline.offset as f32 + outline.width as f32),
                 );
                 primitive.effect_id = effect_id;
                 primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
@@ -576,15 +576,14 @@ fn lower_box_primitives(
     Ok(primitives)
 }
 
-fn uniform_border_radius(computed: &ComputedValues) -> Result<f32, String> {
+fn border_radius(computed: &ComputedValues) -> MpPerCornerRadius {
     let radii = resolve_border_radii(computed);
-    if radii.max() <= 0.0 {
-        return Ok(0.0);
+    MpPerCornerRadius {
+        tl: radii.tl,
+        tr: radii.tr,
+        br: radii.br,
+        bl: radii.bl,
     }
-    if radii.tl == radii.tr && radii.tl == radii.br && radii.tl == radii.bl {
-        return Ok(radii.tl);
-    }
-    Err("non-uniform rounded boxes are not supported by browser-scene adapter yet".to_string())
 }
 
 fn append_box_shadow_primitives(
@@ -707,12 +706,12 @@ fn background_layer_clip_chain(
     spatial_id: MpSpatialId,
     clip_chain_id: MpClipChainId,
     layer: &BackgroundLayerGeom,
-    radius: f32,
+    radius: MpPerCornerRadius,
 ) -> MpClipChainId {
     let rect = background_layer_bounds(layer);
     let clip_id = scene.push_clip(MpClipNode {
         spatial_id,
-        kind: if radius > 0.0 {
+        kind: if radius.max() > 0.0 {
             MpClipKind::RoundedRect { rect, radius }
         } else {
             MpClipKind::Rect { rect }
@@ -730,7 +729,7 @@ fn append_background_layer_primitives(
     computed: &ComputedValues,
     background_images: &[havi_fragment_semantics::fragment_tree::BackgroundImage],
     bounds: Rect,
-    clip_radius: f32,
+    clip_radius: MpPerCornerRadius,
     spatial_id: MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -774,7 +773,7 @@ fn append_background_layer_primitives(
                 ) else {
                     continue;
                 };
-                let layer_clip_chain_id = if clip_radius > 0.0
+                let layer_clip_chain_id = if clip_radius.max() > 0.0
                     || (layer.bounds_w - layer.tile_w).abs() > 0.01
                     || (layer.bounds_h - layer.tile_h).abs() > 0.01
                 {
@@ -928,7 +927,7 @@ fn append_background_layer_primitives(
                 ) else {
                     continue;
                 };
-                let layer_clip_chain_id = if clip_radius > 0.0
+                let layer_clip_chain_id = if clip_radius.max() > 0.0
                     || (layer.bounds_w - layer.tile_w).abs() > 0.01
                     || (layer.bounds_h - layer.tile_h).abs() > 0.01
                 {
