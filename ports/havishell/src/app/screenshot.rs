@@ -2,12 +2,19 @@ use super::*;
 use ::image::{DynamicImage, RgbaImage};
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
+const SCREENSHOT_QUIESCENCE_MS: u64 = 250;
+#[cfg(debug_assertions)]
+const SCREENSHOT_MAX_SETTLE_MS: u64 = 10000;
+#[cfg(not(debug_assertions))]
+const SCREENSHOT_MAX_SETTLE_MS: u64 = 2000;
 const SCREENSHOT_SETTLE_FRAMES: u8 = 1;
 
 #[derive(Clone, Debug)]
 pub(super) enum ScreenshotMode {
     WaitingForLoad { output_path: PathBuf },
+    WaitingForSettle { output_path: PathBuf, deadline: Instant, last_paint: Instant },
     Settling { output_path: PathBuf, frames_left: u8 },
     Capturing,
 }
@@ -56,9 +63,11 @@ impl App {
             return;
         }
 
-        self.screenshot_mode = Some(ScreenshotMode::Settling {
+        let now = Instant::now();
+        self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
             output_path,
-            frames_left: SCREENSHOT_SETTLE_FRAMES,
+            deadline: now + Duration::from_millis(SCREENSHOT_MAX_SETTLE_MS),
+            last_paint: now,
         });
         self.needs_paint = true;
         self.idle_frames = 0;
@@ -72,6 +81,36 @@ impl App {
         };
         match mode {
             ScreenshotMode::WaitingForLoad { .. } => {}
+            ScreenshotMode::WaitingForSettle {
+                output_path,
+                deadline,
+                mut last_paint,
+            } => {
+                if self.needs_paint {
+                    last_paint = Instant::now();
+                }
+                let now = Instant::now();
+                let quiesced = now.duration_since(last_paint)
+                    > Duration::from_millis(SCREENSHOT_QUIESCENCE_MS);
+                let timed_out = now > deadline;
+                if quiesced || timed_out {
+                    self.screenshot_mode = Some(ScreenshotMode::Settling {
+                        output_path,
+                        frames_left: SCREENSHOT_SETTLE_FRAMES,
+                    });
+                    self.next_frame = cx.new_next_frame();
+                    cx.redraw_all();
+                    return;
+                }
+                self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
+                    output_path,
+                    deadline,
+                    last_paint,
+                });
+                self.next_frame = cx.new_next_frame();
+                cx.redraw_all();
+                return;
+            }
             ScreenshotMode::Settling {
                 output_path,
                 frames_left,

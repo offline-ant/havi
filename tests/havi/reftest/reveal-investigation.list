@@ -1,9 +1,61 @@
-# Minimal self-contained investigation cases.
+# Minimal self-contained investigation cases for presentation rendering bugs.
 # Run with:
 #   ./.venv/bin/python3 tests/havi/reftest.py --manifest tests/havi/reftest/reveal-investigation.list
+
+# --- Existing cases (passing) ---
 
 # Screenshot capture settles too early. Final DOM appears after 500ms.
 == cases/reveal-overlay-probe.html refs/reveal-overlay-probe-ref.html
 
 # Perspective ancestor drops transformed centered content.
 == cases/reveal-unpaused-box.html refs/reveal-unpaused-box-ref.html
+
+# --- Bug 1: Root element background not painted over viewport canvas ---
+# CSS spec: "The background of the root element becomes the background of
+# the canvas and covers the entire canvas." HAVI only paints the body
+# background behind the element's own content box, leaving the rest white.
+
+# Empty page with html,body background — should be solid red, renders white.
+== cases/viewport-bg-fill.html refs/viewport-bg-fill-ref.html
+
+# Page with text content + body background — background only covers the
+# text line, not the full viewport. Reference uses position:fixed div.
+== cases/viewport-bg-with-content.html refs/viewport-bg-with-content-ref.html
+
+# --- Bug 2: Perspective compositor path (minor rendering difference) ---
+# Content under perspective IS visible (not dropped), but the compositor
+# path introduces sub-pixel text rendering differences (~413 pixels,
+# max channel delta ~18). Not a content-drop bug.
+
+== cases/perspective-clip-drop.html refs/perspective-clip-drop-ref.html
+== cases/perspective-text-center.html refs/perspective-text-center-ref.html
+== cases/perspective-nested-overflow.html refs/perspective-nested-overflow-ref.html
+
+# --- Bug 3: Non-identity CSS transform drops content ---
+# When overflow:hidden ancestor creates a clip, and a descendant has a
+# non-translation CSS transform (e.g. scale(1.02)), the renderer cannot
+# resolve the clip's spatial translation through the transform.
+# resolve_spatial_translation_from falls back to resolve_spatial_translation
+# which calls extract_translation on the non-identity transform matrix and
+# fails. All content in the transform group is silently skipped.
+# Log: "[makepad-browser-scene] skipped unsupported content: unsupported
+#       transform in initial renderer"
+#
+# Trigger: overflow:hidden parent + child with transform:scale(!=1.0)
+
+# scale(1) is identity — should work. Regression guard.
+== cases/transform-scale-identity.html refs/transform-scale-identity-ref.html
+
+# scale(1.02) + overflow:hidden drops the red box.
+# != test: test should show red box, reference is plain black.
+# FAIL means content was dropped (test matches plain black reference).
+!= cases/transform-nonidentity-scale.html refs/transform-nonidentity-scale-ref.html
+
+# Full reveal.js pattern: overflow:hidden + perspective + scale(1.02) + text.
+# != test: test should show "Beyond HTTP", reference is plain dark background.
+# FAIL means text was dropped.
+!= cases/reveal-scale-drop.html refs/reveal-scale-drop-ref.html
+
+# --- Passing: JavaScript overlay removal ---
+# Script removes overlay element. JS execution + DOM mutation works.
+== cases/pause-overlay-js.html refs/pause-overlay-js-ref.html
