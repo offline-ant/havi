@@ -387,9 +387,12 @@ Current clip kinds in the scene model:
 - `ImageMask`
 - `PlaneSet`
 
-The current renderer executes rect clips directly and executes rounded-clip
-chains through a masked-surface helper. `ImageMask` and `PlaneSet` exist in the
-scene model but are not part of the currently executed subset.
+The current renderer keeps one ownership rule at compositor boundaries:
+`DirectChunk`, `IsolatedGroup`, and `TransformedGroup` lower their common
+compositor-owned clip prefix into `makepad/compositor`, and scratch rasterization
+keeps only the remaining local clips. The compositor executes geometric clip
+ownership for `Rect` and `PlaneSet`, and mask-backed clip ownership for
+`RoundedRect` and `ImageMask`.
 
 Files:
 
@@ -422,8 +425,8 @@ Current renderer execution applies:
 - blur
 
 The broader fields are kept in the scene model, but not all are executed yet.
-In particular, mask execution and full blend-mode execution are not wired as a
-complete path yet.
+Clip masks are now part of the compositor clip path. Full effect-node mask
+surfaces and full blend-mode execution are still incomplete.
 
 Files:
 
