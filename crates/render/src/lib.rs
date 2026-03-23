@@ -16,6 +16,7 @@
 mod background;
 mod browser_scene_adapter;
 mod browser_scene_builder;
+mod browser_scene_primitives;
 mod frame_builder;
 mod fragment_source;
 mod hit_test;
