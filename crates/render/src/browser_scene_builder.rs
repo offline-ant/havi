@@ -1,14 +1,15 @@
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::{
-    MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId, MpPerCornerRadius,
-    MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpScrollFrame, MpSpatialId,
-    MpSpatialKind, MpSpatialNode,
+    MpBlendMode, MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId, MpEffectNode,
+    MpFilter, MpIsolation, MpPerCornerRadius, MpReferenceFrame, MpResourceStore, MpScene,
+    MpSceneId, MpScrollFrame, MpSpatialId, MpSpatialKind, MpSpatialNode,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::values::computed::basic_shape::ClipPath;
+use style::values::computed::effects::Filter as ComputedFilter;
 use style::values::computed::ClipRectOrAuto;
 
 use crate::background::resolve_border_radii;
@@ -152,9 +153,6 @@ fn build_box_fragment(
         return Ok(());
     }
 
-    if has_box_effects(bf) {
-        return Err("direct browser-scene builder does not lower box effects yet".to_string());
-    }
     if has_sticky_frame(bf) {
         return Err("direct browser-scene builder does not lower sticky frames yet".to_string());
     }
@@ -198,6 +196,10 @@ fn build_box_fragment(
                 ),
             },
         );
+    }
+
+    if let Some(effect) = lower_box_effect_node(bf, box_cx.spatial_id, box_cx.clip_chain_id)? {
+        box_cx.effect_id = Some(scene.push_effect(effect));
     }
 
     let item_origin = if uses_box_local_basis {
@@ -297,13 +299,54 @@ fn push_fragment_primitives(
     Ok(())
 }
 
-fn has_box_effects(bf: &BoxFragment) -> bool {
+fn lower_box_effect_node(
+    bf: &BoxFragment,
+    spatial_id: MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+) -> Result<Option<MpEffectNode>, String> {
     let effects = bf.base.style.get_effects();
     let svg = bf.base.style.get_svg();
-    effects.opacity != 1.0
-        || !effects.filter.0.is_empty()
-        || effects.mix_blend_mode != ComputedMixBlendMode::Normal
-        || svg.clip_path != ClipPath::None
+    if svg.clip_path != ClipPath::None {
+        return Err("direct browser-scene builder does not lower clip-path masks yet".to_string());
+    }
+    let opacity = effects.opacity;
+    let filters = lower_box_effect_filters(&effects.filter.0)?;
+    let blend_mode = if effects.mix_blend_mode == ComputedMixBlendMode::Normal {
+        MpBlendMode::Normal
+    } else {
+        MpBlendMode::Named(format!("{:?}", effects.mix_blend_mode))
+    };
+    let isolated = opacity != 1.0 || !filters.is_empty() || !matches!(blend_mode, MpBlendMode::Normal);
+    if !isolated {
+        return Ok(None);
+    }
+    Ok(Some(MpEffectNode {
+        spatial_id,
+        clip_chain_id,
+        opacity,
+        filters,
+        blend_mode,
+        isolation: MpIsolation::Isolate,
+        mask: None,
+    }))
+}
+
+fn lower_box_effect_filters(filters: &[ComputedFilter]) -> Result<Vec<MpFilter>, String> {
+    let mut lowered = Vec::new();
+    for filter in filters {
+        match filter {
+            ComputedFilter::Blur(radius) => lowered.push(MpFilter::Blur(radius.0.px().max(0.0))),
+            ComputedFilter::Opacity(opacity) => {
+                lowered.push(MpFilter::Opacity(opacity.0.clamp(0.0, 1.0)))
+            }
+            other => {
+                return Err(format!(
+                    "direct browser-scene builder does not lower filter yet: {other:?}"
+                ))
+            }
+        }
+    }
+    Ok(lowered)
 }
 
 fn scroll_offset_for_box(
