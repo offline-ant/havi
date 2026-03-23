@@ -4,7 +4,7 @@ use makepad_browser_scene::{
     MpBlendMode, MpChildDocument, MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId,
     MpEffectNode, MpEmbed, MpFilter, MpHitTestTag, MpIsolation, MpPerCornerRadius,
     MpPipelineId, MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpScrollFrame,
-    MpSpatialId, MpSpatialKind, MpSpatialNode,
+    MpSpatialId, MpSpatialKind, MpSpatialNode, MpStickyFrame, MpStickyOffsets,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
@@ -202,10 +202,6 @@ fn build_box_fragment(
         return Ok(());
     }
 
-    if has_sticky_frame(bf) {
-        return Err("direct browser-scene builder does not lower sticky frames yet".to_string());
-    }
-
     let border_rect = physical_rect_to_rect(bf.border_rect());
     let content_rect = physical_rect_to_rect(bf.content_rect());
     let box_origin_in_parent = build_cx.containing_block_origin + border_rect.pos;
@@ -227,6 +223,19 @@ fn build_box_fragment(
                 backface_visibility: semantics.backface_visibility,
                 flattens_descendants: semantics.flattens_descendants,
             }),
+        });
+        uses_box_local_basis = true;
+    }
+
+    if let Some(sticky_frame) = sticky_frame_for_box(
+        bf,
+        box_origin_in_parent,
+        border_rect.size,
+        uses_box_local_basis,
+    ) {
+        box_cx.spatial_id = scene.push_spatial_node(MpSpatialNode {
+            parent: Some(box_cx.spatial_id),
+            kind: MpSpatialKind::StickyFrame(sticky_frame),
         });
         uses_box_local_basis = true;
     }
@@ -471,8 +480,53 @@ fn scroll_offset_for_box(
     )
 }
 
-fn has_sticky_frame(bf: &BoxFragment) -> bool {
-    bf.base.style.get_box().position == style::computed_values::position::T::Sticky
+fn sticky_frame_for_box(
+    bf: &BoxFragment,
+    box_origin_in_parent: DVec2,
+    box_size: DVec2,
+    uses_box_local_basis: bool,
+) -> Option<MpStickyFrame> {
+    if bf.base.style.get_box().position != style::computed_values::position::T::Sticky {
+        return None;
+    }
+    let insets = bf.resolved_sticky_insets.as_ref()?;
+    let border_rect = physical_rect_to_rect(bf.border_rect());
+    let containing_block_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
+    let map_auto_or_length = |value: &havi_types::geom::AuOrAuto| match value {
+        style::values::generics::length::GenericLengthPercentageOrAuto::Auto => None,
+        style::values::generics::length::GenericLengthPercentageOrAuto::LengthPercentage(value) => {
+            Some(value.to_f32_px())
+        }
+    };
+    let frame_rect = if uses_box_local_basis {
+        Rect {
+            pos: dvec2(0.0, 0.0),
+            size: box_size,
+        }
+    } else {
+        Rect {
+            pos: box_origin_in_parent,
+            size: box_size,
+        }
+    };
+    let containing_block_rect = if uses_box_local_basis {
+        Rect {
+            pos: containing_block_rect.pos - border_rect.pos,
+            size: containing_block_rect.size,
+        }
+    } else {
+        containing_block_rect
+    };
+    Some(MpStickyFrame {
+        frame_rect,
+        containing_block_rect,
+        margins: MpStickyOffsets {
+            top: map_auto_or_length(&insets.top),
+            right: map_auto_or_length(&insets.right),
+            bottom: map_auto_or_length(&insets.bottom),
+            left: map_auto_or_length(&insets.left),
+        },
+    })
 }
 
 fn needs_overflow_clip(bf: &BoxFragment) -> bool {
