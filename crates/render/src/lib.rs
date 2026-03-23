@@ -2,19 +2,17 @@
 //!
 //! Architecture boundary:
 //! - layout publishes the shared semantic fragment model through shared state
-//! - render lowers that semantic fragment tree into stacking contexts and `RenderScene`
-//! - hit testing, clip evaluation, semantic planning, and Makepad lowering consume `RenderScene`
+//! - render lowers fragments directly into the retained browser scene when enabled
+//! - the legacy `RenderScene` path remains only as a fallback and disable escape hatch
 //! - Makepad modules execute the already-built scene and do not reconstruct layout semantics
 //!
 //! Source-of-truth split:
-//! - semantic lowering and scene construction: `layout_adapter`, `layout_stacking_context`,
-//!   `frame_builder`, `scene`, `scene_builder`, `hit_test`
-//! - retained browser-scene cutover boundaries: `browser_scene_builder`, `browser_scene_adapter`
-//! - legacy Makepad compositor fallback: `mp_scene_lowering`, `makepad_builder`
+//! - retained browser-scene lowering: `browser_scene_builder`, `browser_scene_primitives`
+//! - legacy Makepad compositor fallback: `frame_builder`, `scene`, `scene_builder`,
+//!   `mp_scene_lowering`, `makepad_builder`, `hit_test`
 //! - backend-specific transform fallback: `transform`
 
 mod background;
-mod browser_scene_adapter;
 mod browser_scene_builder;
 mod browser_scene_primitives;
 mod frame_builder;
@@ -162,6 +160,18 @@ pub fn browser_scene_script_mod(vm: &mut ScriptVm) -> ScriptValue {
     makepad_browser_scene::script_mod(vm)
 }
 
+fn paint_selection_overlay(cx: &mut Cx2d, draw_bg: &mut DrawColor, selection: Option<&SelectionHighlight>) {
+    let Some(selection) = selection else {
+        return;
+    };
+    draw_bg.color = selection.color;
+    for rect in &selection.rects {
+        if rect.size.x > 0.0 && rect.size.y > 0.0 {
+            draw_bg.draw_abs(cx, *rect);
+        }
+    }
+}
+
 /// Draw fragments with viewport clipping, using a pre-built semantic scene.
 ///
 /// Scene construction stays in page space. The compositor owns all placement
@@ -240,22 +250,11 @@ pub fn render_fragments_clipped(
                 frame_draw_lists.browser_document_cache = None;
                 eprintln!("[havi][render] browser_scene cached fallback: {err:?}");
             } else {
-                if let Some(selection) = selection {
-                    draw_bg.color = selection.color;
-                    for rect in &selection.rects {
-                        if rect.size.x > 0.0 && rect.size.y > 0.0 {
-                            draw_bg.draw_abs(cx, *rect);
-                        }
-                    }
-                }
+                paint_selection_overlay(cx, draw_bg, selection);
                 return;
             }
         }
-    } else {
-        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
-    }
 
-    if browser_scene_enabled {
         match browser_scene_builder::try_build_browser_document(cx, &fragments, scroll_state, viewport_size) {
             Ok(browser_document) => {
                 if frame_draw_lists.browser_renderer.is_none() {
@@ -287,21 +286,17 @@ pub fn render_fragments_clipped(
                         scroll_hash,
                         document: browser_document.clone(),
                     });
-                    if let Some(selection) = selection {
-                        draw_bg.color = selection.color;
-                        for rect in &selection.rects {
-                            if rect.size.x > 0.0 && rect.size.y > 0.0 {
-                                draw_bg.draw_abs(cx, *rect);
-                            }
-                        }
-                    }
+                    paint_selection_overlay(cx, draw_bg, selection);
                     return;
                 }
             }
             Err(err) => {
+                frame_draw_lists.counters.browser_scene_fallback_count += 1;
                 eprintln!("[havi][render] browser_scene direct builder fallback: {err}");
             }
         }
+    } else {
+        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
     }
 
     let scene = frame_builder::build_scene(
@@ -310,55 +305,6 @@ pub fn render_fragments_clipped(
         viewport_size,
     );
     frame_draw_lists.counters.scene_rebuild_count += 1;
-
-    if browser_scene_enabled {
-        match browser_scene_adapter::try_build_browser_document(cx, &scene) {
-            Ok(browser_document) => {
-                if frame_draw_lists.browser_renderer.is_none() {
-                    frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
-                }
-                frame_draw_lists.counters.scene_submit_count += 1;
-                frame_draw_lists.counters.browser_scene_present_count += 1;
-                frame_draw_lists.counters.legacy_surface_count = 0;
-                if let Err(err) = frame_draw_lists
-                    .browser_renderer
-                    .as_mut()
-                    .unwrap()
-                    .draw_document(
-                        cx,
-                        &browser_document,
-                        Rect {
-                            pos: webview_origin,
-                            size: viewport_size,
-                        },
-                    )
-                {
-                    frame_draw_lists.counters.browser_scene_fallback_count += 1;
-                    eprintln!("[havi][render] browser_scene fallback: {err:?}");
-                } else {
-                    frame_draw_lists.browser_document_cache = Some(BrowserDocumentCacheEntry {
-                        fragment_ptr: frag_ptr,
-                        viewport_size,
-                        scroll_hash,
-                        document: browser_document.clone(),
-                    });
-                    if let Some(selection) = selection {
-                        draw_bg.color = selection.color;
-                        for rect in &selection.rects {
-                            if rect.size.x > 0.0 && rect.size.y > 0.0 {
-                                draw_bg.draw_abs(cx, *rect);
-                            }
-                        }
-                    }
-                    return;
-                }
-            }
-            Err(err) => {
-                frame_draw_lists.counters.browser_scene_fallback_count += 1;
-                eprintln!("[havi][render] browser_scene adapter fallback: {err}");
-            }
-        }
-    }
 
     let mut state = makepad_builder::MakepadDrawState {
         draw_bg,
