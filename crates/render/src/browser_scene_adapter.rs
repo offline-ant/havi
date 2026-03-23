@@ -7,12 +7,12 @@ use std::rc::Rc;
 use havi_fragment_semantics::fragment_tree::{BoxFragment, ImageFragment, TextFragment};
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::{
-    MpBlendMode as BrowserBlendMode, MpClipChain, MpClipChainId, MpClipKind, MpClipNode,
-    MpDocument, MpDocumentId, MpEffectNode, MpFontKey, MpFontResource, MpGlyphRunKey,
-    MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag, MpIsolation, MpPositionedGlyph,
-    MpPrimitive, MpResourceStore, MpScene, MpSceneId, MpSpatialId, MpSpatialKind,
-    MpSpatialNode, MpScrollFrame, MpStickyFrame, MpStickyOffsets, MpTextDecorations,
-    MpTextShadow,
+    MpBlendMode as BrowserBlendMode, MpChildDocument, MpClipChain, MpClipChainId, MpClipKind,
+    MpClipNode, MpDocument, MpDocumentId, MpEffectNode, MpEmbed, MpFontKey, MpFontResource,
+    MpGlyphRunKey, MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag, MpIsolation,
+    MpPipelineId, MpPositionedGlyph, MpPrimitive, MpResourceStore, MpScene, MpSceneId,
+    MpSpatialId, MpSpatialKind, MpSpatialNode, MpScrollFrame, MpStickyFrame,
+    MpStickyOffsets, MpTextDecorations, MpTextShadow,
 };
 use makepad_widgets::{dvec2, vec2, Cx2d, Rect, Vec2f};
 use style::color::{AbsoluteColor, ColorSpace};
@@ -37,21 +37,57 @@ struct NodeContext {
     effect_id: Option<makepad_browser_scene::MpEffectId>,
 }
 
+#[derive(Default)]
+struct AdapterIds {
+    next_document_id: u64,
+    next_scene_id: u64,
+    next_pipeline_id: u64,
+}
+
+impl AdapterIds {
+    fn alloc_document_id(&mut self) -> MpDocumentId {
+        self.next_document_id += 1;
+        MpDocumentId(self.next_document_id)
+    }
+
+    fn alloc_scene_id(&mut self) -> MpSceneId {
+        self.next_scene_id += 1;
+        MpSceneId(self.next_scene_id)
+    }
+
+    fn alloc_pipeline_id(&mut self) -> MpPipelineId {
+        self.next_pipeline_id += 1;
+        MpPipelineId(self.next_pipeline_id)
+    }
+}
+
 struct AdapterState {
     resources: MpResourceStore,
+    child_documents: Vec<MpChildDocument>,
 }
 
 pub(crate) fn try_build_browser_document(
     cx: &mut Cx2d,
     render_scene: &RenderScene<'_>,
 ) -> Result<MpDocument, String> {
+    build_browser_document(cx, render_scene, &mut AdapterIds::default())
+}
+
+fn build_browser_document(
+    cx: &mut Cx2d,
+    render_scene: &RenderScene<'_>,
+    ids: &mut AdapterIds,
+) -> Result<MpDocument, String> {
     if render_scene.root.clip.is_some() {
         return Err("root clip not supported by browser-scene adapter yet".to_string());
     }
 
-    let mut scene = MpScene::new(MpSceneId(1), render_scene.root_reference_frame().local_rect);
+    let document_id = ids.alloc_document_id();
+    let scene_id = ids.alloc_scene_id();
+    let mut scene = MpScene::new(scene_id, render_scene.root_reference_frame().local_rect);
     let mut state = AdapterState {
         resources: MpResourceStore::default(),
+        child_documents: Vec::new(),
     };
 
     let root_id = render_scene.root_reference_frame_id();
@@ -209,17 +245,39 @@ pub(crate) fn try_build_browser_document(
                     scene.push_primitive(primitive);
                 }
             }
-            RenderNode::Embed(_) => {
-                return Err("embed nodes not supported by browser-scene adapter yet".to_string())
+            RenderNode::Embed(embed) => {
+                let parent_ctx = node_contexts
+                    .get(&embed.parent)
+                    .copied()
+                    .ok_or_else(|| "embed parent context missing".to_string())?;
+                let child_document = build_browser_document(cx, &embed.child_scene, ids)?;
+                let pipeline_id = ids.alloc_pipeline_id();
+                scene.push_embed(MpEmbed {
+                    scene_id: child_document.scene.id,
+                    pipeline_id,
+                    spatial_id: parent_ctx.spatial_id,
+                    clip_chain_id: embed
+                        .clip
+                        .and_then(|clip_id| clip_chains.get(&clip_id).copied())
+                        .unwrap_or(parent_ctx.clip_chain_id),
+                    effect_id: parent_ctx.effect_id,
+                    bounds: embed.local_rect,
+                    hit_test_tag: embed.owner_node_id.map(|id| MpHitTestTag(id as u64)),
+                });
+                state.child_documents.push(MpChildDocument {
+                    pipeline_id,
+                    document: Box::new(child_document),
+                });
             }
         }
     }
 
     Ok(MpDocument {
-        id: MpDocumentId(1),
+        id: document_id,
         epoch: 0,
         scene,
         resources: state.resources,
+        child_documents: state.child_documents,
     })
 }
 
