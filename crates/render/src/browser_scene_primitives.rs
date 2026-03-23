@@ -22,36 +22,11 @@ use crate::background::{
 };
 use crate::color::{inherited_color, resolve_color};
 use crate::layout_stacking_context::StackingContextSection;
-use crate::scene::{RenderPaintItem, RenderPaintRun};
+use crate::scene::RenderPaintItem;
 
 pub(crate) struct AdapterState {
     pub(crate) resources: MpResourceStore,
     pub(crate) child_documents: Vec<MpChildDocument>,
-}
-
-pub(crate) fn paint_run_to_primitives(
-    cx: &mut Cx2d,
-    scene: &mut MpScene,
-    state: &mut AdapterState,
-    run: &RenderPaintRun<'_>,
-    spatial_id: makepad_browser_scene::MpSpatialId,
-    clip_chain_id: MpClipChainId,
-    effect_id: Option<makepad_browser_scene::MpEffectId>,
-) -> Result<Vec<MpPrimitive>, String> {
-    let mut primitives = Vec::new();
-    for item in &run.items {
-        primitives.extend(paint_run_item_to_primitives(
-            cx,
-            scene,
-            state,
-            item,
-            run.owner_node_id,
-            spatial_id,
-            clip_chain_id,
-            effect_id,
-        )?);
-    }
-    Ok(primitives)
 }
 
 pub(crate) fn paint_run_item_to_primitives(
@@ -424,7 +399,7 @@ fn has_unsupported_background_layers(computed: &ComputedValues) -> bool {
         .background_image
         .0
         .iter()
-        .any(|image| !matches!(image, Image::Gradient(_) | Image::Url(_)))
+        .any(|image| !matches!(image, Image::None | Image::Gradient(_) | Image::Url(_)))
 }
 
 fn background_layer_bounds(layer: &BackgroundLayerGeom) -> Rect {
@@ -518,6 +493,7 @@ fn append_background_layer_primitives(
     let (border_insets, padding_insets) = resolve_insets(computed);
     for (index, image) in bg.background_image.0.iter().enumerate().rev() {
         match image {
+            style::values::computed::image::Image::None => continue,
             style::values::computed::image::Image::Gradient(gradient) => {
                 let Some(layer) = layout_background_layer(
                     computed,
