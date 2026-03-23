@@ -673,21 +673,28 @@ fn append_background_layer_primitives(
                 };
                 let (image_key, image_resource) = background_image_resource(owner_node_id, index, background_image);
                 resources.images.entry(image_key).or_insert(image_resource);
-                for primitive_bounds in background_layer_tile_rects(&layer) {
-                    let mut primitive = MpPrimitive {
-                        id: makepad_browser_scene::MpPrimitiveId(0),
-                        spatial_id,
-                        clip_chain_id: layer_clip_chain_id,
-                        effect_id,
-                        bounds: primitive_bounds,
-                        kind: makepad_browser_scene::MpPrimitiveKind::Image(makepad_browser_scene::MpImage {
-                            image_key,
-                        }),
-                        hit_test_tag: owner_node_id.map(|id| MpHitTestTag(id as u64)),
-                    };
-                    primitive.effect_id = effect_id;
-                    primitives.push(primitive);
-                }
+                let primitive_kind = if (layer.bounds_w - layer.tile_w).abs() > 0.01
+                    || (layer.bounds_h - layer.tile_h).abs() > 0.01
+                {
+                    makepad_browser_scene::MpPrimitiveKind::RepeatingImage(
+                        makepad_browser_scene::MpRepeatingImage { image_key },
+                    )
+                } else {
+                    makepad_browser_scene::MpPrimitiveKind::Image(makepad_browser_scene::MpImage {
+                        image_key,
+                    })
+                };
+                let mut primitive = MpPrimitive {
+                    id: makepad_browser_scene::MpPrimitiveId(0),
+                    spatial_id,
+                    clip_chain_id: layer_clip_chain_id,
+                    effect_id,
+                    bounds: background_layer_bounds(&layer),
+                    kind: primitive_kind,
+                    hit_test_tag: owner_node_id.map(|id| MpHitTestTag(id as u64)),
+                };
+                primitive.effect_id = effect_id;
+                primitives.push(primitive);
             }
             _ => return Err("background images not supported by browser-scene adapter yet".to_string()),
         }
