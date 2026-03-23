@@ -7,6 +7,7 @@ use makepad_widgets::*;
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::values::computed::basic_shape::ClipPath;
+use style::values::computed::effects::Filter as ComputedFilter;
 use style::values::computed::ClipRectOrAuto;
 
 use crate::background::resolve_border_radii;
@@ -328,6 +329,14 @@ fn fragment_local_bounds(fragment: &Fragment, containing_block_origin: DVec2) ->
     }
 }
 
+fn serialize_filter_entry(filter: &ComputedFilter) -> String {
+    match filter {
+        ComputedFilter::Blur(radius) => format!("blur({})", radius.0.px()),
+        ComputedFilter::Opacity(opacity) => format!("opacity({})", opacity.0),
+        other => format!("unsupported:{other:?}"),
+    }
+}
+
 fn effect_for_box(
     bf: &BoxFragment,
     parent: RenderNodeId,
@@ -341,7 +350,7 @@ fn effect_for_box(
         .filter
         .0
         .iter()
-        .map(|entry| format!("{entry:?}"))
+        .map(serialize_filter_entry)
         .collect();
     let blend_mode = if effects.mix_blend_mode == ComputedMixBlendMode::Normal {
         RenderBlendMode::Normal

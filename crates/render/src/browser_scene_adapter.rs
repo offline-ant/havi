@@ -8,7 +8,7 @@ use havi_fragment_semantics::fragment_tree::{BoxFragment, ImageFragment, TextFra
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::{
     MpBlendMode as BrowserBlendMode, MpChildDocument, MpClipChain, MpClipChainId, MpClipKind,
-    MpClipNode, MpDocument, MpDocumentId, MpEffectNode, MpEmbed, MpFontKey, MpFontResource,
+    MpClipNode, MpDocument, MpDocumentId, MpEffectNode, MpEmbed, MpFilter, MpFontKey, MpFontResource,
     MpGlyphRunKey, MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag, MpIsolation,
     MpPerCornerRadius, MpPipelineId, MpPositionedGlyph, MpPrimitive, MpResourceStore, MpScene,
     MpSceneId, MpSpatialId, MpSpatialKind, MpSpatialNode, MpScrollFrame, MpStickyFrame,
@@ -187,9 +187,7 @@ fn build_browser_document(
                 )?;
             }
             RenderNode::Effect(effect) => {
-                if !effect.filter.entries.is_empty() {
-                    return Err("filters not supported by browser-scene adapter yet".to_string());
-                }
+                let filters = lower_effect_filters(&effect.filter.entries)?;
                 if effect.mask.is_some() {
                     return Err("masks not supported by browser-scene adapter yet".to_string());
                 }
@@ -214,7 +212,7 @@ fn build_browser_document(
                     spatial_id: parent_ctx.spatial_id,
                     clip_chain_id,
                     opacity: effect.opacity,
-                    filters: Vec::new(),
+                    filters,
                     blend_mode: match &effect.blend_mode {
                         RenderBlendMode::Normal => BrowserBlendMode::Normal,
                         RenderBlendMode::Named(name) => BrowserBlendMode::Named(name.clone()),
@@ -354,6 +352,34 @@ fn ensure_clip_chain(
     });
     clip_chains.insert(clip_id, chain_id);
     Ok(chain_id)
+}
+
+fn lower_effect_filters(entries: &[String]) -> Result<Vec<MpFilter>, String> {
+    let mut filters = Vec::new();
+    for entry in entries {
+        if let Some(value) = entry
+            .strip_prefix("blur(")
+            .and_then(|value| value.strip_suffix(')'))
+        {
+            let radius = value
+                .parse::<f32>()
+                .map_err(|_| format!("invalid blur filter entry: {entry}"))?;
+            filters.push(MpFilter::Blur(radius.max(0.0)));
+            continue;
+        }
+        if let Some(value) = entry
+            .strip_prefix("opacity(")
+            .and_then(|value| value.strip_suffix(')'))
+        {
+            let opacity = value
+                .parse::<f32>()
+                .map_err(|_| format!("invalid opacity filter entry: {entry}"))?;
+            filters.push(MpFilter::Opacity(opacity.clamp(0.0, 1.0)));
+            continue;
+        }
+        return Err(format!("filters not supported by browser-scene adapter yet: {entry}"));
+    }
+    Ok(filters)
 }
 
 fn paint_run_to_primitives(
