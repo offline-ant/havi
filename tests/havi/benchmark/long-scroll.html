@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>long scroll benchmark</title>
+<style>
+  body {
+    margin: 0;
+    font: 15px/1.4 system-ui, sans-serif;
+    background: linear-gradient(180deg, #f7fbff, #eef3ff);
+    color: #0d1b2a;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 18px 24px;
+    background: rgba(255, 255, 255, 0.94);
+    border-bottom: 1px solid rgba(13, 27, 42, 0.08);
+    backdrop-filter: blur(8px);
+  }
+  main {
+    padding: 20px;
+  }
+  .card {
+    margin: 0 auto 18px;
+    max-width: 900px;
+    min-height: 180px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    background: white;
+    box-shadow: 0 12px 30px rgba(12, 24, 40, 0.08);
+    border: 1px solid rgba(12, 24, 40, 0.05);
+  }
+  .row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .pill {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #dde8ff;
+    color: #22406a;
+  }
+</style>
+</head>
+<body>
+<header>
+  <strong>Long scroll benchmark</strong>
+  <span>Lots of vertically stacked content for scroll-only retention.</span>
+</header>
+<main id="cards"></main>
+<script>
+  const root = document.getElementById('cards');
+  for (let i = 0; i < 180; i++) {
+    const card = document.createElement('section');
+    card.className = 'card';
+    card.innerHTML = `
+      <h2>Section ${i + 1}</h2>
+      <p>Scroll retention should update spatial node offsets without rebuilding page primitives.</p>
+      <div class="row"></div>
+    `;
+    const row = card.querySelector('.row');
+    for (let j = 0; j < 12; j++) {
+      const pill = document.createElement('div');
+      pill.className = 'pill';
+      pill.textContent = `item-${i + 1}-${j + 1}`;
+      row.appendChild(pill);
+    }
+    root.appendChild(card);
+  }
+</script>
+</body>
+</html>

@@ -92,7 +92,7 @@ pub(crate) fn paint_run_item_to_primitives(
         ),
         (StackingContextSection::Foreground, Fragment::Text(tf)) => {
             let (glyph_run_key, glyph_run) = make_glyph_run_resource(cx, owner_node_id, bounds, tf)?;
-            state.resources.glyph_runs.insert(glyph_run_key, glyph_run);
+            state.resources.glyph_runs.entry(glyph_run_key).or_insert(glyph_run);
             let (font_key, font_resource) = font_resource_for_text(cx, tf)?;
             state.resources.fonts.entry(font_key).or_insert(font_resource);
 

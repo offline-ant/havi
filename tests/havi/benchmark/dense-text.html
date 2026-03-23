@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dense text benchmark</title>
+<style>
+  body {
+    margin: 24px;
+    font: 16px/1.45 system-ui, sans-serif;
+    color: #102033;
+    background: #f5f7fb;
+  }
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 24px 32px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 18px 40px rgba(16, 32, 51, 0.08);
+  }
+  h1 {
+    margin: 0 0 16px;
+    font-size: 32px;
+  }
+  p {
+    margin: 0 0 14px;
+  }
+  .lead {
+    font-size: 18px;
+    color: #31445b;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dense text benchmark</h1>
+  <p class="lead">This page stresses retained text resources, glyph runs, paragraph layout, and clipping across many text boxes.</p>
+  <script>
+    const main = document.querySelector('main');
+    const seed = 'HPPR and HAVI render retained browser-scene primitives directly through Makepad. '; 
+    for (let i = 0; i < 220; i++) {
+      const p = document.createElement('p');
+      p.textContent = `${i + 1}. ` + seed.repeat(8 + (i % 5));
+      main.appendChild(p);
+    }
+  </script>
+</main>
+</body>
+</html>

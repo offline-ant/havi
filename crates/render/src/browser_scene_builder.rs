@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
 use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_browser_scene::{
@@ -51,13 +53,33 @@ impl DirectBuilderIds {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BrowserDocumentScrollNodes {
+    pub spatial_nodes: HashMap<usize, MpSpatialId>,
+    pub child_documents: HashMap<MpPipelineId, BrowserDocumentScrollNodes>,
+}
+
+#[derive(Clone)]
+pub(crate) struct BuiltBrowserDocument {
+    pub document: MpDocument,
+    pub scroll_nodes: BrowserDocumentScrollNodes,
+}
+
 pub(crate) fn try_build_browser_document(
     cx: &mut Cx2d,
     fragments: &[Fragment],
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
-) -> Result<MpDocument, String> {
-    build_browser_document(cx, fragments, scroll_state, viewport_size, &mut DirectBuilderIds::default())
+    previous_document: Option<&MpDocument>,
+) -> Result<BuiltBrowserDocument, String> {
+    build_browser_document(
+        cx,
+        fragments,
+        scroll_state,
+        viewport_size,
+        &mut DirectBuilderIds::default(),
+        previous_document,
+    )
 }
 
 fn build_browser_document(
@@ -66,7 +88,8 @@ fn build_browser_document(
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
     ids: &mut DirectBuilderIds,
-) -> Result<MpDocument, String> {
+    previous_document: Option<&MpDocument>,
+) -> Result<BuiltBrowserDocument, String> {
     let viewport_rect = Rect {
         pos: dvec2(0.0, 0.0),
         size: viewport_size,
@@ -75,9 +98,12 @@ fn build_browser_document(
     let root_spatial_id = scene.root_spatial_id;
     let root_clip_chain_id = scene.root_clip_chain_id;
     let mut state = AdapterState {
-        resources: MpResourceStore::default(),
+        resources: previous_document
+            .map(|document| document.resources.clone())
+            .unwrap_or_else(MpResourceStore::default),
         child_documents: Vec::new(),
     };
+    let mut scroll_nodes = BrowserDocumentScrollNodes::default();
     build_fragment_list(
         cx,
         fragments,
@@ -91,13 +117,18 @@ fn build_browser_document(
             effect_id: None,
             containing_block_origin: dvec2(0.0, 0.0),
         },
+        &mut scroll_nodes,
+        previous_document,
     )?;
-    Ok(MpDocument {
-        id: ids.alloc_document_id(),
-        epoch: 0,
-        scene,
-        resources: state.resources,
-        child_documents: state.child_documents,
+    Ok(BuiltBrowserDocument {
+        document: MpDocument {
+            id: ids.alloc_document_id(),
+            epoch: 0,
+            scene,
+            resources: state.resources,
+            child_documents: state.child_documents,
+        },
+        scroll_nodes,
     })
 }
 
@@ -109,9 +140,21 @@ fn build_fragment_list(
     state: &mut AdapterState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
+    scroll_nodes: &mut BrowserDocumentScrollNodes,
+    previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
     for fragment in fragments {
-        build_fragment(cx, fragment, scroll_state, scene, state, ids, build_cx)?;
+        build_fragment(
+            cx,
+            fragment,
+            scroll_state,
+            scene,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        )?;
     }
     Ok(())
 }
@@ -124,11 +167,22 @@ fn build_fragment(
     state: &mut AdapterState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
+    scroll_nodes: &mut BrowserDocumentScrollNodes,
+    previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
     match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => {
-            build_box_fragment(cx, fragment, bf, scroll_state, scene, state, ids, build_cx)
-        }
+        Fragment::Box(bf) | Fragment::Float(bf) => build_box_fragment(
+            cx,
+            fragment,
+            bf,
+            scroll_state,
+            scene,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        ),
         Fragment::Text(tf) => {
             if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
                 return Ok(());
@@ -171,10 +225,20 @@ fn build_fragment(
             state,
             ids,
             build_cx,
+            scroll_nodes,
+            previous_document,
         ),
-        Fragment::AbsoluteOrFixedPositioned { resolved } => {
-            build_fragment(cx, resolved, scroll_state, scene, state, ids, build_cx)
-        }
+        Fragment::AbsoluteOrFixedPositioned { resolved } => build_fragment(
+            cx,
+            resolved,
+            scroll_state,
+            scene,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        ),
         Fragment::IFrame(iframe) => build_iframe_fragment(
             cx,
             fragment,
@@ -184,6 +248,8 @@ fn build_fragment(
             state,
             ids,
             build_cx,
+            scroll_nodes,
+            previous_document,
         ),
     }
 }
@@ -197,6 +263,8 @@ fn build_box_fragment(
     state: &mut AdapterState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
+    scroll_nodes: &mut BrowserDocumentScrollNodes,
+    previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
     if bf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
         return Ok(());
@@ -323,6 +391,9 @@ fn build_box_fragment(
                 scroll_offset,
             }),
         });
+        if let Some(node_id) = bf.base.tag.map(|tag| tag.node.0) {
+            scroll_nodes.spatial_nodes.insert(node_id, child_cx.spatial_id);
+        }
         uses_box_local_basis = true;
     }
 
@@ -331,7 +402,17 @@ fn build_box_fragment(
     } else {
         build_cx.containing_block_origin + content_rect.pos
     };
-    build_fragment_list(cx, &bf.children, scroll_state, scene, state, ids, child_cx)
+    build_fragment_list(
+        cx,
+        &bf.children,
+        scroll_state,
+        scene,
+        state,
+        ids,
+        child_cx,
+        scroll_nodes,
+        previous_document,
+    )
 }
 
 fn build_iframe_fragment(
@@ -343,6 +424,8 @@ fn build_iframe_fragment(
     state: &mut AdapterState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
+    scroll_nodes: &mut BrowserDocumentScrollNodes,
+    previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
     if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
         return Ok(());
@@ -364,14 +447,19 @@ fn build_iframe_fragment(
         build_cx,
     )?;
 
+    let pipeline_id = ids.alloc_pipeline_id();
     let child_document = build_browser_document(
         cx,
         iframe.child_fragments.as_ref(),
         scroll_state,
         content_bounds.size,
         ids,
+        previous_document.and_then(|document| document.child_document(pipeline_id)),
     )?;
-    let pipeline_id = ids.alloc_pipeline_id();
+    let BuiltBrowserDocument {
+        document: child_document,
+        scroll_nodes: child_scroll_nodes,
+    } = child_document;
     scene.push_embed(MpEmbed {
         scene_id: child_document.scene.id,
         pipeline_id,
@@ -388,6 +476,9 @@ fn build_iframe_fragment(
         pipeline_id,
         document: Box::new(child_document),
     });
+    scroll_nodes
+        .child_documents
+        .insert(pipeline_id, child_scroll_nodes);
     Ok(())
 }
 
