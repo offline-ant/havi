@@ -2,9 +2,6 @@ use std::sync::Arc;
 
 use makepad_widgets::*;
 
-use havi_render::{
-    DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
-};
 
 // ---------------------------------------------------------------------------
 // Widget registration
@@ -17,14 +14,8 @@ script_mod! {
     mod.widgets.ServoWebView = set_type_default() do mod.widgets.ServoWebViewBase{
         width: Fill
         height: Fill
-        draw_text.text_style: theme.font_regular
-        draw_text_bold.text_style: theme.font_bold
-        draw_text_mono.text_style: theme.font_code
     }
 }
-
-#[derive(Default)]
-struct ImageTextures(havi_render::TextureCache);
 
 #[derive(Default)]
 struct FrameDrawLists(havi_render::FrameDrawListState);
@@ -114,24 +105,6 @@ pub struct ServoWebView {
     draw_bg: DrawColor,
     #[live]
     draw_content_bg: DrawColor,
-    #[live]
-    draw_text: DrawText,
-    #[live]
-    draw_text_bold: DrawText,
-    #[live]
-    draw_text_mono: DrawText,
-    #[live]
-    draw_rounded_bg: DrawRoundedColor,
-    #[live]
-    draw_box_shadow: DrawBoxShadow,
-    #[live]
-    draw_gradient: DrawGradient,
-    #[live]
-    draw_video_yuv: DrawVideoYuv,
-    #[live]
-    draw_image: DrawImage,
-    #[rust]
-    texture_cache: ImageTextures,
     #[rust]
     frame_draw_lists: FrameDrawLists,
     /// Shared semantic fragment tree from layout. When set, draw_walk renders
@@ -303,8 +276,6 @@ impl Widget for ServoWebView {
         let frag_ptr = fragments.as_ref().map_or(0, |f| Arc::as_ptr(f) as usize);
         if frag_ptr != self.last_fragment_ptr {
             self.last_fragment_ptr = frag_ptr;
-            self.texture_cache.0.clear();
-            // Invalidate cached stacking context tree — will be rebuilt below.
             self.cached_fragment_source = None;
         }
 
@@ -365,16 +336,7 @@ impl Widget for ServoWebView {
                 viewport_top,
                 viewport_bottom,
                 &mut self.draw_content_bg,
-                &mut self.draw_text,
-                &mut self.draw_text_bold,
-                &mut self.draw_text_mono,
-                &mut self.draw_image,
-                &mut self.texture_cache.0,
                 &render_scroll,
-                &mut self.draw_rounded_bg,
-                &mut self.draw_box_shadow,
-                &mut self.draw_gradient,
-                &mut self.draw_video_yuv,
                 self.shared_selection
                     .as_ref()
                     .map(|ss| {
@@ -476,8 +438,6 @@ impl ServoWebViewRef {
             inner.shared_scroll_state = Some(scroll_state);
             inner.shared_selection = Some(selection);
             inner.image_store = Some(image_store);
-            // Clear image textures since they are content-dependent.
-            inner.texture_cache.0.clear();
             // NOTE: Do NOT clear frame_draw_lists. Makepad's DrawPass pool does
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.

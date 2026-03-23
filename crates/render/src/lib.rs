@@ -11,7 +11,6 @@ mod render_plan;
 pub mod shaders;
 pub mod video_texture_map;
 pub(crate) mod layout_stacking_context;
-mod text;
 mod transform;
 
 // Color helpers shared across modules.
@@ -41,26 +40,12 @@ use havi_fragment_semantics::fragment_tree::BoxFragment;
 use havi_fragment_semantics::Fragment;
 use makepad_browser_scene::MpBrowserRenderer;
 use makepad_widgets::*;
-use makepad_widgets::makepad_draw::Texture;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 
 pub use fragment_source::CachedFragmentSource;
 pub use shaders::{
     DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
-
-/// Cache for image textures, keyed by OpaqueNode id.
-/// Each entry tracks the texture and the byte-range hash used to create it,
-/// so we can skip re-uploading unchanged frames.
-pub type TextureCache = HashMap<usize, TextureCacheEntry>;
-
-/// A cached texture with metadata for change detection.
-pub struct TextureCacheEntry {
-    pub texture: Texture,
-    /// Hash of the byte range used to create this texture.
-    /// Used to skip re-uploading unchanged pixel data.
-    data_hash: u64,
-}
 
 /// Pre-computed selection highlight rectangles in root visual coordinates.
 #[derive(Clone, Debug)]
@@ -188,16 +173,7 @@ pub fn render_fragments_clipped(
     viewport_top: f32,
     viewport_bottom: f32,
     draw_bg: &mut DrawColor,
-    _draw_text: &mut DrawText,
-    _draw_text_bold: &mut DrawText,
-    _draw_text_mono: &mut DrawText,
-    _draw_image: &mut DrawImage,
-    _texture_cache: &mut TextureCache,
     scroll_state: &ScrollState,
-    _draw_rounded_bg: &mut DrawRoundedColor,
-    _draw_box_shadow: &mut DrawBoxShadow,
-    _draw_gradient: &mut DrawGradient,
-    _draw_video_yuv: &mut DrawVideoYuv,
     selection: Option<&SelectionHighlight>,
     frame_draw_lists: &mut FrameDrawListState,
     _image_overrides: &havi_types::ImageOverrides,
