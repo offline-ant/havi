@@ -2,7 +2,6 @@
 
 use makepad_widgets::Mat4f;
 use style::properties::ComputedValues;
-use style::values::generics::box_::Perspective;
 use style::values::generics::transform::{GenericRotate, GenericScale, GenericTranslate};
 
 #[cfg(test)]
@@ -107,20 +106,6 @@ mod tests {
     }
 }
 
-/// Compute a full 3D transform matrix (4x4, column-major) from CSS `transform`
-/// and `perspective` properties, with transform-origin baked in.
-/// Returns None if there is no effective transform or perspective.
-pub(crate) fn has_effective_transform_or_perspective(
-    computed: &ComputedValues,
-) -> bool {
-    let box_style = computed.get_box();
-    !box_style.transform.0.is_empty()
-        || box_style.scale != GenericScale::None
-        || box_style.rotate != GenericRotate::None
-        || box_style.translate != GenericTranslate::None
-        || box_style.perspective != Perspective::None
-}
-
 /// Compute the renderer's 2D reference-frame matrix for the element's own
 /// transform chain.
 ///
@@ -143,53 +128,6 @@ pub(crate) fn compute_css_reference_frame_matrix(
 
     let matrix = compute_css_self_transform_3d(computed, bw, bh)?;
     Some(Mat4f { v: matrix })
-}
-
-pub(crate) fn has_true_3d_transform(
-    computed: &ComputedValues,
-    bw: f32,
-    bh: f32,
-) -> bool {
-    use euclid::{Point2D, Rect, Size2D, UnknownUnit};
-    use style::values::computed::length::CSSPixelLength;
-
-    let box_style = computed.get_box();
-    let reference_box: Rect<CSSPixelLength, UnknownUnit> = Rect::new(
-        Point2D::new(CSSPixelLength::new(0.0), CSSPixelLength::new(0.0)),
-        Size2D::new(CSSPixelLength::new(bw), CSSPixelLength::new(bh)),
-    );
-
-    if !box_style.transform.0.is_empty() {
-        let Ok((matrix, _)) = box_style.transform.to_transform_3d_matrix(Some(&reference_box)) else {
-            return false;
-        };
-        if is_3d_matrix(&transform_to_array(&matrix)) {
-            return true;
-        }
-    }
-
-    match box_style.rotate {
-        GenericRotate::Rotate3D(x, y, z, angle) => {
-            if angle.radians().abs() > 1e-5 && (x.abs() > 1e-5 || y.abs() > 1e-5 || (z - 1.0).abs() > 1e-5) {
-                return true;
-            }
-        }
-        GenericRotate::Rotate(_) | GenericRotate::None => {}
-    }
-
-    if let GenericScale::Scale(_, _, sz) = box_style.scale {
-        if (sz - 1.0).abs() > 1e-5 {
-            return true;
-        }
-    }
-
-    if let GenericTranslate::Translate(_, _, z) = &box_style.translate {
-        if z.px().abs() > 1e-5 {
-            return true;
-        }
-    }
-
-    false
 }
 
 pub(crate) fn compute_css_self_transform_3d(
@@ -317,6 +255,7 @@ fn transform_to_array<U, V>(transform: &euclid::Transform3D<f32, U, V>) -> [f32;
 }
 
 /// Check if a column-major 4x4 matrix has 3D components (not a pure 2D affine).
+#[cfg(test)]
 pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     // In column-major layout:
     // col0: [m11, m12, m13, m14] = m[0..4]
