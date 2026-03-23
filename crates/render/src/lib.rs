@@ -117,10 +117,19 @@ pub struct RenderPathCounters {
     pub legacy_surface_count: u64,
 }
 
+#[derive(Clone)]
+struct BrowserDocumentCacheEntry {
+    fragment_ptr: usize,
+    viewport_size: DVec2,
+    scroll_hash: u64,
+    document: makepad_browser_scene::MpDocument,
+}
+
 #[derive(Default)]
 pub struct FrameDrawListState {
     pub(crate) renderer: Option<MpRenderer>,
     pub(crate) browser_renderer: Option<MpBrowserRenderer>,
+    pub(crate) browser_document_cache: Option<BrowserDocumentCacheEntry>,
     pub(crate) surfaces: HashMap<SceneSurfaceKey, SceneSurfaceCacheEntry>,
     pub counters: RenderPathCounters,
 }
@@ -130,6 +139,21 @@ impl FrameDrawListState {
         self.surfaces.clear();
         self.counters.legacy_surface_count = 0;
     }
+}
+
+fn hash_scroll_state(scroll_state: &ScrollState) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut entries: Vec<_> = scroll_state.iter().collect();
+    entries.sort_by_key(|(id, _)| *id);
+    let mut hasher = DefaultHasher::new();
+    for (id, offset) in entries {
+        id.hash(&mut hasher);
+        offset.x.to_bits().hash(&mut hasher);
+        offset.y.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 pub fn browser_scene_script_mod(vm: &mut ScriptVm) -> ScriptValue {
@@ -173,6 +197,62 @@ pub fn render_fragments_clipped(
     let Some(fragments) = layout_source.fragments_arc() else {
         return;
     };
+    let frag_ptr = std::sync::Arc::as_ptr(&fragments) as usize;
+    let browser_scene_enabled = std::env::var("HAVI_DISABLE_BROWSER_SCENE")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .is_none();
+    let scroll_hash = hash_scroll_state(scroll_state);
+
+    if browser_scene_enabled {
+        if let Some(browser_document) = frame_draw_lists
+            .browser_document_cache
+            .as_ref()
+            .filter(|cache| {
+                cache.fragment_ptr == frag_ptr
+                    && cache.viewport_size == viewport_size
+                    && cache.scroll_hash == scroll_hash
+            })
+            .map(|cache| cache.document.clone())
+        {
+            if frame_draw_lists.browser_renderer.is_none() {
+                frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+            }
+            frame_draw_lists.counters.scene_submit_count += 1;
+            frame_draw_lists.counters.browser_scene_present_count += 1;
+            frame_draw_lists.counters.legacy_surface_count = 0;
+            if let Err(err) = frame_draw_lists
+                .browser_renderer
+                .as_mut()
+                .unwrap()
+                .draw_document(
+                    cx,
+                    &browser_document,
+                    Rect {
+                        pos: webview_origin,
+                        size: viewport_size,
+                    },
+                )
+            {
+                frame_draw_lists.counters.browser_scene_fallback_count += 1;
+                frame_draw_lists.browser_document_cache = None;
+                eprintln!("[havi][render] browser_scene cached fallback: {err:?}");
+            } else {
+                if let Some(selection) = selection {
+                    draw_bg.color = selection.color;
+                    for rect in &selection.rects {
+                        if rect.size.x > 0.0 && rect.size.y > 0.0 {
+                            draw_bg.draw_abs(cx, *rect);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    } else {
+        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
+    }
+
     let scene = frame_builder::build_scene(
         &fragments,
         scroll_state,
@@ -180,10 +260,6 @@ pub fn render_fragments_clipped(
     );
     frame_draw_lists.counters.scene_rebuild_count += 1;
 
-    let browser_scene_enabled = std::env::var("HAVI_DISABLE_BROWSER_SCENE")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .is_none();
     if browser_scene_enabled {
         match browser_scene_adapter::try_build_browser_document(cx, &scene) {
             Ok(browser_document) => {
@@ -209,6 +285,12 @@ pub fn render_fragments_clipped(
                     frame_draw_lists.counters.browser_scene_fallback_count += 1;
                     eprintln!("[havi][render] browser_scene fallback: {err:?}");
                 } else {
+                    frame_draw_lists.browser_document_cache = Some(BrowserDocumentCacheEntry {
+                        fragment_ptr: frag_ptr,
+                        viewport_size,
+                        scroll_hash,
+                        document: browser_document.clone(),
+                    });
                     if let Some(selection) = selection {
                         draw_bg.color = selection.color;
                         for rect in &selection.rects {
@@ -225,8 +307,6 @@ pub fn render_fragments_clipped(
                 eprintln!("[havi][render] browser_scene adapter fallback: {err}");
             }
         }
-    } else {
-        eprintln!("[havi][render] browser_scene disabled by HAVI_DISABLE_BROWSER_SCENE");
     }
 
     let mut state = makepad_builder::MakepadDrawState {

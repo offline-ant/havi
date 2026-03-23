@@ -138,7 +138,8 @@ Current cutover rule:
 - adapter and renderer fallback reasons are logged for coverage work
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
   exact rounded background clips for retained gradients and images, box shadows,
-  retained text, and clipped images
+  retained text, clipped images, and iframe/embed child documents on the retained path
+- unchanged fragment trees with unchanged scroll state reuse the last retained browser document
 
 This preserves scene ordering and effect semantics during the cutover.
 
