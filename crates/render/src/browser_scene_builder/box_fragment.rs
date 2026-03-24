@@ -1,4 +1,4 @@
-use layout::fragment_tree::{BoxFragment, Fragment, FragmentFlags};
+use havi_types::fragment_tree as published;
 use makepad_browser_scene::{
     MpClipChain, MpClipKind, MpClipNode, MpPerCornerRadius, MpReferenceFrame, MpScene,
     MpScrollFrame, MpSpatialKind, MpSpatialNode, MpStickyFrame, MpStickyOffsets, ResourceRegistry,
@@ -9,7 +9,7 @@ use style::values::computed::ClipRectOrAuto;
 
 use super::effects::lower_box_effect_node;
 use super::geometry::{map_box_rect_to_spatial_space, physical_rect_to_rect};
-use super::traversal::{build_fragment_list, owner_node_id_for_fragment, push_fragment_primitives};
+use super::traversal::{build_paint_list, owner_node_id_for_fragment, push_fragment_primitives};
 use super::{BuildContext, BuildState, BrowserDocumentScrollNodes, DirectBuilderIds};
 use crate::background::resolve_border_radii;
 use crate::layout_stacking_context::StackingContextSection;
@@ -18,8 +18,9 @@ use crate::reference_frame::reference_frame_semantics;
 
 pub(super) fn build_box_fragment(
     cx: &mut Cx2d,
-    fragment: &Fragment,
-    bf: &BoxFragment,
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    bf: &published::BoxFragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
@@ -29,7 +30,7 @@ pub(super) fn build_box_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    if bf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+    if bf.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
         return Ok(());
     }
 
@@ -59,6 +60,8 @@ pub(super) fn build_box_fragment(
     }
 
     if let Some(sticky_frame) = sticky_frame_for_box(
+        generation,
+        fragment_id,
         bf,
         box_origin_in_parent,
         border_rect.size,
@@ -105,23 +108,24 @@ pub(super) fn build_box_fragment(
     };
     push_fragment_primitives(
         cx,
+        generation,
         scene,
         registry,
         state,
         &RenderPaintItem {
             section: StackingContextSection::OwnBackgroundsAndBorders,
             local_origin: item_origin,
-            source: fragment,
+            fragment_id,
         },
-        owner_node_id_for_fragment(fragment),
+        owner_node_id_for_fragment(generation, fragment_id),
         box_cx,
     )?;
 
     let mut child_cx = box_cx;
     if needs_overflow_clip(bf) {
-        let radius = resolve_border_radii(&bf.style()).max();
+        let radius = resolve_border_radii(&bf.base.style).max();
         let rect = map_box_rect_to_spatial_space(
-            physical_rect_to_rect(bf.scrollable_overflow()),
+            physical_rect_to_rect(generation.scrollable_overflow_for(fragment_id)),
             build_cx.containing_block_origin,
             border_rect.pos,
             uses_box_local_basis,
@@ -171,9 +175,10 @@ pub(super) fn build_box_fragment(
     } else {
         build_cx.containing_block_origin + content_rect.pos
     };
-    build_fragment_list(
+    build_paint_list(
         cx,
-        &bf.children,
+        generation,
+        &bf.paint_children,
         scroll_state,
         scene,
         registry,
@@ -186,7 +191,7 @@ pub(super) fn build_box_fragment(
 }
 
 fn scroll_offset_for_box(
-    bf: &BoxFragment,
+    bf: &published::BoxFragment,
     scroll_state: &crate::ScrollState,
 ) -> Option<DVec2> {
     if !needs_overflow_clip(bf) {
@@ -201,18 +206,19 @@ fn scroll_offset_for_box(
 }
 
 fn sticky_frame_for_box(
-    bf: &BoxFragment,
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    bf: &published::BoxFragment,
     box_origin_in_parent: DVec2,
     box_size: DVec2,
     uses_box_local_basis: bool,
 ) -> Option<MpStickyFrame> {
-    if bf.style().get_box().position != style::computed_values::position::T::Sticky {
+    if bf.base.style.get_box().position != style::computed_values::position::T::Sticky {
         return None;
     }
-    let insets = bf.resolved_sticky_insets.borrow();
-    let insets = insets.as_ref()?;
+    let insets = generation.sticky_insets_for(fragment_id)?;
     let border_rect = physical_rect_to_rect(bf.border_rect());
-    let containing_block_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
+    let containing_block_rect = physical_rect_to_rect(generation.containing_block(fragment_id));
     let map_auto_or_length = |value: &havi_types::geom::AuOrAuto| match value {
         style::values::generics::length::GenericLengthPercentageOrAuto::Auto => None,
         style::values::generics::length::GenericLengthPercentageOrAuto::LengthPercentage(value) => {
@@ -250,18 +256,17 @@ fn sticky_frame_for_box(
     })
 }
 
-fn needs_overflow_clip(bf: &BoxFragment) -> bool {
-    let style = bf.style();
-    let overflow = style.get_box();
+fn needs_overflow_clip(bf: &published::BoxFragment) -> bool {
+    let overflow = bf.base.style.get_box();
     !matches!(overflow.overflow_x, ComputedOverflow::Visible)
         || !matches!(overflow.overflow_y, ComputedOverflow::Visible)
 }
 
-fn css_clip_rect(bf: &BoxFragment) -> Option<Rect> {
-    if !bf.style().get_box().position.is_absolutely_positioned() {
+fn css_clip_rect(bf: &published::BoxFragment) -> Option<Rect> {
+    if !bf.base.style.get_box().position.is_absolutely_positioned() {
         return None;
     }
-    let clip_rect = match bf.style().get_effects().clip {
+    let clip_rect = match bf.base.style.get_effects().clip {
         ClipRectOrAuto::Rect(rect) => rect,
         _ => return None,
     };

@@ -329,18 +329,6 @@ impl BoxFragment {
         rect.translate(self.cumulative_containing_block_rect.origin.to_vector())
     }
 
-    pub(crate) fn cumulative_content_box_rect(&self) -> PhysicalRect<Au> {
-        self.offset_by_containing_block(&self.base.rect)
-    }
-
-    pub(crate) fn cumulative_padding_box_rect(&self) -> PhysicalRect<Au> {
-        self.offset_by_containing_block(&self.padding_rect())
-    }
-
-    pub(crate) fn cumulative_border_box_rect(&self) -> PhysicalRect<Au> {
-        self.offset_by_containing_block(&self.border_rect())
-    }
-
     pub fn content_rect(&self) -> PhysicalRect<Au> {
         self.base.rect
     }
@@ -473,12 +461,6 @@ impl BoxFragment {
             true => PhysicalRect::zero(),
             false => scrollable_overflow_box.to_rect(),
         }
-    }
-
-    /// Whether this is a non-replaced inline-level box whose inner display type is `flow`.
-    /// <https://drafts.csswg.org/css-display-3/#inline-box>
-    pub(crate) fn is_inline_box(&self) -> bool {
-        self.style().is_inline_box(self.base.flags)
     }
 
     /// Whether this is a table wrapper box.

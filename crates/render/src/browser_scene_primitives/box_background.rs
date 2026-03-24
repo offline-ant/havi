@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use makepad_browser_scene::{
     MpClipChain, MpClipChainId, MpClipKind, MpClipNode, MpHitTestTag, MpPerCornerRadius,
     MpPrimitive, MpScene, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, vec2, Rect};
-use pixels::RasterImage;
+use havi_types::BackgroundImage;
 use style::color::AbsoluteColor;
 use style::properties::ComputedValues;
 
@@ -29,7 +27,7 @@ pub(super) fn append_box_background_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     computed: &ComputedValues,
-    background_images: &[Option<Arc<RasterImage>>],
+    background_images: &[Option<BackgroundImage>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -140,7 +138,7 @@ fn append_background_layer_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     computed: &ComputedValues,
-    background_images: &[Option<Arc<RasterImage>>],
+    background_images: &[Option<BackgroundImage>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -322,8 +320,8 @@ fn append_background_layer_primitives(
                     bounds.size.y as f32,
                     &border_insets,
                     &padding_insets,
-                    Some(background_image.metadata.width as f32),
-                    Some(background_image.metadata.height as f32),
+                    Some(background_image.width as f32),
+                    Some(background_image.height as f32),
                 ) else {
                     continue;
                 };

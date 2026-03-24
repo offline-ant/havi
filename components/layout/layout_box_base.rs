@@ -76,10 +76,6 @@ impl LayoutBoxBase {
         result
     }
 
-    pub(crate) fn fragments(&self) -> Vec<Fragment> {
-        self.fragments.borrow().clone()
-    }
-
     pub(crate) fn add_fragment(&self, fragment: Fragment) {
         self.fragments.borrow_mut().push(fragment);
     }

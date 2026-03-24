@@ -8,7 +8,7 @@ mod containing_block;
 mod fragment;
 #[allow(clippy::module_inception)]
 mod fragment_tree;
-mod hoisted_shared_fragment;
+mod placement_fragment;
 mod positioning_fragment;
 
 pub use base_fragment::*;
@@ -16,5 +16,5 @@ pub(crate) use containing_block::*;
 pub use box_fragment::*;
 pub use fragment::*;
 pub use fragment_tree::*;
-pub use hoisted_shared_fragment::*;
+pub use placement_fragment::*;
 pub use positioning_fragment::*;

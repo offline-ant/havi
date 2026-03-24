@@ -47,14 +47,12 @@ use style::values::computed::CSSPixelLength;
 use webrender_api::ExternalScrollId;
 use webrender_api::units::LayoutVector2D;
 
-use crate::ArcRefCell;
 use crate::dom::NodeExt;
 use crate::flow::inline::construct::{TextTransformation, WhitespaceCollapse, capitalize_string};
-use crate::fragment_tree::{
-    BoxFragment, Fragment, FragmentFlags, FragmentTree, SpecificLayoutInfo, TextFragment,
-};
+use crate::fragment_tree::{FragmentFlags, FragmentTree};
+use crate::geom::PhysicalRect;
 use crate::style_ext::ComputedValuesExt;
-use crate::taffy::SpecificTaffyGridInfo;
+use havi_types::fragment_tree as published;
 
 fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<CSSPixelLength, CSSPixel> {
     Rect::new(
@@ -118,71 +116,243 @@ impl ScrollOffsets<'_> {
     }
 }
 
+fn first_fragment_id(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    pseudo: Option<PseudoElement>,
+) -> Option<published::FragmentId> {
+    fragment_tree
+        .fragments_for_node(node.opaque(), pseudo)
+        .first()
+        .copied()
+}
+
+fn node_is_fixed_positioned(node: ServoThreadSafeLayoutNode<'_>) -> bool {
+    let Some(layout_data) = node.inner_layout_data() else {
+        return false;
+    };
+    let layout_box = layout_data.self_box.borrow();
+    layout_box
+        .as_ref()
+        .and_then(|layout_box| layout_box.with_base(|base| base.style.get_box().position))
+        == Some(Position::Fixed)
+}
+
+fn box_area_rect(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    area: BoxAreaType,
+) -> Option<PhysicalRect<Au>> {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(match area {
+                BoxAreaType::Content => box_fragment.content_rect(),
+                BoxAreaType::Padding => box_fragment.padding_rect(),
+                BoxAreaType::Border => box_fragment.border_rect(),
+            }
+            .translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::Positioning(positioning_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(positioning_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::Text(_) |
+        published::FragmentKind::Image(_) |
+        published::FragmentKind::IFrame(_) => None,
+    }
+}
+
+fn fragment_is_fixed_positioned(
+    generation: &published::FragmentArenaGeneration,
+    mut fragment_id: published::FragmentId,
+) -> bool {
+    loop {
+        let node = generation.node(fragment_id);
+        if node.base().style.get_box().position == Position::Fixed {
+            return true;
+        }
+        let Some(parent) = node.parent else {
+            return false;
+        };
+        fragment_id = parent;
+    }
+}
+
+fn fragment_client_rect(
+    fragment_tree: &FragmentTree,
+    fragment_id: published::FragmentId,
+) -> Rect<i32, CSSPixel> {
+    let generation = fragment_tree.generation();
+    let rect = match generation.kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+            if box_fragment
+                .base
+                .style
+                .is_inline_box(crate::fragment_tree::FragmentFlags::from_bits_retain(
+                    box_fragment.base.flags.bits(),
+                )) {
+                return Rect::zero();
+            }
+            let mut rect = if matches!(
+                box_fragment.specific_layout_info,
+                Some(published::SpecificLayoutInfo::TableWrapper)
+            ) {
+                box_fragment.border_rect()
+            } else {
+                let mut padding_rect = box_fragment.padding_rect();
+                padding_rect.origin = crate::geom::PhysicalPoint::new(
+                    box_fragment.border.left,
+                    box_fragment.border.top,
+                );
+                padding_rect
+            };
+            rect.origin = crate::geom::PhysicalPoint::new(
+                rect.origin.x,
+                rect.origin.y,
+            );
+            rect
+        }
+        _ => return Rect::zero(),
+    };
+
+    Rect::new(
+        Point2D::new(rect.origin.x.to_f32_px(), rect.origin.y.to_f32_px()),
+        Size2D::new(rect.size.width.to_f32_px(), rect.size.height.to_f32_px()),
+    )
+    .round()
+    .to_i32()
+}
+
+fn fragment_scrolling_area(
+    fragment_tree: &FragmentTree,
+    fragment_id: published::FragmentId,
+) -> PhysicalRect<Au> {
+    let generation = fragment_tree.generation();
+    match generation.kind(fragment_id) {
+        published::FragmentKind::Box(_) | published::FragmentKind::Float(_) => generation
+            .scrollable_overflow_for(fragment_id)
+            .translate(generation.containing_block(fragment_id).origin.to_vector()),
+        _ => generation.base(fragment_id).rect,
+    }
+}
+
+fn fragment_is_inline_box(fragment_tree: &FragmentTree, fragment_id: published::FragmentId) -> bool {
+    let generation = fragment_tree.generation();
+    match generation.kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) => box_fragment
+            .base
+            .style
+            .is_inline_box(crate::fragment_tree::FragmentFlags::from_bits_retain(
+                box_fragment.base.flags.bits(),
+            )),
+        _ => false,
+    }
+}
+
+fn resolved_size_should_be_used_value(
+    fragment_tree: &FragmentTree,
+    fragment_id: published::FragmentId,
+) -> bool {
+    match fragment_tree.generation().kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) => !box_fragment
+            .base
+            .style
+            .is_inline_box(crate::fragment_tree::FragmentFlags::from_bits_retain(
+                box_fragment.base.flags.bits(),
+            )),
+        published::FragmentKind::Float(_) |
+        published::FragmentKind::Positioning(_) |
+        published::FragmentKind::Image(_) |
+        published::FragmentKind::IFrame(_) => true,
+        published::FragmentKind::Text(_) => false,
+    }
+}
+
 pub(crate) fn process_padding_request(
+    fragment_tree: &FragmentTree,
     node: ServoThreadSafeLayoutNode<'_>,
 ) -> Option<PhysicalSides> {
-    let fragments = node.fragments_for_pseudo(None);
-    let fragment = fragments.first()?;
-    Some(match fragment {
-        Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => {
-            let padding = box_fragment.borrow().padding;
+    let fragment_id = first_fragment_id(fragment_tree, node, None)?;
+    Some(match fragment_tree.generation().kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+            let padding = box_fragment.padding;
             PhysicalSides {
                 top: padding.top,
                 left: padding.left,
                 bottom: padding.bottom,
                 right: padding.right,
             }
-        },
+        }
         _ => Default::default(),
     })
 }
 
 pub(crate) fn process_box_area_request(
+    fragment_tree: &FragmentTree,
     node: ServoLayoutNode<'_>,
     area: BoxAreaType,
     exclude_transform_and_inline: bool,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<Rect<Au, CSSPixel>> {
     let ts = node.to_threadsafe();
-    let fragments = ts.fragments_for_pseudo(None);
-    let mut rects = fragments
+    let requested_node_is_fixed = node_is_fixed_positioned(ts);
+    let scroll_offset = scroll_offsets.cumulative_scroll_offset(node);
+    let generation = fragment_tree.generation();
+    let mut rects = fragment_tree
+        .fragments_for_node(ts.opaque(), None)
         .iter()
-        .filter(|fragment| {
-            !exclude_transform_and_inline ||
-                fragment
-                    .retrieve_box_fragment()
-                    .is_none_or(|fragment| !fragment.borrow().is_inline_box())
+        .copied()
+        .filter(|fragment_id| !exclude_transform_and_inline || !fragment_is_inline_box(fragment_tree, *fragment_id))
+        .filter_map(|fragment_id| {
+            box_area_rect(&generation, fragment_id, area).map(|rect| {
+                if requested_node_is_fixed || fragment_is_fixed_positioned(&generation, fragment_id) {
+                    rect
+                } else {
+                    rect.translate(-scroll_offset)
+                }
+            })
         })
-        .filter_map(|node| node.cumulative_box_area_rect(area))
         .peekable();
 
     rects.peek()?;
-    let rect_union = rects.fold(Rect::zero(), |unioned_rect, rect| rect.union(&unioned_rect));
-
-    let scroll_offset = scroll_offsets.cumulative_scroll_offset(node);
-    Some(rect_union.translate(-scroll_offset))
+    Some(rects.fold(Rect::zero(), |unioned_rect, rect| rect.union(&unioned_rect)))
 }
 
 pub(crate) fn process_box_areas_request(
+    fragment_tree: &FragmentTree,
     node: ServoLayoutNode<'_>,
     area: BoxAreaType,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> CSSPixelRectIterator {
+    let requested_node_is_fixed = node_is_fixed_positioned(node.to_threadsafe());
     let scroll_offset = scroll_offsets.cumulative_scroll_offset(node);
-    let fragments = node
-        .to_threadsafe()
-        .fragments_for_pseudo(None)
+    let generation = fragment_tree.generation();
+    let fragment_ids = fragment_tree
+        .fragments_for_node(node.to_threadsafe().opaque(), None)
+        .to_vec();
+    let rects: Vec<_> = fragment_ids
         .into_iter()
-        .filter_map(move |fragment| fragment.cumulative_box_area_rect(area))
-        .map(move |rect| rect.translate(-scroll_offset));
+        .filter_map(|fragment_id| {
+            box_area_rect(&generation, fragment_id, area).map(|rect| {
+                if requested_node_is_fixed || fragment_is_fixed_positioned(&generation, fragment_id) {
+                    rect
+                } else {
+                    rect.translate(-scroll_offset)
+                }
+            })
+        })
+        .collect();
 
-    Box::new(fragments)
+    Box::new(rects.into_iter())
 }
 
-pub fn process_client_rect_request(node: ServoThreadSafeLayoutNode<'_>) -> Rect<i32, CSSPixel> {
-    node.fragments_for_pseudo(None)
-        .first()
-        .map(Fragment::client_rect)
+pub fn process_client_rect_request(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Rect<i32, CSSPixel> {
+    first_fragment_id(fragment_tree, node, None)
+        .map(|fragment_id| fragment_client_rect(fragment_tree, fragment_id))
         .unwrap_or_default()
 }
 
@@ -215,10 +385,8 @@ pub fn process_node_scroll_area_request(
     };
 
     let rect = match requested_node {
-        Some(node) => node
-            .fragments_for_pseudo(None)
-            .first()
-            .map(Fragment::scrolling_area)
+        Some(node) => first_fragment_id(&tree, node, None)
+            .map(|fragment_id| fragment_scrolling_area(&tree, fragment_id))
             .unwrap_or_default(),
         None => tree.scrollable_overflow(),
     };
@@ -234,6 +402,7 @@ pub fn process_node_scroll_area_request(
 /// Return the resolved value of property for a given (pseudo)element.
 /// <https://drafts.csswg.org/cssom/#resolved-value>
 pub fn process_resolved_style_request(
+    fragment_tree: Option<&FragmentTree>,
     context: &SharedStyleContext,
     node: ServoLayoutNode<'_>,
     pseudo: &Option<PseudoElement>,
@@ -273,29 +442,19 @@ pub fn process_resolved_style_request(
     }
     .to_physical(style.writing_mode);
 
-    // From <https://drafts.csswg.org/css-transforms-2/#serialization-of-the-computed-value>
-    let serialize_transform_value = |box_fragment: Option<&BoxFragment>| -> Result<String, ()> {
-        let transform_list = &style.get_box().transform;
+    let Some(fragment_tree) = fragment_tree else {
+        return style.computed_value_to_string(PropertyDeclarationId::Longhand(longhand_id));
+    };
 
-        // > When the computed value is a <transform-list>, the resolved value is one
-        // > <matrix()> function or one <matrix3d()> function computed by the following
-        // > algorithm:
+    // From <https://drafts.csswg.org/css-transforms-2/#serialization-of-the-computed-value>
+    let serialize_transform_value = |box_fragment: Option<&published::BoxFragment>| -> Result<String, ()> {
+        let transform_list = &style.get_box().transform;
         if transform_list.0.is_empty() {
             return Ok("none".into());
         }
-
-        // > 1. Let transform be a 4x4 matrix initialized to the identity matrix. The
-        // >    elements m11, m22, m33 and m44 of transform must be set to 1; all other
-        // >    elements of transform must be set to 0.
-        // > 2. Post-multiply all <transform-function>s in <transform-list> to transform.
         let length_rect = box_fragment
             .map(|box_fragment| au_rect_to_length_rect(&box_fragment.border_rect()).to_untyped());
         let (transform, is_3d) = transform_list.to_transform_3d_matrix(length_rect.as_ref())?;
-
-        // > 3. Chose between <matrix()> or <matrix3d()> serialization:
-        // >   ↪ If transform is a 2D matrix: Serialize transform to a <matrix()> function.
-        // >   ↪ Otherwise: Serialize transform to a <matrix3d()> function. Chose between
-        // >     <matrix()> or <matrix3d()> serialization:
         let matrix = Matrix3D::from(transform);
         if !is_3d {
             Ok(matrix.into_2d()?.to_css_string())
@@ -304,19 +463,19 @@ pub fn process_resolved_style_request(
         }
     };
 
-    let computed_style = |fragment: Option<&Fragment>| match longhand_id {
+    let computed_style = |fragment: Option<published::FragmentId>| match longhand_id {
         LonghandId::MinWidth
             if style.clone_min_width() == Size::Auto &&
-                !should_honor_min_size_auto(fragment, style) =>
+                !should_honor_min_size_auto(fragment_tree, fragment, style) =>
         {
             String::from("0px")
-        },
+        }
         LonghandId::MinHeight
             if style.clone_min_height() == Size::Auto &&
-                !should_honor_min_size_auto(fragment, style) =>
+                !should_honor_min_size_auto(fragment_tree, fragment, style) =>
         {
             String::from("0px")
-        },
+        }
         LonghandId::Transform => match serialize_transform_value(None) {
             Ok(value) => value,
             Err(..) => style.computed_value_to_string(PropertyDeclarationId::Longhand(longhand_id)),
@@ -324,107 +483,68 @@ pub fn process_resolved_style_request(
         _ => style.computed_value_to_string(PropertyDeclarationId::Longhand(longhand_id)),
     };
 
-    // https://drafts.csswg.org/cssom/#dom-window-getcomputedstyle
-    // Here we are trying to conform to the specification that says that getComputedStyle
-    // should return the used values in certain circumstances. For size and positional
-    // properties we might need to walk the Fragment tree to figure those out. We always
-    // fall back to returning the computed value.
-
-    // For line height, the resolved value is the computed value if it
-    // is "normal" and the used value otherwise.
     if longhand_id == LonghandId::LineHeight {
         let font = style.get_font();
         let font_size = font.font_size.computed_size();
         return match font.line_height {
-            // There could be a fragment, but it's only interesting for `min-width` and `min-height`,
-            // so just pass None.
             LineHeight::Normal => computed_style(None),
             LineHeight::Number(value) => (font_size * value.0).to_css_string(),
             LineHeight::Length(value) => value.0.to_css_string(),
         };
     }
 
-    // https://drafts.csswg.org/cssom/#dom-window-getcomputedstyle
-    // The properties that we calculate below all resolve to the computed value
-    // when the element is display:none or display:contents.
     let display = style.get_box().display;
     if display.is_none() || display.is_contents() {
         return computed_style(None);
     }
 
-    let resolve_for_fragment = |fragment: &Fragment| {
-        let (content_rect, margins, padding, specific_layout_info) = match fragment {
-            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
-                let hoisted = hoisted.borrow();
-                let Some(Fragment::Box(box_fragment)) = hoisted.fragment.as_ref() else {
-                    return computed_style(Some(fragment));
-                };
-                let box_fragment = box_fragment.borrow();
-                let content_rect = box_fragment.base.rect;
-                let margins = box_fragment.margin;
-                let padding = box_fragment.padding;
-                let specific_layout_info = box_fragment.specific_layout_info().cloned();
-                (content_rect, margins, padding, specific_layout_info)
-            },
-            Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => {
-                let box_fragment = box_fragment.borrow();
+    let resolve_for_fragment = |fragment_id: published::FragmentId| {
+        let generation = fragment_tree.generation();
+        let (content_rect, margins, padding, specific_layout_info) = match generation.kind(fragment_id) {
+            published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
                 if style.get_box().position != Position::Static {
-                    match longhand_id {
-                        LonghandId::Transform => {
-                            // If we can compute the string do it, but otherwise fallback to a cruder serialization
-                            // of the value.
-                            if let Ok(string) = serialize_transform_value(Some(&*box_fragment)) {
-                                return string;
-                            }
-                        },
-                        _ => {},
+                    if longhand_id == LonghandId::Transform {
+                        if let Ok(string) = serialize_transform_value(Some(box_fragment)) {
+                            return string;
+                        }
                     }
                 }
-                let content_rect = box_fragment.base.rect;
-                let margins = box_fragment.margin;
-                let padding = box_fragment.padding;
-                let specific_layout_info = box_fragment.specific_layout_info().cloned();
-                (content_rect, margins, padding, specific_layout_info)
-            },
-            Fragment::Positioning(positioning_fragment) => (
-                positioning_fragment.borrow().base.rect,
+                (
+                    box_fragment.base.rect,
+                    box_fragment.margin,
+                    box_fragment.padding,
+                    box_fragment.specific_layout_info.as_ref(),
+                )
+            }
+            published::FragmentKind::Positioning(positioning_fragment) => (
+                positioning_fragment.base.rect,
                 SideOffsets2D::zero(),
                 SideOffsets2D::zero(),
                 None,
             ),
-            _ => return computed_style(Some(fragment)),
+            published::FragmentKind::Text(_) |
+            published::FragmentKind::Image(_) |
+            published::FragmentKind::IFrame(_) => return computed_style(Some(fragment_id)),
         };
 
-        // https://drafts.csswg.org/css-grid/#resolved-track-list
-        // > The grid-template-rows and grid-template-columns properties are
-        // > resolved value special case properties.
-        //
-        // > When an element generates a grid container box...
         if display.inside() == DisplayInside::Grid {
-            if let Some(SpecificLayoutInfo::Grid(info)) = specific_layout_info {
-                if let Some(value) = resolve_grid_template(&info, style, longhand_id) {
+            if let Some(published::SpecificLayoutInfo::Grid(info)) = specific_layout_info {
+                if let Some(value) = resolve_grid_template(info, style, longhand_id) {
                     return value;
                 }
             }
         }
 
-        // https://drafts.csswg.org/cssom/#resolved-value-special-case-property-like-height
-        // > If the property applies to the element or pseudo-element and the resolved value of the
-        // > display property is not none or contents, then the resolved value is the used value.
-        // > Otherwise the resolved value is the computed value.
-        //
-        // However, all browsers ignore that for margin and padding properties, and resolve to a length
-        // even if the property doesn't apply: https://github.com/w3c/csswg-drafts/issues/10391
         match longhand_id {
-            LonghandId::Width if resolved_size_should_be_used_value(fragment) => {
+            LonghandId::Width if resolved_size_should_be_used_value(fragment_tree, fragment_id) => {
                 content_rect.size.width
-            },
-            LonghandId::Height if resolved_size_should_be_used_value(fragment) => {
+            }
+            LonghandId::Height if resolved_size_should_be_used_value(fragment_tree, fragment_id) => {
                 content_rect.size.height
-            },
+            }
             LonghandId::Top | LonghandId::Right | LonghandId::Bottom | LonghandId::Left => {
-                return computed_style(Some(fragment));
-            },
+                return computed_style(Some(fragment_id));
+            }
             LonghandId::MarginBottom => margins.bottom,
             LonghandId::MarginTop => margins.top,
             LonghandId::MarginLeft => margins.left,
@@ -433,33 +553,24 @@ pub fn process_resolved_style_request(
             LonghandId::PaddingTop => padding.top,
             LonghandId::PaddingLeft => padding.left,
             LonghandId::PaddingRight => padding.right,
-            _ => return computed_style(Some(fragment)),
+            _ => return computed_style(Some(fragment_id)),
         }
         .to_css_string()
     };
 
-    node.to_threadsafe()
-        .fragments_for_pseudo(*pseudo)
+    fragment_tree
+        .fragments_for_node(node.to_threadsafe().opaque(), *pseudo)
         .first()
+        .copied()
         .map(resolve_for_fragment)
         .unwrap_or_else(|| computed_style(None))
 }
 
-fn resolved_size_should_be_used_value(fragment: &Fragment) -> bool {
-    // https://drafts.csswg.org/css-sizing-3/#preferred-size-properties
-    // > Applies to: all elements except non-replaced inlines
-    match fragment {
-        Fragment::Box(box_fragment) => !box_fragment.borrow().is_inline_box(),
-        Fragment::Float(_) |
-        Fragment::Positioning(_) |
-        Fragment::AbsoluteOrFixedPositioned(_) |
-        Fragment::Image(_) |
-        Fragment::IFrame(_) => true,
-        Fragment::Text(_) => false,
-    }
-}
-
-fn should_honor_min_size_auto(fragment: Option<&Fragment>, style: &ComputedValues) -> bool {
+fn should_honor_min_size_auto(
+    fragment_tree: &FragmentTree,
+    fragment: Option<published::FragmentId>,
+    style: &ComputedValues,
+) -> bool {
     // <https://drafts.csswg.org/css-sizing-3/#automatic-minimum-size>
     // For backwards-compatibility, the resolved value of an automatic minimum size is zero
     // for boxes of all CSS2 display types: block and inline boxes, inline blocks, and all
@@ -468,16 +579,20 @@ fn should_honor_min_size_auto(fragment: Option<&Fragment>, style: &ComputedValue
     // <https://github.com/w3c/csswg-drafts/issues/11716>
     // However, when a box is generated and `aspect-ratio` isn't `auto`, we need to preserve
     // the automatic minimum size as `auto`.
-    let Some(Fragment::Box(box_fragment)) = fragment else {
+    let Some(fragment_id) = fragment else {
         return false;
     };
-    let flags = box_fragment.borrow().base.flags;
-    flags.contains(FragmentFlags::IS_FLEX_OR_GRID_ITEM) ||
+    let generation = fragment_tree.generation();
+    let published::FragmentKind::Box(box_fragment) = generation.kind(fragment_id) else {
+        return false;
+    };
+    let flags = box_fragment.base.flags;
+    flags.contains(published::FragmentFlags::IS_FLEX_OR_GRID_ITEM) ||
         style.clone_aspect_ratio() != AspectRatio::auto()
 }
 
 fn resolve_grid_template(
-    grid_info: &SpecificTaffyGridInfo,
+    grid_info: &published::GridLayoutInfo,
     style: &ComputedValues,
     longhand_id: LonghandId,
 ) -> Option<String> {
@@ -503,7 +618,7 @@ fn resolve_grid_template(
         }
     }
 
-    let (track_info, computed_value) = match longhand_id {
+    let (track_sizes, computed_value) = match longhand_id {
         LonghandId::GridTemplateRows => (&grid_info.rows, &style.get_position().grid_template_rows),
         LonghandId::GridTemplateColumns => (
             &grid_info.columns,
@@ -519,7 +634,7 @@ fn resolve_grid_template(
         GenericGridTemplateComponent::None |
         GenericGridTemplateComponent::TrackList(_) |
         GenericGridTemplateComponent::Masonry => {
-            serialize_standalone_non_subgrid_track_list(&track_info.sizes)
+            serialize_standalone_non_subgrid_track_list(track_sizes)
         },
 
         // <https://drafts.csswg.org/css-grid/#resolved-track-list-subgrid>
@@ -608,30 +723,33 @@ fn shorthand_to_css_string(
 }
 
 struct OffsetParentFragments {
-    parent: ArcRefCell<BoxFragment>,
-    grandparent: Option<Fragment>,
+    parent: published::FragmentId,
+    grandparent: Option<published::FragmentId>,
 }
 
 /// <https://www.w3.org/TR/2016/WD-cssom-view-1-20160317/#dom-htmlelement-offsetparent>
-fn offset_parent_fragments(node: ServoLayoutNode<'_>) -> Option<OffsetParentFragments> {
+fn offset_parent_fragments(
+    fragment_tree: &FragmentTree,
+    node: ServoLayoutNode<'_>,
+) -> Option<OffsetParentFragments> {
     // 1. If any of the following holds true return null and terminate this algorithm:
     //  * The element does not have an associated CSS layout box.
     //  * The element is the root element.
     //  * The element is the HTML body element.
     //  * The element’s computed value of the position property is fixed.
-    let fragment = node
-        .to_threadsafe()
-        .fragments_for_pseudo(None)
-        .first()
-        .cloned()?;
-    let flags = fragment.base()?.flags;
-    if flags.intersects(
-        FragmentFlags::IS_ROOT_ELEMENT | FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT,
+    let fragment = first_fragment_id(fragment_tree, node.to_threadsafe(), None)?;
+    let generation = fragment_tree.generation();
+    let base = generation.base(fragment);
+    if base.flags.intersects(
+        published::FragmentFlags::IS_ROOT_ELEMENT |
+            published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT,
     ) {
         return None;
     }
     if matches!(
-        fragment, Fragment::Box(fragment) if fragment.borrow().style().get_box().position == Position::Fixed
+        fragment_tree.generation().kind(fragment),
+        published::FragmentKind::Box(box_fragment)
+            if box_fragment.base.style.get_box().position == Position::Fixed
     ) {
         return None;
     }
@@ -646,37 +764,30 @@ fn offset_parent_fragments(node: ServoLayoutNode<'_>) -> Option<OffsetParentFrag
     while let Some(parent_node) = maybe_parent_node {
         maybe_parent_node = parent_node.parent_node();
 
-        if let Some(parent_fragment) = parent_node
-            .to_threadsafe()
-            .fragments_for_pseudo(None)
-            .first()
-        {
-            let parent_fragment = match parent_fragment {
-                Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => box_fragment,
+        if let Some(parent_fragment) = first_fragment_id(fragment_tree, parent_node.to_threadsafe(), None) {
+            let generation = fragment_tree.generation();
+            let parent_box = match generation.kind(parent_fragment) {
+                published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => box_fragment,
                 _ => continue,
             };
 
-            let grandparent_fragment = maybe_parent_node.and_then(|node| {
-                node.to_threadsafe()
-                    .fragments_for_pseudo(None)
-                    .first()
-                    .cloned()
-            });
+            let grandparent_fragment = maybe_parent_node
+                .and_then(|ancestor| first_fragment_id(fragment_tree, ancestor.to_threadsafe(), None));
 
-            if parent_fragment.borrow().style().get_box().position != Position::Static {
+            if parent_box.base.style.get_box().position != Position::Static {
                 return Some(OffsetParentFragments {
-                    parent: parent_fragment.clone(),
+                    parent: parent_fragment,
                     grandparent: grandparent_fragment,
                 });
             }
 
-            let flags = parent_fragment.borrow().base.flags;
+            let flags = parent_box.base.flags;
             if flags.intersects(
-                FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT |
-                    FragmentFlags::IS_TABLE_TH_OR_TD_ELEMENT,
+                published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT |
+                    published::FragmentFlags::IS_TABLE_TH_OR_TD_ELEMENT,
             ) {
                 return Some(OffsetParentFragments {
-                    parent: parent_fragment.clone(),
+                    parent: parent_fragment,
                     grandparent: grandparent_fragment,
                 });
             }
@@ -688,6 +799,7 @@ fn offset_parent_fragments(node: ServoLayoutNode<'_>) -> Option<OffsetParentFrag
 
 #[inline]
 pub fn process_offset_parent_query(
+    fragment_tree: &FragmentTree,
     node: ServoLayoutNode<'_>,
 ) -> Option<OffsetParentResponse> {
     // Only consider the first fragment of the node found as per a
@@ -706,39 +818,30 @@ pub fn process_offset_parent_query(
     // [1]: https://github.com/w3c/csswg-drafts/issues/4541
     // > 1. If the element is the HTML body element or does not have any associated CSS
     //      layout box return zero and terminate this algorithm.
-    let fragment = node
-        .to_threadsafe()
-        .fragments_for_pseudo(None)
-        .first()
-        .cloned()?;
-    let mut border_box = match &fragment {
-        Fragment::AbsoluteOrFixedPositioned(hoisted) => {
-            let hoisted = hoisted.borrow();
-            match hoisted.fragment.as_ref() {
-                Some(fragment) => fragment.cumulative_box_area_rect(BoxAreaType::Border)?,
-                None => return None,
-            }
-        }
-        _ => fragment.cumulative_box_area_rect(BoxAreaType::Border)?,
-    };
+    let generation = fragment_tree.generation();
+    let fragment = first_fragment_id(fragment_tree, node.to_threadsafe(), None)?;
+    let mut border_box = box_area_rect(&generation, fragment, BoxAreaType::Border)?;
 
     // 2.  If the offsetParent of the element is null return the x-coordinate of the left
     //     border edge of the first CSS layout box associated with the element, relative to
     //     the initial containing block origin, ignoring any transforms that apply to the
     //     element and its ancestors, and terminate this algorithm.
-    let Some(offset_parent_fragment) = offset_parent_fragments(node) else {
+    let Some(offset_parent_fragment) = offset_parent_fragments(fragment_tree, node) else {
         return Some(OffsetParentResponse {
             node_address: None,
             rect: border_box,
         });
     };
 
-    let parent_fragment = offset_parent_fragment.parent.borrow();
+    let parent_fragment = match generation.kind(offset_parent_fragment.parent) {
+        published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => box_fragment,
+        _ => return None,
+    };
     let parent_is_static_body_element = parent_fragment
         .base
         .flags
-        .contains(FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT) &&
-        parent_fragment.style().get_box().position == Position::Static;
+        .contains(published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT) &&
+        parent_fragment.base.style.get_box().position == Position::Static;
 
     // For `offsetLeft`:
     // 3. Return the result of subtracting the y-coordinate of the top padding edge of the
@@ -749,10 +852,11 @@ pub fn process_offset_parent_query(
     //
     // We generalize this for `offsetRight` as described in the specification.
     let grandparent_box_fragment = || match offset_parent_fragment.grandparent {
-        Some(Fragment::Box(box_fragment)) | Some(Fragment::Float(box_fragment)) => {
-            Some(box_fragment)
+        Some(fragment_id) => match generation.kind(fragment_id) {
+            published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => Some(box_fragment),
+            _ => None,
         },
-        _ => None,
+        None => None,
     };
 
     // The spec (https://www.w3.org/TR/cssom-view-1/#extensions-to-the-htmlelement-interface)
@@ -764,13 +868,19 @@ pub fn process_offset_parent_query(
     // See <https://github.com/w3c/csswg-drafts/issues/10549>.
     let parent_offset_rect = if parent_is_static_body_element {
         if let Some(grandparent_fragment) = grandparent_box_fragment() {
-            let grandparent_fragment = grandparent_fragment.borrow();
-            grandparent_fragment.offset_by_containing_block(&grandparent_fragment.border_rect())
+            let grandparent_id = offset_parent_fragment.grandparent.expect("grandparent fragment id");
+            grandparent_fragment
+                .border_rect()
+                .translate(generation.containing_block(grandparent_id).origin.to_vector())
         } else {
-            parent_fragment.offset_by_containing_block(&parent_fragment.padding_rect())
+            parent_fragment
+                .padding_rect()
+                .translate(generation.containing_block(offset_parent_fragment.parent).origin.to_vector())
         }
     } else {
-        parent_fragment.offset_by_containing_block(&parent_fragment.padding_rect())
+        parent_fragment
+            .padding_rect()
+            .translate(generation.containing_block(offset_parent_fragment.parent).origin.to_vector())
     };
     // TODO(havi-render): Apply cumulative sticky offsets. Requires the full scroll tree
     // to compute sticky positioning based on ancestor scroll state.
@@ -1329,146 +1439,158 @@ fn rendered_text_collection_steps(
     items
 }
 
+type TextFragmentEntry = (published::FragmentId, Point2D<Au, CSSPixel>);
+
+fn text_fragment_distance_to_point_for_glyph_offset(
+    fragment: &published::TextFragment,
+    point_in_fragment: Point2D<Au, CSSPixel>,
+) -> Option<Au> {
+    let rect = &fragment.base.rect;
+    if point_in_fragment.y < Au::new(0) || point_in_fragment.y > rect.height() {
+        return None;
+    }
+    if point_in_fragment.x < Au::new(0) {
+        return None;
+    }
+    Some(point_in_fragment.x - rect.width().max(Au::new(0)))
+}
+
+fn text_fragment_character_offset(
+    fragment: &published::TextFragment,
+    point_in_fragment: Point2D<Au, CSSPixel>,
+    starting_character: usize,
+) -> usize {
+    let mut current_character = starting_character;
+    let mut current_offset = Au::new(0);
+    for glyph in &fragment.glyphs {
+        if current_offset + glyph.advance.scale_by(0.5) >= point_in_fragment.x {
+            return current_character;
+        }
+        current_offset += glyph.advance;
+        current_character += glyph.char_count as usize;
+    }
+    current_character
+}
+
+fn collect_text_fragment_entries(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    point_in_document: Point2D<Au, CSSPixel>,
+    out: &mut Vec<TextFragmentEntry>,
+) {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::Text(text_fragment) => {
+            let absolute_origin = generation.containing_block(fragment_id).origin +
+                text_fragment.base.rect.origin.to_vector();
+            out.push((fragment_id, point_in_document - absolute_origin.to_vector()));
+        }
+        _ => {
+            for child in generation.geometry_children(fragment_id) {
+                collect_text_fragment_entries(generation, *child, point_in_document, out);
+            }
+        }
+    }
+}
+
+fn find_closest_text_fragment(
+    generation: &published::FragmentArenaGeneration,
+    fragments: &[TextFragmentEntry],
+) -> Option<usize> {
+    let mut closest_idx = None;
+    let mut closest_dist = Au::new(0);
+    for (i, (fragment_id, point_in_fragment)) in fragments.iter().enumerate() {
+        let published::FragmentKind::Text(text_fragment) = generation.kind(*fragment_id) else {
+            continue;
+        };
+        let Some(distance) =
+            text_fragment_distance_to_point_for_glyph_offset(text_fragment, *point_in_fragment)
+        else {
+            continue;
+        };
+        if closest_idx.is_none() || distance <= closest_dist {
+            closest_idx = Some(i);
+            closest_dist = distance;
+        }
+    }
+    closest_idx
+}
+
 pub fn find_character_offset_in_fragment_descendants(
+    fragment_tree: &FragmentTree,
     layout_node: ServoLayoutNode<'_>,
     node: &ServoThreadSafeLayoutNode,
     point_in_viewport: Point2D<Au, CSSPixel>,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<usize> {
-    type ClosestFragment = Option<(Au, Point2D<Au, CSSPixel>, ArcRefCell<TextFragment>)>;
-    fn maybe_update_closest(
-        fragment: &Fragment,
-        point_in_fragment: Point2D<Au, CSSPixel>,
-        closest_relative_fragment: &mut ClosestFragment,
-    ) {
-        let Fragment::Text(text_fragment) = fragment else {
-            return;
-        };
-        let Some(new_distance) = text_fragment
-            .borrow()
-            .distance_to_point_for_glyph_offset(point_in_fragment)
-        else {
-            return;
-        };
-        if matches!(closest_relative_fragment, Some((old_distance, _, _)) if *old_distance < new_distance)
-        {
-            return;
-        };
-        *closest_relative_fragment = Some((new_distance, point_in_fragment, text_fragment.clone()))
-    }
-
-    fn collect_relevant_children(
-        fragment: &Fragment,
-        point_in_viewport: Point2D<Au, CSSPixel>,
-        closest_relative_fragment: &mut ClosestFragment,
-    ) {
-        maybe_update_closest(fragment, point_in_viewport, closest_relative_fragment);
-
-        if let Some(children) = fragment.children() {
-            for child in children.iter() {
-                let offset = child
-                    .base()
-                    .map(|base| base.rect.origin)
-                    .unwrap_or_default();
-                let point = point_in_viewport - offset.to_vector();
-                collect_relevant_children(child, point, closest_relative_fragment);
-            }
-        }
-    }
-
-    // Convert viewport point to document-relative by adding cumulative scroll offsets.
     let scroll_offset = scroll_offsets.cumulative_scroll_offset(layout_node);
     let point_in_document = point_in_viewport + scroll_offset;
-    let mut closest_relative_fragment = None;
-    for fragment in &node.fragments_for_pseudo(None) {
-        let point_in_fragment = point_in_document
-            - fragment
-                .base()
-                .map(|base| base.rect.origin)
-                .unwrap_or_default()
-                .to_vector();
-        collect_relevant_children(fragment, point_in_fragment, &mut closest_relative_fragment);
+    let generation = fragment_tree.generation();
+    let mut all_frags = Vec::new();
+    for fragment_id in fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .iter()
+        .copied()
+    {
+        collect_text_fragment_entries(&generation, fragment_id, point_in_document, &mut all_frags);
     }
 
-    closest_relative_fragment.map(|(_, point_in_parent, text_fragment)| {
-        text_fragment.borrow().character_offset(point_in_parent)
-    })
+    let idx = find_closest_text_fragment(&generation, &all_frags)?;
+    let (fragment_id, point_in_fragment) = all_frags[idx];
+    let published::FragmentKind::Text(text_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+
+    Some(text_fragment_character_offset(
+        text_fragment,
+        point_in_fragment,
+        text_fragment.character_range_start as usize,
+    ))
 }
 
 /// Like `find_character_offset_in_fragment_descendants`, but returns the OpaqueNode
 /// of the text fragment and a character offset within the DOM text node (not just the fragment).
 /// Used for document text selection where we need to identify the DOM text node.
 pub fn find_text_node_and_offset_in_fragment_descendants(
+    fragment_tree: &FragmentTree,
     layout_node: ServoLayoutNode<'_>,
     node: &ServoThreadSafeLayoutNode,
     point_in_viewport: Point2D<Au, CSSPixel>,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<(OpaqueNode, usize)> {
-    // Collect all text fragments with their points, in document order.
-    type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
-
-    fn collect_text_fragments(
-        fragment: &Fragment,
-        point: Point2D<Au, CSSPixel>,
-        out: &mut Vec<FragEntry>,
-    ) {
-        if let Fragment::Text(text_fragment) = fragment {
-            out.push((text_fragment.clone(), point));
-        }
-        if let Some(children) = fragment.children() {
-            for child in children.iter() {
-                let offset = child
-                    .base()
-                    .map(|base| base.rect.origin)
-                    .unwrap_or_default();
-                collect_text_fragments(child, point - offset.to_vector(), out);
-            }
-        }
-    }
-
-    // Convert viewport point to document-relative by adding cumulative scroll offsets.
     let scroll_offset = scroll_offsets.cumulative_scroll_offset(layout_node);
     let point_in_document = point_in_viewport + scroll_offset;
-    let mut all_frags: Vec<FragEntry> = Vec::new();
-    let node_frags = node.fragments_for_pseudo(None);
-    for fragment in &node_frags {
-        let point_in_fragment = point_in_document
-            - fragment
-                .base()
-                .map(|base| base.rect.origin)
-                .unwrap_or_default()
-                .to_vector();
-        collect_text_fragments(fragment, point_in_fragment, &mut all_frags);
-    }
-    // Find the closest fragment to the point.
-    let mut closest_idx = None;
-    let mut closest_dist = Au::new(0);
-    for (i, (frag_ref, pt)) in all_frags.iter().enumerate() {
-        let frag = frag_ref.borrow();
-        if let Some(dist) = frag.distance_to_point_for_glyph_offset(*pt) {
-            if closest_idx.is_none() || dist <= closest_dist {
-                closest_idx = Some(i);
-                closest_dist = dist;
-            }
-        }
+    let generation = fragment_tree.generation();
+    let mut all_frags = Vec::new();
+    for fragment_id in fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .iter()
+        .copied()
+    {
+        collect_text_fragment_entries(&generation, fragment_id, point_in_document, &mut all_frags);
     }
 
-    let idx = closest_idx?;
-    let (ref closest_frag_ref, closest_point) = all_frags[idx];
-    let closest_frag = closest_frag_ref.borrow();
-    let target_node = closest_frag.base.tag?.node;
-    let frag_local_offset = closest_frag.glyph_character_offset(closest_point);
+    let idx = find_closest_text_fragment(&generation, &all_frags)?;
+    let (fragment_id, closest_point) = all_frags[idx];
+    let published::FragmentKind::Text(text_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let target_node = text_fragment.base.tag?.node;
+    let frag_local_offset = text_fragment_character_offset(text_fragment, closest_point, 0);
 
-    // Sum character counts of all preceding fragments with the same node.
     let mut chars_before = 0usize;
-    for (i, (frag_ref, _)) in all_frags.iter().enumerate() {
+    for (i, (candidate_id, _)) in all_frags.iter().enumerate() {
         if i == idx {
             break;
         }
-        let frag = frag_ref.borrow();
-        if frag.base.tag.map(|t| t.node) == Some(target_node) {
-            let count: usize = frag.glyphs.iter().map(|gs| gs.total_characters()).sum();
-            chars_before += count;
+        let published::FragmentKind::Text(candidate) = generation.kind(*candidate_id) else {
+            continue;
+        };
+        if candidate.base.tag.map(|tag| tag.node) == Some(target_node) {
+            chars_before += candidate
+                .glyphs
+                .iter()
+                .map(|glyph| glyph.char_count as usize)
+                .sum::<usize>();
         }
     }
 
@@ -1484,73 +1606,44 @@ pub fn find_text_node_at_viewport_point(
     point_in_viewport: Point2D<Au, CSSPixel>,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> Option<(OpaqueNode, usize)> {
-    type FragEntry = (ArcRefCell<TextFragment>, Point2D<Au, CSSPixel>);
-
-    fn collect_text_fragments(
-        fragment: &Fragment,
-        point: Point2D<Au, CSSPixel>,
-        out: &mut Vec<FragEntry>,
-    ) {
-        if let Fragment::Text(text_fragment) = fragment {
-            out.push((text_fragment.clone(), point));
-        }
-        if let Some(children) = fragment.children() {
-            for child in children.iter() {
-                let offset = child
-                    .base()
-                    .map(|base| base.rect.origin)
-                    .unwrap_or_default();
-                collect_text_fragments(child, point - offset.to_vector(), out);
-            }
-        }
-    }
-
-    // Convert viewport point to document-relative by adding root scroll offset.
     let root_id = ExternalScrollId(0, scroll_offsets.pipeline_id);
     let root_offset = scroll_offsets
         .offsets
         .get(&root_id)
-        .map(|v| euclid::Vector2D::<Au, CSSPixel>::new(Au::from_f32_px(v.x), Au::from_f32_px(v.y)))
+        .map(|offset| euclid::Vector2D::<Au, CSSPixel>::new(
+            Au::from_f32_px(offset.x),
+            Au::from_f32_px(offset.y),
+        ))
         .unwrap_or_default();
     let point_in_document = point_in_viewport + root_offset;
-    let mut all_frags: Vec<FragEntry> = Vec::new();
-    for fragment in fragment_tree.root_fragments.iter() {
-        let offset = fragment
-            .base()
-            .map(|base| base.rect.origin)
-            .unwrap_or_default();
-        collect_text_fragments(fragment, point_in_document - offset.to_vector(), &mut all_frags);
+    let generation = fragment_tree.generation();
+    let mut all_frags = Vec::new();
+    for fragment_id in generation.geometry_roots.iter().copied() {
+        collect_text_fragment_entries(&generation, fragment_id, point_in_document, &mut all_frags);
     }
 
-    // Find the closest fragment to the point.
-    let mut closest_idx = None;
-    let mut closest_dist = Au::new(0);
-    for (i, (frag_ref, pt)) in all_frags.iter().enumerate() {
-        let frag = frag_ref.borrow();
-        if let Some(dist) = frag.distance_to_point_for_glyph_offset(*pt) {
-            if closest_idx.is_none() || dist <= closest_dist {
-                closest_idx = Some(i);
-                closest_dist = dist;
-            }
-        }
-    }
+    let idx = find_closest_text_fragment(&generation, &all_frags)?;
+    let (fragment_id, closest_point) = all_frags[idx];
+    let published::FragmentKind::Text(text_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let target_node = text_fragment.base.tag?.node;
+    let frag_local_offset = text_fragment_character_offset(text_fragment, closest_point, 0);
 
-    let idx = closest_idx?;
-    let (ref closest_frag_ref, closest_point) = all_frags[idx];
-    let closest_frag = closest_frag_ref.borrow();
-    let target_node = closest_frag.base.tag?.node;
-    let frag_local_offset = closest_frag.glyph_character_offset(closest_point);
-
-    // Sum character counts of preceding fragments with the same node.
     let mut chars_before = 0usize;
-    for (i, (frag_ref, _)) in all_frags.iter().enumerate() {
+    for (i, (candidate_id, _)) in all_frags.iter().enumerate() {
         if i == idx {
             break;
         }
-        let frag = frag_ref.borrow();
-        if frag.base.tag.map(|t| t.node) == Some(target_node) {
-            let count: usize = frag.glyphs.iter().map(|gs| gs.total_characters()).sum();
-            chars_before += count;
+        let published::FragmentKind::Text(candidate) = generation.kind(*candidate_id) else {
+            continue;
+        };
+        if candidate.base.tag.map(|tag| tag.node) == Some(target_node) {
+            chars_before += candidate
+                .glyphs
+                .iter()
+                .map(|glyph| glyph.char_count as usize)
+                .sum::<usize>();
         }
     }
 
@@ -1657,20 +1750,13 @@ pub fn query_elements_from_point(
     fragment_tree: &FragmentTree,
     point: webrender_api::units::LayoutPoint,
     _flags: layout_api::ElementsFromPointFlags,
+    scroll_offsets: &ScrollOffsets<'_>,
 ) -> Vec<layout_api::ElementsFromPointResult> {
     use embedder_traits::Cursor;
     use style::computed_values::pointer_events::T as PointerEvents;
+    use style::values::specified::ui::CursorKind;
 
-    let mut results = Vec::new();
-    let initial_cb = fragment_tree.initial_containing_block;
-    let point: Point2D<f32, CSSPixel> = Point2D::new(point.x, point.y);
-    for fragment in fragment_tree.root_fragments.iter() {
-        hit_test_fragment(fragment, &initial_cb, point, &mut results);
-    }
-    return results;
-
-    fn cursor_from_style(style: &crate::fragment_tree::BaseFragmentStyleRef) -> Cursor {
-        use style::values::specified::ui::CursorKind;
+    fn cursor_from_style(style: &ComputedValues) -> Cursor {
         match style.get_inherited_ui().cursor.keyword {
             CursorKind::Auto | CursorKind::Default => Cursor::Default,
             CursorKind::None => Cursor::None,
@@ -1710,155 +1796,201 @@ pub fn query_elements_from_point(
         }
     }
 
-    fn hit_test_fragment(
-        fragment: &Fragment,
-        containing_block: &crate::geom::PhysicalRect<Au>,
+    fn absolute_rect(
+        generation: &published::FragmentArenaGeneration,
+        fragment_id: published::FragmentId,
+        root_scroll_offset: euclid::Vector2D<Au, CSSPixel>,
+    ) -> Option<Rect<f32, CSSPixel>> {
+        let rect = match generation.kind(fragment_id) {
+            published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+                box_fragment
+                    .border_rect()
+                    .translate(generation.containing_block(fragment_id).origin.to_vector())
+            }
+            published::FragmentKind::Text(text_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + text_fragment.base.rect.origin.to_vector(),
+                text_fragment.base.rect.size,
+            ),
+            published::FragmentKind::Image(image_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + image_fragment.base.rect.origin.to_vector(),
+                image_fragment.base.rect.size,
+            ),
+            published::FragmentKind::IFrame(iframe_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + iframe_fragment.base.rect.origin.to_vector(),
+                iframe_fragment.base.rect.size,
+            ),
+            published::FragmentKind::Positioning(_) => return None,
+        };
+        let rect = if fragment_is_fixed_positioned(generation, fragment_id) {
+            rect
+        } else {
+            rect.translate(-root_scroll_offset)
+        };
+        Some(Rect::new(
+            Point2D::new(rect.origin.x.to_f32_px(), rect.origin.y.to_f32_px()),
+            Size2D::new(rect.size.width.to_f32_px(), rect.size.height.to_f32_px()),
+        ))
+    }
+
+    fn hit_test_paint_child(
+        generation: &published::FragmentArenaGeneration,
+        child: &published::PaintChild,
         point: Point2D<f32, CSSPixel>,
+        root_scroll_offset: euclid::Vector2D<Au, CSSPixel>,
         results: &mut Vec<layout_api::ElementsFromPointResult>,
     ) {
-        match fragment {
-            Fragment::Box(box_frag_cell) | Fragment::Float(box_frag_cell) => {
-                let box_frag = box_frag_cell.borrow();
-                let style = box_frag.base.style();
+        match child {
+            published::PaintChild::Fragment(fragment_id) => {
+                hit_test_fragment(generation, *fragment_id, point, root_scroll_offset, results)
+            }
+            published::PaintChild::Placement(placement_id) => {
+                hit_test_fragment(
+                    generation,
+                    generation.placement(*placement_id).fragment,
+                    point,
+                    root_scroll_offset,
+                    results,
+                )
+            }
+        }
+    }
 
-                // Skip pointer-events: none.
-                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+    fn hit_test_fragment(
+        generation: &published::FragmentArenaGeneration,
+        fragment_id: published::FragmentId,
+        point: Point2D<f32, CSSPixel>,
+        root_scroll_offset: euclid::Vector2D<Au, CSSPixel>,
+        results: &mut Vec<layout_api::ElementsFromPointResult>,
+    ) {
+        let base = generation.base(fragment_id);
+        if base.style.get_inherited_ui().pointer_events == PointerEvents::None {
+            return;
+        }
+        if base.style.get_inherited_box().visibility != Visibility::Visible {
+            return;
+        }
+
+        match generation.kind(fragment_id) {
+            published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+                let Some(border_rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x < border_rect.origin.x ||
+                    point.x > border_rect.origin.x + border_rect.size.width ||
+                    point.y < border_rect.origin.y ||
+                    point.y > border_rect.origin.y + border_rect.size.height
+                {
                     return;
                 }
-
-                // Skip invisible fragments.
-                if style.get_inherited_box().visibility != Visibility::Visible {
-                    return;
+                for child in box_fragment.paint_children.iter().rev() {
+                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
                 }
-
-                let border_rect = box_frag.cumulative_border_box_rect();
-                let br_x = border_rect.origin.x.to_f32_px();
-                let br_y = border_rect.origin.y.to_f32_px();
-                let br_w = border_rect.size.width.to_f32_px();
-                let br_h = border_rect.size.height.to_f32_px();
-
-                if point.x < br_x || point.x > br_x + br_w ||
-                   point.y < br_y || point.y > br_y + br_h {
-                    return;
-                }
-
-                // Recurse into children first (deepest match comes first).
-                let content_rect = box_frag.cumulative_content_box_rect();
-                for child in &box_frag.children {
-                    hit_test_fragment(child, &content_rect, point, results);
-                }
-
-                // Add this fragment if it has a tag (not anonymous).
-                if let Some(tag) = box_frag.base.tag {
-                    let cursor = cursor_from_style(&style);
+                if let Some(tag) = box_fragment.base.tag {
                     results.push(layout_api::ElementsFromPointResult {
                         node: tag.node,
-                        point_in_target: Point2D::new(point.x - br_x, point.y - br_y),
-                        cursor,
+                        point_in_target: Point2D::new(
+                            point.x - border_rect.origin.x,
+                            point.y - border_rect.origin.y,
+                        ),
+                        cursor: cursor_from_style(&box_fragment.base.style),
                     });
                 }
-            },
-            Fragment::Positioning(pos_frag_cell) => {
-                let pos_frag = pos_frag_cell.borrow();
-                let abs_rect = pos_frag.offset_by_containing_block(&pos_frag.base.rect);
-                for child in &pos_frag.children {
-                    hit_test_fragment(child, &abs_rect, point, results);
+            }
+            published::FragmentKind::Positioning(positioning_fragment) => {
+                for child in positioning_fragment.paint_children.iter().rev() {
+                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
                 }
-            },
-            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
-                if let Some(ref fragment) = hoisted.borrow().fragment {
-                    hit_test_fragment(fragment, containing_block, point, results);
-                }
-            },
-            Fragment::Text(text_frag_cell) => {
-                let text_frag = text_frag_cell.borrow();
-                let style = text_frag.base.style();
-
-                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+            }
+            published::FragmentKind::Text(text_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
-                }
-                if style.get_inherited_box().visibility != Visibility::Visible {
-                    return;
-                }
-
-                let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + text_frag.base.rect.origin.x.to_f32_px();
-                let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + text_frag.base.rect.origin.y.to_f32_px();
-                let w = text_frag.base.rect.size.width.to_f32_px();
-                let h = text_frag.base.rect.size.height.to_f32_px();
-
-                if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
-                   point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
-                    if let Some(tag) = text_frag.base.tag {
-                        let cursor = cursor_from_style(&style);
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = text_fragment.base.tag {
                         results.push(layout_api::ElementsFromPointResult {
                             node: tag.node,
-                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
-                            cursor,
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
+                            cursor: cursor_from_style(&text_fragment.base.style),
                         });
                     }
                 }
-            },
-            Fragment::Image(img_frag_cell) => {
-                let img_frag = img_frag_cell.borrow();
-                let style = img_frag.base.style();
-
-                if style.get_inherited_ui().pointer_events == PointerEvents::None {
+            }
+            published::FragmentKind::Image(image_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
-                }
-                if style.get_inherited_box().visibility != Visibility::Visible {
-                    return;
-                }
-
-                let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + img_frag.base.rect.origin.x.to_f32_px();
-                let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + img_frag.base.rect.origin.y.to_f32_px();
-                let w = img_frag.base.rect.size.width.to_f32_px();
-                let h = img_frag.base.rect.size.height.to_f32_px();
-
-                if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
-                   point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
-                    if let Some(tag) = img_frag.base.tag {
-                        let cursor = cursor_from_style(&style);
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = image_fragment.base.tag {
                         results.push(layout_api::ElementsFromPointResult {
                             node: tag.node,
-                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
-                            cursor,
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
+                            cursor: cursor_from_style(&image_fragment.base.style),
                         });
                     }
                 }
-            },
-            Fragment::IFrame(iframe_frag_cell) => {
-                let iframe_frag = iframe_frag_cell.borrow();
-                if let Some(tag) = iframe_frag.base.tag {
-                    let abs_rect_origin_x = containing_block.origin.x.to_f32_px() + iframe_frag.base.rect.origin.x.to_f32_px();
-                    let abs_rect_origin_y = containing_block.origin.y.to_f32_px() + iframe_frag.base.rect.origin.y.to_f32_px();
-                    let w = iframe_frag.base.rect.size.width.to_f32_px();
-                    let h = iframe_frag.base.rect.size.height.to_f32_px();
-
-                    if point.x >= abs_rect_origin_x && point.x <= abs_rect_origin_x + w &&
-                       point.y >= abs_rect_origin_y && point.y <= abs_rect_origin_y + h {
+            }
+            published::FragmentKind::IFrame(iframe_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = iframe_fragment.base.tag {
                         results.push(layout_api::ElementsFromPointResult {
                             node: tag.node,
-                            point_in_target: Point2D::new(point.x - abs_rect_origin_x, point.y - abs_rect_origin_y),
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
                             cursor: Cursor::Default,
                         });
                     }
                 }
-            },
+            }
         }
     }
+
+    let generation = fragment_tree.generation();
+    let root_id = ExternalScrollId(0, scroll_offsets.pipeline_id);
+    let root_scroll_offset = scroll_offsets
+        .offsets
+        .get(&root_id)
+        .map(|offset| euclid::Vector2D::<Au, CSSPixel>::new(
+            Au::from_f32_px(offset.x),
+            Au::from_f32_px(offset.y),
+        ))
+        .unwrap_or_default();
+    let point: Point2D<f32, CSSPixel> = Point2D::new(point.x, point.y);
+    let mut results = Vec::new();
+    for child in generation.paint_roots.iter().rev() {
+        hit_test_paint_child(&generation, child, point, root_scroll_offset, &mut results);
+    }
+    results
 }
 
 
 pub(crate) fn process_effective_overflow_query(
+    fragment_tree: &FragmentTree,
     node: ServoThreadSafeLayoutNode<'_>,
 ) -> Option<AxesOverflow> {
-    let fragments = node.fragments_for_pseudo(None);
-    let box_fragment = fragments.first()?.retrieve_box_fragment()?;
-    let box_fragment = box_fragment.borrow();
-
-    Some(
-        box_fragment
-            .style()
-            .effective_overflow(box_fragment.base.flags),
-    )
+    let fragment_id = first_fragment_id(fragment_tree, node, None)?;
+    match fragment_tree.generation().kind(fragment_id) {
+        published::FragmentKind::Box(box_fragment) | published::FragmentKind::Float(box_fragment) => {
+            Some(box_fragment.base.style.effective_overflow(FragmentFlags::from_bits_retain(
+                box_fragment.base.flags.bits(),
+            )))
+        }
+        _ => None,
+    }
 }

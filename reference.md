@@ -141,6 +141,7 @@ Current behavior:
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
   exact rounded background clips for retained gradients and images, box shadows,
   retained text, clipped images, and iframe/embed child documents on the retained path
+- layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
 
 This keeps renderer ownership on the retained path while coverage work continues.

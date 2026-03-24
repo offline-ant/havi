@@ -1,13 +1,11 @@
-use layout::fragment_tree::Fragment;
+use havi_types::fragment_tree::FragmentId;
 use makepad_widgets::DVec2;
 
 use crate::layout_stacking_context::StackingContextSection;
 
-pub(crate) type PaintSource<'a> = &'a Fragment;
-
 #[derive(Clone, Copy)]
-pub(crate) struct RenderPaintItem<'a> {
+pub(crate) struct RenderPaintItem {
     pub section: StackingContextSection,
     pub local_origin: DVec2,
-    pub source: PaintSource<'a>,
+    pub fragment_id: FragmentId,
 }

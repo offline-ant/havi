@@ -14,6 +14,7 @@ use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc;
 use style::Zero;
 use style::computed_values::clear::T as StyleClear;
+use style::computed_values::position::T as Position;
 use style::context::SharedStyleContext;
 use style::logical_geometry::Direction;
 use style::properties::ComputedValues;
@@ -896,7 +897,7 @@ impl BlockLevelBox {
                 // The static position of zero here is incorrect, however we do not know
                 // the correct positioning until later, in place_block_level_fragment, and
                 // this value will be adjusted there.
-                let hoisted_box = AbsolutelyPositionedBox::to_hoisted(
+                positioning_context.hoist(
                     box_.clone(),
                     // This is incorrect, however we do not know the correct positioning
                     // until later, in PlacementState::place_fragment, and this value will be
@@ -907,10 +908,8 @@ impl BlockLevelBox {
                         block: AlignFlags::START,
                     },
                     containing_block.style.writing_mode,
-                );
-                let hoisted_fragment = hoisted_box.fragment.clone();
-                positioning_context.push(hoisted_box);
-                Fragment::AbsoluteOrFixedPositioned(hoisted_fragment)
+                    Position::Absolute,
+                )
             },
             BlockLevelBox::OutOfFlowFloatBox(float_box) => Fragment::Float(ArcRefCell::new(
                 float_box.layout(layout_context, positioning_context, containing_block),
@@ -2191,7 +2190,7 @@ impl<'container> PlacementState<'container> {
             },
             Fragment::AbsoluteOrFixedPositioned(fragment) => {
                 let inline_cb_size = self.containing_block.size.inline;
-                fragment.borrow_mut().original_static_position_rect = LogicalRect {
+                fragment.static_position_rect = LogicalRect {
                     start_corner: LogicalVec2 {
                         block: (self.current_margin.solve() +
                             self.current_block_direction_position),

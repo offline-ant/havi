@@ -1,4 +1,4 @@
-use layout::fragment_tree::BoxFragment;
+use havi_types::fragment_tree::BoxFragment;
 use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 use makepad_widgets::*;
 use style::properties::ComputedValues;

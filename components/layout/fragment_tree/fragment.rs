@@ -8,22 +8,19 @@ use app_units::Au;
 use atomic_refcell::{AtomicRef, AtomicRefMut};
 use base::id::PipelineId;
 use base::print_tree::PrintTree;
-use euclid::{Point2D, Rect, Size2D};
 use fonts::{FontMetrics, FontRef, GlyphStore};
-use layout_api::BoxAreaType;
 use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
-use style_traits::CSSPixel;
 use webrender_api::{FontInstanceKey, ImageKey};
 
 use super::{
-    BaseFragment, BoxFragment, ContainingBlockManager, HoistedSharedFragment, PositioningFragment,
-    Tag,
+    BaseFragment, BoxFragment, ContainingBlockManager, OutOfFlowPlacementFragment,
+    PositioningFragment, Tag,
 };
 use crate::SharedStyle;
 use crate::cell::ArcRefCell;
 use crate::flow::inline::line::TextRunOffsets;
-use crate::geom::{LogicalSides, PhysicalPoint, PhysicalRect};
+use crate::geom::{LogicalSides, PhysicalRect};
 use crate::style_ext::ComputedValuesExt;
 
 #[derive(Clone, MallocSizeOf)]
@@ -36,14 +33,11 @@ pub enum Fragment {
     /// float containing block formatting context.
     Float(ArcRefCell<BoxFragment>),
     Positioning(ArcRefCell<PositioningFragment>),
-    /// Absolute and fixed position fragments are hoisted up so that they
-    /// are children of the BoxFragment that establishes their containing
-    /// blocks, so that they can be laid out properly. When this happens
-    /// an `AbsoluteOrFixedPositioned` fragment is left at the original tree
-    /// position. This allows these hoisted fragments to be painted with
-    /// regard to their original tree order during stacking context tree /
-    /// display list construction.
-    AbsoluteOrFixedPositioned(ArcRefCell<HoistedSharedFragment>),
+    /// Placeholder for a hoisted absolute/fixed fragment in original tree order.
+    ///
+    /// The real fragment is owned once by the containing block subtree. This node
+    /// only carries immutable placement metadata used to reconstruct paint/query order.
+    AbsoluteOrFixedPositioned(OutOfFlowPlacementFragment),
     Text(ArcRefCell<TextFragment>),
     Image(ArcRefCell<ImageFragment>),
     IFrame(ArcRefCell<IFrameFragment>),
@@ -155,11 +149,7 @@ impl Fragment {
             Fragment::Positioning(positioning_fragment) => positioning_fragment
                 .borrow_mut()
                 .set_containing_block(containing_block),
-            Fragment::AbsoluteOrFixedPositioned(hoisted_shared_fragment) => {
-                if let Some(ref fragment) = hoisted_shared_fragment.borrow().fragment {
-                    fragment.set_containing_block(containing_block);
-                }
-            },
+            Fragment::AbsoluteOrFixedPositioned(_) => {},
             Fragment::Text(_) => {},
             Fragment::Image(_) => {},
             Fragment::IFrame(_) => {},
@@ -195,16 +185,6 @@ impl Fragment {
         }
     }
 
-    pub(crate) fn scrolling_area(&self) -> PhysicalRect<Au> {
-        match self {
-            Fragment::Box(fragment) | Fragment::Float(fragment) => {
-                let fragment = fragment.borrow();
-                fragment.offset_by_containing_block(&fragment.scrollable_overflow())
-            },
-            _ => self.scrollable_overflow_for_parent(),
-        }
-    }
-
     pub(crate) fn scrollable_overflow_for_parent(&self) -> PhysicalRect<Au> {
         match self {
             Fragment::Box(fragment) | Fragment::Float(fragment) => {
@@ -232,83 +212,6 @@ impl Fragment {
                 fragment.borrow_mut().calculate_scrollable_overflow()
             },
             _ => {},
-        }
-    }
-
-    pub(crate) fn cumulative_box_area_rect(&self, area: BoxAreaType) -> Option<PhysicalRect<Au>> {
-        match self {
-            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
-                let hoisted = hoisted.borrow();
-                hoisted.fragment.as_ref()?.cumulative_box_area_rect(area)
-            }
-            Fragment::Box(fragment) | Fragment::Float(fragment) => Some(match area {
-                BoxAreaType::Content => fragment.borrow().cumulative_content_box_rect(),
-                BoxAreaType::Padding => fragment.borrow().cumulative_padding_box_rect(),
-                BoxAreaType::Border => fragment.borrow().cumulative_border_box_rect(),
-            }),
-            Fragment::Positioning(fragment) => {
-                let fragment = fragment.borrow();
-                Some(fragment.offset_by_containing_block(&fragment.base.rect))
-            },
-            Fragment::Text(_) |
-            Fragment::Image(_) |
-            Fragment::IFrame(_) => None,
-        }
-    }
-
-    pub(crate) fn client_rect(&self) -> Rect<i32, CSSPixel> {
-        let rect = match self {
-            Fragment::AbsoluteOrFixedPositioned(hoisted) => {
-                let hoisted = hoisted.borrow();
-                let Some(fragment) = hoisted.fragment.as_ref() else {
-                    return Rect::zero();
-                };
-                return fragment.client_rect();
-            }
-            Fragment::Box(fragment) | Fragment::Float(fragment) => {
-                // https://drafts.csswg.org/cssom-view/#dom-element-clienttop
-                // " If the element has no associated CSS layout box or if the
-                //   CSS layout box is inline, return zero." For this check we
-                // also explicitly ignore the list item portion of the display
-                // style.
-                let fragment = fragment.borrow();
-                if fragment.is_inline_box() {
-                    return Rect::zero();
-                }
-
-                if fragment.is_table_wrapper() {
-                    // For tables the border actually belongs to the table grid box,
-                    // so we need to include it in the dimension of the table wrapper box.
-                    let mut rect = fragment.border_rect();
-                    rect.origin = PhysicalPoint::zero();
-                    rect
-                } else {
-                    let mut rect = fragment.padding_rect();
-                    rect.origin = PhysicalPoint::new(fragment.border.left, fragment.border.top);
-                    rect
-                }
-            },
-            _ => return Rect::zero(),
-        };
-
-        let rect = Rect::new(
-            Point2D::new(rect.origin.x.to_f32_px(), rect.origin.y.to_f32_px()),
-            Size2D::new(rect.size.width.to_f32_px(), rect.size.height.to_f32_px()),
-        );
-        rect.round().to_i32()
-    }
-
-    pub(crate) fn children<'a>(&'a self) -> Option<AtomicRef<'a, Vec<Fragment>>> {
-        match self {
-            Fragment::Box(fragment) | Fragment::Float(fragment) => {
-                let fragment = fragment.borrow();
-                Some(AtomicRef::map(fragment, |fragment| &fragment.children))
-            },
-            Fragment::Positioning(fragment) => {
-                let fragment = fragment.borrow();
-                Some(AtomicRef::map(fragment, |fragment| &fragment.children))
-            },
-            _ => None,
         }
     }
 
@@ -386,72 +289,6 @@ impl TextFragment {
         ));
     }
 
-    /// Find the distance between for point relative to a [`TextFragment`] for the
-    /// purposes of finding a glyph offset. This is used to identify the most relevant
-    /// fragment for glyph offset queries during click handling.
-    pub(crate) fn distance_to_point_for_glyph_offset(
-        &self,
-        point_in_fragment: Point2D<Au, CSSPixel>,
-    ) -> Option<Au> {
-        // Accept any `TextFragment` that is within the vertical range of the point, as one
-        // can click past the end of a line to move the cursor to its end.
-        let rect = &self.base.rect;
-        if point_in_fragment.y < Au::zero() || point_in_fragment.y > rect.height() {
-            return None;
-        }
-        // Only consider clicks that are to the right of the fragment's origin.
-        if point_in_fragment.x < Au::zero() {
-            return None;
-        }
-        Some(point_in_fragment.x - rect.width().max(Au::zero()))
-    }
-
-    /// Given a point relative to this [`TextFragment`], find the most appropriate character
-    /// offset. Note that the given point may be outside the [`TextFragment`]'s content rect.
-    pub(crate) fn character_offset(&self, point_in_fragment: Point2D<Au, CSSPixel>) -> usize {
-        let Some(offsets) = self.offsets.as_ref() else {
-            return 0;
-        };
-
-        let mut current_character = offsets.character_range.start;
-        let mut current_offset = Au::zero();
-        for glyph_store in &self.glyphs {
-            for glyph in glyph_store.glyphs() {
-                let mut advance = glyph.advance();
-                if glyph.char_is_word_separator() {
-                    advance += self.justification_adjustment;
-                }
-                if current_offset + advance.scale_by(0.5) >= point_in_fragment.x {
-                    return current_character;
-                }
-                current_offset += advance;
-                current_character += glyph.character_count();
-            }
-        }
-
-        current_character
-    }
-
-    /// Compute character offset from glyphs without requiring TextRunOffsets.
-    /// Returns a 0-based offset within this fragment's glyph content.
-    pub(crate) fn glyph_character_offset(&self, point_in_fragment: Point2D<Au, CSSPixel>) -> usize {
-        let mut current_character = 0usize;
-        let mut current_offset = Au::zero();
-        for glyph_store in &self.glyphs {
-            for glyph in glyph_store.glyphs() {
-                let mut advance = glyph.advance();
-                if glyph.char_is_word_separator() {
-                    advance += self.justification_adjustment;
-                }
-                if current_offset + advance.scale_by(0.5) >= point_in_fragment.x {
-                    return current_character;
-                }
-                current_offset += advance;
-                current_character += glyph.character_count();
-            }
-        }
-        current_character
-    }
 }
 
 impl ImageFragment {

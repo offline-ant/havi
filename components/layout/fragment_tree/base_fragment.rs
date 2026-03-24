@@ -100,6 +100,9 @@ pub struct BaseFragment {
 
     /// A [`FragmentStatus`] used to track fragment reuse when collecting reflow statistics.
     pub status: FragmentStatus,
+
+    /// The out-of-flow placement id for a real hoisted absolute/fixed fragment.
+    pub out_of_flow_placement_id: Option<u32>,
 }
 
 impl BaseFragment {
@@ -114,6 +117,7 @@ impl BaseFragment {
             style,
             rect,
             status: Default::default(),
+            out_of_flow_placement_id: None,
         }
     }
 

@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::mem;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use app_units::Au;
 use malloc_size_of_derive::MallocSizeOf;
@@ -18,7 +19,7 @@ use crate::cell::ArcRefCell;
 use crate::context::LayoutContext;
 use crate::dom_traversal::{Contents, NodeAndStyleInfo};
 use crate::formatting_contexts::IndependentFormattingContext;
-use crate::fragment_tree::{BoxFragment, Fragment, FragmentFlags, HoistedSharedFragment};
+use crate::fragment_tree::{BoxFragment, Fragment, FragmentFlags, OutOfFlowPlacementFragment};
 use crate::geom::{
     AuOrAuto, LogicalRect, LogicalSides, LogicalSides1D, LogicalVec2, PhysicalPoint, PhysicalRect,
     PhysicalSides, PhysicalSize, PhysicalVec, ToLogical, ToLogicalWithContainingBlock,
@@ -39,30 +40,12 @@ pub(crate) struct AbsolutelyPositionedBox {
 #[derive(Clone, MallocSizeOf)]
 pub(crate) struct HoistedAbsolutelyPositionedBox {
     absolutely_positioned_box: ArcRefCell<AbsolutelyPositionedBox>,
-    /// A reference to a Fragment which is shared between this `HoistedAbsolutelyPositionedBox`
-    /// and its placeholder `AbsoluteOrFixedPositionedFragment` in the original tree position.
-    /// This will be used later in order to paint this hoisted box in tree order.
-    pub fragment: ArcRefCell<HoistedSharedFragment>,
+    pub placement_fragment: OutOfFlowPlacementFragment,
     /// The adjusted "static-position rect" of this absolutely positioned box. This is
-    /// defined by the layout mode from which the box originates. This is the
-    /// [`HoistedSharedFragment::original_static_position_rect`] adjusted by the offests
-    /// of ancestors between the tree position of the absolute and the
-    /// [`PostioningContext`] that holds this [`HoistedAbsolutelyPositionedBox`].
-    ///
-    /// If the value is `None`, the original static position rect has not been adjusted yet.
-    ///
-    /// See <https://drafts.csswg.org/css-position-3/#staticpos-rect>
+    /// defined by the layout mode from which the box originates and then adjusted by the
+    /// offsets of ancestors between the tree position of the absolute and the
+    /// [`PositioningContext`] that currently holds it.
     pub adjusted_static_position_rect: Option<PhysicalRect<Au>>,
-    /// The resolved alignment values used for aligning this absolutely positioned element
-    /// if the "static-position rect" ends up being the "inset-modified containing block".
-    /// These values are dependent on the layout mode (currently only interesting for
-    /// flexbox).
-    pub resolved_alignment: LogicalVec2<AlignFlags>,
-    /// This is the [`WritingMode`] of the original parent of the element that created this
-    /// hoisted absolutely-positioned fragment. This helps to interpret the offset for
-    /// static positioning. If the writing mode is right-to-left or bottom-to-top, the static
-    /// offset needs to be adjusted by the absolutely positioned element's inline size.
-    pub original_parent_writing_mode: WritingMode,
 }
 
 impl AbsolutelyPositionedBox {
@@ -89,22 +72,9 @@ impl AbsolutelyPositionedBox {
             ),
         }
     }
-
-    pub(crate) fn to_hoisted(
-        absolutely_positioned_box: ArcRefCell<Self>,
-        static_position_rect: PhysicalRect<Au>,
-        resolved_alignment: LogicalVec2<AlignFlags>,
-        original_parent_writing_mode: WritingMode,
-    ) -> HoistedAbsolutelyPositionedBox {
-        HoistedAbsolutelyPositionedBox {
-            fragment: ArcRefCell::new(HoistedSharedFragment::new(static_position_rect)),
-            adjusted_static_position_rect: None,
-            resolved_alignment,
-            original_parent_writing_mode,
-            absolutely_positioned_box,
-        }
-    }
 }
+
+static NEXT_OUT_OF_FLOW_PLACEMENT_ID: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Clone, Default, MallocSizeOf)]
 pub(crate) struct PositioningContext {
@@ -129,6 +99,31 @@ impl PositioningContext {
         } else {
             None
         }
+    }
+
+    pub(crate) fn hoist(
+        &mut self,
+        absolutely_positioned_box: ArcRefCell<AbsolutelyPositionedBox>,
+        static_position_rect: PhysicalRect<Au>,
+        resolved_alignment: LogicalVec2<AlignFlags>,
+        original_parent_writing_mode: WritingMode,
+        position: Position,
+    ) -> Fragment {
+        let placement_id = NEXT_OUT_OF_FLOW_PLACEMENT_ID.fetch_add(1, Ordering::Relaxed);
+        let hoisted_box = HoistedAbsolutelyPositionedBox {
+            absolutely_positioned_box,
+            placement_fragment: OutOfFlowPlacementFragment {
+                id: placement_id,
+                static_position_rect,
+                resolved_alignment,
+                original_parent_writing_mode,
+                position,
+            },
+            adjusted_static_position_rect: None,
+        };
+        let placeholder = Fragment::AbsoluteOrFixedPositioned(hoisted_box.placement_fragment.clone());
+        self.push(hoisted_box);
+        placeholder
     }
 
     /// Absolute and fixed position fragments are hoisted up to their containing blocks
@@ -369,14 +364,7 @@ impl Zero for PositioningContextLength {
 
 impl HoistedAbsolutelyPositionedBox {
     fn position(&self) -> Position {
-        let position = self
-            .absolutely_positioned_box
-            .borrow()
-            .context
-            .style()
-            .clone_position();
-        assert!(position.is_absolutely_positioned());
-        position
+        self.placement_fragment.position
     }
 
     pub(crate) fn layout_many(
@@ -402,7 +390,6 @@ impl HoistedAbsolutelyPositionedBox {
                         containing_block_padding,
                     );
 
-                    hoisted_box.fragment.borrow_mut().fragment = Some(new_fragment.clone());
                     (new_fragment, new_hoisted_boxes)
                 })
                 .unzip_into_vecs(&mut new_fragments, &mut new_hoisted_boxes);
@@ -419,7 +406,6 @@ impl HoistedAbsolutelyPositionedBox {
                     containing_block_padding,
                 );
 
-                box_.fragment.borrow_mut().fragment = Some(new_fragment.clone());
                 new_fragment
             }))
         }
@@ -465,7 +451,7 @@ impl HoistedAbsolutelyPositionedBox {
         let inline_box_offsets = box_offset.inline_sides().percentages_relative_to(cbis);
         let inline_alignment = match inline_box_offsets.either_specified() {
             true => style.clone_justify_self().0,
-            false => self.resolved_alignment.inline,
+            false => self.placement_fragment.resolved_alignment.inline,
         };
 
         let inline_axis_solver = AbsoluteAxisSolver {
@@ -479,7 +465,7 @@ impl HoistedAbsolutelyPositionedBox {
             box_offsets: inline_box_offsets,
             static_position_rect_axis: static_position_rect.get_axis(Direction::Inline),
             alignment: inline_alignment,
-            flip_anchor: self.original_parent_writing_mode.is_bidi_ltr() !=
+            flip_anchor: self.placement_fragment.original_parent_writing_mode.is_bidi_ltr() !=
                 containing_block_writing_mode.is_bidi_ltr(),
             is_table_or_replaced,
         };
@@ -489,7 +475,7 @@ impl HoistedAbsolutelyPositionedBox {
         let block_box_offsets = box_offset.block_sides().percentages_relative_to(cbbs);
         let block_alignment = match block_box_offsets.either_specified() {
             true => style.clone_align_self().0,
-            false => self.resolved_alignment.block,
+            false => self.placement_fragment.resolved_alignment.block,
         };
         let block_axis_solver = AbsoluteAxisSolver {
             axis: Direction::Block,
@@ -607,13 +593,13 @@ impl HoistedAbsolutelyPositionedBox {
         let inline_origin = inline_axis_solver.origin_for_margin_box(
             margin_rect_size.inline,
             style.writing_mode,
-            self.original_parent_writing_mode,
+            self.placement_fragment.original_parent_writing_mode,
             containing_block_writing_mode,
         );
         let block_origin = block_axis_solver.origin_for_margin_box(
             margin_rect_size.block,
             style.writing_mode,
-            self.original_parent_writing_mode,
+            self.placement_fragment.original_parent_writing_mode,
             containing_block_writing_mode,
         );
 
@@ -634,6 +620,7 @@ impl HoistedAbsolutelyPositionedBox {
             margin.to_physical(containing_block_writing_mode),
             specific_layout_info,
         );
+        new_fragment.base.out_of_flow_placement_id = Some(self.placement_fragment.id);
 
         // This is an absolutely positioned element, which means it also establishes a
         // containing block for absolutes. We lay out any absolutely positioned children
@@ -659,7 +646,7 @@ impl HoistedAbsolutelyPositionedBox {
 
     fn static_position_rect(&self) -> PhysicalRect<Au> {
         self.adjusted_static_position_rect
-            .unwrap_or_else(|| self.fragment.borrow().original_static_position_rect)
+            .unwrap_or(self.placement_fragment.static_position_rect)
     }
 
     fn adjust_static_position_with_offset(&mut self, offset: &PhysicalVec<Au>) {

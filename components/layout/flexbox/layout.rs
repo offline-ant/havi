@@ -1014,15 +1014,13 @@ impl FlexContainer {
         }
         .as_physical(Some(containing_block));
 
-        let hoisted_box = AbsolutelyPositionedBox::to_hoisted(
+        positioning_context.hoist(
             absolutely_positioned_box,
             static_position_rect,
             logical_alignment,
             self.config.writing_mode,
-        );
-        let hoisted_fragment = hoisted_box.fragment.clone();
-        positioning_context.push(hoisted_box);
-        Fragment::AbsoluteOrFixedPositioned(hoisted_fragment)
+            Position::Absolute,
+        )
     }
 
     #[inline]

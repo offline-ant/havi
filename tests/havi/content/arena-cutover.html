@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI arena cutover regression</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+
+    body {
+      min-height: 1600px;
+      background: #f2f2f2;
+      font-family: monospace;
+    }
+
+    #fixed {
+      position: fixed;
+      left: 24px;
+      top: 24px;
+      width: 96px;
+      height: 72px;
+      background: rgb(43, 88, 212);
+      z-index: 10;
+    }
+
+    #stage {
+      position: relative;
+      height: 1200px;
+      background: linear-gradient(#f2f2f2, #dfdfdf);
+    }
+
+    #flow {
+      height: 900px;
+      border-top: 1px solid transparent;
+    }
+
+    #absolute {
+      position: absolute;
+      left: 120px;
+      top: 520px;
+      width: 120px;
+      height: 90px;
+      background: rgb(214, 66, 66);
+      z-index: 2;
+    }
+
+    #status {
+      position: fixed;
+      right: 16px;
+      top: 16px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 8px 10px;
+      border: 1px solid #bbb;
+      z-index: 20;
+    }
+
+    #results {
+      position: absolute;
+      top: 980px;
+      left: 24px;
+      right: 24px;
+      background: #fff;
+      border: 1px solid #bbb;
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+
+    .pass { color: green; }
+    .fail { color: red; }
+  </style>
+</head>
+<body>
+  <div id="fixed"></div>
+  <div id="stage">
+    <div id="flow"></div>
+    <div id="absolute"></div>
+    <div id="results"></div>
+  </div>
+  <div id="status">Loading...</div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    function assertApprox(actual, expected, tolerance, name) {
+      if (Math.abs(actual - expected) <= tolerance) {
+        log('PASS: ' + name);
+        return true;
+      }
+      log('FAIL: ' + name + ' (expected: ' + expected + ' ±' + tolerance + ', got: ' + actual + ')');
+      return false;
+    }
+
+    function nextFrame() {
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
+    async function suite_arena_cutover() {
+      const absolute = document.getElementById('absolute');
+      const fixed = document.getElementById('fixed');
+
+      assertEqual(getComputedStyle(absolute).position, 'absolute', 'absolute box keeps absolute positioning');
+      assertEqual(getComputedStyle(fixed).position, 'fixed', 'fixed box keeps fixed positioning');
+      assertEqual(absolute.getClientRects().length, 1, 'absolute box exposes one client rect');
+      assertEqual(fixed.getClientRects().length, 1, 'fixed box exposes one client rect');
+
+      const fixedRectBefore = fixed.getBoundingClientRect();
+      const absoluteRectBefore = absolute.getBoundingClientRect();
+      assertApprox(fixedRectBefore.left, 24, 1, 'fixed left before scroll');
+      assertApprox(fixedRectBefore.top, 24, 1, 'fixed top before scroll');
+      assert(absoluteRectBefore.top > 400, 'absolute box starts below the initial viewport');
+
+      const fixedHitBefore = document.elementFromPoint(40, 40);
+      assertEqual(fixedHitBefore && fixedHitBefore.id, 'fixed', 'fixed element wins hit-testing before scroll');
+
+      window.scrollTo(0, 420);
+      await nextFrame();
+
+      const absoluteRectAfter = absolute.getBoundingClientRect();
+      const fixedRectAfter = fixed.getBoundingClientRect();
+      assertApprox(absoluteRectAfter.left, 120, 1, 'absolute left after root scroll');
+      assertApprox(absoluteRectAfter.top, 100, 2, 'absolute top after root scroll');
+      assertApprox(fixedRectAfter.left, 24, 1, 'fixed left after root scroll');
+
+      const fixedHitAfter = document.elementFromPoint(40, 40);
+      assertEqual(fixedHitAfter && fixedHitAfter.id, 'fixed', 'fixed placement remains hit-test target after root scroll');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_arena_cutover, 'arena-cutover');
+      window.testResults = summary;
+
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

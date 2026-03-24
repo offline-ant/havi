@@ -1,4 +1,4 @@
-use layout::fragment_tree::BoxFragment;
+use havi_types::fragment_tree::BoxFragment;
 use makepad_browser_scene::{MpBlendMode, MpEffectNode, MpFilter, MpIsolation};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::values::computed::basic_shape::ClipPath;

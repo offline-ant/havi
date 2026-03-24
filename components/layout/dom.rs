@@ -26,7 +26,7 @@ use crate::dom_traversal::{Contents, NodeAndStyleInfo};
 use crate::flexbox::FlexLevelBox;
 use crate::flow::inline::{InlineItem, SharedInlineStyles, WeakInlineItem};
 use crate::flow::{BlockLevelBox, BlockLevelCreator};
-use crate::fragment_tree::{Fragment, FragmentFlags};
+use crate::fragment_tree::FragmentFlags;
 use crate::geom::PhysicalSize;
 use crate::layout_box_base::LayoutBoxBase;
 use crate::replaced::{CanvasInfo, IFrameInfo, ImageInfo, VideoInfo};
@@ -72,14 +72,6 @@ impl InnerDOMLayoutData {
             data: data.clone(),
         });
         data
-    }
-
-    fn fragments(&self) -> Vec<Fragment> {
-        self.self_box
-            .borrow()
-            .as_ref()
-            .and_then(|layout_box| layout_box.with_base(LayoutBoxBase::fragments))
-            .unwrap_or_default()
     }
 
     fn repair_style(&self, node: &ServoThreadSafeLayoutNode, context: &SharedStyleContext) {
@@ -321,7 +313,6 @@ pub(crate) trait NodeExt<'dom> {
     /// Remove boxes for the element itself, and all of its pseudo-element boxes.
     fn unset_all_boxes(&self);
 
-    fn fragments_for_pseudo(&self, pseudo_element: Option<PseudoElement>) -> Vec<Fragment>;
     fn with_layout_box_base_including_pseudos(&self, callback: impl Fn(&LayoutBoxBase));
 
     fn repair_style(&self, context: &SharedStyleContext);
@@ -506,19 +497,6 @@ impl<'dom> NodeExt<'dom> for ServoThreadSafeLayoutNode<'dom> {
     fn with_layout_box_base_including_pseudos(&self, callback: impl Fn(&LayoutBoxBase)) {
         if let Some(inner_layout_data) = self.inner_layout_data() {
             inner_layout_data.with_layout_box_base_including_pseudos(callback);
-        }
-    }
-
-    fn fragments_for_pseudo(&self, pseudo_element: Option<PseudoElement>) -> Vec<Fragment> {
-        let Some(layout_data) = self.inner_layout_data() else {
-            return vec![];
-        };
-        match pseudo_element {
-            Some(pseudo_element) => layout_data
-                .pseudo_layout_data(pseudo_element)
-                .map(|pseudo_layout_data| pseudo_layout_data.borrow().fragments())
-                .unwrap_or_default(),
-            None => layout_data.fragments(),
         }
     }
 

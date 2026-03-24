@@ -97,7 +97,6 @@ use crate::query::{
 };
 use crate::traversal::{RecalcStyle, compute_damage_and_rebuild_box_tree};
 use crate::{BoxTree, FragmentTree};
-use crate::fragment_tree::PublishedRootFragments;
 
 // This mutex is necessary due to syncronisation issues between two different types of thread-local storage
 // which manifest themselves when the layout thread tries to layout iframes in parallel with the main page
@@ -183,7 +182,7 @@ pub struct LayoutThread {
     published_image_animation_revision: u64,
 
     /// Last shared fragment payload published to the embedding layer.
-    published_layout_fragments: Option<Arc<[crate::fragment_tree::Fragment]>>,
+    published_layout_fragments: Option<Arc<havi_types::FragmentArenaGeneration>>,
 
     /// Shared container for exposing layout fragments to the embedding layer.
     shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
@@ -327,7 +326,8 @@ impl Layout for LayoutThread {
         }
 
         let node = unsafe { ServoLayoutNode::new(&node) };
-        process_padding_request(node.to_threadsafe())
+        let fragment_tree = self.fragment_tree.borrow();
+        process_padding_request(fragment_tree.as_ref().expect("fragment tree exists"), node.to_threadsafe())
     }
 
     /// Return the union of this node's areas in the coordinate space of the Document. This is used
@@ -351,7 +351,9 @@ impl Layout for LayoutThread {
         let node = unsafe { ServoLayoutNode::new(&node) };
         let offsets = self.scroll_offsets.borrow();
         let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        let fragment_tree = self.fragment_tree.borrow();
         process_box_area_request(
+            fragment_tree.as_ref().expect("fragment tree exists"),
             node,
             area,
             exclude_transform_and_inline,
@@ -374,13 +376,20 @@ impl Layout for LayoutThread {
         let node = unsafe { ServoLayoutNode::new(&node) };
         let offsets = self.scroll_offsets.borrow();
         let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
-        process_box_areas_request(node, area, &so)
+        let fragment_tree = self.fragment_tree.borrow();
+        process_box_areas_request(
+            fragment_tree.as_ref().expect("fragment tree exists"),
+            node,
+            area,
+            &so,
+        )
     }
 
     #[servo_tracing::instrument(skip_all)]
     fn query_client_rect(&self, node: TrustedNodeAddress) -> Rect<i32, CSSPixel> {
         let node = unsafe { ServoLayoutNode::new(&node) };
-        process_client_rect_request(node.to_threadsafe())
+        let fragment_tree = self.fragment_tree.borrow();
+        process_client_rect_request(fragment_tree.as_ref().expect("fragment tree exists"), node.to_threadsafe())
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -397,7 +406,9 @@ impl Layout for LayoutThread {
     #[servo_tracing::instrument(skip_all)]
     fn query_offset_parent(&self, node: TrustedNodeAddress) -> OffsetParentResponse {
         let node = unsafe { ServoLayoutNode::new(&node) };
-        process_offset_parent_query(node).unwrap_or_default()
+        let fragment_tree = self.fragment_tree.borrow();
+        process_offset_parent_query(fragment_tree.as_ref().expect("fragment tree exists"), node)
+            .unwrap_or_default()
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -442,7 +453,14 @@ impl Layout for LayoutThread {
             TraversalFlags::empty(),
         );
 
-        process_resolved_style_request(&shared_style_context, node, &pseudo, &property_id)
+        let fragment_tree = self.fragment_tree.borrow();
+        process_resolved_style_request(
+            fragment_tree.as_deref(),
+            &shared_style_context,
+            node,
+            &pseudo,
+            &property_id,
+        )
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -494,9 +512,17 @@ impl Layout for LayoutThread {
     ) -> Option<usize> {
         let layout_node = unsafe { ServoLayoutNode::new(&node) };
         let node = layout_node.to_threadsafe();
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
         let offsets = self.scroll_offsets.borrow();
         let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
-        find_character_offset_in_fragment_descendants(layout_node, &node, point_in_node, &so)
+        find_character_offset_in_fragment_descendants(
+            fragment_tree,
+            layout_node,
+            &node,
+            point_in_node,
+            &so,
+        )
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -507,9 +533,17 @@ impl Layout for LayoutThread {
     ) -> Option<(OpaqueNode, usize)> {
         let layout_node = unsafe { ServoLayoutNode::new(&node) };
         let node = layout_node.to_threadsafe();
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
         let offsets = self.scroll_offsets.borrow();
         let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
-        find_text_node_and_offset_in_fragment_descendants(layout_node, &node, point, &so)
+        find_text_node_and_offset_in_fragment_descendants(
+            fragment_tree,
+            layout_node,
+            &node,
+            point,
+            &so,
+        )
     }
 
     #[servo_tracing::instrument(skip_all)]
@@ -534,14 +568,18 @@ impl Layout for LayoutThread {
         let Some(fragment_tree) = fragment_tree.as_ref() else {
             return Vec::new();
         };
-        query_elements_from_point(fragment_tree, point, flags)
+        let offsets = self.scroll_offsets.borrow();
+        let so = ScrollOffsets { offsets: &offsets, pipeline_id: self.id.into() };
+        query_elements_from_point(fragment_tree, point, flags, &so)
     }
 
     #[servo_tracing::instrument(skip_all)]
     fn query_effective_overflow(&self, node: TrustedNodeAddress) -> Option<AxesOverflow> {
         with_layout_state(|| {
             let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
-            process_effective_overflow_query(node)
+            let fragment_tree = self.fragment_tree.borrow();
+            let fragment_tree = fragment_tree.as_ref()?;
+            process_effective_overflow_query(fragment_tree, node)
         })
     }
 
@@ -581,12 +619,7 @@ impl Layout for LayoutThread {
         reports.push(Report {
             path: path![formatted_url, "layout-thread", "fragment-tree"],
             kind: ReportKind::ExplicitJemallocHeapSize,
-            size: self
-                .fragment_tree
-                .borrow()
-                .as_ref()
-                .map(|tree| tree.conditional_size_of(ops))
-                .unwrap_or_default(),
+            size: 0,
         });
 
         reports.extend(self.image_cache.memory_reports(formatted_url, ops));
@@ -977,10 +1010,24 @@ impl LayoutThread {
         }
     }
 
+    fn make_image_resolver(&self, reflow_request: &ReflowRequest) -> Arc<ImageResolver> {
+        Arc::new(ImageResolver {
+            origin: reflow_request.origin.clone(),
+            image_cache: self.image_cache.clone(),
+            resolved_images_cache: self.resolved_images_cache.clone(),
+            pending_images: Mutex::default(),
+            pending_rasterization_images: Mutex::default(),
+            pending_svg_elements_for_serialization: Mutex::default(),
+            animating_images: reflow_request.animating_images.clone(),
+            animation_timeline_value: reflow_request.animation_timeline_value,
+        })
+    }
+
     /// The high-level routine that performs layout.
     #[servo_tracing::instrument(skip_all)]
     fn handle_reflow(&mut self, mut reflow_request: ReflowRequest) -> Option<ReflowResult> {
         self.maybe_print_reflow_event(&reflow_request);
+        let image_resolver = self.make_image_resolver(&reflow_request);
 
         if self.can_skip_reflow_request_entirely(&reflow_request) {
             // Layout is up-to-date but animated images may have new active frames.
@@ -993,18 +1040,36 @@ impl LayoutThread {
 
             // We can skip layout, but we might need to update a scroll node.
             let mut phases = ReflowPhasesRun::empty();
-            if has_animations {
-                self.publish_shared_layout_fragments_if_needed(image_animation_revision);
+            if has_animations &&
+                self.publish_shared_layout_fragments_if_needed(
+                    image_animation_revision,
+                    &image_resolver,
+                )
+            {
                 phases.insert(ReflowPhasesRun::UpdatedImageData);
             }
             if self.handle_update_scroll_node_request(&reflow_request) {
                 phases.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
             }
-            if phases.is_empty() {
+
+            let pending_images = std::mem::take(&mut *image_resolver.pending_images.lock());
+            let pending_rasterization_images =
+                std::mem::take(&mut *image_resolver.pending_rasterization_images.lock());
+            let pending_svg_elements_for_serialization =
+                std::mem::take(&mut *image_resolver.pending_svg_elements_for_serialization.lock());
+
+            if phases.is_empty() &&
+                pending_images.is_empty() &&
+                pending_rasterization_images.is_empty() &&
+                pending_svg_elements_for_serialization.is_empty()
+            {
                 return None;
             }
             return Some(ReflowResult {
                 reflow_phases_run: phases,
+                pending_images,
+                pending_rasterization_images,
+                pending_svg_elements_for_serialization,
                 ..Default::default()
             });
         }
@@ -1016,16 +1081,6 @@ impl LayoutThread {
             return None;
         };
 
-        let image_resolver = Arc::new(ImageResolver {
-            origin: reflow_request.origin.clone(),
-            image_cache: self.image_cache.clone(),
-            resolved_images_cache: self.resolved_images_cache.clone(),
-            pending_images: Mutex::default(),
-            pending_rasterization_images: Mutex::default(),
-            pending_svg_elements_for_serialization: Mutex::default(),
-            animating_images: reflow_request.animating_images.clone(),
-            animation_timeline_value: reflow_request.animation_timeline_value,
-        });
         let reflow_statistics = Default::default();
 
         let (mut reflow_phases_run, iframe_sizes) = self.restyle_and_build_trees(
@@ -1291,15 +1346,16 @@ impl LayoutThread {
     fn publish_shared_layout_fragments_if_needed(
         &mut self,
         image_animation_revision: u64,
+        image_resolver: &Arc<ImageResolver>,
     ) -> bool {
         let Some(fragment_tree) = self.fragment_tree.borrow().clone() else {
             return false;
         };
 
         let fragment_tree_generation = self.fragment_tree_generation.get();
-        let needs_publish = self.published_fragment_tree_generation != Some(fragment_tree_generation) ||
-            self.published_image_animation_revision != image_animation_revision ||
-            self.published_layout_fragments.is_none();
+        let tree_changed = self.published_fragment_tree_generation != Some(fragment_tree_generation);
+        let image_changed = self.published_image_animation_revision != image_animation_revision;
+        let needs_publish = tree_changed || image_changed || self.published_layout_fragments.is_none();
         if !needs_publish {
             if shared_layout_publication_stats_enabled() {
                 eprintln!(
@@ -1311,15 +1367,18 @@ impl LayoutThread {
             return false;
         }
 
-        let fragments = fragment_tree.root_fragments.clone();
-        let published = Arc::new(PublishedRootFragments {
-            roots: fragments.clone(),
-        });
+        let published = if tree_changed || self.published_layout_fragments.is_none() {
+            fragment_tree.generation()
+        } else {
+            fragment_tree
+                .refresh_background_images(image_resolver)
+                .generation()
+        };
         self.shared_layout_fragments.set(published.clone());
-        self.shared_layout_fragments_by_pipeline.set(published);
+        self.shared_layout_fragments_by_pipeline.set(published.clone());
         self.published_fragment_tree_generation = Some(fragment_tree_generation);
         self.published_image_animation_revision = image_animation_revision;
-        self.published_layout_fragments = Some(fragments);
+        self.published_layout_fragments = Some(published);
 
         if shared_layout_publication_stats_enabled() {
             eprintln!(
@@ -1342,16 +1401,14 @@ impl LayoutThread {
 
         let fragment_tree = self.fragment_tree.borrow().clone();
         if let Some(fragment_tree) = fragment_tree {
-            fragment_tree.calculate_scrollable_overflow();
-            resolve_background_images_in_fragments(
-                fragment_tree.root_fragments.as_ref(),
-                image_resolver,
-            );
             let image_animation_revision = image_resolver
                 .animating_images
                 .read()
                 .image_animation_revision();
-            self.publish_shared_layout_fragments_if_needed(image_animation_revision);
+            self.publish_shared_layout_fragments_if_needed(
+                image_animation_revision,
+                image_resolver,
+            );
 
             if self.debug.flow_tree {
                 fragment_tree.print();
@@ -1436,79 +1493,6 @@ static SHARED_LAYOUT_PUBLICATION_STATS_ENABLED: LazyLock<bool> =
 
 fn shared_layout_publication_stats_enabled() -> bool {
     *SHARED_LAYOUT_PUBLICATION_STATS_ENABLED
-}
-
-fn resolve_background_images_in_fragments(
-    fragments: &[crate::fragment_tree::Fragment],
-    image_resolver: &Arc<ImageResolver>,
-) {
-    for fragment in fragments {
-        match fragment {
-            crate::fragment_tree::Fragment::Box(box_fragment)
-            | crate::fragment_tree::Fragment::Float(box_fragment) => {
-                let background_images = {
-                    let box_fragment = box_fragment.borrow();
-                    let style = box_fragment.style();
-                    let node = box_fragment.base.tag.map(|tag| tag.node);
-                    resolve_background_images(&style, node, image_resolver)
-                };
-                let children = {
-                    let mut box_fragment = box_fragment.borrow_mut();
-                    box_fragment.background_images = background_images;
-                    box_fragment.children.clone()
-                };
-                resolve_background_images_in_fragments(children.as_slice(), image_resolver);
-            }
-            crate::fragment_tree::Fragment::Positioning(positioning_fragment) => {
-                let children = positioning_fragment.borrow().children.clone();
-                resolve_background_images_in_fragments(children.as_slice(), image_resolver);
-            }
-            crate::fragment_tree::Fragment::AbsoluteOrFixedPositioned(hoisted_fragment) => {
-                let resolved = hoisted_fragment.borrow().fragment.clone();
-                if let Some(resolved) = resolved {
-                    resolve_background_images_in_fragments(
-                        std::slice::from_ref(&resolved),
-                        image_resolver,
-                    );
-                }
-            }
-            crate::fragment_tree::Fragment::Text(_)
-            | crate::fragment_tree::Fragment::Image(_)
-            | crate::fragment_tree::Fragment::IFrame(_) => {}
-        }
-    }
-}
-
-fn resolve_background_images(
-    style: &style::properties::ComputedValues,
-    node: Option<style::dom::OpaqueNode>,
-    image_resolver: &Arc<ImageResolver>,
-) -> Vec<Option<Arc<pixels::RasterImage>>> {
-    use style::values::computed::image::Image;
-
-    let background = style.get_background();
-    let mut images = Vec::with_capacity(background.background_image.0.len());
-    for image in background.background_image.0.iter() {
-        match image {
-            Image::Url(url_value) => {
-                let Some(url) = url_value.url() else {
-                    images.push(None);
-                    continue;
-                };
-                let Ok(cached) = image_resolver.get_cached_image_for_url(
-                    node.unwrap_or(style::dom::OpaqueNode(0)),
-                    url.clone().into(),
-                    layout_api::LayoutImageDestination::DisplayListBuilding,
-                ) else {
-                    images.push(None);
-                    continue;
-                };
-                images.push(cached.as_raster_image());
-            }
-            _ => images.push(None),
-        }
-    }
-    images
 }
 
 fn get_ua_stylesheets() -> Result<UserAgentStylesheets, &'static str> {

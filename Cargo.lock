@@ -3049,6 +3049,7 @@ name = "havi-types"
 version = "0.1.0"
 dependencies = [
  "app_units",
+ "base",
  "bitflags 2.11.0",
  "euclid",
  "havi-fonts",

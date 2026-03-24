@@ -263,9 +263,11 @@ File:
 ## 2. Render crate fetches the fragment tree
 
 `LayoutFragmentSource` reads the shared layout fragment payload from layout.
-That payload is published through `SharedLayoutFragmentTree` as a
-`PublishedRootFragments` wrapper carrying immutable `Arc<[Fragment]>` roots, and
-remains pointer stable across unchanged reflows.
+That payload is published through `SharedLayoutFragmentTree` as an immutable
+`Arc<FragmentArenaGeneration>` built in `havi-types`.
+The published arena carries fragment ids, explicit paint roots, out-of-flow
+placement records, and derived side tables.
+Unchanged reflows keep the same arena pointer.
 
 File:
 
@@ -277,12 +279,12 @@ File:
 
 Fast path:
 
-- same shared fragment payload pointer
+- same published arena pointer
 - same viewport size
 - scroll offsets update in place through retained scroll nodes
 
-Layout only republishes shared fragments when either the fragment-tree
-generation changes or the visible animated-image frame selection changes.
+Layout republishes the arena when the fragment-tree generation changes or when
+animated background/image content changes the published derived data.
 Steady-state frames therefore hit the retained document cache instead of
 rebuilding scene data every draw.
 

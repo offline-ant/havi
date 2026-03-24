@@ -1,15 +1,15 @@
-use layout::fragment_tree::Fragment;
+use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpDocument, MpScene, ResourceRegistry};
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 
-use super::traversal::build_fragment_list;
+use super::traversal::build_paint_list;
 use super::{
     BrowserDocumentScrollNodes, BuildContext, BuildState, BuiltBrowserDocument, DirectBuilderIds,
 };
 
 pub(crate) fn try_build_browser_document(
     cx: &mut Cx2d,
-    fragments: &[Fragment],
+    generation: &published::FragmentArenaGeneration,
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
     registry: &mut ResourceRegistry,
@@ -17,7 +17,7 @@ pub(crate) fn try_build_browser_document(
 ) -> Result<BuiltBrowserDocument, String> {
     build_browser_document(
         cx,
-        fragments,
+        generation,
         scroll_state,
         viewport_size,
         registry,
@@ -28,7 +28,7 @@ pub(crate) fn try_build_browser_document(
 
 pub(super) fn build_browser_document(
     cx: &mut Cx2d,
-    fragments: &[Fragment],
+    generation: &published::FragmentArenaGeneration,
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
     registry: &mut ResourceRegistry,
@@ -47,9 +47,10 @@ pub(super) fn build_browser_document(
         child_documents: Vec::new(),
     };
     let mut scroll_nodes = BrowserDocumentScrollNodes::default();
-    build_fragment_list(
+    build_paint_list(
         cx,
-        fragments,
+        generation,
+        generation.paint_roots.as_ref(),
         scroll_state,
         &mut scene,
         registry,

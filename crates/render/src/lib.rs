@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use base::id::WebViewId;
-use layout::fragment_tree::{BoxFragment, Fragment};
+use havi_types::fragment_tree as published;
 use makepad_browser_scene::MpBrowserRenderer;
 use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
@@ -275,7 +275,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         .map(|cache| &cache.document);
     let browser_document = match browser_scene_builder::try_build_browser_document(
         cx,
-        fragments.roots.as_ref(),
+        fragments.as_ref(),
         scroll_state,
         viewport_size,
         frame_draw_lists
@@ -331,45 +331,9 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     }
 }
 
-pub fn is_scroll_container(bf: &BoxFragment) -> bool {
+pub fn is_scroll_container(bf: &published::BoxFragment) -> bool {
     let style = bf.style();
     let ov = style.get_box();
     matches!(ov.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll)
         || matches!(ov.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll)
-}
-
-// Child fragment coordinates are measured in content-box space, so max scroll
-// is content extent minus visible content size.
-pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
-    let content_w = bf.content_rect().size.width.to_f32_px() as f64;
-    let content_h = bf.content_rect().size.height.to_f32_px() as f64;
-
-    let mut max_x: f64 = 0.0;
-    let mut max_y: f64 = 0.0;
-    for child in &bf.children {
-        let (right, bottom) = match child {
-            Fragment::Box(cbf) | Fragment::Float(cbf) => {
-                let cbf = cbf.borrow();
-                let br = cbf.border_rect();
-                (
-                    br.origin.x.to_f32_px() as f64 + br.size.width.to_f32_px() as f64,
-                    br.origin.y.to_f32_px() as f64 + br.size.height.to_f32_px() as f64,
-                )
-            }
-            Fragment::AbsoluteOrFixedPositioned(_) => (0.0, 0.0),
-            _ => {
-                let cr = child.content_rect();
-                (
-                    cr.origin.x.to_f32_px() as f64 + cr.size.width.to_f32_px() as f64,
-                    cr.origin.y.to_f32_px() as f64 + cr.size.height.to_f32_px() as f64,
-                )
-            }
-        };
-        max_x = max_x.max(right);
-        max_y = max_y.max(bottom);
-    }
-
-    let scroll_max_x = (max_x - content_w).max(0.0);
-    let scroll_max_y = (max_y - content_h).max(0.0);
-    (scroll_max_x, scroll_max_y)
 }

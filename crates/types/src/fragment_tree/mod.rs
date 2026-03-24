@@ -1,14 +1,11 @@
-// Fragment tree types produced by layout, adapted from Servo's fragment_tree/.
-//
-// A hierarchical tree of fragments: BoxFragment contains children,
-// stores padding/border/margin/baselines.
-
+mod arena;
 mod base;
 mod box_fragment;
-mod fragment;
 mod collapsed_margin;
+mod fragment;
 
+pub use arena::*;
 pub use base::*;
 pub use box_fragment::*;
-pub use fragment::*;
 pub use collapsed_margin::*;
+pub use fragment::*;

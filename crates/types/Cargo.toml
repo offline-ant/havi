@@ -9,6 +9,7 @@ stylo = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae2
 stylo_traits = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
 servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb" }
 havi-fonts = { path = "../fonts" }
+base = { path = "../../components/shared/base" }
 app_units = "0.7"
 bitflags = "2"
 euclid = "0.22"

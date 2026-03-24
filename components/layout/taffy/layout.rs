@@ -4,6 +4,7 @@
 
 use app_units::Au;
 use atomic_refcell::{AtomicRef, AtomicRefCell};
+use style::computed_values::position::T as Position;
 use style::properties::ComputedValues;
 use style::values::computed::CSSPixelLength;
 use style::values::computed::length_percentage::CalcLengthPercentage;
@@ -25,7 +26,7 @@ use crate::fragment_tree::{
 };
 use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSides, PhysicalSize};
 use crate::layout_box_base::CacheableLayoutResult;
-use crate::positioned::{AbsolutelyPositionedBox, PositioningContext, PositioningContextLength};
+use crate::positioned::{PositioningContext, PositioningContextLength};
 use crate::sizing::{
     ComputeInlineContentSizes, ContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
 };
@@ -539,7 +540,7 @@ impl TaffyContainer {
                             }
                         }
 
-                        let hoisted_box = AbsolutelyPositionedBox::to_hoisted(
+                        container_ctx.positioning_context.hoist(
                             abs_pos_box.clone(),
                             PhysicalRect::from_size(PhysicalSize::new(
                                 Au::from_f32_px(output.size.width),
@@ -556,10 +557,8 @@ impl TaffyContainer {
                                 ),
                             },
                             container_ctx.style.writing_mode,
-                        );
-                        let hoisted_fragment = hoisted_box.fragment.clone();
-                        container_ctx.positioning_context.push(hoisted_box);
-                        Fragment::AbsoluteOrFixedPositioned(hoisted_fragment)
+                            Position::Absolute,
+                        )
                     },
                 };
 

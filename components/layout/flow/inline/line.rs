@@ -688,6 +688,7 @@ impl LineItemLayout<'_, '_> {
             };
 
         let containing_block = self.containing_block();
+        let containing_block_writing_mode = containing_block.style.writing_mode;
         let static_position_rect = LogicalRect {
             start_corner: initial_start_corner,
             size: LogicalVec2 {
@@ -697,22 +698,19 @@ impl LineItemLayout<'_, '_> {
         }
         .as_physical(Some(containing_block));
 
-        let hoisted_box = AbsolutelyPositionedBox::to_hoisted(
+        let placeholder = self.current_positioning_context_mut().hoist(
             absolute.absolutely_positioned_box.clone(),
             static_position_rect,
             LogicalVec2 {
                 inline: AlignFlags::START,
                 block: AlignFlags::START,
             },
-            containing_block.style.writing_mode,
+            containing_block_writing_mode,
+            Position::Absolute,
         );
-
-        let hoisted_fragment = hoisted_box.fragment.clone();
-        self.current_positioning_context_mut().push(hoisted_box);
-        self.current_state.fragments.push((
-            Fragment::AbsoluteOrFixedPositioned(hoisted_fragment),
-            LogicalRect::zero(),
-        ));
+        self.current_state
+            .fragments
+            .push((placeholder, LogicalRect::zero()));
     }
 
     fn layout_float(&mut self, float: FloatLineItem) {

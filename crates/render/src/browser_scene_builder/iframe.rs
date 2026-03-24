@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use base::id::PipelineId;
-use layout::fragment_tree::{Fragment, FragmentFlags, IFrameFragment, PublishedRootFragments};
+use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpChildDocument, MpEmbed, MpHitTestTag, MpPipelineId, MpScene, ResourceRegistry};
 use makepad_widgets::Cx2d;
 
@@ -16,8 +16,9 @@ use crate::paint_items::RenderPaintItem;
 
 pub(super) fn build_iframe_fragment(
     cx: &mut Cx2d,
-    fragment: &Fragment,
-    iframe: &IFrameFragment,
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    iframe: &published::IFrameFragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
@@ -27,35 +28,51 @@ pub(super) fn build_iframe_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    if iframe.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
+    if iframe.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
         return Ok(());
     }
 
-    let content_bounds = fragment_local_bounds(fragment, build_cx.containing_block_origin);
-    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style()));
+    let content_bounds = fragment_local_bounds(generation, fragment_id, build_cx.containing_block_origin);
+    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style));
     let iframe_rect = physical_rect_to_rect(iframe.base.rect);
     push_fragment_primitives(
         cx,
+        generation,
         scene,
         registry,
         state,
         &RenderPaintItem {
             section: StackingContextSection::Foreground,
             local_origin: border_bounds.pos - iframe_rect.pos,
-            source: fragment,
+            fragment_id,
         },
         iframe.base.tag.map(|tag| tag.node.0),
         build_cx,
     )?;
 
     let pipeline_id = mp_pipeline_id(iframe.pipeline_id);
-    let child_fragments = layout_api::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
-        .get::<PublishedRootFragments>()
-        .map(|published| published.roots.clone())
-        .unwrap_or_else(|| Arc::<[Fragment]>::from([]));
+    let child_generation = layout_api::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
+        .get::<published::FragmentArenaGeneration>()
+        .unwrap_or_else(|| {
+            Arc::new(published::FragmentArenaGeneration {
+                geometry_roots: Arc::from(Vec::<published::FragmentId>::new()),
+                paint_roots: Arc::from(Vec::<published::PaintChild>::new()),
+                nodes: Arc::from(Vec::<published::FragmentNode>::new()),
+                placements: Arc::from(Vec::<published::OutOfFlowPlacement>::new()),
+                derived: published::FragmentDerivedData {
+                    containing_blocks: Vec::new(),
+                    scrollable_overflow: Vec::new(),
+                    sticky_insets: Vec::new(),
+                    background_images: Vec::new(),
+                },
+                node_fragments: std::collections::HashMap::new(),
+                initial_containing_block: havi_types::PhysicalRect::zero(),
+                scrollable_overflow: havi_types::PhysicalRect::zero(),
+            })
+        });
     let child_document = build_browser_document(
         cx,
-        child_fragments.as_ref(),
+        child_generation.as_ref(),
         scroll_state,
         content_bounds.size,
         registry,
