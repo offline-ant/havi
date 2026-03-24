@@ -54,6 +54,10 @@ Environment variables:
 - `HAVI_SCREENSHOT` — internal screenshot output path set by
   `--screenshot <output.png>`
 
+Screenshot mode waits for the active page to reach load-complete and then for
+active-page visual updates to go quiet. Shell chrome redraws and generic event
+loop wakeups do not extend screenshot settling.
+
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
 

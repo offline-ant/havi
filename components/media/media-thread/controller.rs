@@ -15,6 +15,7 @@ use std::sync::{LazyLock, Mutex};
 
 use log::{info, warn};
 
+use base::id::WebViewId;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::asset::ResolvedMediaAsset;
@@ -57,6 +58,7 @@ pub enum VideoOp {
     /// Set up a video player with texture output.
     PrepareVideo {
         video_id: u64,
+        webview_id: WebViewId,
         source: MediaOrigin,
         /// Raw (namespace, index) image key for VideoTextureMap registration.
         image_key: (u32, u32),
@@ -73,6 +75,7 @@ pub enum VideoOp {
     /// Set up a browser-owned direct source-backed playback session.
     PrepareDirectPlayback {
         video_id: u64,
+        webview_id: WebViewId,
         asset: ResolvedMediaAsset,
         mime: String,
         /// None for audio-only playback.
@@ -105,6 +108,7 @@ pub enum VideoOp {
     /// added separately via `MseAddSourceBuffer`).
     PrepareMsePlayback {
         video_id: u64,
+        webview_id: WebViewId,
         /// None for audio-only playback.
         image_key: Option<(u32, u32)>,
     },
@@ -537,6 +541,7 @@ impl MediaController {
 
     /// Create a video controller and send PrepareVideo to the platform.
     pub fn new_video(
+        webview_id: WebViewId,
         source: MediaOrigin,
         image_key: (u32, u32),
         autoplay: bool,
@@ -549,6 +554,7 @@ impl MediaController {
         );
         send_op(VideoOp::PrepareVideo {
             video_id,
+            webview_id,
             source,
             image_key,
             autoplay,
@@ -576,6 +582,7 @@ impl MediaController {
     /// Create a direct source-backed controller from browser-owned MP4/fMP4
     /// source bytes.
     pub fn new_direct_playback(
+        webview_id: WebViewId,
         asset: ResolvedMediaAsset,
         mime: String,
         image_key: Option<(u32, u32)>,
@@ -589,6 +596,7 @@ impl MediaController {
         );
         send_op(VideoOp::PrepareDirectPlayback {
             video_id,
+            webview_id,
             asset,
             mime,
             image_key,
@@ -600,6 +608,7 @@ impl MediaController {
 
     /// Create an MSE-backed controller on the shared custom playback path.
     pub fn new_mse_playback(
+        webview_id: WebViewId,
         image_key: Option<(u32, u32)>,
         autoplay: bool,
         should_loop: bool,
@@ -609,7 +618,11 @@ impl MediaController {
             "media: queue PrepareMsePlayback id={} image_key={:?} autoplay={} loop={}",
             video_id, image_key, autoplay, should_loop
         );
-        send_op(VideoOp::PrepareMsePlayback { video_id, image_key });
+        send_op(VideoOp::PrepareMsePlayback {
+            video_id,
+            webview_id,
+            image_key,
+        });
         Self::new_common(video_id, image_key.unwrap_or((0, 0)), image_key.is_none(), !autoplay)
     }
 

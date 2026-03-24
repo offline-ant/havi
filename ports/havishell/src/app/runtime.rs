@@ -378,8 +378,8 @@ impl App {
                 .set_visible(cx, false);
         }
 
-        // Signal that we need to paint the first frame
-        self.needs_paint = true;
+        // Signal that we need to spin the first frame.
+        self.needs_spin = true;
         self.idle_frames = 0;
 
         // Print eval-compatible environment summary.
@@ -486,8 +486,9 @@ impl App {
             tab.webview.resize(phys_size);
         }
 
-        // Signal that we need to redraw at the new size.
-        self.needs_paint = true;
+        // Resizing the active render target changes visible page output.
+        self.note_active_page_visual_change();
+        self.needs_spin = true;
     }
 
     /// Main update method called each frame. Spins Servo's event loop and
@@ -533,9 +534,9 @@ impl App {
             }
         }
 
-        // Reset idle counter when new content is available.
-        if self.needs_paint {
-            self.needs_paint = false;
+        // Reset idle counter when loop work is pending.
+        if self.needs_spin {
+            self.needs_spin = false;
             self.idle_frames = 0;
         } else {
             self.idle_frames = self.idle_frames.saturating_add(1);

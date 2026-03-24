@@ -374,10 +374,7 @@ impl MatchEvent for App {
             let text = if self.menu_at_bottom { "🔽" } else { "🔼" };
             self.ui.button(cx, ids!(dock_btn)).set_text(cx, text);
             self.apply_menu_dock(cx);
-            self.needs_paint = true;
-            self.idle_frames = 0;
-            self.next_frame = cx.new_next_frame();
-            cx.redraw_all();
+            self.request_spin_redraw(cx);
         }
         if let Some(changed) = self.ui.text_input(cx, ids!(url_input)).changed(actions) {
             let sanitized = Self::sanitize_url_bar_text(&changed);
@@ -588,10 +585,7 @@ impl MatchEvent for App {
         for action in actions {
             match action.downcast_ref::<MakepadServoAction>() {
                 Some(MakepadServoAction::Wake) => {
-                    self.needs_paint = true;
-                    self.idle_frames = 0;
-                    self.next_frame = cx.new_next_frame();
-                    cx.redraw_all();
+                    self.request_spin_redraw(cx);
                 },
                 Some(MakepadServoAction::TitleChanged { webview_id, title }) => {
                     let webview_id = *webview_id;
@@ -647,10 +641,7 @@ impl MatchEvent for App {
                         if idx == self.active_tab_idx {
                             self.active_root_pipeline_id = Some(pipeline_id);
                             self.attach_active_render_state(cx);
-                            self.needs_paint = true;
-                            self.idle_frames = 0;
-                            self.next_frame = cx.new_next_frame();
-                            cx.redraw_all();
+                            self.request_active_page_redraw(cx);
                         }
                     }
                 },
@@ -776,11 +767,11 @@ impl MatchEvent for App {
                                 self.attach_active_render_state(cx);
                                 self.focus_active_webview(cx);
                                 self.set_url_input_sanitized(cx, &parsed_url);
+                                self.request_active_page_redraw(cx);
+                            } else {
+                                self.request_spin(cx);
                             }
                             self.sync_tab_bar(cx);
-                            self.needs_paint = true;
-                            self.idle_frames = 0;
-                            self.next_frame = cx.new_next_frame();
                             Ok(parsed_url)
                         } else {
                             Err("invalid url".to_string())
@@ -796,9 +787,6 @@ impl MatchEvent for App {
                 }) => {
                     let response = if let Some(idx) = self.tab_index_for_webview(*webview_id) {
                         self.switch_tab(cx, idx);
-                        self.needs_paint = true;
-                        self.idle_frames = 0;
-                        self.next_frame = cx.new_next_frame();
                         Ok(())
                     } else {
                         Err("unknown webview".to_string())
@@ -872,10 +860,7 @@ impl MatchEvent for App {
         // The touch→click synthesis pipeline requires multiple event loop
         // spins to complete.
         if handled_input {
-            self.needs_paint = true;
-            self.idle_frames = 0;
-            self.next_frame = cx.new_next_frame();
-            cx.redraw_all();
+            self.request_spin_redraw(cx);
         }
     }
 }
@@ -990,10 +975,7 @@ impl AppMain for App {
                         crate::app::runtime::write_state_file(&state);
                     },
                 }
-                self.needs_paint = true;
-                self.idle_frames = 0;
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                self.request_spin_redraw(cx);
             }
         }
 
@@ -1006,10 +988,7 @@ impl AppMain for App {
                     eprintln!("[havi] splash timeout: pylon did not finish in 3s, proceeding");
                 }
                 self.finish_startup(cx);
-                self.needs_paint = true;
-                self.idle_frames = 0;
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                self.request_spin_redraw(cx);
             }
         }
 
@@ -1077,7 +1056,6 @@ impl AppMain for App {
             match watch_action {
                 havi_protocols::watch::WatchAction::Reload => {
                     self.recreate_active_tab_webview(cx);
-                    self.needs_paint = true;
                 },
                 havi_protocols::watch::WatchAction::ChangeDetected => {
                     cx.redraw_all();
@@ -1177,9 +1155,8 @@ impl AppMain for App {
         // frame loop so check_resize() picks up the new dimensions and
         // propagates them to the Servo webview.
         if let Event::WindowGeomChange(re) = event {
-            self.needs_paint = true;
-            self.idle_frames = 0;
-            self.next_frame = cx.new_next_frame();
+            self.note_active_page_visual_change();
+            self.request_spin(cx);
             self.apply_menu_dock(cx);
             self.sync_tab_bar(cx);
             cx.redraw_all();

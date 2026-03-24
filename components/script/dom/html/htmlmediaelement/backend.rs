@@ -166,7 +166,7 @@ impl HTMLMediaElement {
                 .unwrap_or((0, 0));
 
             info!("media: video image_key={:?}", image_key);
-            MediaController::new_video(source, image_key, autoplay, should_loop)
+            MediaController::new_video(webview_id, source, image_key, autoplay, should_loop)
         } else {
             MediaController::new_audio(source, autoplay, should_loop)
         };
@@ -222,7 +222,12 @@ impl HTMLMediaElement {
             muted,
         );
 
-        let controller = MediaController::new_mse_playback(image_key, autoplay, should_loop);
+        let controller = MediaController::new_mse_playback(
+            self.owner_document().webview_id(),
+            image_key,
+            autoplay,
+            should_loop,
+        );
         let video_id = controller.video_id;
         if muted {
             controller.mute();
@@ -269,6 +274,7 @@ impl HTMLMediaElement {
         );
 
         let controller = MediaController::new_direct_playback(
+            self.owner_document().webview_id(),
             asset,
             mime,
             image_key,

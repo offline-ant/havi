@@ -14,10 +14,11 @@ use servo::protocol_handler::ProtocolRegistry;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use webrender_api::PipelineId;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::Once;
 use std::sync::mpsc;
+use std::time::Instant;
 
 mod actions;
 mod camera;
@@ -326,6 +327,7 @@ impl App {
             match op {
                 VideoOp::PrepareVideo {
                     video_id,
+                    webview_id,
                     source,
                     image_key,
                     autoplay,
@@ -334,6 +336,7 @@ impl App {
                     let texture = Texture::new_with_format(cx, TextureFormat::VideoExternal);
                     havi_render::video_texture_map::set_external_texture(image_key, texture.clone());
                     self.video_image_keys.insert(video_id, image_key);
+                    self.video_webviews.insert(video_id, webview_id);
                     self.video_logged_first_frame.remove(&video_id);
                     self.video_texture_update_count.remove(&video_id);
 
@@ -376,6 +379,7 @@ impl App {
                 },
                 VideoOp::PrepareDirectPlayback {
                     video_id,
+                    webview_id,
                     asset,
                     mime,
                     image_key,
@@ -383,6 +387,9 @@ impl App {
                     should_loop,
                 } => match self.create_direct_playback_session(&mime, asset) {
                     Ok(session_id) => {
+                        if image_key.is_some() {
+                            self.video_webviews.insert(video_id, webview_id);
+                        }
                         log!(
                             "[video] prepare-direct id={} mime={} image_key={:?} autoplay={} loop={}",
                             video_id,
@@ -427,6 +434,7 @@ impl App {
                     if let Some(image_key) = self.video_image_keys.remove(&video_id) {
                         havi_render::video_texture_map::remove_video_binding(image_key);
                     }
+                    self.video_webviews.remove(&video_id);
                     self.video_logged_first_frame.remove(&video_id);
                     self.video_texture_update_count.remove(&video_id);
                     self.mse_players.remove(&video_id);
@@ -435,7 +443,14 @@ impl App {
 
                 // --- MSE operations ---
 
-                VideoOp::PrepareMsePlayback { video_id, image_key } => {
+                VideoOp::PrepareMsePlayback {
+                    video_id,
+                    webview_id,
+                    image_key,
+                } => {
+                    if image_key.is_some() {
+                        self.video_webviews.insert(video_id, webview_id);
+                    }
                     log!("[mse] prepare id={} key={:?}", video_id, image_key);
                     let handle = makepad_media::SharedMsePlaybackHandle::new();
                     let session_id = handle.register_session();
@@ -526,10 +541,10 @@ impl App {
                                     );
                                 }
                                 if result.has_video_frames {
-                                    self.needs_paint = true;
-                                    self.idle_frames = 0;
-                                    self.next_frame = cx.new_next_frame();
-                                    cx.redraw_all();
+                                    if self.video_belongs_to_active_page(video_id) {
+                                        self.note_active_page_visual_change();
+                                    }
+                                    self.request_spin_redraw(cx);
                                 }
                                 media_controller::dispatch_media_event(
                                     video_id,
@@ -647,10 +662,10 @@ impl App {
                         ev.tex_v.clone(),
                     );
                 }
-                self.needs_paint = true;
-                self.idle_frames = 0;
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                if self.video_belongs_to_active_page(ev.video_id.0) {
+                    self.note_active_page_visual_change();
+                }
+                self.request_spin_redraw(cx);
             },
             Event::VideoTextureUpdated(ev) => {
                 let image_key = self
@@ -689,10 +704,10 @@ impl App {
                     ThreadMediaEvent::PositionChanged(ev.current_position_ms),
                 );
 
-                self.needs_paint = true;
-                self.idle_frames = 0;
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                if self.video_belongs_to_active_page(ev.video_id.0) {
+                    self.note_active_page_visual_change();
+                }
+                self.request_spin_redraw(cx);
             },
             Event::VideoPlaybackCompleted(ev) => {
                 let frames = self
@@ -782,13 +797,18 @@ pub struct App {
     dpi_factor: f64,
 
     // --- Performance optimization state ---
-    /// Whether Servo has signaled that new content is available and needs painting.
+    /// Whether the shell should keep spinning the next-frame loop because more
+    /// work is pending.
     #[rust]
-    needs_paint: bool,
-    /// Number of frames since last activity. Used for idle detection to stop the
-    /// frame loop when nothing is happening.
+    needs_spin: bool,
+    /// Number of frames since last loop activity. Used for idle detection to
+    /// stop the frame loop when nothing is happening.
     #[rust]
     idle_frames: u32,
+    /// Timestamp of the latest active-page visual change relevant to screenshot
+    /// settling.
+    #[rust]
+    last_active_page_visual_change: Option<Instant>,
 
     // --- Touch gesture recognition state (used in handle_actions) ---
     /// Position (logical pixels) of the finger when it went down. Used to
@@ -896,6 +916,10 @@ pub struct App {
     #[rust]
     video_image_keys: HashMap<u64, (u32, u32)>,
 
+    /// Owning webview for each media video_id.
+    #[rust]
+    video_webviews: HashMap<u64, WebViewId>,
+
     /// Tracks whether a first frame has been observed for each video_id.
     #[rust]
     video_logged_first_frame: HashSet<u64>,
@@ -983,6 +1007,39 @@ const MAX_IDLE_FRAMES: u32 = 10;
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
 impl App {
+    pub(super) fn request_spin(&mut self, cx: &mut Cx) {
+        self.needs_spin = true;
+        self.idle_frames = 0;
+        self.next_frame = cx.new_next_frame();
+    }
+
+    pub(super) fn request_spin_redraw(&mut self, cx: &mut Cx) {
+        self.request_spin(cx);
+        cx.redraw_all();
+    }
+
+    pub(super) fn note_active_page_visual_change(&mut self) {
+        self.last_active_page_visual_change = Some(Instant::now());
+    }
+
+    pub(super) fn request_active_page_redraw(&mut self, cx: &mut Cx) {
+        self.note_active_page_visual_change();
+        self.request_spin_redraw(cx);
+    }
+
+    pub(super) fn active_webview_id(&self) -> Option<WebViewId> {
+        self.tabs.get(self.active_tab_idx).map(|tab| tab.webview_id)
+    }
+
+    pub(super) fn video_belongs_to_active_page(&self, video_id: u64) -> bool {
+        self.video_webviews
+            .get(&video_id)
+            .zip(self.active_webview_id())
+            .is_some_and(|(video_webview_id, active_webview_id)| {
+                *video_webview_id == active_webview_id
+            })
+    }
+
     pub(super) fn current_render_fragments(&self) -> layout_api::SharedLayoutFragmentTree {
         let tab = &self.tabs[self.active_tab_idx];
         layout_api::shared_layout_fragment_tree_for(tab.webview_id)

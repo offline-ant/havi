@@ -14,7 +14,11 @@ const SCREENSHOT_SETTLE_FRAMES: u8 = 1;
 #[derive(Clone, Debug)]
 pub(super) enum ScreenshotMode {
     WaitingForLoad { output_path: PathBuf },
-    WaitingForSettle { output_path: PathBuf, deadline: Instant, last_paint: Instant },
+    WaitingForSettle {
+        output_path: PathBuf,
+        deadline: Instant,
+        last_visual_change: Instant,
+    },
     Settling { output_path: PathBuf, frames_left: u8 },
     Capturing,
 }
@@ -67,12 +71,9 @@ impl App {
         self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
             output_path,
             deadline: now + Duration::from_millis(SCREENSHOT_MAX_SETTLE_MS),
-            last_paint: now,
+            last_visual_change: self.last_active_page_visual_change.unwrap_or(now),
         });
-        self.needs_paint = true;
-        self.idle_frames = 0;
-        self.next_frame = cx.new_next_frame();
-        cx.redraw_all();
+        self.request_spin_redraw(cx);
     }
 
     pub(super) fn update_screenshot_mode(&mut self, cx: &mut Cx) {
@@ -84,13 +85,15 @@ impl App {
             ScreenshotMode::WaitingForSettle {
                 output_path,
                 deadline,
-                mut last_paint,
+                mut last_visual_change,
             } => {
-                if self.needs_paint {
-                    last_paint = Instant::now();
+                if let Some(active_visual_change) = self.last_active_page_visual_change {
+                    if active_visual_change > last_visual_change {
+                        last_visual_change = active_visual_change;
+                    }
                 }
                 let now = Instant::now();
-                let quiesced = now.duration_since(last_paint)
+                let quiesced = now.duration_since(last_visual_change)
                     > Duration::from_millis(SCREENSHOT_QUIESCENCE_MS);
                 let timed_out = now > deadline;
                 if quiesced || timed_out {
@@ -98,17 +101,15 @@ impl App {
                         output_path,
                         frames_left: SCREENSHOT_SETTLE_FRAMES,
                     });
-                    self.next_frame = cx.new_next_frame();
-                    cx.redraw_all();
+                    self.request_spin_redraw(cx);
                     return;
                 }
                 self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
                     output_path,
                     deadline,
-                    last_paint,
+                    last_visual_change,
                 });
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                self.request_spin_redraw(cx);
                 return;
             }
             ScreenshotMode::Settling {
@@ -120,8 +121,7 @@ impl App {
                         output_path,
                         frames_left: frames_left - 1,
                     });
-                    self.next_frame = cx.new_next_frame();
-                    cx.redraw_all();
+                    self.request_spin_redraw(cx);
                     return;
                 }
 
@@ -146,8 +146,7 @@ impl App {
                     }
                 });
                 self.screenshot_mode = Some(ScreenshotMode::Capturing);
-                self.next_frame = cx.new_next_frame();
-                cx.redraw_all();
+                self.request_spin_redraw(cx);
             }
             ScreenshotMode::Capturing => {}
         }

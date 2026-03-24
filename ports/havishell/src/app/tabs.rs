@@ -323,7 +323,7 @@ impl App {
         self.focus_active_webview(cx);
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
-        self.needs_paint = true;
+        self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }
 
@@ -355,10 +355,8 @@ impl App {
         }
         self.set_url_input_sanitized(cx, url);
         self.sync_toolbar_state(cx);
-        self.needs_paint = true;
+        self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
-        self.idle_frames = 0;
-        self.next_frame = cx.new_next_frame();
         self.maybe_start_screenshot_capture(cx);
     }
 
@@ -400,7 +398,7 @@ impl App {
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
-        self.needs_paint = true;
+        self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }
 
@@ -425,7 +423,7 @@ impl App {
         let url = self.tabs[idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
-        self.needs_paint = true;
+        self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }
 
