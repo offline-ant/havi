@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HAVI Mouse Test</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 24px;
+      line-height: 1.4;
+    }
+    #dbg {
+      display: inline-table;
+      background: #111;
+      color: #0f0;
+      font: 11px/1.4 monospace;
+      opacity: 0.9;
+      border-collapse: collapse;
+      max-width: 100%;
+    }
+    #dbg td {
+      border: 1px solid #333;
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+    .pad {
+      margin-top: 24px;
+      height: 1200px;
+      background: linear-gradient(#f4f4f4, #dcdcdc);
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+<script>
+(function(){
+  function init(){
+    var cells={
+      mouse:document.getElementById('dbg-mouse'),
+      sel:document.getElementById('dbg-sel'),
+      scroll:document.getElementById('dbg-scroll'),
+      drag:document.getElementById('dbg-drag')
+    };
+    if(!cells.mouse||!cells.sel||!cells.scroll||!cells.drag) return;
+
+    var lines={mouse:'',sel:'',scroll:'',drag:''};
+    function up(){
+      cells.mouse.textContent=lines.mouse;
+      cells.sel.textContent=lines.sel;
+      cells.scroll.textContent=lines.scroll;
+      cells.drag.textContent=lines.drag;
+    }
+
+    document.addEventListener('mousemove',function(e){lines.mouse='mouse:('+e.clientX+','+e.clientY+') btn:'+e.buttons+' target:'+e.target.tagName;up();});
+    document.addEventListener('mousedown',function(e){lines.mouse='DOWN:('+e.clientX+','+e.clientY+') btn:'+e.button+' target:'+e.target.tagName;lines.drag='drag:start';up();});
+    document.addEventListener('mouseup',function(e){lines.mouse='UP:('+e.clientX+','+e.clientY+') btn:'+e.button;lines.drag='drag:end';up();});
+    document.addEventListener('click',function(e){lines.mouse='CLICK:('+e.clientX+','+e.clientY+') target:'+e.target.tagName+'.'+e.target.className;up();});
+    document.addEventListener('selectionchange',function(){
+      var s=window.getSelection();
+      if(!s||!s.rangeCount){lines.sel='sel:none';up();return;}
+      var r=s.getRangeAt(0),txt=s.toString();
+      lines.sel='sel:"'+(txt.length>40?txt.slice(0,37)+'...':txt)+'" anchor:'+s.anchorOffset+' focus:'+s.focusOffset+' collapsed:'+r.collapsed;
+      var rect=r.getBoundingClientRect();
+      if(rect.width>0)lines.sel+=' rect:('+Math.round(rect.x)+','+Math.round(rect.y)+' '+Math.round(rect.width)+'x'+Math.round(rect.height)+')';
+      up();
+    });
+    document.addEventListener('wheel',function(e){lines.scroll='wheel:dx='+Math.round(e.deltaX)+' dy='+Math.round(e.deltaY)+' mode='+e.deltaMode;up();},{passive:true});
+    window.addEventListener('scroll',function(){lines.scroll='scrollY:'+Math.round(window.scrollY)+'/'+Math.round(document.documentElement.scrollHeight-window.innerHeight);up();});
+    document.addEventListener('touchstart',function(e){lines.drag='touch:start n='+e.touches.length;up();},{passive:true});
+    document.addEventListener('touchmove',function(e){var t=e.touches[0];lines.drag='touch:move('+Math.round(t.clientX)+','+Math.round(t.clientY)+')';up();},{passive:true});
+    document.addEventListener('touchend',function(){lines.drag='touch:end';up();},{passive:true});
+
+    lines.mouse='mouse:waiting';
+    lines.sel='sel:none';
+    lines.scroll='scroll:0';
+    lines.drag='';
+    up();
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',init);
+  }else{
+    init();
+  }
+})();
+</script>
+
+<h1>Mouse test</h1>
+<p>Select text, click, drag, and scroll.</p>
+<table id="dbg">
+  <tr><td>mouse</td><td id="dbg-mouse">waiting</td></tr>
+  <tr><td>sel</td><td id="dbg-sel">none</td></tr>
+  <tr><td>scroll</td><td id="dbg-scroll">0</td></tr>
+  <tr><td>drag</td><td id="dbg-drag"></td></tr>
+</table>
+<p>This page isolates the demo2 event-debug script from the larger demo page.</p>
+<div class="pad"></div>
+</body>
+</html>
