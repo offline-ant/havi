@@ -324,6 +324,11 @@ Current retained clip execution covers:
 - image-mask clips
 - plane-set clips
 
+The current retained browser path still has one known spatial issue: clip
+execution is not yet consistently derived from the same full draw-time basis as
+geometry when outer draw-list placement is involved. The redesign plan for that
+work lives in `../havi-makepad-simplify.md`.
+
 Current retained picture/task execution covers:
 
 - isolated opacity groups
