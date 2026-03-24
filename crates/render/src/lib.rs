@@ -59,7 +59,7 @@ pub struct RenderPathCounters {
     pub scene_submit_count: u64,
     pub widget_presentation_count: u64,
     pub browser_scene_present_count: u64,
-    pub browser_scene_fallback_count: u64,
+    pub browser_scene_failure_count: u64,
 }
 
 #[derive(Clone)]
@@ -239,7 +239,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
                 return;
             }
             Err(err) => {
-                frame_draw_lists.counters.browser_scene_fallback_count += 1;
+                frame_draw_lists.counters.browser_scene_failure_count += 1;
                 frame_draw_lists.browser_document_cache = None;
                 eprintln!("[havi][render] browser_scene cached draw failed: {err:?}");
             }
@@ -260,7 +260,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     ) {
         Ok(browser_document) => browser_document,
         Err(err) => {
-            frame_draw_lists.counters.browser_scene_fallback_count += 1;
+            frame_draw_lists.counters.browser_scene_failure_count += 1;
             eprintln!("[havi][render] browser_scene builder failed: {err}");
             return;
         }
@@ -298,7 +298,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
             paint_selection_overlay(cx, draw_bg, selection);
         }
         Err(err) => {
-            frame_draw_lists.counters.browser_scene_fallback_count += 1;
+            frame_draw_lists.counters.browser_scene_failure_count += 1;
             frame_draw_lists.browser_document_cache = None;
             eprintln!("[havi][render] browser_scene draw failed: {err:?}");
         }

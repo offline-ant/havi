@@ -303,8 +303,8 @@ impl Widget for ServoWebView {
             }
 
             // Use the resolved widget area after draw_bg.end(). This gives the
-            // render backend a stable target rect and avoids emitting composed
-            // child-surface quads while the current pass rect is still 0x0.
+            // render backend a stable target rect and avoids issuing composed
+            // browser-content draws while the current pass rect is still 0x0.
             // The visual content is drawn with draw_abs, so it does not depend
             // on the inner turtle remaining open after the hit-test area is
             // established.

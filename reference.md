@@ -125,21 +125,21 @@ Shadow mode is a HAVI workflow feature, not a generic HPPR browser requirement.
 
 ## Renderer architecture
 
-HAVI now attempts a scene-level retained `makepad-browser-scene` submission
-before using the legacy fragment-to-surface path.
+HAVI renders through one retained browser pipeline.
+Layout fragments are lowered into retained `makepad-browser-scene` semantic data
+and executed by the Makepad compositor.
 
-Current cutover rule:
+Current behavior:
 
-- supported pages render through the retained browser-scene path
-- unsupported pages fall back wholesale to the legacy path
-- HAVI does not mix old and new rendering within one scene
-- adapter and renderer fallback reasons are logged for coverage work
+- ordinary page content renders through the retained browser-scene/compositor path
+- there is no parallel legacy fragment-to-surface renderer
+- browser-scene builder and draw failures are logged; HAVI does not switch to a second renderer path
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
   exact rounded background clips for retained gradients and images, box shadows,
   retained text, clipped images, and iframe/embed child documents on the retained path
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
 
-This preserves scene ordering and effect semantics during the cutover.
+This keeps renderer ownership on the retained path while coverage work continues.
 
 ## Diagnostics
 
