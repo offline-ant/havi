@@ -46,9 +46,7 @@ pub(crate) fn reference_frame_semantics(
         (None, Some(transform)) => Some(transform),
         (None, None) => None,
     };
-    if combined.map(|matrix| matrix.invert()).is_none() {
-        return None;
-    }
+    combined.map(|matrix| matrix.invert())?;
 
     let transform_style = compute_used_transform_style(style);
     Some(ReferenceFrameSemantics {

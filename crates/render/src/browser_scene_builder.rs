@@ -6,7 +6,7 @@ use havi_fragment_semantics::{Fragment, IFrameFragment};
 use makepad_browser_scene::{
     MpBlendMode, MpChildDocument, MpClipChain, MpClipKind, MpClipNode, MpDocument, MpDocumentId,
     MpEffectNode, MpEmbed, MpFilter, MpHitTestTag, MpIsolation, MpPerCornerRadius,
-    MpPipelineId, MpReferenceFrame, MpResourceStore, MpScene, MpSceneId, MpScrollFrame,
+    MpPipelineId, MpReferenceFrame, MpScene, MpSceneId, MpScrollFrame,
     MpSpatialId, MpSpatialKind, MpSpatialNode, MpStickyFrame, MpStickyOffsets,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
@@ -111,7 +111,7 @@ fn build_browser_document(
     let mut state = AdapterState {
         resources: previous_document
             .map(|document| document.resources.clone())
-            .unwrap_or_else(MpResourceStore::default),
+            .unwrap_or_default(),
         child_documents: Vec::new(),
     };
     let mut scroll_nodes = BrowserDocumentScrollNodes::default();

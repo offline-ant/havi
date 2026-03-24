@@ -118,7 +118,23 @@ Browser text is no longer drawn through browser-scene per-glyph traversal.
 Browser-scene lowers retained text-run data and font resources into compositor
 text execution.
 
-### 5. Caching lives at picture/task level
+### 5. Explicit host geometry
+
+`render_fragments_clipped()` takes `host_rect: Rect` explicitly from the HAVI
+widget layer. The retained renderer does not read ambient turtle or draw-list
+geometry. The widget resolves the real webview rect with
+`self.draw_bg.area().rect(cx)` and passes it down.
+
+### 6. Origin-space retained clips with draw-time evaluation
+
+Retained clip data (in `MpPrimitiveClipChain`) is stored in origin space only.
+The compositor evaluates clips at draw time using the explicit full basis:
+`clip_from_origin = clip_from_world * world_from_scene * scene_from_origin`.
+
+This ensures geometry and clipping always use the same transform chain,
+regardless of where the webview is placed in the Makepad draw-list hierarchy.
+
+### 7. Caching lives at picture/task level
 
 Large retained content is cacheable only through explicit compositor picture/task
 entries. Repeating backgrounds use a native repeating-image primitive instead of

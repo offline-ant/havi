@@ -790,8 +790,13 @@ fn normalize_gradient_stops(
             let range_start = stops[start].offset;
             let range_end = stops[end].offset;
             let count = end - start;
-            for current in (start + 1)..end {
-                stops[current].offset = range_start
+            for (current, stop) in stops
+                .iter_mut()
+                .enumerate()
+                .take(end)
+                .skip(start + 1)
+            {
+                stop.offset = range_start
                     + (range_end - range_start) * ((current - start) as f32) / (count as f32);
             }
             index = end + 1;

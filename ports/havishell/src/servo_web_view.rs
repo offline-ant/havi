@@ -153,7 +153,7 @@ impl Widget for ServoWebView {
             Hit::FingerDown(fd) => {
                 // Request keyboard focus so subsequent key events reach us.
                 cx.set_key_focus(self.draw_bg.area());
-                let is_right_click = fd.device.mouse_button().map_or(false, |b| b.is_secondary());
+                let is_right_click = fd.device.mouse_button().is_some_and(|b| b.is_secondary());
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::FingerDown {
@@ -212,7 +212,7 @@ impl Widget for ServoWebView {
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::KeyDown {
-                        key_event: ke.clone(),
+                        key_event: ke,
                     },
                 );
             },
@@ -220,7 +220,7 @@ impl Widget for ServoWebView {
                 cx.widget_action(
                     uid,
                     ServoWebViewAction::KeyUp {
-                        key_event: ke.clone(),
+                        key_event: ke,
                     },
                 );
             },
@@ -296,7 +296,7 @@ impl Widget for ServoWebView {
             let needs_rebuild = self
                 .cached_fragment_source
                 .as_ref()
-                .map_or(true, |c| !c.is_valid_for(frag_ptr));
+                .is_none_or(|c| !c.is_valid_for(frag_ptr));
             if needs_rebuild {
                 self.cached_fragment_source =
                     Some(havi_render::CachedFragmentSource::new(frag_ptr));
@@ -313,9 +313,6 @@ impl Widget for ServoWebView {
                 .as_ref()
                 .map(|s| s.get())
                 .unwrap_or_default();
-            let scroll_y = scroll_state.scroll_y;
-            let viewport_top = scroll_y as f32;
-            let viewport_bottom = (scroll_y + rect.size.y) as f32;
 
             let render_scroll: havi_render::ScrollState = scroll_state
                 .element_offsets
@@ -331,36 +328,38 @@ impl Widget for ServoWebView {
 
             havi_render::render_fragments_clipped(
                 cx,
-                self.shared_webview_id.expect("shared webview id"),
-                self.cached_fragment_source.as_ref().unwrap(),
-                viewport_top,
-                viewport_bottom,
-                &mut self.draw_content_bg,
-                &render_scroll,
-                self.shared_selection
-                    .as_ref()
-                    .map(|ss| {
-                        let snapshot = ss.snapshot();
-                        havi_render::SelectionHighlight {
-                            color: makepad_widgets::makepad_draw::Vec4f {
-                                x: 0.26,
-                                y: 0.52,
-                                z: 0.96,
-                                w: 0.4,
-                            },
-                            rects: snapshot
-                                .rects
-                                .iter()
-                                .map(|r| makepad_widgets::Rect {
-                                    pos: dvec2(r.origin.x as f64, r.origin.y as f64),
-                                    size: dvec2(r.size.width as f64, r.size.height as f64),
-                                })
-                                .collect(),
-                        }
-                    })
-                    .as_ref(),
-                &mut self.frame_draw_lists.0,
-                &image_overrides,
+                havi_render::RenderFragmentsClippedParams {
+                    webview_id: self.shared_webview_id.expect("shared webview id"),
+                    cached_fragments: self.cached_fragment_source.as_ref().unwrap(),
+                    host_rect: rect,
+                    draw_bg: &mut self.draw_content_bg,
+                    scroll_state: &render_scroll,
+                    selection: self
+                        .shared_selection
+                        .as_ref()
+                        .map(|ss| {
+                            let snapshot = ss.snapshot();
+                            havi_render::SelectionHighlight {
+                                color: makepad_widgets::makepad_draw::Vec4f {
+                                    x: 0.26,
+                                    y: 0.52,
+                                    z: 0.96,
+                                    w: 0.4,
+                                },
+                                rects: snapshot
+                                    .rects
+                                    .iter()
+                                    .map(|r| makepad_widgets::Rect {
+                                        pos: dvec2(r.origin.x as f64, r.origin.y as f64),
+                                        size: dvec2(r.size.width as f64, r.size.height as f64),
+                                    })
+                                    .collect(),
+                            }
+                        })
+                        .as_ref(),
+                    frame_draw_lists: &mut self.frame_draw_lists.0,
+                    image_overrides: &image_overrides,
+                },
             );
         }
 

@@ -161,26 +161,33 @@ fn paint_selection_overlay(cx: &mut Cx2d, draw_bg: &mut DrawColor, selection: Op
     }
 }
 
-pub fn render_fragments_clipped(
-    cx: &mut Cx2d,
-    webview_id: WebViewId,
-    _cached_fragments: &CachedFragmentSource,
-    viewport_top: f32,
-    viewport_bottom: f32,
-    draw_bg: &mut DrawColor,
-    scroll_state: &ScrollState,
-    selection: Option<&SelectionHighlight>,
-    frame_draw_lists: &mut FrameDrawListState,
-    _image_overrides: &havi_types::ImageOverrides,
-) {
+pub struct RenderFragmentsClippedParams<'a> {
+    pub webview_id: WebViewId,
+    pub cached_fragments: &'a CachedFragmentSource,
+    pub host_rect: Rect,
+    pub draw_bg: &'a mut DrawColor,
+    pub scroll_state: &'a ScrollState,
+    pub selection: Option<&'a SelectionHighlight>,
+    pub frame_draw_lists: &'a mut FrameDrawListState,
+    pub image_overrides: &'a havi_types::ImageOverrides,
+}
+
+pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedParams<'_>) {
+    let RenderFragmentsClippedParams {
+        webview_id,
+        cached_fragments: _cached_fragments,
+        host_rect,
+        draw_bg,
+        scroll_state,
+        selection,
+        frame_draw_lists,
+        image_overrides: _image_overrides,
+    } = params;
+
     frame_draw_lists.counters.widget_presentation_count += 1;
 
-    let widget_rect = cx.turtle().rect();
-    let webview_origin = widget_rect.pos;
-    let viewport_size = dvec2(
-        widget_rect.size.x,
-        (viewport_bottom - viewport_top) as f64,
-    );
+    let webview_origin = host_rect.pos;
+    let viewport_size = host_rect.size;
     let layout_source = layout_adapter::LayoutFragmentSource::new(webview_id);
     let Some(fragments) = layout_source.fragments_arc() else {
         return;
