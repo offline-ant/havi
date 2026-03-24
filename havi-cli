@@ -12,7 +12,7 @@ Subcommand groups:
 Built-in commands:
     publish     Store signed file and navigate
     publish-dir Store directory tree and navigate
-    deploy      Write deployment pointer for group/app
+    deploy      Write app content pointer for group/app
     navigate    Navigate HAVI to a URL
 
 Direct open:
@@ -169,18 +169,18 @@ def cmd_open_target(args):
 
 def cmd_deploy(args):
     if len(args) < 4:
-        sys.exit("usage: havi-cli deploy <group> <app> <deploy-root> <deploy-signer>")
-    group, app, deploy_root, deploy_signer = args[0], args[1], args[2], args[3]
-    if not deploy_root.startswith("//"):
-        sys.exit("error: deploy-root must start with //")
-    if not (deploy_signer.startswith("V.") and deploy_signer.endswith(".H3")):
-        sys.exit("error: deploy-signer must be V.<...>.H3")
+        sys.exit("usage: havi-cli deploy <group> <app> <content-root> <content-signer>")
+    group, app, content_root, content_signer = args[0], args[1], args[2], args[3]
+    if not content_root.startswith("//"):
+        sys.exit("error: content-root must start with //")
+    if not (content_signer.startswith("V.") and content_signer.endswith(".H3")):
+        sys.exit("error: content-signer must be V.<...>.H3")
 
     _run([
         "hppr", "add", "--seal-by", "oldest",
         f"//{group}/admin/deploy/{app}",
-        "-H", f"Deploy-Root: {deploy_root}",
-        "-H", f"Deploy-Signer: {deploy_signer}",
+        "-H", f"Content-Root: {content_root}",
+        "-H", f"Content-Signer: {content_signer}",
     ])
 
 
@@ -224,7 +224,7 @@ Subcommand groups (delegate to standalone tools):
 
 Built-in commands:
     navigate <url>                                         Navigate HAVI to a URL
-    deploy <group> <app> <deploy-root> <deploy-signer>    Write deployment pointer
+    deploy <group> <app> <content-root> <content-signer>  Write app content pointer
     publish <coordinate> <file>                            Store signed file, navigate
     publish-dir <coordinate> <dir>                         Store directory tree, navigate
 

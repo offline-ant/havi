@@ -19,8 +19,8 @@ and havi-devtools-cli, and provides built-in workflow commands.
 
 - `navigate <url>`
   - Navigate HAVI to a URL via havi-devtools-cli.
-- `deploy <group> <app> <deploy-root> <deploy-signer>`
-  - Write deployment pointer packet for routed app resolution.
+- `deploy <group> <app> <content-root> <content-signer>`
+  - Write app content pointer packet for routed app resolution.
 - `publish <coordinate> <file>`
   - Store a signed file and navigate.
 - `publish-dir <coordinate> <dir>`

@@ -44,13 +44,17 @@ this order:
    (`//repo/admin/route/<group>/<app>/|/...`)
 2. if route is missing and `group` does not start with `~`, try bootstrap index
    lookup at `//u/index/<group>/<app>`
-3. remote deploy packet (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-4. target from `Deploy-Root` + requested location
+3. remote app content pointer
+   (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
+4. target from `Content-Root` + requested location
 
 Fetch behavior:
 
-- GET uses sealed target: `<target>/|/seal/<Deploy-Signer>`
+- GET uses sealed target: `<target>/|/seal/<Content-Signer>`
 - LIST uses unsealed target: `<target>/`
+
+This is a hard cutover fetch path. When `Content-Signer` changes, older signer
+content is no longer reachable through the app URL.
 
 Origin remains `//<group>/<app>/`.
 

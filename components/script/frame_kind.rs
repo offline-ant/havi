@@ -83,7 +83,8 @@ impl FrameKind {
                 e.navigate_or_reload_child_browsing_context(load_data, history_handling, cx)
             },
             Self::XFrame(e) => {
-                e.navigate_or_reload_child_browsing_context(load_data, history_handling, cx)
+                let _ = cx;
+                e.navigate_or_reload_child_browsing_context(load_data, history_handling)
             },
         }
     }

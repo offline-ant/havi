@@ -374,16 +374,15 @@ setup_route() {
         -H "Upstream-Verification-Key: $REMOTE_SIGNING_KEY" <<< ""
 }
 
-# Set up deployment pointer on remote repo.
+# Set up app content pointer on remote repo.
 # Resolver reads //<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>.
 setup_remote_deploy() {
     local group="$1" app="$2"
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
         $HPPR add "//$group/admin/deploy/$app" \
         -H "Seal-By: oldest" \
-        -H "Deploy-App: $app" \
-        -H "Deploy-Root: //$group/$app" \
-        -H "Deploy-Signer: $REMOTE_SIGNING_KEY" <<< ""
+        -H "Content-Root: //$group/$app" \
+        -H "Content-Signer: $REMOTE_SIGNING_KEY" <<< ""
 }
 
 # Set up ring2 on remote repo and pre-create site ring1 account locally.

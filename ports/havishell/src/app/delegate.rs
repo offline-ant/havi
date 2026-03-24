@@ -5,8 +5,8 @@ use havi_protocols::resolve;
 use hppr_client::{Signer, parse_via};
 use servo::{
     CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse,
-    HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument, HpprResolvedMediaSource,
-    HpprResolvedSourceRef,
+    HpprEmbedResolveResponse, HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument,
+    HpprResolvedMediaSource, HpprResolvedSourceRef,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -242,6 +242,7 @@ fn map_document(result: resolve::ResolvedDocument) -> HpprResolveResponse {
         packet: result.packet.as_bytes().to_vec(),
         endpoint: result.endpoint.to_string(),
         signer: result.signer.as_ref().and_then(signer_identity_string),
+        content_signer: result.content_signer,
         is_repo: result.is_repo,
     })
 }
@@ -251,10 +252,12 @@ fn map_media(result: resolve::ResolvedMediaSource) -> HpprResolveResponse {
         packet: result.packet.as_bytes().to_vec(),
         endpoint: result.endpoint.to_string(),
         signer: result.signer.as_ref().and_then(signer_identity_string),
+        content_signer: result.content_signer,
         is_repo: result.is_repo,
         source: HpprResolvedSourceRef {
             endpoint: result.source.endpoint.to_string(),
             signer: result.source.signer.as_ref().and_then(signer_identity_string),
+            content_signer: result.source.content_signer,
             packet_hash: result.source.packet_hash,
             is_repo: result.source.is_repo,
         },
@@ -272,61 +275,94 @@ fn parse_source_ref(source: HpprResolvedSourceRef) -> Result<resolve::ResolvedSo
     Ok(resolve::ResolvedSourceRef {
         endpoint,
         signer,
+        content_signer: source.content_signer,
         packet_hash: source.packet_hash,
         is_repo: source.is_repo,
     })
 }
 
+fn with_resolve_runtime<T>(
+    on_runtime_error: impl FnOnce(String) -> T,
+    f: impl FnOnce(tokio::runtime::Runtime) -> T,
+) -> T {
+    match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => f(runtime),
+        Err(err) => on_runtime_error(format!("resolve runtime: {err}")),
+    }
+}
+
 fn resolve_response(request: HpprResolveRequest) -> HpprControlResponse {
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            return HpprControlResponse::Resolve(HpprResolveResponse::Error(format!(
-                "resolve runtime: {err}"
-            )));
+    with_resolve_runtime(
+        |error| HpprControlResponse::Resolve(HpprResolveResponse::Error(error)),
+        |runtime| {
+            runtime.block_on(async move {
+                let target = home_repo_target();
+                let client = match HpprdClientAsync::new(target) {
+                    Ok(client) => Arc::new(client),
+                    Err(err) => {
+                        return HpprControlResponse::Resolve(HpprResolveResponse::Error(format!(
+                            "resolve client: {err}"
+                        )));
+                    },
+                };
+                let creds = global_credential_store();
+
+                let response = match request {
+                    HpprResolveRequest::Document { url } => {
+                        match resolve::resolve_document(&url, &client, &creds).await {
+                            Ok(result) => map_document(result),
+                            Err(error) => HpprResolveResponse::Error(error),
+                        }
+                    },
+                    HpprResolveRequest::Media { url } => {
+                        match resolve::resolve_media(&url, &client, &creds).await {
+                            Ok(result) => map_media(result),
+                            Err(error) => HpprResolveResponse::Error(error),
+                        }
+                    },
+                    HpprResolveRequest::ReadBytes {
+                        source,
+                        offset,
+                        length,
+                    } => match parse_source_ref(source) {
+                        Ok(source) => match resolve::read_resolved_bytes(&source, &client, offset, length).await {
+                            Ok(bytes) => HpprResolveResponse::Bytes(bytes),
+                            Err(error) => HpprResolveResponse::Error(error),
+                        },
+                        Err(error) => HpprResolveResponse::Error(error),
+                    },
+                };
+
+                HpprControlResponse::Resolve(response)
+            })
         },
-    };
+    )
+}
 
-    runtime.block_on(async move {
-        let target = home_repo_target();
-        let client = match HpprdClientAsync::new(target) {
-            Ok(client) => Arc::new(client),
-            Err(err) => {
-                return HpprControlResponse::Resolve(HpprResolveResponse::Error(format!(
-                    "resolve client: {err}"
-                )));
-            },
-        };
-        let creds = global_credential_store();
-
-        let response = match request {
-            HpprResolveRequest::Document { url } => {
-                match resolve::resolve_document(&url, &client, &creds).await {
-                    Ok(result) => map_document(result),
-                    Err(error) => HpprResolveResponse::Error(error),
+fn embed_resolve_response(url: String) -> HpprControlResponse {
+    with_resolve_runtime(
+        |error| HpprControlResponse::Error(error),
+        |runtime| {
+            runtime.block_on(async move {
+                let target = home_repo_target();
+                let client = match HpprdClientAsync::new(target) {
+                    Ok(client) => Arc::new(client),
+                    Err(err) => {
+                        return HpprControlResponse::Error(format!("embed resolve client: {err}"));
+                    },
+                };
+                let creds = global_credential_store();
+                match resolve::resolve_embed_content_signer(&url, &client, &creds).await {
+                    Ok(content_signer) => {
+                        HpprControlResponse::EmbedResolve(HpprEmbedResolveResponse {
+                            content_signer,
+                        })
+                    },
+                    Err(error) => HpprControlResponse::Error(error),
                 }
-            },
-            HpprResolveRequest::Media { url } => {
-                match resolve::resolve_media(&url, &client, &creds).await {
-                    Ok(result) => map_media(result),
-                    Err(error) => HpprResolveResponse::Error(error),
-                }
-            },
-            HpprResolveRequest::ReadBytes {
-                source,
-                offset,
-                length,
-            } => match parse_source_ref(source) {
-                Ok(source) => match resolve::read_resolved_bytes(&source, &client, offset, length).await {
-                    Ok(bytes) => HpprResolveResponse::Bytes(bytes),
-                    Err(error) => HpprResolveResponse::Error(error),
-                },
-                Err(error) => HpprResolveResponse::Error(error),
-            },
-        };
-
-        HpprControlResponse::Resolve(response)
-    })
+            })
+        },
+    )
 }
 
 impl servo::WebViewDelegate for HaviWebViewDelegate {
@@ -400,6 +436,14 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
                     .name("havi-resolve".to_string())
                     .spawn(move || {
                         request.respond(resolve_response(resolve_request));
+                    })
+                    .ok();
+            },
+            HpprControlRequest::EmbedResolve { url } => {
+                std::thread::Builder::new()
+                    .name("havi-embed-resolve".to_string())
+                    .spawn(move || {
+                        request.respond(embed_resolve_response(url));
                     })
                     .ok();
             },

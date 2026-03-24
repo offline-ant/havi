@@ -67,6 +67,27 @@ impl LoadBlocker {
 
         *blocker.borrow_mut() = None;
     }
+
+    /// Remove a subframe load blocker without requiring a JS context.
+    pub(crate) fn terminate_subframe(blocker: &DomRefCell<Option<LoadBlocker>>) {
+        let Some(load) = blocker
+            .borrow_mut()
+            .as_mut()
+            .and_then(|blocker| blocker.load.take())
+        else {
+            return;
+        };
+
+        if !matches!(load, LoadType::Subframe(_)) {
+            warn!("terminate_subframe called for non-subframe load {:?}", load);
+        }
+
+        if let Some(blocker) = blocker.borrow().as_ref() {
+            blocker.doc.loader_mut().finish_load(&load);
+        }
+
+        *blocker.borrow_mut() = None;
+    }
 }
 
 impl Drop for LoadBlocker {

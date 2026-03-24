@@ -860,6 +860,7 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoStatus => "REPO_STATUS",
             HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
             HpprControlRequest::Resolve(_) => "RESOLVE",
+            HpprControlRequest::EmbedResolve { .. } => "EMBED_RESOLVE",
         }
     }
 
@@ -870,7 +871,8 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoPort |
                 HpprControlRequest::RepoPathQuery |
                 HpprControlRequest::RepoStatus |
-                HpprControlRequest::Resolve(_)
+                HpprControlRequest::Resolve(_) |
+                HpprControlRequest::EmbedResolve { .. }
         )
     }
 

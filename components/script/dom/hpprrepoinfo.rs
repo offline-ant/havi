@@ -125,7 +125,8 @@ impl RoutedPromiseListener<HpprControlResponse> for HpprRepoInfo {
             },
             HpprControlResponse::Ok |
             HpprControlResponse::AdminCredential { .. } |
-            HpprControlResponse::Resolve(_) => {
+            HpprControlResponse::Resolve(_) |
+            HpprControlResponse::EmbedResolve(_) => {
                 promise.reject_error(
                     Error::Type(c"Unexpected response type for repo info".to_owned()),
                     can_gc,

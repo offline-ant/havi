@@ -6,7 +6,7 @@
 //!
 //! This module owns browser-level HPPR resolution policy:
 //! - route selection
-//! - deploy-pointer resolution
+//! - content-pointer resolution
 //! - endpoint and signer choice
 //! - document/media packet resolution
 //! - source-based byte reads
@@ -27,6 +27,7 @@ use crate::util::{RouteEndpointSource, append_location, resolve_route_endpoint, 
 pub struct ResolvedSourceRef {
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
+    pub content_signer: Option<String>,
     pub packet_hash: String,
     pub is_repo: bool,
 }
@@ -36,6 +37,7 @@ pub struct ResolvedDocument {
     pub packet: Packet,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
+    pub content_signer: Option<String>,
     pub is_repo: bool,
     pub source: ResolvedSourceRef,
 }
@@ -45,6 +47,7 @@ pub struct ResolvedMediaSource {
     pub packet: Packet,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
+    pub content_signer: Option<String>,
     pub is_repo: bool,
     pub source: ResolvedSourceRef,
 }
@@ -54,6 +57,7 @@ pub struct ResolvedListing {
     pub children: Vec<String>,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
+    pub content_signer: Option<String>,
     pub is_repo: bool,
 }
 
@@ -67,6 +71,7 @@ struct ResolvedTarget {
 struct ResolvedAccess {
     endpoint: ViaSpec,
     signer: Option<Signer>,
+    content_signer: Option<String>,
     is_repo: bool,
     client: Arc<HpprdClientAsync>,
     urc: String,
@@ -104,9 +109,11 @@ pub async fn resolve_document(
 
     let access = resolve_access(&address, repo_client, credential_store, false).await?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
+    let content_signer = access.content_signer.or_else(|| packet_content_signer(&packet));
     let source = ResolvedSourceRef {
         endpoint: access.endpoint.clone(),
         signer: access.signer.clone(),
+        content_signer: content_signer.clone(),
         packet_hash: packet.pkt_hash().to_string(),
         is_repo: access.is_repo,
     };
@@ -115,6 +122,7 @@ pub async fn resolve_document(
         packet,
         endpoint: access.endpoint,
         signer: access.signer,
+        content_signer,
         is_repo: access.is_repo,
         source,
     })
@@ -132,9 +140,11 @@ pub async fn resolve_media(
 
     let access = resolve_access(&address, repo_client, credential_store, false).await?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
+    let content_signer = access.content_signer.or_else(|| packet_content_signer(&packet));
     let source = ResolvedSourceRef {
         endpoint: access.endpoint.clone(),
         signer: access.signer.clone(),
+        content_signer: content_signer.clone(),
         packet_hash: packet.pkt_hash().to_string(),
         is_repo: access.is_repo,
     };
@@ -143,6 +153,7 @@ pub async fn resolve_media(
         packet,
         endpoint: access.endpoint,
         signer: access.signer,
+        content_signer,
         is_repo: access.is_repo,
         source,
     })
@@ -160,6 +171,7 @@ pub async fn resolve_listing(
         children,
         endpoint: access.endpoint,
         signer: access.signer,
+        content_signer: access.content_signer,
         is_repo: access.is_repo,
     })
 }
@@ -172,6 +184,18 @@ pub async fn read_resolved_bytes(
 ) -> Result<Vec<u8>, String> {
     let client = source_client(source, repo_client)?;
     read_packet_bytes(&client, &source.packet_hash, offset, length).await
+}
+
+pub async fn resolve_embed_content_signer(
+    url: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) -> Result<Option<String>, String> {
+    let address = HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let access = resolve_access(&address, repo_client, credential_store, address.is_listing()).await?;
+    Ok(access
+        .content_signer
+        .or_else(|| seal_signer_from_urc(&access.urc)))
 }
 
 async fn resolve_access(
@@ -194,6 +218,7 @@ async fn resolve_access(
         return Ok(ResolvedAccess {
             endpoint: repo_client.target(),
             signer: None,
+            content_signer: None,
             is_repo: true,
             client: repo_client.clone(),
             urc,
@@ -217,10 +242,13 @@ async fn resolve_access(
     };
 
     let requested_location = address.location_with_slash();
-    let urc = if is_repo {
-        HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location)
+    let (urc, content_signer) = if is_repo {
+        (
+            HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location),
+            None,
+        )
     } else {
-        resolve_deployment_target(
+        resolve_content_pointer_target(
             &client,
             &parts.group,
             &parts.app,
@@ -234,6 +262,7 @@ async fn resolve_access(
     Ok(ResolvedAccess {
         endpoint: target.endpoint,
         signer,
+        content_signer,
         is_repo,
         client,
         urc,
@@ -269,26 +298,27 @@ async fn resolve_target(
     })
 }
 
-async fn resolve_deployment_target(
+async fn resolve_content_pointer_target(
     route_client: &Arc<HpprdClientAsync>,
     group: &str,
     app: &str,
     requested_location: &str,
     upstream_key: Option<&str>,
     is_listing: bool,
-) -> Result<String, String> {
+) -> Result<(String, Option<String>), String> {
     let repo_vkey = match upstream_key {
         Some(key) => key.to_string(),
         None => route_client.get_admin_identity().await?,
     };
 
-    let deploy = route_client.get_deploy(group, app, &repo_vkey).await?;
-    let target = append_location(&deploy.root, requested_location);
-    Ok(if is_listing {
+    let content_pointer = route_client.get_content_pointer(group, app, &repo_vkey).await?;
+    let target = append_location(&content_pointer.root, requested_location);
+    let urc = if is_listing {
         format!("{}/", target.trim_end_matches('/'))
     } else {
-        format!("{}/|/seal/{}", target, deploy.signer)
-    })
+        format!("{}/|/seal/{}", target, content_pointer.signer)
+    };
+    Ok((urc, Some(content_pointer.signer)))
 }
 
 async fn build_route_signer(
@@ -414,6 +444,20 @@ fn packet_headers(packet: &Packet) -> Vec<(String, String)> {
         .headers()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+}
+
+fn packet_content_signer(packet: &Packet) -> Option<String> {
+    packet.header("Seal-By").map(str::to_string)
+}
+
+fn seal_signer_from_urc(urc: &str) -> Option<String> {
+    let (_, rest) = urc.split_once("/|/seal/")?;
+    let signer = rest.split('/').next()?;
+    if signer.starts_with("V.") && signer.ends_with(".H3") {
+        Some(signer.to_string())
+    } else {
+        None
+    }
 }
 
 fn clamp_range(total: u64, offset: u64, length: usize) -> Option<(u64, u64)> {

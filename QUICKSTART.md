@@ -1,8 +1,8 @@
 # HAVI Quickstart
 
 This guide is the conceptual companion to `docs/README.md` in the package.
-Use it to understand what HAVI renders, how trust works, and how to use the
-browser-side HPPR API.
+Use it to understand what HAVI renders, how content authority works, and how to
+use the browser-side HPPR API.
 
 For protocol depth beyond this page, read `QUICKSTART-HPPR.md` (included in this
 package) and the full specs in `docs/spec/hppr/` and `docs/spec/havi/`.
@@ -44,10 +44,10 @@ HAVI has a **home repo** (local persistent store) and optional **route repos**
 - `window.route`: remote route client, nullable/unavailable when route/auth is
   missing
 
-Route and deployment config are separate:
+Route and app content pointer config are separate:
 
 - route decides **which upstream repo** is used
-- deployment pointer decides **which content root and signer** back `//<group>/<app>/`
+- app content pointer decides **which content root and signer** back `//<group>/<app>/`
 
 Origin boundary is HPPR-native: `//<group>/<app>/`.
 
@@ -75,11 +75,11 @@ Routing behavior:
 
 Trailing slash means LIST view; no trailing slash means GET and render content.
 
-## Deployment and execution rules
+## Content authority and execution rules
 
-For routed origins, HAVI resolves content through a group deployment pointer
-(`//<group>/admin/deploy/<app>/|`) that declares `Deploy-Root` and
-`Deploy-Signer`.
+For routed origins, HAVI resolves content through a group app content pointer
+(`//<group>/admin/deploy/<app>/|`) that declares `Content-Root` and
+`Content-Signer`.
 
 ACL enforcement still happens server-side in `hpprd` for every command.
 
@@ -214,7 +214,8 @@ Live primitives:
 Embedding primitive:
 
 - `<x src="...">` for HPPR-native embedding
-- optional `trustParent` to reuse parent trust set
+- optional `policy="auto|isolated|strict"` to control embed mode
+- readonly `embedMode` and `contentSigner` for diagnostics
 
 JSONqa for client-side view state on coordinates:
 

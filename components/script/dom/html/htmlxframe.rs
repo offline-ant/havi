@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use base::generic_channel::GenericCallback;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use constellation_traits::{
     IFrameLoadInfo, IFrameLoadInfoWithData, JsEvalResult, LoadData, LoadOrigin,
@@ -12,7 +13,10 @@ use constellation_traits::{
 };
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use dom_struct::dom_struct;
-use embedder_traits::ViewportDetails;
+use embedder_traits::{
+    EmbedderMsg, HpprControlRequest, HpprControlResponse, HpprEmbedResolveResponse,
+    ViewportDetails,
+};
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;
@@ -27,6 +31,7 @@ use crate::dom::attr::Attr;
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::codegen::Bindings::HTMLXFrameBinding::HTMLXFrameMethods;
 use crate::dom::bindings::inheritance::Castable;
+use crate::dom::bindings::refcounted::Trusted;
 use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
@@ -55,6 +60,32 @@ enum ProcessingMode {
     NotFirstTime,
 }
 
+#[derive(Clone, Copy, Debug, JSTraceable, MallocSizeOf, PartialEq, Eq)]
+enum EmbedMode {
+    Inherited,
+    Isolated,
+    Strict,
+    SandboxPreview,
+}
+
+impl EmbedMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            EmbedMode::Inherited => "inherited",
+            EmbedMode::Isolated => "isolated",
+            EmbedMode::Strict => "strict",
+            EmbedMode::SandboxPreview => "sandbox-preview",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmbedPolicy {
+    Auto,
+    Isolated,
+    Strict,
+}
+
 #[dom_struct]
 pub(crate) struct HTMLXFrame {
     htmlelement: HTMLElement,
@@ -79,8 +110,12 @@ pub(crate) struct HTMLXFrame {
     /// while script at this point(when the flag is set)
     /// expects those to run only for the navigated documented.
     pending_navigation: Cell<bool>,
-    /// Whether this <x> element trusts its parent document
-    trust_parent: Cell<bool>,
+    /// Current embed mode for the child browsing context.
+    embed_mode: Cell<EmbedMode>,
+    /// Resolved child content signer.
+    content_signer: DomRefCell<Option<String>>,
+    /// Monotonic embed resolve request id used to ignore stale preflight callbacks.
+    embed_resolve_serial: Cell<u64>,
     /// Current watch prefix (None = not watching)
     watch_prefix: DomRefCell<Option<String>>,
     /// Reference to the shared WatchSocket (if watching)
@@ -105,18 +140,116 @@ impl HTMLXFrame {
             .unwrap_or_else(|| BrowserUrl::parse("about:blank").unwrap())
     }
 
+    fn policy(&self) -> EmbedPolicy {
+        let policy = self.upcast::<Element>().get_string_attribute(&LocalName::from("policy"));
+        match &*policy.str() {
+            "isolated" => EmbedPolicy::Isolated,
+            "strict" => EmbedPolicy::Strict,
+            _ => EmbedPolicy::Auto,
+        }
+    }
+
+    fn parent_content_signer(&self) -> Option<String> {
+        self.owner_document().hppr_content_signer()
+    }
+
+    fn next_embed_resolve_serial(&self) -> u64 {
+        let next = self.embed_resolve_serial.get().wrapping_add(1);
+        self.embed_resolve_serial.set(next);
+        next
+    }
+
+    fn set_embed_state(&self, mode: EmbedMode, content_signer: Option<String>) {
+        self.embed_mode.set(mode);
+        *self.content_signer.borrow_mut() = content_signer;
+    }
+
+    fn refresh_loaded_content_signer(&self) {
+        let Some(pipeline_id) = self.pipeline_id.get() else {
+            return;
+        };
+        let Some(document) = ScriptThread::find_document(pipeline_id) else {
+            return;
+        };
+        if let Some(content_signer) = document.hppr_content_signer() {
+            *self.content_signer.borrow_mut() = Some(content_signer);
+        }
+    }
+
+    fn current_content_signer(&self) -> Option<String> {
+        self.refresh_loaded_content_signer();
+        self.content_signer.borrow().clone()
+    }
+
+    fn current_embed_mode(&self) -> EmbedMode {
+        self.embed_mode.get()
+    }
+
+    fn is_hppr_embed_url(url: &BrowserUrl) -> bool {
+        url.scheme() == "hppr"
+    }
+
+    fn is_sandbox_preview_url(url: &BrowserUrl) -> bool {
+        url.scheme() == "hppr-sandbox"
+    }
+
+    fn compute_embed_mode(
+        &self,
+        url: &BrowserUrl,
+        policy: EmbedPolicy,
+        child_content_signer: Option<&str>,
+    ) -> EmbedMode {
+        if Self::is_sandbox_preview_url(url) {
+            return EmbedMode::SandboxPreview;
+        }
+        if !Self::is_hppr_embed_url(url) {
+            return EmbedMode::Inherited;
+        }
+        match policy {
+            EmbedPolicy::Strict => EmbedMode::Strict,
+            EmbedPolicy::Isolated => EmbedMode::Isolated,
+            EmbedPolicy::Auto => {
+                let Some(parent_signer) = self.parent_content_signer() else {
+                    return EmbedMode::Isolated;
+                };
+                let Some(child_signer) = child_content_signer else {
+                    return EmbedMode::Isolated;
+                };
+                if parent_signer == child_signer {
+                    EmbedMode::Inherited
+                } else {
+                    EmbedMode::Isolated
+                }
+            },
+        }
+    }
+
+    fn sandbox_flags_for_mode(mode: EmbedMode) -> SandboxingFlagSet {
+        let navigation_flags =
+            SandboxingFlagSet::SANDBOXED_AUXILIARY_NAVIGATION_BROWSING_CONTEXT_FLAG |
+            SandboxingFlagSet::SANDBOXED_TOP_LEVEL_NAVIGATION_WITHOUT_USER_ACTIVATION_BROWSING_CONTEXT_FLAG |
+            SandboxingFlagSet::SANDBOXED_TOP_LEVEL_NAVIGATION_WITH_USER_ACTIVATION_BROWSING_CONTEXT_FLAG;
+        match mode {
+            EmbedMode::Inherited | EmbedMode::SandboxPreview => SandboxingFlagSet::empty(),
+            EmbedMode::Isolated => {
+                SandboxingFlagSet::SANDBOXED_ORIGIN_BROWSING_CONTEXT_FLAG | navigation_flags
+            },
+            EmbedMode::Strict => {
+                SandboxingFlagSet::SANDBOXED_ORIGIN_BROWSING_CONTEXT_FLAG |
+                    SandboxingFlagSet::SANDBOXED_SCRIPTS_BROWSING_CONTEXT_FLAG |
+                    SandboxingFlagSet::SANDBOXED_FORMS_BROWSING_CONTEXT_FLAG |
+                    navigation_flags
+            },
+        }
+    }
+
     pub(crate) fn navigate_or_reload_child_browsing_context(
         &self,
         load_data: LoadData,
         history_handling: NavigationHistoryBehavior,
-        cx: &mut js::context::JSContext,
     ) {
-        self.start_new_pipeline(
-            load_data,
-            PipelineType::Navigation,
-            history_handling,
-            cx,
-        );
+        self.pending_navigation.set(true);
+        self.start_new_pipeline(load_data, PipelineType::Navigation, history_handling);
     }
 
     fn start_new_pipeline(
@@ -124,7 +257,6 @@ impl HTMLXFrame {
         load_data: LoadData,
         pipeline_type: PipelineType,
         history_handling: NavigationHistoryBehavior,
-        cx: &mut js::context::JSContext,
     ) {
         let browsing_context_id = match self.browsing_context_id() {
             None => return warn!("Attempted to start a new pipeline on an unattached <x>."),
@@ -140,9 +272,9 @@ impl HTMLXFrame {
 
         {
             let load_blocker = &self.load_blocker;
-            // Any oustanding load is finished from the point of view of the blocked
+            // Any outstanding subframe load is finished from the point of view of the blocked
             // document; the new navigation will continue blocking it.
-            LoadBlocker::terminate(load_blocker, cx);
+            LoadBlocker::terminate_subframe(load_blocker);
         }
 
         match load_data.js_eval_result {
@@ -239,20 +371,16 @@ impl HTMLXFrame {
         self.pending_pipeline_id.get() == self.about_blank_pipeline_id.get()
     }
 
-    /// Process the <x> attributes
-    fn process_the_iframe_attributes(&self, mode: ProcessingMode, cx: &mut js::context::JSContext) {
+    fn navigate_with_embed_mode(
+        &self,
+        url: BrowserUrl,
+        embed_mode: EmbedMode,
+        content_signer: Option<String>,
+    ) {
         let window = self.owner_window();
-
-        if mode == ProcessingMode::FirstTime &&
-            !self.upcast::<Element>().has_attribute(&local_name!("src"))
-        {
-            return;
-        }
-
-        // Get the URL from src attribute
-        let url = self.get_url();
-
         let document = self.owner_document();
+
+        self.set_embed_state(embed_mode, content_signer);
 
         let creator_pipeline_id = if url.as_str() == "about:blank" {
             Some(window.pipeline_id())
@@ -271,7 +399,7 @@ impl HTMLXFrame {
             Some(window.as_global_scope().is_secure_context()),
             Some(document.insecure_requests_policy()),
             document.has_trustworthy_ancestor_or_current_origin(),
-            SandboxingFlagSet::empty(),
+            Self::sandbox_flags_for_mode(embed_mode),
         );
         load_data.destination = Destination::IFrame;
         load_data.policy_container = Some(window.as_global_scope().policy_container());
@@ -280,22 +408,105 @@ impl HTMLXFrame {
         }
 
         let pipeline_id = self.pipeline_id();
-        // If the initial `about:blank` page is the current page, load with replacement enabled
         let is_about_blank =
             pipeline_id.is_some() && pipeline_id == self.about_blank_pipeline_id.get();
-
         let history_handling = if is_about_blank {
             NavigationHistoryBehavior::Replace
         } else {
             NavigationHistoryBehavior::Push
         };
 
-        self.navigate_or_reload_child_browsing_context(load_data, history_handling, cx);
+        self.navigate_or_reload_child_browsing_context(load_data, history_handling);
+    }
+
+    fn start_embed_preflight(&self, url: BrowserUrl, request_serial: u64) {
+        let task_source = self
+            .owner_window()
+            .as_global_scope()
+            .task_manager()
+            .dom_manipulation_task_source()
+            .to_sendable();
+        let trusted_xframe = Trusted::new(self);
+        let callback_url = url.clone();
+        let requested_url = url.to_string();
+        let callback = GenericCallback::new(move |message| {
+            let trusted_xframe = trusted_xframe.clone();
+            let callback_url = callback_url.clone();
+            task_source.queue(task!(xframe_embed_resolve: move || {
+                let xframe = trusted_xframe.root();
+                if xframe.embed_resolve_serial.get() != request_serial {
+                    return;
+                }
+                let content_signer = match message {
+                    Ok(HpprControlResponse::EmbedResolve(HpprEmbedResolveResponse {
+                        content_signer,
+                    })) => content_signer,
+                    Ok(HpprControlResponse::Error(error)) => {
+                        warn!("<x> embed resolve failed for {}: {}", callback_url, error);
+                        None
+                    },
+                    Ok(other) => {
+                        warn!(
+                            "<x> unexpected embed resolve response for {}: {:?}",
+                            callback_url,
+                            other
+                        );
+                        None
+                    },
+                    Err(error) => {
+                        warn!("<x> embed resolve callback failed for {}: {}", callback_url, error);
+                        None
+                    },
+                };
+
+                let embed_mode = xframe.compute_embed_mode(
+                    &callback_url,
+                    EmbedPolicy::Auto,
+                    content_signer.as_deref(),
+                );
+                if !xframe.upcast::<Node>().is_connected_with_browsing_context() {
+                    return;
+                }
+                xframe.navigate_with_embed_mode(callback_url, embed_mode, content_signer);
+            }));
+        })
+        .expect("Could not create <x> embed resolve callback");
+
+        self.owner_window().send_to_embedder(EmbedderMsg::HpprControlOperation(
+            self.owner_window().webview_id(),
+            self.owner_window().as_global_scope().get_url().to_string(),
+            HpprControlRequest::EmbedResolve {
+                url: requested_url,
+            },
+            callback,
+        ));
+    }
+
+    /// Process the <x> attributes
+    fn process_the_iframe_attributes(&self, mode: ProcessingMode) {
+        if mode == ProcessingMode::FirstTime &&
+            !self.upcast::<Element>().has_attribute(&local_name!("src"))
+        {
+            return;
+        }
+
+        let url = self.get_url();
+        let policy = self.policy();
+        let request_serial = self.next_embed_resolve_serial();
+        self.pending_navigation.set(true);
+
+        if Self::is_hppr_embed_url(&url) && policy == EmbedPolicy::Auto {
+            self.start_embed_preflight(url, request_serial);
+            return;
+        }
+
+        let embed_mode = self.compute_embed_mode(&url, policy, None);
+        self.navigate_with_embed_mode(url, embed_mode, None);
     }
 
     /// Create a new child navigable for <x>
     /// Synchronously create a new browsing context (This is not a navigation).
-    fn create_nested_browsing_context(&self, cx: &mut js::context::JSContext) {
+    fn create_nested_browsing_context(&self) {
         let url = BrowserUrl::parse("about:blank").unwrap();
         let document = self.owner_document();
         let window = self.owner_window();
@@ -325,7 +536,6 @@ impl HTMLXFrame {
             load_data,
             PipelineType::InitialAboutBlank,
             NavigationHistoryBehavior::Push,
-            cx,
         );
     }
 
@@ -382,7 +592,9 @@ impl HTMLXFrame {
             throttled: Cell::new(false),
             script_window_proxies: ScriptThread::window_proxies(),
             pending_navigation: Default::default(),
-            trust_parent: Cell::new(false),
+            embed_mode: Cell::new(EmbedMode::Inherited),
+            content_signer: DomRefCell::new(None),
+            embed_resolve_serial: Cell::new(0),
             watch_prefix: DomRefCell::new(None),
             watch_socket: Default::default(),
         }
@@ -443,6 +655,7 @@ impl HTMLXFrame {
             // do not fire if there is a pending navigation.
             !self.pending_navigation.get()
         };
+        self.refresh_loaded_content_signer();
         if should_fire_event {
             self.upcast::<EventTarget>()
                 .fire_event(atom!("load"), CanGc::from_cx(cx));
@@ -565,7 +778,7 @@ impl HTMLXFrame {
     }
 
     /// Called by WatchSocket when a watch message arrives.
-    pub(crate) fn on_watch_message(&self, data: &str, cx: &mut JSContext) {
+    pub(crate) fn on_watch_message(&self, data: &str, _cx: &mut JSContext) {
         let (op, coord) = match data.split_once(' ') {
             Some((op, coord)) => (op, coord),
             None => return,
@@ -582,7 +795,7 @@ impl HTMLXFrame {
         let coord_base = coord.split("/|/").next().unwrap_or(coord);
         let coord_base = coord_base.trim_end_matches('/');
         if coord_base == our_loc || coord_base.starts_with(&format!("{}/", our_loc)) {
-            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, cx);
+            self.process_the_iframe_attributes(ProcessingMode::NotFirstTime);
         }
     }
 
@@ -608,6 +821,9 @@ impl HTMLXFrameMethods<crate::DomTypeHolder> for HTMLXFrame {
 
     /// Get the content document
     fn GetContentDocument(&self) -> Option<DomRoot<Document>> {
+        if self.current_embed_mode() != EmbedMode::Inherited {
+            return None;
+        }
         let pipeline_id = self.pipeline_id.get()?;
         let document = ScriptThread::find_document(pipeline_id)?;
         if !self
@@ -635,14 +851,22 @@ impl HTMLXFrameMethods<crate::DomTypeHolder> for HTMLXFrame {
         document.hppr_packet()
     }
 
-    /// trustParent attribute getter
-    fn TrustParent(&self) -> bool {
-        self.trust_parent.get()
+    fn Policy(&self) -> DOMString {
+        let element = self.upcast::<Element>();
+        element.get_string_attribute(&LocalName::from("policy"))
     }
 
-    /// trustParent attribute setter
-    fn SetTrustParent(&self, value: bool) {
-        self.trust_parent.set(value);
+    fn SetPolicy(&self, value: DOMString) {
+        let element = self.upcast::<Element>();
+        element.set_string_attribute(&LocalName::from("policy"), value, CanGc::note())
+    }
+
+    fn GetContentSigner(&self) -> Option<DOMString> {
+        self.current_content_signer().map(DOMString::from)
+    }
+
+    fn EmbedMode(&self) -> DOMString {
+        DOMString::from(self.current_embed_mode().as_str())
     }
 
     // Watch attribute
@@ -674,8 +898,13 @@ impl VirtualMethods for HTMLXFrame {
                 // process the <x> attributes.
                 if self.upcast::<Node>().is_connected_with_browsing_context() {
                     debug!("<x> src set while in browsing context.");
-                    self.process_the_iframe_attributes(ProcessingMode::NotFirstTime, cx);
+                    self.process_the_iframe_attributes(ProcessingMode::NotFirstTime);
                     self.update_watch(cx);
+                }
+            },
+            ref name if *name == LocalName::from("policy") => {
+                if self.upcast::<Node>().is_connected_with_browsing_context() {
+                    self.process_the_iframe_attributes(ProcessingMode::NotFirstTime);
                 }
             },
             ref name if *name == LocalName::from("watch") => {
@@ -720,10 +949,10 @@ impl VirtualMethods for HTMLXFrame {
         debug!("<<x>> running post connection steps");
 
         // Create a new child navigable
-        self.create_nested_browsing_context(cx);
+        self.create_nested_browsing_context();
 
         // Process the <x> attributes
-        self.process_the_iframe_attributes(ProcessingMode::FirstTime, cx);
+        self.process_the_iframe_attributes(ProcessingMode::FirstTime);
         self.update_watch(cx);
     }
 

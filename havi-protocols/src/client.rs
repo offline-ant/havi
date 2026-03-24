@@ -58,9 +58,9 @@ pub struct RouteKeyInfo {
     pub signing_key: String,
 }
 
-/// Deployment pointer information for routed app content.
+/// App content pointer information for routed app content.
 #[derive(Debug, Clone)]
-pub struct DeployInfo {
+pub struct ContentPointerInfo {
     pub root: String,
     pub signer: String,
 }
@@ -451,42 +451,42 @@ impl HpprdClientAsync {
     }
 
     // ========================================================================
-    // Deployment Pointer Methods
+    // App Content Pointer Methods
     // ========================================================================
 
-    /// Get deployment pointer for a group/app from target repo.
+    /// Get app content pointer for a group/app from target repo.
     ///
     /// Coordinate:
     /// `//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
-    pub async fn get_deploy(
+    pub async fn get_content_pointer(
         &self,
         group: &str,
         app: &str,
         repo_vkey: &str,
-    ) -> Result<DeployInfo, String> {
+    ) -> Result<ContentPointerInfo, String> {
         let urc = format!("//{}/admin/deploy/{}/|/seal/{}", group, app, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
         let root = packet
-            .header("Deploy-Root")
-            .ok_or("Deploy packet missing Deploy-Root header")?
+            .header("Content-Root")
+            .ok_or("Content pointer packet missing Content-Root header")?
             .to_string();
         let signer = packet
-            .header("Deploy-Signer")
-            .ok_or("Deploy packet missing Deploy-Signer header")?
+            .header("Content-Signer")
+            .ok_or("Content pointer packet missing Content-Signer header")?
             .to_string();
 
         if !root.starts_with("//") {
-            return Err(format!("invalid Deploy-Root '{}': must start with //", root));
+            return Err(format!("invalid Content-Root '{}': must start with //", root));
         }
         if !(signer.starts_with("V.") && signer.ends_with(".H3")) {
             return Err(format!(
-                "invalid Deploy-Signer '{}': must start with V. and end with .H3",
+                "invalid Content-Signer '{}': must start with V. and end with .H3",
                 signer
             ));
         }
 
-        Ok(DeployInfo { root, signer })
+        Ok(ContentPointerInfo { root, signer })
     }
 
     // ========================================================================

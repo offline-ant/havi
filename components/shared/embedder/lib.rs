@@ -479,6 +479,7 @@ pub enum HpprResolveRequest {
 pub struct HpprResolvedSourceRef {
     pub endpoint: String,
     pub signer: Option<String>,
+    pub content_signer: Option<String>,
     pub packet_hash: String,
     pub is_repo: bool,
 }
@@ -488,6 +489,7 @@ pub struct HpprResolvedDocument {
     pub packet: Vec<u8>,
     pub endpoint: String,
     pub signer: Option<String>,
+    pub content_signer: Option<String>,
     pub is_repo: bool,
 }
 
@@ -496,6 +498,7 @@ pub struct HpprResolvedMediaSource {
     pub packet: Vec<u8>,
     pub endpoint: String,
     pub signer: Option<String>,
+    pub content_signer: Option<String>,
     pub is_repo: bool,
     pub source: HpprResolvedSourceRef,
 }
@@ -506,6 +509,11 @@ pub enum HpprResolveResponse {
     Media(HpprResolvedMediaSource),
     Bytes(Vec<u8>),
     Error(String),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HpprEmbedResolveResponse {
+    pub content_signer: Option<String>,
 }
 
 /// Control operations handled by the embedder.
@@ -524,6 +532,8 @@ pub enum HpprControlRequest {
     AdminCredential,
     /// Shared HPPR source resolution.
     Resolve(HpprResolveRequest),
+    /// Preflight HPPR embed resolution for <x>.
+    EmbedResolve { url: String },
 }
 
 /// Control operation responses - returned from local/embedder operations.
@@ -541,6 +551,8 @@ pub enum HpprControlResponse {
     AdminCredential { ring1_name: String, token: String },
     /// Shared HPPR source resolution response.
     Resolve(HpprResolveResponse),
+    /// HPPR embed preflight response.
+    EmbedResolve(HpprEmbedResolveResponse),
     /// Error message
     Error(String),
 }

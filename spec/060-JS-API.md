@@ -17,9 +17,9 @@ HAVI exposes HPPR APIs on `window`.
 `window.route` is `null` when no route exists or no matching route auth key is
 available.
 
-For `hppr://` routed pages, route/deploy resolution happens before page JS runs.
-If deploy metadata is missing or invalid, navigation fails with `HpprError` from
-handler operations.
+For `hppr://` routed pages, route/content-pointer resolution happens before
+page JS runs. If content-pointer metadata is missing or invalid, navigation
+fails with `HpprError` from handler operations.
 
 ## H3
 
@@ -180,8 +180,20 @@ Result fields:
 
 - `packet`: resolved `HpprPacket`
 - `endpoint`: selected endpoint string
-- `signer`: signer identity string when routed access is used
+- `signer`: signer identity string used to access the repo when routed access is
+  used
+- `contentSigner`: resolved content-authority signer for the document, or `null`
 - `isRepo`: whether the resolved source came from the home repo path
+
+For app-content URLs, `contentSigner` comes from the app content pointer's
+`Content-Signer`.
+For direct sealed content, `contentSigner` comes from packet `Seal-By`.
+For unsigned content, it is `null`.
+
+`signer` and `contentSigner` are distinct:
+
+- `signer` identifies the route or repo capability used for access
+- `contentSigner` identifies the signer that authorized the resolved content
 
 `window.resolve()` is document resolve only.
 Listing stays on `window.home.list()` or `window.route.list()`.
@@ -194,6 +206,13 @@ HTML attributes use standard RFC 3986 resolution (href mode).
 
 For `hppr://` documents, `document.packet` returns the source `HpprPacket`.
 For non-HPPR pages, it returns `null`.
+
+Loaded HPPR documents also carry browser metadata for the resolved content
+signer.
+For app-content URLs this metadata comes from `Content-Signer`.
+For direct sealed content it comes from `Seal-By`.
+This content-signer metadata is distinct from the route signer or home-repo
+signer used to access the repo.
 
 ## HpprPacket
 

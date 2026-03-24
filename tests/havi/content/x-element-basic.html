@@ -27,7 +27,8 @@
         assert(x !== null, 'Element created');
         assertEqual(x.constructor.name, 'HTMLXFrame', 'Is HTMLXFrame');
         assert(x.src !== undefined, 'Has src attribute');
-        assert(typeof x.trustParent === 'boolean', 'Has trustParent attribute');
+        assert(typeof x.policy === 'string', 'Has policy attribute');
+        assertEqual(x.policy, '', 'Policy attribute getter is empty when absent');
 
         log('--- Load event test ---');
         await new Promise((resolve, reject) => {
@@ -46,6 +47,13 @@
             });
         });
         log('PASS: Load event fires');
+
+        log('--- Embed mode diagnostics ---');
+        assert(typeof x.embedMode === 'string', 'Has embedMode attribute');
+        assert(
+            ['inherited', 'isolated', 'strict', 'sandbox-preview'].includes(x.embedMode),
+            'embedMode reports a known mode'
+        );
     }
 
     (async function() {

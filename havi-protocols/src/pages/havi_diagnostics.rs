@@ -9,7 +9,7 @@ use crate::credentials::CredentialStoreHandle;
 use crate::join_fixture::{JoinFixtureState, get_join_fixture_state, set_join_fixture_state};
 use crate::util::{append_location, signing_to_verifying_key};
 
-async fn inspect_route_deploy_auth_join(
+async fn inspect_route_content_pointer_auth_join(
     group: &str,
     app: &str,
     location: &str,
@@ -79,7 +79,7 @@ async fn inspect_route_deploy_auth_join(
         hppr_client::Signer::anyone(),
     ));
 
-    let mut deploy_json = serde_json::json!({
+    let mut content_pointer_json = serde_json::json!({
         "available": false,
         "endpoint": route_endpoint.to_string(),
         "repoVerificationKey": serde_json::Value::Null,
@@ -94,37 +94,37 @@ async fn inspect_route_deploy_auth_join(
         None => match route_anyone.get_admin_identity().await {
             Ok(v) => Some(v),
             Err(e) => {
-                deploy_json["error"] = serde_json::json!(e);
+                content_pointer_json["error"] = serde_json::json!(e);
                 None
             },
         },
     };
 
-    let mut deploy_root: Option<String> = None;
-    let mut deploy_signer: Option<String> = None;
+    let mut content_root: Option<String> = None;
+    let mut content_signer: Option<String> = None;
     let mut target_get: Option<String> = None;
 
     if let Some(repo_vkey) = remote_repo_vkey.clone() {
-        match route_anyone.get_deploy(group, app, &repo_vkey).await {
-            Ok(deploy) => {
-                let target = append_location(&deploy.root, location);
-                let target_urc = format!("{}/|/seal/{}", target, deploy.signer);
-                deploy_root = Some(deploy.root.clone());
-                deploy_signer = Some(deploy.signer.clone());
+        match route_anyone.get_content_pointer(group, app, &repo_vkey).await {
+            Ok(content_pointer) => {
+                let target = append_location(&content_pointer.root, location);
+                let target_urc = format!("{}/|/seal/{}", target, content_pointer.signer);
+                content_root = Some(content_pointer.root.clone());
+                content_signer = Some(content_pointer.signer.clone());
                 target_get = Some(target_urc.clone());
-                deploy_json = serde_json::json!({
+                content_pointer_json = serde_json::json!({
                     "available": true,
                     "endpoint": route_endpoint.to_string(),
                     "repoVerificationKey": repo_vkey,
-                    "root": deploy.root,
-                    "signer": deploy.signer,
+                    "root": content_pointer.root,
+                    "signer": content_pointer.signer,
                     "targetGet": target_urc,
                     "error": serde_json::Value::Null,
                 });
             },
             Err(e) => {
-                deploy_json["repoVerificationKey"] = serde_json::json!(repo_vkey);
-                deploy_json["error"] = serde_json::json!(e);
+                content_pointer_json["repoVerificationKey"] = serde_json::json!(repo_vkey);
+                content_pointer_json["error"] = serde_json::json!(e);
             },
         }
     }
@@ -155,9 +155,9 @@ async fn inspect_route_deploy_auth_join(
     let mut auth_probe = "not_checked".to_string();
     let mut auth_error: Option<String> = None;
 
-    if let (Some(root), Some(deploy_signer_value), Some(signing_key)) = (
-        deploy_root.as_ref(),
-        deploy_signer.as_ref(),
+    if let (Some(root), Some(content_signer_value), Some(signing_key)) = (
+        content_root.as_ref(),
+        content_signer.as_ref(),
         route_signing_key.as_ref(),
     ) {
         let ring2_signer = hppr_client::Signer::ring2(group, signing_key);
@@ -166,7 +166,7 @@ async fn inspect_route_deploy_auth_join(
             ring2_signer,
         ));
         let target = append_location(root, location);
-        let target_urc = format!("{}/|/seal/{}", target, deploy_signer_value);
+        let target_urc = format!("{}/|/seal/{}", target, content_signer_value);
         match route_auth.get_packet_authenticated(&target_urc).await {
             Ok(_) => auth_probe = "authorized".to_string(),
             Err(e) => {
@@ -228,7 +228,7 @@ async fn inspect_route_deploy_auth_join(
 
     serde_json::json!({
         "route": route_json,
-        "deploy": deploy_json,
+        "deploy": content_pointer_json,
         "auth": {
             "routeKeyPresent": route_key_present,
             "routeKeyError": route_key_error,
@@ -289,7 +289,7 @@ pub async fn handle_diagnostics_api(
                 return serde_json::json!({"ok": false, "error": "missing app"}).to_string();
             };
             let location = params.get("location").map(String::as_str).unwrap_or("");
-            let data = inspect_route_deploy_auth_join(group, app, location, client, credential_store).await;
+            let data = inspect_route_content_pointer_auth_join(group, app, location, client, credential_store).await;
             serde_json::json!({"ok": true, "data": data}).to_string()
         },
         _ => serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)})

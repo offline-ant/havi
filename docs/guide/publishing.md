@@ -35,13 +35,13 @@ hppr add --seal-by oldest \
 
 Use this for CI scripts and repeatable deploy steps.
 
-### 3) Route deployment pointer (routed apps)
+### 3) Route app content pointer (routed apps)
 
-For routed origins (`hppr://<group>/<app>/...`), set deployment metadata on the
-upstream repo:
+For routed origins (`hppr://<group>/<app>/...`), set app content pointer
+metadata on the upstream repo:
 
 ```bash
-./havi/havi-cli deploy <group> <app> //<deploy-root> <deploy-signer>
+./havi/havi-cli deploy <group> <app> //<content-root> <content-signer>
 ```
 
 This writes:
@@ -50,10 +50,10 @@ This writes:
 
 Headers:
 
-- `Deploy-Root: //<...>`
-- `Deploy-Signer: V.<...>.H3`
+- `Content-Root: //<...>`
+- `Content-Signer: V.<...>.H3`
 
-At runtime HAVI resolves routed GET/LIST through this deployment pointer.
+At runtime HAVI resolves routed GET/LIST through this app content pointer.
 
 ### 4) Exact-bytes path: `mkpac` + `store`
 

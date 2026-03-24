@@ -20,7 +20,7 @@ create_remote_key
 import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 setup_remote_ring2 "$TEST_GROUP" "$TEST_APP"
 
-# Set up route and remote deploy pointer
+# Set up route and remote app content pointer
 setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
 setup_route "$TEST_GROUP" "$TEST_APP"
 

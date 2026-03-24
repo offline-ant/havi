@@ -1591,6 +1591,7 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
                             &packet,
                             resolved.endpoint,
                             resolved.signer,
+                            resolved.content_signer,
                             resolved.is_repo,
                             CanGc::note(),
                         );

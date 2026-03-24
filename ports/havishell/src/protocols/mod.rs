@@ -53,5 +53,6 @@ fn page_response_to_servo(
             response.hppr_signer = Some(parsed);
         }
     }
+    response.hppr_content_signer = page.hppr_content_signer;
     response
 }

@@ -148,6 +148,8 @@ pub struct Response {
     /// HPPR: pre-built signer for ring2 auth (window.route).
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     pub hppr_signer: Option<crate::HpprSigner>,
+    /// HPPR: resolved content signer for the loaded content.
+    pub hppr_content_signer: Option<String>,
     /// HPPR: site credentials (ring1_name, signing_key) for the home repo (`window.home`).
     pub site_credentials: Option<(String, String)>,
     /// HPPR: admin credentials (account, token) for `window.ring0`.
@@ -180,6 +182,7 @@ impl Response {
             hppr_packet: None,
             hppr_endpoint: None,
             hppr_signer: None,
+            hppr_content_signer: None,
             site_credentials: None,
             admin_credentials: None,
         }
@@ -221,6 +224,7 @@ impl Response {
             hppr_packet: None,
             hppr_endpoint: None,
             hppr_signer: None,
+            hppr_content_signer: None,
             site_credentials: None,
             admin_credentials: None,
         }
@@ -356,6 +360,9 @@ impl Response {
                 .clone_from(&response.tls_security_info);
             metadata.hppr_packet.clone_from(&response.hppr_packet);
             metadata.hppr_endpoint.clone_from(&response.hppr_endpoint);
+            metadata
+                .hppr_content_signer
+                .clone_from(&response.hppr_content_signer);
             metadata
                 .site_credentials
                 .clone_from(&response.site_credentials);

@@ -1,117 +1,99 @@
 # Security Model
 
-HAVI security has three layers:
+HAVI security has three distinct dimensions:
 
-1. route and deployment resolution
-2. site sandboxing
-3. repo ACL enforcement
+1. app origin
+2. content authority
+3. repo capability
 
-## Route and deployment resolution
+They are separate. Matching one dimension does not imply matching the others.
 
-HAVI keeps origin semantics stable while resolving content
-through local route and remote deployment pointers.
+## App origin
 
-Origin format: `//<group>/<app>/`.
+App origin is the browser composition boundary.
 
-For routed non-repo pages (`hppr://<group>/<app>/...`):
+Origin format:
 
-1. Read local route packet from home repo:
-   `//repo/admin/route/<group>/<app>/|/seal/<home-repo-vkey>`
-2. Connect to route upstream.
-3. Read remote deployment packet:
-   `//<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>`
-4. Use deployment headers:
-   - `Deploy-Root: //<...>`
-   - `Deploy-Signer: V.<...>.H3`
-5. Build target coordinate by appending requested location to `Deploy-Root`.
-6. Execute:
-   - GET: `<target>/|/seal/<Deploy-Signer>`
-   - LIST: `<target>/`
+`//<group>/<app>/`
 
-The page origin remains `//<group>/<app>/` even when content resolves to a
-different coordinate under `Deploy-Root`.
+App origin controls ordinary browser relationships:
 
-### Route packet
+- same-origin DOM access under ordinary rules
+- storage and window relationships
+- app-space identity
 
-Coordinate:
+For routed app URLs, origin remains `//<group>/<app>/` even when content is
+fetched from a different coordinate under an app content pointer.
 
-`//repo/admin/route/<group>/<app>/|/seal/<repo-vkey>`
+## Content authority
 
-Required headers:
+Content authority is the authority that defines executable or inheritable app
+content.
 
-- `Upstream`
+Current concrete representation:
 
-Optional headers:
+- app-content URLs use exact `Content-Signer` equality
+- direct explicit Seal URLs use `Seal-By`
+- unsealed direct content has no content signer
+- `hppr-sandbox://` has no content signer
 
-- `Upstream-Verification-Key`
-
-Route config is local. Only ring0 can write route packets.
-
-### Deployment packet
-
-Coordinate:
+For app-content URLs, HAVI resolves the app content pointer at:
 
 `//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
 
 Required headers:
 
-- `Deploy-Root`
-- `Deploy-Signer`
+- `Content-Root`
+- `Content-Signer`
 
-Deployment packet is evaluated on the upstream repo. It controls what content
-coordinate and signer back the routed origin.
+The browser appends the requested location to `Content-Root` and fetches the
+final document from:
 
-### Route keys
+`<target>/|/seal/<Content-Signer>`
 
-Per-group route keys provide Ring2 identity for authenticated remote operations.
+That fetch path is a hard cutover. If `Content-Signer` changes, old signer
+content is no longer reachable through the app URL.
 
-Coordinate:
+### `<x>` authority comparison
 
-`//repo/admin/route-keys/<group>/|/seal/<repo-vkey>`
+`<x>` compares parent and child content signer by exact verification-key
+equality.
 
-Headers:
+`//<group>/<app>` equality is not enough.
+Route equality is not enough.
+Repo endpoint equality is not enough.
 
-- `Secret-Key: &.<b64a>.H3`
-- `Verification-Key: V.<b64a>.H3`
+Default `policy="auto"` behavior:
 
-Route keys are secrets. Access is restricted to ring0 and site Ring1 accounts
-with explicit ACL grants.
+- same content signer -> `inherited`
+- different content signer -> `isolated`
+- missing child content signer -> `isolated`
+- `hppr-sandbox://` -> `sandbox-preview`
 
-### Bootstrap index fallback
+Cross-signer default is `isolated`.
 
-If no local route packet exists for `//<group>/<app>/`, HAVI may resolve one
-from the public bootstrap index.
+## Repo capability
 
-Lookup target:
+Repo capability is the HPPR API authority exposed through browser-managed
+clients.
 
-`//u/index/<group>/<app>`
+It controls:
 
-Expected packet data:
+- what `window.home` may do against the home repo
+- what `window.route` may do against routed upstream repos
+- ACL-bound read, write, and list access
 
-- `Upstream`
-- optional `Upstream-Verification-Key`
+Repo capability is independent from app origin and content authority.
+A page may share app origin with another page while having different content
+authority, different repo capability, or both.
 
-Rules:
-
-- groups starting with `~` are local/private and skip bootstrap lookup
-- bootstrap lookup responses must be Seals signed by the configured bootstrap
-  verification key
-- on success, HAVI may store a local route packet using the returned values
-
-If lookup is skipped, missing, or invalid, HAVI falls back to the home repo
-endpoint.
-
-## Site sandboxing
+## Site isolation and ACLs
 
 Each site origin gets its own Ring1 identity for home repo isolation.
 
 Ring1 name format:
 
 `site:<group>#<app>`
-
-Sites are isolated across group/app origins.
-
-### Default site ACL pattern
 
 Typical rules:
 
@@ -131,23 +113,14 @@ ACL-Rule: r.. //repo/admin/route-keys/
 
 `window.route`: Ring2 auth with route key for group.
 
-## Enforcement
-
 ACL checks run in `hpprd`, not in page JavaScript.
-
-When page code calls `window.home` APIs:
-
-1. HAVI signs request with the site Ring1 key
-2. repo verifies signature and session
-3. repo applies ACL rules
-4. repo allows or denies
-
-Privilege escalation requires explicit ring0 approval for proxy actions.
 
 ## Security notes
 
 - HPPR origins are secure contexts.
 - XSS still applies when apps render untrusted content unsafely.
-- Route key compromise affects all routes in the group.
-- Deployment pointer compromise affects routed content selection for that app.
+- Route key compromise affects routed repo capability for that group.
+- App content pointer compromise affects which content root and signer back an
+  app URL.
+- Content-signer mismatch causes `<x policy="auto">` to isolate the child.
 - `file://` pages use a browser-defined local origin and local site identity.

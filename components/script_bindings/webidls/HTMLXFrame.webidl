@@ -11,8 +11,8 @@ interface HTMLXFrame : HTMLElement {
     // Source attribute - URC or relative coordinate
     [CEReactions] attribute USVString src;
 
-    // Trust inheritance from parent document's resolved deploy signer set
-    [CEReactions] attribute boolean trustParent;
+    // Embed policy: auto, isolated, or strict
+    [CEReactions] attribute DOMString policy;
 
     // Watch for coordinate changes
     [CEReactions] attribute DOMString watch;
@@ -21,7 +21,9 @@ interface HTMLXFrame : HTMLElement {
     [CEReactions] attribute DOMString width;
     [CEReactions] attribute DOMString height;
 
-    // Content access
+    // Content access and diagnostics
+    readonly attribute DOMString? contentSigner;
+    readonly attribute DOMString embedMode;
     readonly attribute HpprPacket? packet;
     readonly attribute Document? contentDocument;
     readonly attribute WindowProxy? contentWindow;
