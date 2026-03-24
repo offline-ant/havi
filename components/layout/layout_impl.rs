@@ -1427,8 +1427,11 @@ impl LayoutThread {
     }
 }
 
+static SHARED_LAYOUT_PUBLICATION_STATS_ENABLED: LazyLock<bool> =
+    LazyLock::new(|| matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1"));
+
 fn shared_layout_publication_stats_enabled() -> bool {
-    matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1")
+    *SHARED_LAYOUT_PUBLICATION_STATS_ENABLED
 }
 
 fn resolve_background_images_in_fragments(

@@ -32,6 +32,7 @@ pub(crate) mod color {
 }
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use base::id::WebViewId;
 use layout::fragment_tree::{BoxFragment, Fragment};
@@ -126,8 +127,11 @@ fn update_cached_browser_document_scroll_offsets(
     updated
 }
 
+static RENDER_STATS_ENABLED: LazyLock<bool> =
+    LazyLock::new(|| matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1"));
+
 fn render_stats_enabled() -> bool {
-    matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1")
+    *RENDER_STATS_ENABLED
 }
 
 fn log_browser_scene_stats(stats: &makepad_browser_scene::MpRendererStats) {
