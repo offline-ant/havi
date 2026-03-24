@@ -62,15 +62,20 @@ use style_traits::CSSPixel;
 use webrender_api::units::{DeviceIntSize, LayoutPoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, ImageKey};
 
-/// Thread-safe container for sharing semantic layout fragments with the render
-/// pipeline. The payload is the active shared semantic fragment model.
+/// Thread-safe container for sharing layout fragment payloads with the render
+/// pipeline.
+///
+/// `layout_api` cannot depend on the concrete `layout` crate, so the payload is
+/// type-erased here and downcast by the render side.
 #[derive(Clone, Default)]
-pub struct SharedLayoutFragmentTree(
-    Arc<RwLock<Option<Arc<Vec<havi_fragment_semantics::Fragment>>>>>,
-);
+pub struct SharedLayoutFragmentTree(Arc<RwLock<Option<Arc<dyn Any + Send + Sync>>>>);
 
 impl SharedLayoutFragmentTree {
-    pub fn set(&self, fragments: Arc<Vec<havi_fragment_semantics::Fragment>>) {
+    pub fn set<T>(&self, fragments: Arc<T>)
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let fragments: Arc<dyn Any + Send + Sync> = fragments;
         *self.0.write() = Some(fragments);
     }
 
@@ -78,8 +83,18 @@ impl SharedLayoutFragmentTree {
         *self.0.write() = None;
     }
 
-    pub fn get(&self) -> Option<Arc<Vec<havi_fragment_semantics::Fragment>>> {
-        self.0.read().clone()
+    pub fn get<T>(&self) -> Option<Arc<T>>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        self.0.read().as_ref().cloned()?.downcast::<T>().ok()
+    }
+
+    pub fn payload_ptr(&self) -> Option<usize> {
+        self.0
+            .read()
+            .as_ref()
+            .map(|payload| Arc::as_ptr(payload) as *const () as usize)
     }
 }
 

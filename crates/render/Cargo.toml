@@ -5,10 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
-havi-fragment-semantics = { workspace = true }
 havi-types = { path = "../types" }
-havi-fonts = { path = "../fonts" }
-havi-platform-fonts = { path = "../platform-fonts" }
+layout = { path = "../../components/layout" }
+pixels = { path = "../../components/pixels" }
 rustybuzz = "0.20"
 
 makepad-widgets = { path = "../../../makepad/widgets" }

@@ -8,7 +8,10 @@ mod traversal;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
-use makepad_browser_scene::{MpChildDocument, MpDocument, MpDocumentId, MpPipelineId, MpResourceStore, MpSceneId};
+use makepad_browser_scene::{
+    MpChildDocument, MpDocument, MpDocumentId, MpGlyphRunKey, MpGlyphRunResource, MpPipelineId,
+    MpSceneId,
+};
 use makepad_widgets::DVec2;
 
 pub(crate) use document::try_build_browser_document;
@@ -25,7 +28,6 @@ pub(super) struct BuildContext {
 pub(super) struct DirectBuilderIds {
     next_document_id: u64,
     next_scene_id: u64,
-    next_pipeline_id: u64,
 }
 
 impl DirectBuilderIds {
@@ -39,15 +41,11 @@ impl DirectBuilderIds {
         MpSceneId(self.next_scene_id)
     }
 
-    pub fn alloc_pipeline_id(&mut self) -> MpPipelineId {
-        self.next_pipeline_id += 1;
-        MpPipelineId(self.next_pipeline_id)
-    }
 }
 
 #[derive(Default)]
 pub(super) struct BuildState {
-    pub resources: MpResourceStore,
+    pub glyph_runs: HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     pub child_documents: Vec<MpChildDocument>,
 }
 

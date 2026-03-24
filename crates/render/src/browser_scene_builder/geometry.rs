@@ -1,13 +1,13 @@
-use havi_fragment_semantics::Fragment;
+use layout::fragment_tree::Fragment;
 use makepad_widgets::{dvec2, DVec2, Rect};
 
 pub(super) fn fragment_local_bounds(fragment: &Fragment, containing_block_origin: DVec2) -> Rect {
     let rect = match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.border_rect()),
-        Fragment::Text(text) => physical_rect_to_rect(text.base.rect),
-        Fragment::Image(image) => physical_rect_to_rect(image.base.rect),
-        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
-        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => Rect {
+        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.borrow().border_rect()),
+        Fragment::Text(text) => physical_rect_to_rect(text.borrow().base.rect),
+        Fragment::Image(image) => physical_rect_to_rect(image.borrow().base.rect),
+        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.borrow().base.rect),
+        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned(_) => Rect {
             pos: dvec2(0.0, 0.0),
             size: dvec2(0.0, 0.0),
         },

@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::sync::Arc;
+
 use app_units::{Au, MAX_AU, MIN_AU};
 use atomic_refcell::AtomicRefCell;
 use base::id::ScrollTreeNodeId;
@@ -12,7 +14,6 @@ use servo_arc::Arc as ServoArc;
 use servo_geometry::{au_rect_to_f32_rect, f32_rect_to_au_rect};
 use style::Zero;
 use style::computed_values::overflow_x::T as ComputedOverflow;
-use style::computed_values::position::T as ComputedPosition;
 use style::logical_geometry::WritingMode;
 use style::properties::ComputedValues;
 use style::values::computed::CSSPixelLength;
@@ -21,12 +22,14 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 use style_traits::CSSPixel;
 use webrender_api::units::LayoutTransform;
 
+use pixels::RasterImage;
+
 use super::{BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags};
 use crate::SharedStyle;
 use crate::formatting_contexts::Baselines;
 use crate::fragment_tree::BaseFragmentStyleRef;
 use crate::geom::{
-    AuOrAuto, LengthPercentageOrAuto, PhysicalPoint, PhysicalRect, PhysicalSides, ToLogical,
+    AuOrAuto, PhysicalPoint, PhysicalRect, PhysicalSides, ToLogical,
 };
 use crate::style_ext::ComputedValuesExt;
 use crate::table::SpecificTableGridInfo;
@@ -100,7 +103,7 @@ impl BoxFragmentRareData {
 }
 
 #[derive(MallocSizeOf)]
-pub(crate) struct BoxFragment {
+pub struct BoxFragment {
     pub base: BaseFragment,
 
     pub children: Vec<Fragment>,
@@ -112,6 +115,10 @@ pub(crate) struct BoxFragment {
     pub padding: PhysicalSides<Au>,
     pub border: PhysicalSides<Au>,
     pub margin: PhysicalSides<Au>,
+
+    /// Resolved CSS `background-image: url(...)` layers aligned to CSS order.
+    #[ignore_malloc_size_of = "shared raster image handles are tracked elsewhere"]
+    pub background_images: Vec<Option<Arc<RasterImage>>>,
 
     /// When this [`BoxFragment`] is for content that has a baseline, this tracks
     /// the first and last baselines of that content. This is used to propagate baselines
@@ -127,26 +134,26 @@ pub(crate) struct BoxFragment {
     /// The resolved box insets if this box is `position: sticky`. These are calculated
     /// during `StackingContextTree` construction because they rely on the size of the
     /// scroll container.
-    pub(crate) resolved_sticky_insets: AtomicRefCell<Option<PhysicalSides<AuOrAuto>>>,
+    pub resolved_sticky_insets: AtomicRefCell<Option<PhysicalSides<AuOrAuto>>>,
 
-    pub background_mode: BackgroundMode,
+    pub(crate) background_mode: BackgroundMode,
 
     /// Rare data that not all kinds of [`BoxFragment`] would have.
-    pub rare_data: Option<Box<BoxFragmentRareData>>,
+    pub(crate) rare_data: Option<Box<BoxFragmentRareData>>,
 
     /// Additional information for block-level boxes.
-    pub block_level_layout_info: Option<Box<BlockLevelLayoutInfo>>,
+    pub(crate) block_level_layout_info: Option<Box<BlockLevelLayoutInfo>>,
 
     /// The containing spatial tree node of this [`BoxFragment`]. This is assigned during
     /// `StackingContextTree` construction, so isn't available before that time. This is
     /// used to for determining final viewport size and position of this node and will
     /// also be used in the future for hit testing.
-    pub spatial_tree_node: AtomicRefCell<Option<ScrollTreeNodeId>>,
+    pub(crate) spatial_tree_node: AtomicRefCell<Option<ScrollTreeNodeId>>,
 }
 
 impl BoxFragment {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         base_fragment_info: BaseFragmentInfo,
         style: ServoArc<ComputedValues>,
         children: Vec<Fragment>,
@@ -165,6 +172,7 @@ impl BoxFragment {
             padding,
             border,
             margin,
+            background_images: Vec::new(),
             baselines: Baselines::default(),
             scrollable_overflow: None,
             resolved_sticky_insets: AtomicRefCell::default(),
@@ -175,18 +183,18 @@ impl BoxFragment {
         }
     }
 
-    pub fn with_baselines(mut self, baselines: Baselines) -> Self {
+    pub(crate) fn with_baselines(mut self, baselines: Baselines) -> Self {
         self.baselines = baselines;
         self
     }
 
-    pub(crate) fn style<'a>(&'a self) -> BaseFragmentStyleRef<'a> {
+    pub fn style<'a>(&'a self) -> BaseFragmentStyleRef<'a> {
         self.base.style()
     }
 
     /// Get the baselines for this [`BoxFragment`] if they are compatible with the given [`WritingMode`].
     /// If they are not compatible, [`Baselines::default()`] is returned.
-    pub fn baselines(&self, writing_mode: WritingMode) -> Baselines {
+    pub(crate) fn baselines(&self, writing_mode: WritingMode) -> Baselines {
         let style = self.style();
         let mut baselines = if writing_mode.is_horizontal() == style.writing_mode.is_horizontal() {
             self.baselines
@@ -217,7 +225,7 @@ impl BoxFragment {
         baselines
     }
 
-    pub fn add_extra_background(&mut self, extra_background: ExtraBackground) {
+    pub(crate) fn add_extra_background(&mut self, extra_background: ExtraBackground) {
         match self.background_mode {
             BackgroundMode::Extra(ref mut backgrounds) => backgrounds.push(extra_background),
             _ => self.background_mode = BackgroundMode::Extra(vec![extra_background]),
@@ -228,7 +236,7 @@ impl BoxFragment {
         self.background_mode = BackgroundMode::None;
     }
 
-    pub fn specific_layout_info(&self) -> Option<&SpecificLayoutInfo> {
+    pub(crate) fn specific_layout_info(&self) -> Option<&SpecificLayoutInfo> {
         self.rare_data.as_ref()?.specific_layout_info.as_ref()
     }
 
@@ -333,7 +341,7 @@ impl BoxFragment {
         self.offset_by_containing_block(&self.border_rect())
     }
 
-    pub(crate) fn content_rect(&self) -> PhysicalRect<Au> {
+    pub fn content_rect(&self) -> PhysicalRect<Au> {
         self.base.rect
     }
 
@@ -341,7 +349,7 @@ impl BoxFragment {
         self.content_rect().outer_rect(self.padding)
     }
 
-    pub(crate) fn border_rect(&self) -> PhysicalRect<Au> {
+    pub fn border_rect(&self) -> PhysicalRect<Au> {
         self.padding_rect().outer_rect(self.border)
     }
 
@@ -465,83 +473,6 @@ impl BoxFragment {
             true => PhysicalRect::zero(),
             false => scrollable_overflow_box.to_rect(),
         }
-    }
-
-    pub(crate) fn calculate_resolved_insets_if_positioned(&self) -> PhysicalSides<AuOrAuto> {
-        let style = self.style();
-        let position = style.get_box().position;
-        debug_assert_ne!(
-            position,
-            ComputedPosition::Static,
-            "Should not call this method on statically positioned box."
-        );
-
-        if let Some(resolved_sticky_insets) = *self.resolved_sticky_insets.borrow() {
-            return resolved_sticky_insets;
-        }
-
-        let convert_to_au_or_auto = |sides: PhysicalSides<Au>| {
-            PhysicalSides::new(
-                AuOrAuto::LengthPercentage(sides.top),
-                AuOrAuto::LengthPercentage(sides.right),
-                AuOrAuto::LengthPercentage(sides.bottom),
-                AuOrAuto::LengthPercentage(sides.left),
-            )
-        };
-
-        // "A resolved value special case property like top defined in another
-        // specification If the property applies to a positioned element and the
-        // resolved value of the display property is not none or contents, and
-        // the property is not over-constrained, then the resolved value is the
-        // used value. Otherwise the resolved value is the computed value."
-        // https://drafts.csswg.org/cssom/#resolved-values
-        let insets = style.physical_box_offsets();
-        let (cb_width, cb_height) = (
-            self.cumulative_containing_block_rect.width(),
-            self.cumulative_containing_block_rect.height(),
-        );
-        if position == ComputedPosition::Relative {
-            let get_resolved_axis = |start: &LengthPercentageOrAuto,
-                                     end: &LengthPercentageOrAuto,
-                                     container_length: Au| {
-                let start = start.map(|value| value.to_used_value(container_length));
-                let end = end.map(|value| value.to_used_value(container_length));
-                match (start.non_auto(), end.non_auto()) {
-                    (None, None) => (Au::zero(), Au::zero()),
-                    (None, Some(end)) => (-end, end),
-                    (Some(start), None) => (start, -start),
-                    // This is the overconstrained case, for which the resolved insets will
-                    // simply be the computed insets.
-                    (Some(start), Some(end)) => (start, end),
-                }
-            };
-            let (left, right) = get_resolved_axis(&insets.left, &insets.right, cb_width);
-            let (top, bottom) = get_resolved_axis(&insets.top, &insets.bottom, cb_height);
-            return convert_to_au_or_auto(PhysicalSides::new(top, right, bottom, left));
-        }
-
-        debug_assert!(position.is_absolutely_positioned());
-
-        let margin_rect = self.margin_rect();
-        let (top, bottom) = match (&insets.top, &insets.bottom) {
-            (
-                LengthPercentageOrAuto::LengthPercentage(top),
-                LengthPercentageOrAuto::LengthPercentage(bottom),
-            ) => (
-                top.to_used_value(cb_height),
-                bottom.to_used_value(cb_height),
-            ),
-            _ => (margin_rect.origin.y, cb_height - margin_rect.max_y()),
-        };
-        let (left, right) = match (&insets.left, &insets.right) {
-            (
-                LengthPercentageOrAuto::LengthPercentage(left),
-                LengthPercentageOrAuto::LengthPercentage(right),
-            ) => (left.to_used_value(cb_width), right.to_used_value(cb_width)),
-            _ => (margin_rect.origin.x, cb_width - margin_rect.max_x()),
-        };
-
-        convert_to_au_or_auto(PhysicalSides::new(top, right, bottom, left))
     }
 
     /// Whether this is a non-replaced inline-level box whose inner display type is `flow`.

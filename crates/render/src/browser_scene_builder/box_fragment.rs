@@ -1,8 +1,7 @@
-use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
-use havi_fragment_semantics::Fragment;
+use layout::fragment_tree::{BoxFragment, Fragment, FragmentFlags};
 use makepad_browser_scene::{
     MpClipChain, MpClipKind, MpClipNode, MpPerCornerRadius, MpReferenceFrame, MpScene,
-    MpScrollFrame, MpSpatialKind, MpSpatialNode, MpStickyFrame, MpStickyOffsets,
+    MpScrollFrame, MpSpatialKind, MpSpatialNode, MpStickyFrame, MpStickyOffsets, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::overflow_x::T as ComputedOverflow;
@@ -23,6 +22,7 @@ pub(super) fn build_box_fragment(
     bf: &BoxFragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
     state: &mut BuildState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
@@ -106,6 +106,7 @@ pub(super) fn build_box_fragment(
     push_fragment_primitives(
         cx,
         scene,
+        registry,
         state,
         &RenderPaintItem {
             section: StackingContextSection::OwnBackgroundsAndBorders,
@@ -118,28 +119,26 @@ pub(super) fn build_box_fragment(
 
     let mut child_cx = box_cx;
     if needs_overflow_clip(bf) {
-        if let Some(rect) = bf.scrollable_overflow.map(physical_rect_to_rect) {
-            let radius = resolve_border_radii(&bf.base.style).max();
-            let rect = map_box_rect_to_spatial_space(
-                rect,
-                build_cx.containing_block_origin,
-                border_rect.pos,
-                uses_box_local_basis,
-            );
-            child_cx.clip_chain_id = push_clip_chain(
-                scene,
-                child_cx.clip_chain_id,
-                box_cx.spatial_id,
-                if radius > 0.0 {
-                    MpClipKind::RoundedRect {
-                        rect,
-                        radius: MpPerCornerRadius::uniform(radius),
-                    }
-                } else {
-                    MpClipKind::Rect { rect }
-                },
-            );
-        }
+        let radius = resolve_border_radii(&bf.style()).max();
+        let rect = map_box_rect_to_spatial_space(
+            physical_rect_to_rect(bf.scrollable_overflow()),
+            build_cx.containing_block_origin,
+            border_rect.pos,
+            uses_box_local_basis,
+        );
+        child_cx.clip_chain_id = push_clip_chain(
+            scene,
+            child_cx.clip_chain_id,
+            box_cx.spatial_id,
+            if radius > 0.0 {
+                MpClipKind::RoundedRect {
+                    rect,
+                    radius: MpPerCornerRadius::uniform(radius),
+                }
+            } else {
+                MpClipKind::Rect { rect }
+            },
+        );
     }
 
     if let Some(scroll_offset) = scroll_offset_for_box(bf, scroll_state) {
@@ -177,6 +176,7 @@ pub(super) fn build_box_fragment(
         &bf.children,
         scroll_state,
         scene,
+        registry,
         state,
         ids,
         child_cx,
@@ -192,7 +192,6 @@ fn scroll_offset_for_box(
     if !needs_overflow_clip(bf) {
         return None;
     }
-    bf.scrollable_overflow?;
     Some(
         bf.base
             .tag
@@ -207,10 +206,11 @@ fn sticky_frame_for_box(
     box_size: DVec2,
     uses_box_local_basis: bool,
 ) -> Option<MpStickyFrame> {
-    if bf.base.style.get_box().position != style::computed_values::position::T::Sticky {
+    if bf.style().get_box().position != style::computed_values::position::T::Sticky {
         return None;
     }
-    let insets = bf.resolved_sticky_insets.as_ref()?;
+    let insets = bf.resolved_sticky_insets.borrow();
+    let insets = insets.as_ref()?;
     let border_rect = physical_rect_to_rect(bf.border_rect());
     let containing_block_rect = physical_rect_to_rect(bf.cumulative_containing_block_rect);
     let map_auto_or_length = |value: &havi_types::geom::AuOrAuto| match value {
@@ -251,16 +251,17 @@ fn sticky_frame_for_box(
 }
 
 fn needs_overflow_clip(bf: &BoxFragment) -> bool {
-    let overflow = bf.base.style.get_box();
+    let style = bf.style();
+    let overflow = style.get_box();
     !matches!(overflow.overflow_x, ComputedOverflow::Visible)
         || !matches!(overflow.overflow_y, ComputedOverflow::Visible)
 }
 
 fn css_clip_rect(bf: &BoxFragment) -> Option<Rect> {
-    if !bf.base.style.get_box().position.is_absolutely_positioned() {
+    if !bf.style().get_box().position.is_absolutely_positioned() {
         return None;
     }
-    let clip_rect = match bf.base.style.get_effects().clip {
+    let clip_rect = match bf.style().get_effects().clip {
         ClipRectOrAuto::Rect(rect) => rect,
         _ => return None,
     };

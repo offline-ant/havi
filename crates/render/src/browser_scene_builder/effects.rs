@@ -1,4 +1,4 @@
-use havi_fragment_semantics::fragment_tree::BoxFragment;
+use layout::fragment_tree::BoxFragment;
 use makepad_browser_scene::{MpBlendMode, MpEffectNode, MpFilter, MpIsolation};
 use style::computed_values::mix_blend_mode::T as ComputedMixBlendMode;
 use style::values::computed::basic_shape::ClipPath;
@@ -9,8 +9,9 @@ pub(super) fn lower_box_effect_node(
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: makepad_browser_scene::MpClipChainId,
 ) -> Result<Option<MpEffectNode>, String> {
-    let effects = bf.base.style.get_effects();
-    let svg = bf.base.style.get_svg();
+    let style = bf.style();
+    let effects = style.get_effects();
+    let svg = style.get_svg();
     if svg.clip_path != ClipPath::None {
         return Err("direct browser-scene builder does not lower clip-path masks yet".to_string());
     }

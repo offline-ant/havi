@@ -1275,17 +1275,14 @@ impl LayoutThread {
 
         if let Some(fragment_tree) = &*self.fragment_tree.borrow() {
             fragment_tree.calculate_scrollable_overflow();
+            resolve_background_images_in_fragments(
+                fragment_tree.root_fragments.as_slice(),
+                image_resolver,
+            );
 
-            let semantic = Arc::new({
-                let mut visited_pipelines = std::collections::HashSet::new();
-                crate::semantic_fragment::ToSemanticFragmentTree::to_semantic_fragments(
-                    fragment_tree.root_fragments.as_slice(),
-                    image_resolver,
-                    &mut visited_pipelines,
-                )
-            });
-            self.shared_layout_fragments.set(semantic.clone());
-            self.shared_layout_fragments_by_pipeline.set(semantic);
+            let fragments = Arc::new(fragment_tree.root_fragments.clone());
+            self.shared_layout_fragments.set(fragments.clone());
+            self.shared_layout_fragments_by_pipeline.set(fragments);
 
             if self.debug.flow_tree {
                 fragment_tree.print();
@@ -1363,6 +1360,79 @@ impl LayoutThread {
             },
         })
     }
+}
+
+fn resolve_background_images_in_fragments(
+    fragments: &[crate::fragment_tree::Fragment],
+    image_resolver: &Arc<ImageResolver>,
+) {
+    for fragment in fragments {
+        match fragment {
+            crate::fragment_tree::Fragment::Box(box_fragment)
+            | crate::fragment_tree::Fragment::Float(box_fragment) => {
+                let background_images = {
+                    let box_fragment = box_fragment.borrow();
+                    let style = box_fragment.style();
+                    let node = box_fragment.base.tag.map(|tag| tag.node);
+                    resolve_background_images(&style, node, image_resolver)
+                };
+                let children = {
+                    let mut box_fragment = box_fragment.borrow_mut();
+                    box_fragment.background_images = background_images;
+                    box_fragment.children.clone()
+                };
+                resolve_background_images_in_fragments(children.as_slice(), image_resolver);
+            }
+            crate::fragment_tree::Fragment::Positioning(positioning_fragment) => {
+                let children = positioning_fragment.borrow().children.clone();
+                resolve_background_images_in_fragments(children.as_slice(), image_resolver);
+            }
+            crate::fragment_tree::Fragment::AbsoluteOrFixedPositioned(hoisted_fragment) => {
+                let resolved = hoisted_fragment.borrow().fragment.clone();
+                if let Some(resolved) = resolved {
+                    resolve_background_images_in_fragments(
+                        std::slice::from_ref(&resolved),
+                        image_resolver,
+                    );
+                }
+            }
+            crate::fragment_tree::Fragment::Text(_)
+            | crate::fragment_tree::Fragment::Image(_)
+            | crate::fragment_tree::Fragment::IFrame(_) => {}
+        }
+    }
+}
+
+fn resolve_background_images(
+    style: &style::properties::ComputedValues,
+    node: Option<style::dom::OpaqueNode>,
+    image_resolver: &Arc<ImageResolver>,
+) -> Vec<Option<Arc<pixels::RasterImage>>> {
+    use style::values::computed::image::Image;
+
+    let background = style.get_background();
+    let mut images = Vec::with_capacity(background.background_image.0.len());
+    for image in background.background_image.0.iter() {
+        match image {
+            Image::Url(url_value) => {
+                let Some(url) = url_value.url() else {
+                    images.push(None);
+                    continue;
+                };
+                let Ok(cached) = image_resolver.get_cached_image_for_url(
+                    node.unwrap_or(style::dom::OpaqueNode(0)),
+                    url.clone().into(),
+                    layout_api::LayoutImageDestination::DisplayListBuilding,
+                ) else {
+                    images.push(None);
+                    continue;
+                };
+                images.push(cached.as_raster_image());
+            }
+            _ => images.push(None),
+        }
+    }
+    images
 }
 
 fn get_ua_stylesheets() -> Result<UserAgentStylesheets, &'static str> {

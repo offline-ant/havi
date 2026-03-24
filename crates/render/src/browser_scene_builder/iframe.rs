@@ -1,6 +1,10 @@
-use havi_fragment_semantics::fragment_tree::FragmentFlags;
-use havi_fragment_semantics::{Fragment, IFrameFragment};
-use makepad_browser_scene::{MpChildDocument, MpEmbed, MpHitTestTag, MpScene};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+use base::id::PipelineId;
+use layout::fragment_tree::{Fragment, FragmentFlags, IFrameFragment};
+use makepad_browser_scene::{MpChildDocument, MpEmbed, MpHitTestTag, MpPipelineId, MpScene, ResourceRegistry};
 use makepad_widgets::Cx2d;
 
 use super::document::build_browser_document;
@@ -16,6 +20,7 @@ pub(super) fn build_iframe_fragment(
     iframe: &IFrameFragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
     state: &mut BuildState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
@@ -27,11 +32,12 @@ pub(super) fn build_iframe_fragment(
     }
 
     let content_bounds = fragment_local_bounds(fragment, build_cx.containing_block_origin);
-    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style));
+    let border_bounds = outset_rect(content_bounds, box_content_insets(&iframe.base.style()));
     let iframe_rect = physical_rect_to_rect(iframe.base.rect);
     push_fragment_primitives(
         cx,
         scene,
+        registry,
         state,
         &RenderPaintItem {
             section: StackingContextSection::Foreground,
@@ -42,12 +48,16 @@ pub(super) fn build_iframe_fragment(
         build_cx,
     )?;
 
-    let pipeline_id = ids.alloc_pipeline_id();
+    let pipeline_id = mp_pipeline_id(iframe.pipeline_id);
+    let child_fragments = layout_api::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
+        .get::<Vec<Fragment>>()
+        .unwrap_or_else(|| Arc::new(Vec::new()));
     let child_document = build_browser_document(
         cx,
-        iframe.child_fragments.as_ref(),
+        child_fragments.as_slice(),
         scroll_state,
         content_bounds.size,
+        registry,
         ids,
         previous_document.and_then(|document| document.child_document(pipeline_id)),
     )?;
@@ -75,4 +85,10 @@ pub(super) fn build_iframe_fragment(
         .child_documents
         .insert(pipeline_id, child_scroll_nodes);
     Ok(())
+}
+
+fn mp_pipeline_id(pipeline_id: PipelineId) -> MpPipelineId {
+    let mut hasher = DefaultHasher::new();
+    pipeline_id.hash(&mut hasher);
+    MpPipelineId(hasher.finish())
 }

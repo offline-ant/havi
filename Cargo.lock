@@ -2990,20 +2990,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "havi-fragment-semantics"
-version = "0.1.0"
-dependencies = [
- "app_units",
- "bitflags 2.11.0",
- "euclid",
- "havi-fonts",
- "havi-types",
- "servo_arc",
- "stylo",
- "stylo_traits",
-]
-
-[[package]]
 name = "havi-platform-fonts"
 version = "0.1.0"
 dependencies = [
@@ -3045,14 +3031,13 @@ dependencies = [
  "app_units",
  "base",
  "euclid",
- "havi-fonts",
- "havi-fragment-semantics",
- "havi-platform-fonts",
  "havi-types",
+ "layout",
  "layout_api",
  "makepad-browser-scene",
  "makepad-compositor",
  "makepad-widgets",
+ "pixels",
  "rustybuzz 0.20.1",
  "servo_arc",
  "stylo",
@@ -4487,7 +4472,6 @@ dependencies = [
  "fonts",
  "fonts_traits",
  "havi-fonts",
- "havi-fragment-semantics",
  "havi-types",
  "html5ever",
  "icu_locid",
@@ -4541,7 +4525,6 @@ dependencies = [
  "euclid",
  "fonts",
  "fonts_traits",
- "havi-fragment-semantics",
  "havi-types",
  "html5ever",
  "libc",

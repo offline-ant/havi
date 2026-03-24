@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use makepad_widgets::*;
 
 
@@ -266,14 +264,14 @@ impl Widget for ServoWebView {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
-        let fragments = self
+        let frag_ptr = self
             .shared_layout_fragments
             .as_ref()
-            .and_then(|sf| sf.get());
+            .and_then(|sf| sf.payload_ptr())
+            .unwrap_or(0);
         let peek_rect = cx.peek_walk_turtle(walk);
 
         // Detect fragment tree replacement (navigation) and clear image textures.
-        let frag_ptr = fragments.as_ref().map_or(0, |f| Arc::as_ptr(f) as usize);
         if frag_ptr != self.last_fragment_ptr {
             self.last_fragment_ptr = frag_ptr;
             self.cached_fragment_source = None;
@@ -291,7 +289,7 @@ impl Widget for ServoWebView {
         self.draw_bg.end(cx);
         let rect = self.draw_bg.area().rect(cx);
 
-        if fragments.is_some() {
+        if frag_ptr != 0 {
             // Rebuild stacking context tree only when fragments change.
             let needs_rebuild = self
                 .cached_fragment_source

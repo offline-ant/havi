@@ -12,7 +12,7 @@ use crate::geom::PhysicalRect;
 /// and its placeholder `AbsoluteOrFixedPositionedFragment` in the original tree position.
 /// This will be used later in order to paint this hoisted box in tree order.
 #[derive(Default, MallocSizeOf)]
-pub(crate) struct HoistedSharedFragment {
+pub struct HoistedSharedFragment {
     pub fragment: Option<Fragment>,
     /// The original "static-position rect" of this absolutely positioned box. This is
     /// defined by the layout mode from which the box originates. As this fragment is

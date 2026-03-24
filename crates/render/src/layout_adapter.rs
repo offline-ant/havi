@@ -1,8 +1,7 @@
-
 use std::sync::Arc;
 
 use base::id::WebViewId;
-use havi_fragment_semantics::Fragment;
+use layout::fragment_tree::Fragment;
 use layout_api::{shared_layout_fragment_tree_for, SharedLayoutFragmentTree};
 
 pub(crate) type LayoutFragmentTree = Arc<Vec<Fragment>>;
@@ -20,6 +19,6 @@ impl LayoutFragmentSource {
     }
 
     pub(crate) fn fragments_arc(&self) -> Option<LayoutFragmentTree> {
-        self.shared_fragments.get()
+        self.shared_fragments.get::<Vec<Fragment>>()
     }
 }

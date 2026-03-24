@@ -23,7 +23,7 @@ use crate::SharedStyle;
 use crate::dom_traversal::NodeAndStyleInfo;
 use crate::geom::PhysicalRect;
 
-pub(crate) enum BaseFragmentStyleRef<'a> {
+pub enum BaseFragmentStyleRef<'a> {
     Owned(&'a ServoArc<ComputedValues>),
     Shared(AtomicRef<'a, ServoArc<ComputedValues>>),
 }
@@ -40,7 +40,7 @@ impl<'a> Deref for BaseFragmentStyleRef<'a> {
 }
 
 #[derive(Clone, MallocSizeOf)]
-pub(crate) enum BaseFragmentStyle {
+pub enum BaseFragmentStyle {
     Owned(ServoArc<ComputedValues>),
     Shared(SharedStyle),
 }
@@ -67,7 +67,7 @@ impl std::fmt::Debug for BaseFragmentStyle {
 }
 
 #[derive(Clone, Debug, Default, MallocSizeOf)]
-pub(crate) enum FragmentStatus {
+pub enum FragmentStatus {
     /// This is a brand new fragment.
     #[default]
     New,
@@ -79,7 +79,7 @@ pub(crate) enum FragmentStatus {
 /// Fragment types and should generally be the first member of all
 /// concrete fragments.
 #[derive(Clone, Debug, MallocSizeOf)]
-pub(crate) struct BaseFragment {
+pub struct BaseFragment {
     /// A tag which identifies the DOM node and pseudo element of this
     /// Fragment's content. If this fragment is for an anonymous box,
     /// the tag will be None.
@@ -103,7 +103,7 @@ pub(crate) struct BaseFragment {
 }
 
 impl BaseFragment {
-    pub(crate) fn new(
+    pub fn new(
         base_fragment_info: BaseFragmentInfo,
         style: BaseFragmentStyle,
         rect: PhysicalRect<Au>,
@@ -122,7 +122,7 @@ impl BaseFragment {
         self.status = FragmentStatus::StyleChanged;
     }
 
-    pub(crate) fn style<'a>(&'a self) -> BaseFragmentStyleRef<'a> {
+    pub fn style<'a>(&'a self) -> BaseFragmentStyleRef<'a> {
         match &self.style {
             BaseFragmentStyle::Owned(computed_values) => {
                 BaseFragmentStyleRef::Owned(computed_values)
@@ -136,7 +136,7 @@ impl BaseFragment {
 
 /// Information necessary to construct a new BaseFragment.
 #[derive(Clone, Copy, Debug, MallocSizeOf)]
-pub(crate) struct BaseFragmentInfo {
+pub struct BaseFragmentInfo {
     /// The tag to use for the new BaseFragment, if it is not an anonymous Fragment.
     pub tag: Option<Tag>,
 
@@ -145,7 +145,7 @@ pub(crate) struct BaseFragmentInfo {
 }
 
 impl BaseFragmentInfo {
-    pub(crate) fn anonymous() -> Self {
+    pub fn anonymous() -> Self {
         Self {
             tag: None,
             flags: FragmentFlags::empty(),
@@ -223,7 +223,7 @@ impl From<ServoThreadSafeLayoutNode<'_>> for BaseFragmentInfo {
 bitflags! {
     /// Flags used to track various information about a DOM node during layout.
     #[derive(Clone, Copy, Debug)]
-    pub(crate) struct FragmentFlags: u16 {
+    pub struct FragmentFlags: u16 {
         /// Whether or not the node that created this fragment is a `<body>` element on an HTML document.
         const IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT = 1 << 0;
         /// Whether or not the node that created this Fragment is a `<br>` element.
@@ -269,9 +269,9 @@ malloc_size_of_is_0!(FragmentFlags);
 /// A data structure used to hold DOM and pseudo-element information about
 /// a particular layout object.
 #[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq)]
-pub(crate) struct Tag {
-    pub(crate) node: OpaqueNode,
-    pub(crate) pseudo_element_chain: PseudoElementChain,
+pub struct Tag {
+    pub node: OpaqueNode,
+    pub pseudo_element_chain: PseudoElementChain,
 }
 
 impl From<ServoThreadSafeLayoutNode<'_>> for Tag {

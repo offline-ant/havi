@@ -5,26 +5,33 @@ mod gradient;
 mod resources;
 mod text;
 
-use havi_fragment_semantics::fragment_tree::BackgroundImage;
-use havi_fragment_semantics::Fragment;
-use makepad_browser_scene::{MpClipChainId, MpHitTestTag, MpPrimitive, MpResourceStore, MpScene};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use layout::fragment_tree::Fragment;
+use makepad_browser_scene::{
+    MpClipChainId, MpGlyphRunKey, MpGlyphRunResource, MpHitTestTag, MpPrimitive, MpScene,
+    ResourceRegistry,
+};
 use makepad_widgets::{dvec2, Cx2d, Rect};
+use pixels::RasterImage;
 use style::color::{AbsoluteColor, ColorSpace};
 use style::properties::ComputedValues;
 
 use self::box_background::{append_box_background_primitives, has_unsupported_background_layers};
 use self::box_border::{append_box_border_primitives, border_paint, border_radius, outline_paint};
 use self::box_shadow::append_box_shadow_primitives;
-use self::resources::image_resource_for_fragment;
+use self::resources::ensure_image_resource_for_fragment;
 use self::text::lower_text_primitive;
 use crate::color::inherited_color;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
 
 pub(crate) fn paint_run_item_to_primitives(
-    cx: &mut Cx2d,
+    _cx: &mut Cx2d,
     scene: &mut MpScene,
-    resources: &mut MpResourceStore,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     item: &RenderPaintItem<'_>,
     run_owner_node_id: Option<usize>,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -35,42 +42,53 @@ pub(crate) fn paint_run_item_to_primitives(
     let owner_node_id = paint_item_owner_node_id(item.source).or(run_owner_node_id);
     match (item.section, item.source) {
         (StackingContextSection::OwnBackgroundsAndBorders, Fragment::Box(bf))
-        | (StackingContextSection::OwnBackgroundsAndBorders, Fragment::Float(bf)) => lower_box_primitives(
-            scene,
-            resources,
-            bounds,
-            &bf.base.style,
-            &bf.background_images,
-            spatial_id,
-            clip_chain_id,
-            effect_id,
-            owner_node_id,
-        ),
-        (StackingContextSection::Foreground, Fragment::IFrame(iframe)) => lower_box_primitives(
-            scene,
-            resources,
-            bounds,
-            &iframe.base.style,
-            &[],
-            spatial_id,
-            clip_chain_id,
-            effect_id,
-            owner_node_id,
-        ),
-        (StackingContextSection::Foreground, Fragment::Text(tf)) => lower_text_primitive(
-            cx,
-            resources,
-            owner_node_id,
-            bounds,
-            tf,
-            spatial_id,
-            clip_chain_id,
-            effect_id,
-        )
-        .map(|primitive| vec![primitive]),
+        | (StackingContextSection::OwnBackgroundsAndBorders, Fragment::Float(bf)) => {
+            let bf = bf.borrow();
+            let style = bf.style();
+            lower_box_primitives(
+                scene,
+                registry,
+                bounds,
+                &style,
+                &bf.background_images,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                owner_node_id,
+            )
+        }
+        (StackingContextSection::Foreground, Fragment::IFrame(iframe)) => {
+            let iframe = iframe.borrow();
+            let style = iframe.base.style();
+            lower_box_primitives(
+                scene,
+                registry,
+                bounds,
+                &style,
+                &[],
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                owner_node_id,
+            )
+        }
+        (StackingContextSection::Foreground, Fragment::Text(tf)) => {
+            let tf = tf.borrow();
+            lower_text_primitive(
+                registry,
+                glyph_runs,
+                owner_node_id,
+                bounds,
+                &tf,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+            )
+            .map(|primitive| vec![primitive])
+        }
         (StackingContextSection::Foreground, Fragment::Image(image)) => {
-            let (image_key, image_resource) = image_resource_for_fragment(image);
-            resources.images.entry(image_key).or_insert(image_resource);
+            let image = image.borrow();
+            let image_key = ensure_image_resource_for_fragment(registry, &image);
             let mut primitive = MpPrimitive {
                 id: makepad_browser_scene::MpPrimitiveId(0),
                 spatial_id,
@@ -91,10 +109,10 @@ pub(crate) fn paint_run_item_to_primitives(
 
 fn lower_box_primitives(
     scene: &mut MpScene,
-    resources: &mut MpResourceStore,
+    registry: &mut ResourceRegistry,
     bounds: Rect,
     computed: &ComputedValues,
-    background_images: &[Option<BackgroundImage>],
+    background_images: &[Option<Arc<RasterImage>>],
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -133,7 +151,7 @@ fn lower_box_primitives(
         effect_id,
         owner_node_id,
         &current_abs,
-        resources,
+        registry,
     )?;
     append_box_border_primitives(
         &mut primitives,
@@ -151,22 +169,22 @@ fn lower_box_primitives(
 
 fn paint_item_owner_node_id(fragment: &Fragment) -> Option<usize> {
     match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => bf.base.tag.map(|tag| tag.node.0),
-        Fragment::Text(tf) => tf.base.tag.map(|tag| tag.node.0),
-        Fragment::Image(image) => image.base.tag.map(|tag| tag.node.0),
-        Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
-        Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
-        Fragment::AbsoluteOrFixedPositioned { .. } => None,
+        Fragment::Box(bf) | Fragment::Float(bf) => bf.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::Text(tf) => tf.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::Image(image) => image.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::IFrame(iframe) => iframe.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::Positioning(positioning) => positioning.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }
 
 fn paint_item_bounds(item: &RenderPaintItem<'_>) -> Rect {
     let rect = match item.source {
-        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.border_rect()),
-        Fragment::Text(tf) => physical_rect_to_rect(tf.base.rect),
-        Fragment::Image(image) => physical_rect_to_rect(image.base.rect),
-        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
-        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned { .. } => Rect {
+        Fragment::Box(bf) | Fragment::Float(bf) => physical_rect_to_rect(bf.borrow().border_rect()),
+        Fragment::Text(tf) => physical_rect_to_rect(tf.borrow().base.rect),
+        Fragment::Image(image) => physical_rect_to_rect(image.borrow().base.rect),
+        Fragment::IFrame(iframe) => physical_rect_to_rect(iframe.borrow().base.rect),
+        Fragment::Positioning(_) | Fragment::AbsoluteOrFixedPositioned(_) => Rect {
             pos: dvec2(0.0, 0.0),
             size: dvec2(0.0, 0.0),
         },

@@ -14,7 +14,6 @@ mod dom_traversal;
 mod flexbox;
 pub mod flow;
 mod formatting_contexts;
-mod semantic_fragment;
 pub mod fragment_tree;
 pub mod geom;
 mod layout_box_base;
@@ -54,7 +53,7 @@ use crate::style_ext::AspectRatio;
 ///
 ///  Note that this is not a cost-free data structure, so should only be
 /// used when necessary.
-pub(crate) type SharedStyle = ArcRefCell<ServoArc<ComputedValues>>;
+pub type SharedStyle = ArcRefCell<ServoArc<ComputedValues>>;
 
 /// Represents the set of constraints that we use when computing the min-content
 /// and max-content inline sizes of an element.

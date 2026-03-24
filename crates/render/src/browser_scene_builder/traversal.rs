@@ -1,11 +1,12 @@
-use havi_fragment_semantics::fragment_tree::{BoxFragment, FragmentFlags};
-use havi_fragment_semantics::Fragment;
-use makepad_browser_scene::{MpDocument, MpScene};
+use layout::fragment_tree::{BoxFragment, Fragment, FragmentFlags};
+use makepad_browser_scene::{MpDocument, MpScene, ResourceRegistry};
 use makepad_widgets::Cx2d;
 
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
-use super::{BuildContext, BuildState, BrowserDocumentScrollNodes, DirectBuilderIds, log_builder_skip_once};
+use super::{
+    log_builder_skip_once, BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
+};
 use crate::browser_scene_primitives::paint_run_item_to_primitives;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
@@ -15,6 +16,7 @@ pub(super) fn build_fragment_list(
     fragments: &[Fragment],
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
     state: &mut BuildState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
@@ -27,6 +29,7 @@ pub(super) fn build_fragment_list(
             fragment,
             scroll_state,
             scene,
+            registry,
             state,
             ids,
             build_cx,
@@ -42,6 +45,7 @@ pub(super) fn build_fragment(
     fragment: &Fragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
     state: &mut BuildState,
     ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
@@ -49,25 +53,31 @@ pub(super) fn build_fragment(
     previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
     match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => build_box_fragment(
-            cx,
-            fragment,
-            bf,
-            scroll_state,
-            scene,
-            state,
-            ids,
-            build_cx,
-            scroll_nodes,
-            previous_document,
-        ),
+        Fragment::Box(bf) | Fragment::Float(bf) => {
+            let bf = bf.borrow();
+            build_box_fragment(
+                cx,
+                fragment,
+                &bf,
+                scroll_state,
+                scene,
+                registry,
+                state,
+                ids,
+                build_cx,
+                scroll_nodes,
+                previous_document,
+            )
+        }
         Fragment::Text(tf) => {
+            let tf = tf.borrow();
             if tf.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
                 return Ok(());
             }
             push_fragment_primitives(
                 cx,
                 scene,
+                registry,
                 state,
                 &RenderPaintItem {
                     section: StackingContextSection::Foreground,
@@ -79,12 +89,14 @@ pub(super) fn build_fragment(
             )
         }
         Fragment::Image(image) => {
+            let image = image.borrow();
             if image.base.flags.intersects(FragmentFlags::DO_NOT_PAINT) {
                 return Ok(());
             }
             push_fragment_primitives(
                 cx,
                 scene,
+                registry,
                 state,
                 &RenderPaintItem {
                     section: StackingContextSection::Foreground,
@@ -95,46 +107,62 @@ pub(super) fn build_fragment(
                 build_cx,
             )
         }
-        Fragment::Positioning(positioning) => build_fragment_list(
-            cx,
-            &positioning.children,
-            scroll_state,
-            scene,
-            state,
-            ids,
-            build_cx,
-            scroll_nodes,
-            previous_document,
-        ),
-        Fragment::AbsoluteOrFixedPositioned { resolved } => build_fragment(
-            cx,
-            resolved,
-            scroll_state,
-            scene,
-            state,
-            ids,
-            build_cx,
-            scroll_nodes,
-            previous_document,
-        ),
-        Fragment::IFrame(iframe) => build_iframe_fragment(
-            cx,
-            fragment,
-            iframe,
-            scroll_state,
-            scene,
-            state,
-            ids,
-            build_cx,
-            scroll_nodes,
-            previous_document,
-        ),
+        Fragment::Positioning(positioning) => {
+            let positioning = positioning.borrow();
+            build_fragment_list(
+                cx,
+                &positioning.children,
+                scroll_state,
+                scene,
+                registry,
+                state,
+                ids,
+                build_cx,
+                scroll_nodes,
+                previous_document,
+            )
+        }
+        Fragment::AbsoluteOrFixedPositioned(resolved) => {
+            let resolved = resolved.borrow().fragment.clone();
+            let Some(resolved) = resolved else {
+                return Ok(());
+            };
+            build_fragment(
+                cx,
+                &resolved,
+                scroll_state,
+                scene,
+                registry,
+                state,
+                ids,
+                build_cx,
+                scroll_nodes,
+                previous_document,
+            )
+        }
+        Fragment::IFrame(iframe) => {
+            let iframe = iframe.borrow();
+            build_iframe_fragment(
+                cx,
+                fragment,
+                &iframe,
+                scroll_state,
+                scene,
+                registry,
+                state,
+                ids,
+                build_cx,
+                scroll_nodes,
+                previous_document,
+            )
+        }
     }
 }
 
 pub(super) fn push_fragment_primitives(
     cx: &mut Cx2d,
     scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
     state: &mut BuildState,
     item: &RenderPaintItem<'_>,
     owner_node_id: Option<usize>,
@@ -143,7 +171,8 @@ pub(super) fn push_fragment_primitives(
     let primitives = match paint_run_item_to_primitives(
         cx,
         scene,
-        &mut state.resources,
+        registry,
+        &mut state.glyph_runs,
         item,
         owner_node_id,
         build_cx.spatial_id,
@@ -164,7 +193,7 @@ pub(super) fn push_fragment_primitives(
 
 fn owner_node_id_for_box(bf: &BoxFragment) -> Option<usize> {
     let node_id = bf.base.tag.map(|tag| tag.node.0)?;
-    let pseudo_key = match bf.base.style.pseudo() {
+    let pseudo_key = match bf.style().pseudo() {
         Some(style::selector_parser::PseudoElement::Before) => 1,
         Some(style::selector_parser::PseudoElement::After) => 2,
         Some(style::selector_parser::PseudoElement::Marker) => 3,
@@ -180,11 +209,11 @@ fn owner_node_id_for_box(bf: &BoxFragment) -> Option<usize> {
 
 pub(super) fn owner_node_id_for_fragment(fragment: &Fragment) -> Option<usize> {
     match fragment {
-        Fragment::Box(bf) | Fragment::Float(bf) => owner_node_id_for_box(bf),
-        Fragment::Text(tf) => tf.base.tag.map(|tag| tag.node.0),
-        Fragment::Image(image) => image.base.tag.map(|tag| tag.node.0),
-        Fragment::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
-        Fragment::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
-        Fragment::AbsoluteOrFixedPositioned { .. } => None,
+        Fragment::Box(bf) | Fragment::Float(bf) => owner_node_id_for_box(&bf.borrow()),
+        Fragment::Text(tf) => tf.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::Image(image) => image.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::IFrame(iframe) => iframe.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::Positioning(positioning) => positioning.borrow().base.tag.map(|tag| tag.node.0),
+        Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }

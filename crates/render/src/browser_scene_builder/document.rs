@@ -1,15 +1,18 @@
-use havi_fragment_semantics::Fragment;
-use makepad_browser_scene::{MpDocument, MpScene};
+use layout::fragment_tree::Fragment;
+use makepad_browser_scene::{MpDocument, MpScene, ResourceRegistry};
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 
-use super::{BuildContext, BuildState, BrowserDocumentScrollNodes, BuiltBrowserDocument, DirectBuilderIds};
 use super::traversal::build_fragment_list;
+use super::{
+    BrowserDocumentScrollNodes, BuildContext, BuildState, BuiltBrowserDocument, DirectBuilderIds,
+};
 
 pub(crate) fn try_build_browser_document(
     cx: &mut Cx2d,
     fragments: &[Fragment],
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
+    registry: &mut ResourceRegistry,
     previous_document: Option<&MpDocument>,
 ) -> Result<BuiltBrowserDocument, String> {
     build_browser_document(
@@ -17,6 +20,7 @@ pub(crate) fn try_build_browser_document(
         fragments,
         scroll_state,
         viewport_size,
+        registry,
         &mut DirectBuilderIds::default(),
         previous_document,
     )
@@ -27,6 +31,7 @@ pub(super) fn build_browser_document(
     fragments: &[Fragment],
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
+    registry: &mut ResourceRegistry,
     ids: &mut DirectBuilderIds,
     previous_document: Option<&MpDocument>,
 ) -> Result<BuiltBrowserDocument, String> {
@@ -38,9 +43,7 @@ pub(super) fn build_browser_document(
     let root_spatial_id = scene.root_spatial_id;
     let root_clip_chain_id = scene.root_clip_chain_id;
     let mut state = BuildState {
-        resources: previous_document
-            .map(|document| document.resources.clone())
-            .unwrap_or_default(),
+        glyph_runs: Default::default(),
         child_documents: Vec::new(),
     };
     let mut scroll_nodes = BrowserDocumentScrollNodes::default();
@@ -49,6 +52,7 @@ pub(super) fn build_browser_document(
         fragments,
         scroll_state,
         &mut scene,
+        registry,
         &mut state,
         ids,
         BuildContext {
@@ -65,7 +69,7 @@ pub(super) fn build_browser_document(
             id: ids.alloc_document_id(),
             epoch: 0,
             scene,
-            resources: state.resources,
+            glyph_runs: state.glyph_runs,
             child_documents: state.child_documents,
         },
         scroll_nodes,

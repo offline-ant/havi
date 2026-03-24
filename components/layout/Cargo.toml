@@ -28,7 +28,6 @@ embedder_traits = { workspace = true }
 euclid = { workspace = true }
 fonts = { path = "../fonts" }
 havi-fonts = { path = "../../crates/fonts" }
-havi-fragment-semantics = { workspace = true }
 havi-types = { path = "../../crates/types" }
 fonts_traits = { workspace = true }
 html5ever = { workspace = true }

@@ -27,7 +27,7 @@ use crate::geom::{LogicalSides, PhysicalPoint, PhysicalRect};
 use crate::style_ext::ComputedValuesExt;
 
 #[derive(Clone, MallocSizeOf)]
-pub(crate) enum Fragment {
+pub enum Fragment {
     Box(ArcRefCell<BoxFragment>),
     /// Floating content. A floated fragment is very similar to a normal
     /// [BoxFragment] but it isn't positioned using normal in block flow
@@ -50,20 +50,20 @@ pub(crate) enum Fragment {
 }
 
 #[derive(Clone, MallocSizeOf)]
-pub(crate) struct CollapsedBlockMargins {
+pub struct CollapsedBlockMargins {
     pub collapsed_through: bool,
     pub start: CollapsedMargin,
     pub end: CollapsedMargin,
 }
 
 #[derive(Clone, Copy, Debug, MallocSizeOf)]
-pub(crate) struct CollapsedMargin {
+pub struct CollapsedMargin {
     max_positive: Au,
     min_negative: Au,
 }
 
 #[derive(MallocSizeOf)]
-pub(crate) struct TextFragment {
+pub struct TextFragment {
     pub base: BaseFragment,
     pub text: String,
     pub selected_style: SharedStyle,
@@ -77,11 +77,11 @@ pub(crate) struct TextFragment {
     pub justification_adjustment: Au,
     /// When necessary, this field store the [`TextRunOffsets`] for a particular
     /// [`TextRunLineItem`]. This is currently only used inside of text inputs.
-    pub offsets: Option<Box<TextRunOffsets>>,
+    pub(crate) offsets: Option<Box<TextRunOffsets>>,
 }
 
 #[derive(MallocSizeOf)]
-pub(crate) struct ImageFragment {
+pub struct ImageFragment {
     pub base: BaseFragment,
     pub clip: PhysicalRect<Au>,
     pub image_key: Option<ImageKey>,
@@ -92,7 +92,7 @@ pub(crate) struct ImageFragment {
 }
 
 #[derive(MallocSizeOf)]
-pub(crate) struct IFrameFragment {
+pub struct IFrameFragment {
     pub base: BaseFragment,
     pub pipeline_id: PipelineId,
 }
@@ -168,6 +168,13 @@ impl Fragment {
 
     pub fn tag(&self) -> Option<Tag> {
         self.base().and_then(|base| base.tag)
+    }
+
+    pub fn content_rect(&self) -> PhysicalRect<Au> {
+        match self {
+            Fragment::AbsoluteOrFixedPositioned(_) => PhysicalRect::zero(),
+            _ => self.base().map(|base| base.rect).unwrap_or_default(),
+        }
     }
 
     pub fn print(&self, tree: &mut PrintTree) {

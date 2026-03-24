@@ -1,14 +1,16 @@
-use havi_fragment_semantics::fragment_tree::BackgroundImage;
+use std::sync::Arc;
+
 use makepad_browser_scene::{
     MpClipChain, MpClipChainId, MpClipKind, MpClipNode, MpHitTestTag, MpPerCornerRadius,
-    MpPrimitive, MpResourceStore, MpScene,
+    MpPrimitive, MpScene, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, vec2, Rect};
+use pixels::RasterImage;
 use style::color::AbsoluteColor;
 use style::properties::ComputedValues;
 
 use super::gradient::{angle_percentage_stops, length_percentage_stops, radial_shape};
-use super::resources::background_image_resource;
+use super::resources::ensure_background_image_resource;
 use crate::background::{BackgroundLayerGeom, layout_background_layer, resolve_insets};
 use crate::color::resolve_color;
 
@@ -27,7 +29,7 @@ pub(super) fn append_box_background_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     computed: &ComputedValues,
-    background_images: &[Option<BackgroundImage>],
+    background_images: &[Option<Arc<RasterImage>>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -35,7 +37,7 @@ pub(super) fn append_box_background_primitives(
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
     current_abs: &AbsoluteColor,
-    resources: &mut MpResourceStore,
+    registry: &mut ResourceRegistry,
 ) -> Result<(), String> {
     let background_color = resolve_color(&computed.get_background().background_color, current_abs);
     if background_color.w > 0.001 {
@@ -74,7 +76,7 @@ pub(super) fn append_box_background_primitives(
         effect_id,
         owner_node_id,
         current_abs,
-        resources,
+        registry,
     )
 }
 
@@ -138,7 +140,7 @@ fn append_background_layer_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     computed: &ComputedValues,
-    background_images: &[Option<BackgroundImage>],
+    background_images: &[Option<Arc<RasterImage>>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -146,7 +148,7 @@ fn append_background_layer_primitives(
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
     current_abs: &AbsoluteColor,
-    resources: &mut MpResourceStore,
+    registry: &mut ResourceRegistry,
 ) -> Result<(), String> {
     use style::values::computed::image::LineDirection;
     use style::values::generics::image::GradientFlags;
@@ -320,8 +322,8 @@ fn append_background_layer_primitives(
                     bounds.size.y as f32,
                     &border_insets,
                     &padding_insets,
-                    Some(background_image.width as f32),
-                    Some(background_image.height as f32),
+                    Some(background_image.metadata.width as f32),
+                    Some(background_image.metadata.height as f32),
                 ) else {
                     continue;
                 };
@@ -333,9 +335,12 @@ fn append_background_layer_primitives(
                 } else {
                     clip_chain_id
                 };
-                let (image_key, image_resource) =
-                    background_image_resource(owner_node_id, index, background_image);
-                resources.images.entry(image_key).or_insert(image_resource);
+                let image_key = ensure_background_image_resource(
+                    registry,
+                    owner_node_id,
+                    index,
+                    background_image,
+                );
                 let primitive_kind = if (layer.bounds_w - layer.tile_w).abs() > 0.01
                     || (layer.bounds_h - layer.tile_h).abs() > 0.01
                 {

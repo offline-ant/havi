@@ -1,4 +1,4 @@
-use havi_fragment_semantics::fragment_tree::BoxFragment;
+use layout::fragment_tree::BoxFragment;
 use makepad_compositor::{MpBackfaceVisibility, MpTransformStyle};
 use makepad_widgets::*;
 use style::properties::ComputedValues;
@@ -26,8 +26,8 @@ pub(crate) fn reference_frame_semantics(
     bf: &BoxFragment,
     current_origin: DVec2,
 ) -> Option<ReferenceFrameSemantics> {
-    let style = &bf.base.style;
-    let presence = transform_presence(style);
+    let style = bf.style();
+    let presence = transform_presence(&style);
 
     if !presence.has_any_reference_frame_effect() {
         return None;
@@ -36,8 +36,8 @@ pub(crate) fn reference_frame_semantics(
     let border_rect = bf.border_rect();
     let bw = border_rect.size.width.to_f32_px();
     let bh = border_rect.size.height.to_f32_px();
-    let transform_matrix = compute_css_reference_frame_matrix(style, bw, bh);
-    let perspective_matrix = compute_css_descendant_perspective_matrix(style, bw, bh)
+    let transform_matrix = compute_css_reference_frame_matrix(&style, bw, bh);
+    let perspective_matrix = compute_css_descendant_perspective_matrix(&style, bw, bh)
         .map(|matrix| Mat4f { v: matrix });
 
     let combined = match (perspective_matrix, transform_matrix) {
@@ -48,7 +48,7 @@ pub(crate) fn reference_frame_semantics(
     };
     combined.map(|matrix| matrix.invert())?;
 
-    let transform_style = compute_used_transform_style(style);
+    let transform_style = compute_used_transform_style(&style);
     Some(ReferenceFrameSemantics {
         placement_origin: current_origin,
         transform_matrix,

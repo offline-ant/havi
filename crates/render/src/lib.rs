@@ -34,8 +34,7 @@ pub(crate) mod color {
 use std::collections::HashMap;
 
 use base::id::WebViewId;
-use havi_fragment_semantics::fragment_tree::BoxFragment;
-use havi_fragment_semantics::Fragment;
+use layout::fragment_tree::{BoxFragment, Fragment};
 use makepad_browser_scene::MpBrowserRenderer;
 use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
@@ -246,6 +245,9 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         }
     }
 
+    if frame_draw_lists.browser_renderer.is_none() {
+        frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
+    }
     let previous_document = frame_draw_lists
         .browser_document_cache
         .as_ref()
@@ -256,6 +258,11 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         &fragments,
         scroll_state,
         viewport_size,
+        frame_draw_lists
+            .browser_renderer
+            .as_mut()
+            .unwrap()
+            .resource_registry_mut(),
         previous_document,
     ) {
         Ok(browser_document) => browser_document,
@@ -266,34 +273,33 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         }
     };
 
-    if frame_draw_lists.browser_renderer.is_none() {
-        frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
-    }
     frame_draw_lists.counters.scene_rebuild_count += 1;
     frame_draw_lists.counters.scene_submit_count += 1;
     frame_draw_lists.counters.browser_scene_present_count += 1;
+    let document_rect = Rect {
+        pos: webview_origin,
+        size: viewport_size,
+    };
     match frame_draw_lists
         .browser_renderer
         .as_mut()
         .unwrap()
-        .draw_document(
-            cx,
-            &browser_document.document,
-            Rect {
-                pos: webview_origin,
-                size: viewport_size,
-            },
-        ) {
+        .draw_document(cx, &browser_document.document, document_rect)
+    {
         Ok(stats) => {
             if log_render_stats {
                 log_browser_scene_stats(&stats);
             }
+            let browser_scene_builder::BuiltBrowserDocument {
+                document,
+                scroll_nodes,
+            } = browser_document;
             frame_draw_lists.browser_document_cache = Some(BrowserDocumentCacheEntry {
                 fragment_ptr: frag_ptr,
                 viewport_size,
                 scroll_hash,
-                document: browser_document.document.clone(),
-                scroll_nodes: browser_document.scroll_nodes,
+                document,
+                scroll_nodes,
             });
             paint_selection_overlay(cx, draw_bg, selection);
         }
@@ -306,7 +312,8 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
 }
 
 pub fn is_scroll_container(bf: &BoxFragment) -> bool {
-    let ov = bf.base.style.get_box();
+    let style = bf.style();
+    let ov = style.get_box();
     matches!(ov.overflow_x, ComputedOverflow::Auto | ComputedOverflow::Scroll)
         || matches!(ov.overflow_y, ComputedOverflow::Auto | ComputedOverflow::Scroll)
 }
@@ -322,15 +329,14 @@ pub fn scroll_bounds(bf: &BoxFragment) -> (f64, f64) {
     for child in &bf.children {
         let (right, bottom) = match child {
             Fragment::Box(cbf) | Fragment::Float(cbf) => {
+                let cbf = cbf.borrow();
                 let br = cbf.border_rect();
                 (
                     br.origin.x.to_f32_px() as f64 + br.size.width.to_f32_px() as f64,
                     br.origin.y.to_f32_px() as f64 + br.size.height.to_f32_px() as f64,
                 )
             }
-            Fragment::AbsoluteOrFixedPositioned { .. } => {
-                (0.0, 0.0)
-            }
+            Fragment::AbsoluteOrFixedPositioned(_) => (0.0, 0.0),
             _ => {
                 let cr = child.content_rect();
                 (
