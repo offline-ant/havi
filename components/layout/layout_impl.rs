@@ -172,10 +172,22 @@ pub struct LayoutThread {
     /// The fragment tree.
     fragment_tree: RefCell<Option<Rc<FragmentTree>>>,
 
-    /// Shared container for exposing semantic layout fragments to the embedding layer.
+    /// Monotonic generation for the current fragment tree.
+    fragment_tree_generation: Cell<u64>,
+
+    /// Last fragment tree generation published to the shared embedding state.
+    published_fragment_tree_generation: Option<u64>,
+
+    /// Last animated-image revision published with the shared fragment payload.
+    published_image_animation_revision: u64,
+
+    /// Last shared fragment payload published to the embedding layer.
+    published_layout_fragments: Option<Arc<Vec<crate::fragment_tree::Fragment>>>,
+
+    /// Shared container for exposing layout fragments to the embedding layer.
     shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
 
-    /// Shared container for exposing semantic layout fragments by pipeline to the embedding layer.
+    /// Shared container for exposing layout fragments by pipeline to the embedding layer.
     shared_layout_fragments_by_pipeline: layout_api::SharedLayoutFragmentTree,
 
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
@@ -838,6 +850,10 @@ impl LayoutThread {
             need_overflow_calculation: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
+            fragment_tree_generation: Cell::new(0),
+            published_fragment_tree_generation: None,
+            published_image_animation_revision: 0,
+            published_layout_fragments: None,
             shared_layout_fragments: config.shared_layout_fragments.clone(),
             shared_layout_fragments_by_pipeline: config.shared_layout_fragments_by_pipeline.clone(),
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
@@ -967,13 +983,17 @@ impl LayoutThread {
 
         if self.can_skip_reflow_request_entirely(&reflow_request) {
             // Layout is up-to-date but animated images may have new active frames.
-            // Re-run fragment conversion so the shared fragment tree reflects
-            // current animation state without a full layout rebuild.
-            let has_animations = !reflow_request.animating_images.read().is_empty();
+            // Re-publish only when the visible animation frame selection changed,
+            // so steady-state frames keep a stable fragment payload identity.
+            let animating_images = reflow_request.animating_images.read();
+            let has_animations = !animating_images.is_empty();
+            let image_animation_revision = animating_images.image_animation_revision();
+            drop(animating_images);
 
             // We can skip layout, but we might need to update a scroll node.
             let mut phases = ReflowPhasesRun::empty();
             if has_animations {
+                self.publish_shared_layout_fragments_if_needed(image_animation_revision);
                 phases.insert(ReflowPhasesRun::UpdatedImageData);
             }
             if self.handle_update_scroll_node_request(&reflow_request) {
@@ -1254,6 +1274,9 @@ impl LayoutThread {
         // GC the rule tree if some heuristics are met.
         layout_context.style_context.stylist.rule_tree().maybe_gc();
 
+        self.fragment_tree_generation
+            .set(self.fragment_tree_generation.get().wrapping_add(1));
+
         let mut iframe_sizes = layout_context.iframe_sizes.lock();
         // havi-render bypasses display list construction but still needs frame
         // generation so that Paint/Servo notifies the embedder about new content.
@@ -1264,25 +1287,67 @@ impl LayoutThread {
         )
     }
 
+    fn publish_shared_layout_fragments_if_needed(
+        &mut self,
+        image_animation_revision: u64,
+    ) -> bool {
+        let Some(fragment_tree) = self.fragment_tree.borrow().clone() else {
+            return false;
+        };
+
+        let fragment_tree_generation = self.fragment_tree_generation.get();
+        let needs_publish = self.published_fragment_tree_generation != Some(fragment_tree_generation) ||
+            self.published_image_animation_revision != image_animation_revision ||
+            self.published_layout_fragments.is_none();
+        if !needs_publish {
+            if shared_layout_publication_stats_enabled() {
+                eprintln!(
+                    "[havi][layout] shared fragments reuse tree_gen={} image_anim_rev={}",
+                    fragment_tree_generation,
+                    image_animation_revision,
+                );
+            }
+            return false;
+        }
+
+        let fragments = Arc::new(fragment_tree.root_fragments.clone());
+        self.shared_layout_fragments.set(fragments.clone());
+        self.shared_layout_fragments_by_pipeline.set(fragments.clone());
+        self.published_fragment_tree_generation = Some(fragment_tree_generation);
+        self.published_image_animation_revision = image_animation_revision;
+        self.published_layout_fragments = Some(fragments);
+
+        if shared_layout_publication_stats_enabled() {
+            eprintln!(
+                "[havi][layout] shared fragments publish tree_gen={} image_anim_rev={}",
+                fragment_tree_generation,
+                image_animation_revision,
+            );
+        }
+        true
+    }
+
     #[servo_tracing::instrument(name = "Overflow Calculation", skip_all)]
     fn calculate_overflow(
-        &self,
+        &mut self,
         image_resolver: &Arc<ImageResolver>,
     ) -> bool {
         if !self.need_overflow_calculation.get() {
             return false;
         }
 
-        if let Some(fragment_tree) = &*self.fragment_tree.borrow() {
+        let fragment_tree = self.fragment_tree.borrow().clone();
+        if let Some(fragment_tree) = fragment_tree {
             fragment_tree.calculate_scrollable_overflow();
             resolve_background_images_in_fragments(
                 fragment_tree.root_fragments.as_slice(),
                 image_resolver,
             );
-
-            let fragments = Arc::new(fragment_tree.root_fragments.clone());
-            self.shared_layout_fragments.set(fragments.clone());
-            self.shared_layout_fragments_by_pipeline.set(fragments);
+            let image_animation_revision = image_resolver
+                .animating_images
+                .read()
+                .image_animation_revision();
+            self.publish_shared_layout_fragments_if_needed(image_animation_revision);
 
             if self.debug.flow_tree {
                 fragment_tree.print();
@@ -1360,6 +1425,10 @@ impl LayoutThread {
             },
         })
     }
+}
+
+fn shared_layout_publication_stats_enabled() -> bool {
+    matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1")
 }
 
 fn resolve_background_images_in_fragments(

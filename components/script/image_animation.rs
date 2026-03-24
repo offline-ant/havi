@@ -56,9 +56,9 @@ impl ImageAnimationManager {
             return;
         }
 
-        let updates = self
-            .animating_images
-            .write()
+        let mut animating_images = self.animating_images.write();
+        let mut frame_selection_changed = false;
+        let updates = animating_images
             .node_to_state_map
             .values_mut()
             .filter_map(|state| {
@@ -66,6 +66,7 @@ impl ImageAnimationManager {
                     return None;
                 }
 
+                frame_selection_changed = true;
                 let image = &state.image;
                 let frame = image
                     .frame_data(state.active_frame)
@@ -85,6 +86,11 @@ impl ImageAnimationManager {
                 }
             })
             .collect();
+        if frame_selection_changed {
+            animating_images.note_frame_selection_changed();
+        }
+        drop(animating_images);
+
         window
             .paint_api()
             .update_images(window.webview_id().into(), updates);

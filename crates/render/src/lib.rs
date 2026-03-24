@@ -198,13 +198,21 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     let cached_draw = if let Some(cache) = frame_draw_lists.browser_document_cache.as_mut().filter(|cache| {
         cache.fragment_ptr == frag_ptr && cache.viewport_size == viewport_size
     }) {
-        if cache.scroll_hash != scroll_hash {
+        let scroll_changed = cache.scroll_hash != scroll_hash;
+        if scroll_changed {
             update_cached_browser_document_scroll_offsets(
                 &mut cache.document,
                 &cache.scroll_nodes,
                 scroll_state,
             );
             cache.scroll_hash = scroll_hash;
+        }
+        if log_render_stats {
+            eprintln!(
+                "[havi][render] browser_scene cache hit fragment_ptr={} scroll_changed={}",
+                frag_ptr,
+                scroll_changed,
+            );
         }
         if frame_draw_lists.browser_renderer.is_none() {
             frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
@@ -226,6 +234,14 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
                 ),
         )
     } else {
+        if log_render_stats {
+            eprintln!(
+                "[havi][render] browser_scene cache miss fragment_ptr={} viewport=({:.1},{:.1})",
+                frag_ptr,
+                viewport_size.x,
+                viewport_size.y,
+            );
+        }
         None
     };
     if let Some(cached_draw) = cached_draw {

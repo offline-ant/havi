@@ -12,6 +12,7 @@ mod layout_damage;
 pub mod wrapper_traits;
 
 use std::any::Any;
+use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
@@ -1074,32 +1075,55 @@ pub struct AnimatingImages {
     /// Whether or not this map has changed during a layout. This is used by script to
     /// trigger future animation updates.
     pub dirty: bool,
+    /// Revision of the image frame selection visible to the render pipeline.
+    /// This increments whenever the active frame set changes or animating-image
+    /// membership changes, so cross-thread fragment publication can invalidate
+    /// retained scene caches only when image content can actually differ.
+    pub image_animation_revision: u64,
 }
 
 impl AnimatingImages {
+    fn bump_image_animation_revision(&mut self) {
+        self.image_animation_revision = self.image_animation_revision.wrapping_add(1);
+    }
+
     pub fn maybe_insert_or_update(
         &mut self,
         node: OpaqueNode,
         image: Arc<RasterImage>,
         current_timeline_value: f64,
     ) {
-        let entry = self.node_to_state_map.entry(node).or_insert_with(|| {
-            self.dirty = true;
-            ImageAnimationState::new(image.clone(), current_timeline_value)
-        });
-
-        // If the entry exists, but it is for a different image id, replace it as the image
-        // has changed during this layout.
-        if entry.image.id != image.id {
-            self.dirty = true;
-            *entry = ImageAnimationState::new(image.clone(), current_timeline_value);
+        match self.node_to_state_map.entry(node) {
+            Entry::Vacant(entry) => {
+                self.dirty = true;
+                entry.insert(ImageAnimationState::new(image, current_timeline_value));
+                self.bump_image_animation_revision();
+            }
+            Entry::Occupied(mut entry) => {
+                // If the entry exists, but it is for a different image id, replace it as the image
+                // has changed during this layout.
+                if entry.get().image.id != image.id {
+                    self.dirty = true;
+                    entry.insert(ImageAnimationState::new(image, current_timeline_value));
+                    self.bump_image_animation_revision();
+                }
+            }
         }
     }
 
     pub fn remove(&mut self, node: OpaqueNode) {
         if self.node_to_state_map.remove(&node).is_some() {
             self.dirty = true;
+            self.bump_image_animation_revision();
         }
+    }
+
+    pub fn note_frame_selection_changed(&mut self) {
+        self.bump_image_animation_revision();
+    }
+
+    pub fn image_animation_revision(&self) -> u64 {
+        self.image_animation_revision
     }
 
     /// Clear the dirty bit on this [`AnimatingImages`] and return the previous value.
@@ -1161,32 +1185,35 @@ mod test {
     use std::time::Duration;
 
     use pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage};
+    use style::dom::OpaqueNode;
 
-    use crate::ImageAnimationState;
+    use crate::{AnimatingImages, ImageAnimationState};
 
-    #[test]
-    fn test() {
-        let image_frames: Vec<ImageFrame> = std::iter::repeat_with(|| ImageFrame {
-            delay: Some(Duration::from_millis(100)),
-            byte_range: 0..1,
-            width: 100,
-            height: 100,
-        })
-        .take(10)
-        .collect();
-        let image = RasterImage {
+    fn raster_image(byte: u8) -> Arc<RasterImage> {
+        Arc::new(RasterImage {
             metadata: ImageMetadata {
                 width: 100,
                 height: 100,
             },
             format: PixelFormat::BGRA8,
             id: None,
-            bytes: Arc::new(vec![1]),
-            frames: image_frames,
+            bytes: Arc::new(vec![byte]),
+            frames: std::iter::repeat_with(|| ImageFrame {
+                delay: Some(Duration::from_millis(100)),
+                byte_range: 0..1,
+                width: 100,
+                height: 100,
+            })
+            .take(10)
+            .collect(),
             cors_status: CorsStatus::Unsafe,
             is_opaque: false,
-        };
-        let mut image_animation_state = ImageAnimationState::new(Arc::new(image), 0.0);
+        })
+    }
+
+    #[test]
+    fn image_animation_state_advances_frames() {
+        let mut image_animation_state = ImageAnimationState::new(raster_image(1), 0.0);
 
         assert_eq!(image_animation_state.active_frame, 0);
         assert_eq!(image_animation_state.frame_start_time, 0.0);
@@ -1202,5 +1229,20 @@ mod test {
         );
         assert_eq!(image_animation_state.active_frame, 1);
         assert_eq!(image_animation_state.frame_start_time, 0.101);
+    }
+
+    #[test]
+    fn animating_images_revision_tracks_visible_changes() {
+        let mut animating_images = AnimatingImages::default();
+        assert_eq!(animating_images.image_animation_revision(), 0);
+
+        animating_images.maybe_insert_or_update(OpaqueNode(1), raster_image(1), 0.0);
+        assert_eq!(animating_images.image_animation_revision(), 1);
+
+        animating_images.note_frame_selection_changed();
+        assert_eq!(animating_images.image_animation_revision(), 2);
+
+        animating_images.remove(OpaqueNode(1));
+        assert_eq!(animating_images.image_animation_revision(), 3);
     }
 }
