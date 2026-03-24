@@ -1280,6 +1280,14 @@ fn lighten(color: makepad_widgets::Vec4f, factor: f32) -> makepad_widgets::Vec4f
     }
 }
 
+/// Builds a glyph run resource with primitive-local glyph origins.
+///
+/// Glyph origins are relative to the text fragment bounds, not to any host,
+/// widget, or scene space. `origin.x = pen_x + x_offset` and
+/// `origin.y = baseline_ascent + y_offset`.
+///
+/// These origins MUST NOT encode host placement, widget offsets, or
+/// scene-space resolution.
 fn make_glyph_run_resource(
     cx: &mut Cx2d,
     owner_node_id: Option<usize>,
@@ -1308,6 +1316,19 @@ fn make_glyph_run_resource(
             let origin = dvec2(
                 pen_x + glyph.x_offset.to_f32_px() as f64,
                 tf.baseline_ascent.to_f32_px() as f64 + glyph.y_offset.to_f32_px() as f64,
+            );
+            let origin_margin = (tf.font_size_px as f64).max(64.0);
+            debug_assert!(
+                origin.x >= -origin_margin
+                    && origin.x <= bounds.size.x + origin_margin
+                    && origin.y >= 0.0
+                    && origin.y <= bounds.size.y + origin_margin,
+                "glyph origin must stay primitive-local: origin=({}, {}), bounds.size=({}, {}), margin={}",
+                origin.x,
+                origin.y,
+                bounds.size.x,
+                bounds.size.y,
+                origin_margin,
             );
             pen_x += glyph.advance.to_f32_px() as f64;
             advance_width = advance_width.max((origin.x + glyph.advance.to_f32_px() as f64) as f32);
