@@ -175,7 +175,7 @@ fn lower_box_primitives(
     resources: &mut MpResourceStore,
     bounds: Rect,
     computed: &ComputedValues,
-    background_images: &[BackgroundImage],
+    background_images: &[Option<BackgroundImage>],
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -462,7 +462,7 @@ fn append_background_layer_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     computed: &ComputedValues,
-    background_images: &[BackgroundImage],
+    background_images: &[Option<BackgroundImage>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
     spatial_id: makepad_browser_scene::MpSpatialId,
@@ -479,17 +479,6 @@ fn append_background_layer_primitives(
     if bg.background_image.0.is_empty() {
         return Ok(());
     }
-    let url_layer_indices: Vec<usize> = bg
-        .background_image
-        .0
-        .iter()
-        .enumerate()
-        .filter_map(|(index, image)| matches!(image, style::values::computed::image::Image::Url(_)).then_some(index))
-        .collect();
-    if url_layer_indices.len() != background_images.len() {
-        return Err("background image layer count mismatch".to_string());
-    }
-
     let (border_insets, padding_insets) = resolve_insets(computed);
     for (index, image) in bg.background_image.0.iter().enumerate().rev() {
         match image {
@@ -643,11 +632,8 @@ fn append_background_layer_primitives(
                 }
             }
             style::values::computed::image::Image::Url(_) => {
-                let Some(url_position) = url_layer_indices.iter().position(|layer_index| *layer_index == index) else {
-                    return Err("background image layer mapping missing".to_string());
-                };
-                let Some(background_image) = background_images.get(url_position) else {
-                    return Err("background image bytes missing".to_string());
+                let Some(background_image) = background_images.get(index).and_then(|image| image.as_ref()) else {
+                    continue;
                 };
                 let Some(layer) = layout_background_layer(
                     computed,

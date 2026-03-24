@@ -292,15 +292,16 @@ fn resolve_background_images(
     style: &style::properties::ComputedValues,
     node: Option<style::dom::OpaqueNode>,
     image_resolver: &Arc<ImageResolver>,
-) -> Vec<semantics::BackgroundImage> {
+) -> Vec<Option<semantics::BackgroundImage>> {
     use style::values::computed::image::Image;
 
     let bg = style.get_background();
-    let mut images = Vec::new();
+    let mut images = Vec::with_capacity(bg.background_image.0.len());
     for image in bg.background_image.0.iter() {
         match image {
             Image::Url(url_value) => {
                 let Some(url) = url_value.url() else {
+                    images.push(None);
                     continue;
                 };
                 let Ok(cached) = image_resolver.get_cached_image_for_url(
@@ -308,18 +309,20 @@ fn resolve_background_images(
                     url.clone().into(),
                     layout_api::LayoutImageDestination::DisplayListBuilding,
                 ) else {
+                    images.push(None);
                     continue;
                 };
                 let Some(raster) = cached.as_raster_image() else {
+                    images.push(None);
                     continue;
                 };
-                images.push(semantics::BackgroundImage {
+                images.push(Some(semantics::BackgroundImage {
                     width: raster.metadata.width as u32,
                     height: raster.metadata.height as u32,
                     pixels: raster.bytes.as_ref().clone(),
-                });
+                }));
             }
-            _ => {}
+            _ => images.push(None),
         }
     }
     images

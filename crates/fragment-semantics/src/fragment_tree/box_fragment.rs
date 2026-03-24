@@ -30,7 +30,11 @@ pub struct BoxFragment {
     pub margin: PhysicalSides<Au>,
     pub baselines: Baselines,
     pub block_level_info: Option<Box<BlockLevelLayoutInfo>>,
-    pub background_images: Vec<BackgroundImage>,
+    /// Resolved CSS background-image layers aligned to CSS order.
+    ///
+    /// `None` means the layer is not a `url()` image or the image did not
+    /// resolve. `Some(...)` stores decoded pixels for a resolved `url()` layer.
+    pub background_images: Vec<Option<BackgroundImage>>,
 }
 
 #[derive(Clone, Debug)]
