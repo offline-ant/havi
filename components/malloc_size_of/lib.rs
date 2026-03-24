@@ -687,6 +687,38 @@ impl<T: MallocSizeOf> MallocConditionalSizeOf for Arc<T> {
     }
 }
 
+impl<T> MallocUnconditionalShallowSizeOf for Arc<[T]> {
+    fn unconditional_shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        unsafe { ops.malloc_size_of(self.as_ptr()) }
+    }
+}
+
+impl<T: MallocSizeOf> MallocUnconditionalSizeOf for Arc<[T]> {
+    fn unconditional_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        self.unconditional_shallow_size_of(ops) + self.as_ref().size_of(ops)
+    }
+}
+
+impl<T> MallocConditionalShallowSizeOf for Arc<[T]> {
+    fn conditional_shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        if ops.have_seen_ptr(self.as_ptr()) {
+            0
+        } else {
+            self.unconditional_shallow_size_of(ops)
+        }
+    }
+}
+
+impl<T: MallocSizeOf> MallocConditionalSizeOf for Arc<[T]> {
+    fn conditional_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        if ops.have_seen_ptr(self.as_ptr()) {
+            0
+        } else {
+            self.unconditional_size_of(ops)
+        }
+    }
+}
+
 impl<T> MallocUnconditionalShallowSizeOf for Rc<T> {
     fn unconditional_shallow_size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         unsafe { ops.malloc_size_of(Rc::as_ptr(self)) }

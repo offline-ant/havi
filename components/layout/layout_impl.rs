@@ -97,6 +97,7 @@ use crate::query::{
 };
 use crate::traversal::{RecalcStyle, compute_damage_and_rebuild_box_tree};
 use crate::{BoxTree, FragmentTree};
+use crate::fragment_tree::PublishedRootFragments;
 
 // This mutex is necessary due to syncronisation issues between two different types of thread-local storage
 // which manifest themselves when the layout thread tries to layout iframes in parallel with the main page
@@ -182,7 +183,7 @@ pub struct LayoutThread {
     published_image_animation_revision: u64,
 
     /// Last shared fragment payload published to the embedding layer.
-    published_layout_fragments: Option<Arc<Vec<crate::fragment_tree::Fragment>>>,
+    published_layout_fragments: Option<Arc<[crate::fragment_tree::Fragment]>>,
 
     /// Shared container for exposing layout fragments to the embedding layer.
     shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
@@ -1310,9 +1311,12 @@ impl LayoutThread {
             return false;
         }
 
-        let fragments = Arc::new(fragment_tree.root_fragments.clone());
-        self.shared_layout_fragments.set(fragments.clone());
-        self.shared_layout_fragments_by_pipeline.set(fragments.clone());
+        let fragments = fragment_tree.root_fragments.clone();
+        let published = Arc::new(PublishedRootFragments {
+            roots: fragments.clone(),
+        });
+        self.shared_layout_fragments.set(published.clone());
+        self.shared_layout_fragments_by_pipeline.set(published);
         self.published_fragment_tree_generation = Some(fragment_tree_generation);
         self.published_image_animation_revision = image_animation_revision;
         self.published_layout_fragments = Some(fragments);
@@ -1340,7 +1344,7 @@ impl LayoutThread {
         if let Some(fragment_tree) = fragment_tree {
             fragment_tree.calculate_scrollable_overflow();
             resolve_background_images_in_fragments(
-                fragment_tree.root_fragments.as_slice(),
+                fragment_tree.root_fragments.as_ref(),
                 image_resolver,
             );
             let image_animation_revision = image_resolver

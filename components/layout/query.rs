@@ -1514,7 +1514,7 @@ pub fn find_text_node_at_viewport_point(
         .unwrap_or_default();
     let point_in_document = point_in_viewport + root_offset;
     let mut all_frags: Vec<FragEntry> = Vec::new();
-    for fragment in &fragment_tree.root_fragments {
+    for fragment in fragment_tree.root_fragments.iter() {
         let offset = fragment
             .base()
             .map(|base| base.rect.origin)
@@ -1664,7 +1664,7 @@ pub fn query_elements_from_point(
     let mut results = Vec::new();
     let initial_cb = fragment_tree.initial_containing_block;
     let point: Point2D<f32, CSSPixel> = Point2D::new(point.x, point.y);
-    for fragment in &fragment_tree.root_fragments {
+    for fragment in fragment_tree.root_fragments.iter() {
         hit_test_fragment(fragment, &initial_cb, point, &mut results);
     }
     return results;

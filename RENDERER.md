@@ -12,7 +12,7 @@ HAVI renders through one retained pipeline:
 ```text
 Servo layout fragments
   -> HAVI direct builder (`havi/crates/render`)
-  -> retained semantic browser document (`makepad/browser_scene::MpDocument`)
+  -> retained browser document (`makepad/browser_scene::MpDocument`)
   -> retained compositor browser scene lowering (`makepad/browser_scene::MpBrowserRenderer`)
   -> Makepad compositor execution (`makepad/compositor`)
   -> havishell widget presentation
@@ -26,7 +26,7 @@ There is no texture-first transformed-content fallback for ordinary page content
 
 ### `havi/crates/render`
 
-Owns semantic lowering from Servo fragments into retained browser-scene data:
+Owns lowering from Servo layout fragments into retained browser-scene data:
 
 - spatial/reference-frame structure
 - scroll and sticky nodes
@@ -34,7 +34,8 @@ Owns semantic lowering from Servo fragments into retained browser-scene data:
 - effect groups
 - primitives
 - embeds
-- retained resources
+- document-local glyph runs
+- renderer-scoped font/image resource population
 
 Important files:
 
@@ -45,11 +46,12 @@ Important files:
 
 ### `makepad/browser_scene`
 
-Owns retained semantic browser data and the lowering boundary into compositor
+Owns retained browser document data and the lowering boundary into compositor
 execution.
 
-It does not own runtime picture allocation, filter passes, scratch surfaces, or
-per-glyph browser-local drawing.
+It does not own persistent font/image payload storage, runtime picture
+allocation, filter passes, scratch surfaces, or per-glyph browser-local
+drawing.
 
 Important files:
 
@@ -151,9 +153,13 @@ MpDocument
   - id
   - epoch
   - scene: MpScene
-  - resources: MpResourceStore
+  - glyph_runs
   - child_documents
 ```
+
+Fonts, images, and external image handles do not live in `MpDocument`.
+They live in the persistent renderer-scoped `ResourceRegistry` owned by
+`MpBrowserRenderer`.
 
 `MpScene` stores semantic browser facts:
 
@@ -256,7 +262,10 @@ File:
 
 ## 2. Render crate fetches the fragment tree
 
-`LayoutFragmentSource` reads the shared retained fragment tree from layout.
+`LayoutFragmentSource` reads the shared layout fragment payload from layout.
+That payload is published through `SharedLayoutFragmentTree` as a
+`PublishedRootFragments` wrapper carrying immutable `Arc<[Fragment]>` roots, and
+remains pointer stable across unchanged reflows.
 
 File:
 
@@ -268,9 +277,14 @@ File:
 
 Fast path:
 
-- same fragment pointer
+- same shared fragment payload pointer
 - same viewport size
 - scroll offsets update in place through retained scroll nodes
+
+Layout only republishes shared fragments when either the fragment-tree
+generation changes or the visible animated-image frame selection changes.
+Steady-state frames therefore hit the retained document cache instead of
+rebuilding scene data every draw.
 
 Files:
 
@@ -409,6 +423,9 @@ HAVI_RENDER_STATS=1
 ```
 
 This logs browser-scene stats from the HAVI render crate.
+It also logs shared-fragment publication reuse vs publish on the layout side and
+browser-document cache hit vs miss on the render side.
+
 Those stats now describe the retained compositor picture/task model rather than
 legacy scratch ownership.
 

@@ -275,7 +275,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         .map(|cache| &cache.document);
     let browser_document = match browser_scene_builder::try_build_browser_document(
         cx,
-        &fragments,
+        fragments.roots.as_ref(),
         scroll_state,
         viewport_size,
         frame_draw_lists

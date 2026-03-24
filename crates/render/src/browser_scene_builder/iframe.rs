@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use base::id::PipelineId;
-use layout::fragment_tree::{Fragment, FragmentFlags, IFrameFragment};
+use layout::fragment_tree::{Fragment, FragmentFlags, IFrameFragment, PublishedRootFragments};
 use makepad_browser_scene::{MpChildDocument, MpEmbed, MpHitTestTag, MpPipelineId, MpScene, ResourceRegistry};
 use makepad_widgets::Cx2d;
 
@@ -50,11 +50,12 @@ pub(super) fn build_iframe_fragment(
 
     let pipeline_id = mp_pipeline_id(iframe.pipeline_id);
     let child_fragments = layout_api::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
-        .get::<Vec<Fragment>>()
-        .unwrap_or_else(|| Arc::new(Vec::new()));
+        .get::<PublishedRootFragments>()
+        .map(|published| published.roots.clone())
+        .unwrap_or_else(|| Arc::<[Fragment]>::from([]));
     let child_document = build_browser_document(
         cx,
-        child_fragments.as_slice(),
+        child_fragments.as_ref(),
         scroll_state,
         content_bounds.size,
         registry,
