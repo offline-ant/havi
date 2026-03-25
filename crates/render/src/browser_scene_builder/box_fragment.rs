@@ -124,8 +124,9 @@ pub(super) fn build_box_fragment(
     let mut child_cx = box_cx;
     if needs_overflow_clip(bf) {
         let radius = resolve_border_radii(&bf.base.style).max();
+        let padding_rect = physical_rect_to_rect(bf.padding_rect());
         let rect = map_box_rect_to_spatial_space(
-            physical_rect_to_rect(generation.scrollable_overflow_for(fragment_id)),
+            padding_rect,
             build_cx.containing_block_origin,
             border_rect.pos,
             uses_box_local_basis,
