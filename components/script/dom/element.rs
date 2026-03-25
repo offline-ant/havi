@@ -570,9 +570,13 @@ impl Element {
     /// Whether this element is styled such that it establishes a scroll container.
     /// <https://www.w3.org/TR/css-overflow-3/#scroll-container>
     pub(crate) fn establishes_scroll_container(&self) -> bool {
-        // The CSS computed value has made sure that either both axes are scrollable or none are scrollable.
-        // Avoid owner_window/layout overflow queries on the script thread during direct input handling.
-        false
+        match self.style() {
+            Some(style) => {
+                style.get_box().clone_overflow_x().is_scrollable() ||
+                    style.get_box().clone_overflow_y().is_scrollable()
+            },
+            None => false,
+        }
     }
 
     pub(crate) fn has_overflow(&self) -> bool {
