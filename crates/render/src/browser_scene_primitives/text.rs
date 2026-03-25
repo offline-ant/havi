@@ -123,7 +123,7 @@ fn make_glyph_run_resource(
             font_keys: vec![font_key],
             glyphs,
             metrics: MpGlyphRunMetrics {
-                advance_width_px: advance_width.min(bounds.size.x as f32),
+                advance_width_px: advance_width,
                 baseline_ascent_px: baseline_ascent,
                 underline_offset_px: tf.underline_offset.to_f32_px(),
                 underline_thickness_px: tf.underline_size.to_f32_px(),

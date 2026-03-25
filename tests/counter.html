@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Counter</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font: 16px system-ui, sans-serif;
+      background: #fff;
+      color: #111;
+    }
+
+    main {
+      display: grid;
+      gap: 12px;
+      justify-items: center;
+    }
+
+    button {
+      padding: 10px 16px;
+      font: inherit;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Counter</h1>
+    <p id="count">0</p>
+    <button id="increment" type="button">Click</button>
+  </main>
+  <script>
+    const count = document.getElementById('count');
+    const button = document.getElementById('increment');
+    let value = 0;
+
+    button.addEventListener('click', async () => {
+      value += 1;
+      count.textContent = String(value);
+      try {
+        await fetch('/count', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: value })
+        });
+      } catch (_) {
+      }
+    });
+  </script>
+</body>
+</html>

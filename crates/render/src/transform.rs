@@ -5,6 +5,7 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 
 #[cfg(test)]
 mod tests {
+    use makepad_widgets::Mat4f;
 
     #[test]
     fn is_3d_identity_is_not_3d() {
@@ -102,6 +103,40 @@ mod tests {
         assert!(!super::is_3d_matrix(&flattened));
         assert!(flattened[12].is_finite());
         assert!(flattened[13].is_finite());
+    }
+
+    #[test]
+    fn change_basis_rotate_90deg_center_maps_points_and_matrix_as_expected() {
+        let rotate = euclid::Transform3D::<f32, euclid::UnknownUnit, euclid::UnknownUnit>::new(
+            0.0, 1.0, 0.0, 0.0,
+            -1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        );
+        let transformed = super::change_basis(&rotate, 75.0, 50.0, 0.0);
+        let matrix = super::transform_to_array(&transformed);
+        let m = Mat4f { v: matrix };
+
+        let p00 = m.transform_vec4(makepad_widgets::vec4f(0.0, 0.0, 0.0, 1.0));
+        let p10 = m.transform_vec4(makepad_widgets::vec4f(150.0, 0.0, 0.0, 1.0));
+        let p01 = m.transform_vec4(makepad_widgets::vec4f(0.0, 100.0, 0.0, 1.0));
+
+        assert!((p00.x - 125.0).abs() < 0.01);
+        assert!((p00.y + 25.0).abs() < 0.01);
+        assert!((p10.x - 125.0).abs() < 0.01);
+        assert!((p10.y - 125.0).abs() < 0.01);
+        assert!((p01.x - 25.0).abs() < 0.01);
+        assert!((p01.y + 25.0).abs() < 0.01);
+
+        let expected = [
+            0.0, 1.0, 0.0, 0.0,
+            -1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            125.0, -25.0, 0.0, 1.0,
+        ];
+        for (actual, expected) in matrix.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 0.01, "actual={actual} expected={expected}");
+        }
     }
 }
 
