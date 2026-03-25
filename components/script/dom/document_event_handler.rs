@@ -2166,8 +2166,9 @@ impl DocumentEventHandler {
         }
 
         let calculate_current_scroll_offset_and_delta = || {
-            const LINE_HEIGHT: f32 = 76.0;
-            const LINE_WIDTH: f32 = 76.0;
+            // 40px per arrow key press, matching Chromium's kPixelsPerLineStep.
+            const LINE_HEIGHT: f32 = 40.0;
+            const LINE_WIDTH: f32 = 40.0;
 
             let current_scroll_offset = scrolling_box.scroll_position();
             (
