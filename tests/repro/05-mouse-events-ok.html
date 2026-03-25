@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  margin: 24px;
+}
+#status {
+  font-size: 28px;
+  font-weight: 700;
+}
+#detail {
+  margin-top: 12px;
+}
+#pad {
+  margin-top: 24px;
+  width: 400px;
+  height: 240px;
+  background: #eee;
+  border: 1px solid #999;
+}
+</style>
+<div id="status">init</div>
+<div id="detail">detail:init</div>
+<div id="pad"></div>
+<script>
+(function () {
+  var status = document.getElementById('status');
+  var detail = document.getElementById('detail');
+  status.textContent = 'ready';
+  detail.textContent = 'detail:ready';
+  document.addEventListener('mousemove', function (e) {
+    status.textContent = 'move';
+    detail.textContent = 'detail:move ' + e.clientX + ',' + e.clientY;
+  });
+  document.addEventListener('click', function (e) {
+    status.textContent = 'click';
+    detail.textContent = 'detail:click ' + e.clientX + ',' + e.clientY + ' ' + e.target.tagName;
+    document.body.style.background = '#e8ffe8';
+  });
+})();
+</script>
