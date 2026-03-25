@@ -120,6 +120,11 @@ Browser text is no longer drawn through browser-scene per-glyph traversal.
 Browser-scene lowers retained text-run data and font resources into compositor
 text execution.
 
+The compositor now owns a browser-only glyph residency cache with explicit
+atlas pages and page textures. Browser scenes do not own glyph residency.
+They get per-draw prepared batches built against the current glyph-cache
+generation.
+
 ### 5. Explicit host geometry
 
 `render_fragments_clipped()` takes `host_rect: Rect` explicitly from the HAVI
@@ -228,7 +233,31 @@ Browser-scene lowers text runs into compositor text resources:
 - decoration data
 - shadow data
 
-The compositor executes those runs directly inside the retained browser scene.
+The compositor executes those runs through an explicit browser text prepare
+phase before draw.
+
+Prepare owns:
+
+- canonical glyph-key construction from raster-affecting state only
+- glyph residency lookup in one global browser glyph cache
+- page allocation in separate alpha, msdf, and color page pools
+- page upload to explicit GPU textures
+- per-scene prepared batches grouped by page binding
+
+Draw owns:
+
+- decoration quads
+- prepared glyph batch submission only
+
+Browser draw does not call `font.rasterize_glyph()`.
+Browser draw does not allocate atlas slots.
+Browser draw does not mutate atlas textures.
+
+Prepared batches are disposable per-draw views. They are valid only for the
+cache generation and page generations they were prepared against. Any cache
+reset or page replacement invalidates those batches and forces rebuild on the
+next prepare pass.
+
 Current direct text execution uses the retained text-run path when the run can
 stay on the local clip-rect fast path. Higher-level picture boundaries still
 route that content through picture/task composition as needed.

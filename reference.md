@@ -156,6 +156,8 @@ Current behavior:
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
   exact rounded background clips for retained gradients and images, box shadows,
   retained text, clipped images, and iframe/embed child documents on the retained path
+- browser text uses an explicit prepare phase before draw; the compositor owns one global glyph residency cache and explicit per-page GPU textures for browser text
+- prepared browser text batches are per-draw snapshots only; they are invalid after any glyph-cache generation or page-generation change
 - layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
 
