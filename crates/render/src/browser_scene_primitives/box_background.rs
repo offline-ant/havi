@@ -85,6 +85,13 @@ fn background_layer_bounds(layer: &BackgroundLayerGeom) -> Rect {
     }
 }
 
+fn background_layer_paint_rect(layer: &BackgroundLayerGeom) -> Rect {
+    Rect {
+        pos: dvec2(layer.paint_x, layer.paint_y),
+        size: dvec2(layer.paint_w as f64, layer.paint_h as f64),
+    }
+}
+
 fn background_layer_tile_rects(layer: &BackgroundLayerGeom) -> Vec<Rect> {
     let tile_w = layer.tile_w.max(0.001) as f64;
     let tile_h = layer.tile_h.max(0.001) as f64;
@@ -119,7 +126,7 @@ fn background_layer_clip_chain(
     layer: &BackgroundLayerGeom,
     radius: MpPerCornerRadius,
 ) -> MpClipChainId {
-    let rect = background_layer_bounds(layer);
+    let rect = background_layer_paint_rect(layer);
     let clip_id = scene.push_clip(MpClipNode {
         spatial_id,
         kind: if radius.max() > 0.0 {

@@ -42,6 +42,12 @@ pub(crate) struct BackgroundLayerGeom {
     pub bounds_h: f32,
     pub tile_w: f32,
     pub tile_h: f32,
+    /// The painting area (determined by `background-clip`).
+    /// Tiles are clipped to this rectangle.
+    pub paint_x: f64,
+    pub paint_y: f64,
+    pub paint_w: f32,
+    pub paint_h: f32,
 }
 
 pub(crate) struct BoxInsets {
@@ -238,6 +244,10 @@ pub(crate) fn layout_background_layer(
         bounds_h: layout_y.size,
         tile_w,
         tile_h,
+        paint_x,
+        paint_y,
+        paint_w,
+        paint_h,
     })
 }
 
