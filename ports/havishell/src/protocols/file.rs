@@ -9,12 +9,14 @@ use std::sync::Arc;
 use havi_protocols::client::HpprdClientAsync;
 use havi_protocols::credentials::CredentialStoreHandle;
 use servo::protocol_handler::{
-    DoneChannel, FetchContext, ProtocolHandler, Request, ResourceFetchTiming, Response,
+    DoneChannel, FetchContext, FileProtocolHander, ProtocolHandler, Request, ResourceFetchTiming,
+    Response,
 };
 
 pub struct FileHpprHandler {
     client: Arc<HpprdClientAsync>,
     credential_store: CredentialStoreHandle,
+    native: FileProtocolHander,
 }
 
 impl FileHpprHandler {
@@ -22,17 +24,22 @@ impl FileHpprHandler {
         Self {
             client,
             credential_store,
+            native: FileProtocolHander::default(),
         }
     }
 }
 
 impl ProtocolHandler for FileHpprHandler {
-    fn load(
-        &self,
-        request: &mut Request,
-        _done_chan: &mut DoneChannel,
-        _context: &FetchContext,
-    ) -> Pin<Box<dyn Future<Output = Response> + Send>> {
+    fn load<'a>(
+        &'a self,
+        request: &'a mut Request,
+        done_chan: &mut DoneChannel,
+        context: &FetchContext,
+    ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
+        if !request.is_navigation_request() {
+            return self.native.load(request, done_chan, context);
+        }
+
         let url = request.current_url();
         let timing_type = request.timing_type();
         let url_str = url.as_str().to_string();
@@ -47,7 +54,7 @@ impl ProtocolHandler for FileHpprHandler {
     }
 
     fn is_fetchable(&self) -> bool {
-        true
+        false
     }
 
     fn is_secure(&self) -> bool {

@@ -26,7 +26,7 @@ mod file;
 
 use blob::BlobProtocolHander;
 use data::DataProtocolHander;
-use file::FileProtocolHander;
+pub use file::FileProtocolHander;
 
 type FutureResponse<'a> = Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
 

@@ -96,7 +96,7 @@ pub mod protocol_handler {
     pub use net::filemanager_thread::FILE_CHUNK_SIZE;
     pub use net::hppr_chunks::{batch_reassemble_chunks, fetch_chunk_blobs, parse_exchange_into_blobs};
     pub use net::hppr_pool::HpprAsyncState;
-    pub use net::protocols::{ProtocolHandler, ProtocolRegistry};
+    pub use net::protocols::{FileProtocolHander, ProtocolHandler, ProtocolRegistry};
     pub use net_traits::filemanager_thread::RelativePos;
     pub use net_traits::http_status::HttpStatus;
     pub use net_traits::request::Request;
