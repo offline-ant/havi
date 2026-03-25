@@ -1,6 +1,6 @@
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpDocument, MpScene, ResourceRegistry};
-use makepad_widgets::Cx2d;
+use makepad_widgets::{dvec2, Cx2d};
 
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
@@ -55,9 +55,17 @@ fn build_paint_child(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
-    let fragment_id = match child {
-        published::PaintChild::Fragment(fragment_id) => *fragment_id,
-        published::PaintChild::Placement(placement_id) => generation.placement(*placement_id).fragment,
+    let (fragment_id, build_cx) = match child {
+        published::PaintChild::Fragment(fragment_id) => (*fragment_id, build_cx),
+        published::PaintChild::Placement(placement_id) => {
+            let placement = generation.placement(*placement_id);
+            let mut placement_cx = build_cx;
+            if placement.containing_block.is_none() {
+                // Containing block is the ICB — origin is (0, 0).
+                placement_cx.containing_block_origin = dvec2(0.0, 0.0);
+            }
+            (placement.fragment, placement_cx)
+        }
     };
     build_fragment(
         cx,

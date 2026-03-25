@@ -1,3 +1,4 @@
+//! CSS transform extraction.
 
 use makepad_widgets::Mat4f;
 use style::properties::ComputedValues;
@@ -5,7 +6,6 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 
 #[cfg(test)]
 mod tests {
-    use makepad_widgets::Mat4f;
 
     #[test]
     fn is_3d_identity_is_not_3d() {
@@ -90,6 +90,68 @@ mod tests {
         assert!((perspective[11] + (1.0 / 600.0)).abs() < 0.0001);
     }
 
+    /// Verify the full euclid→Makepad pipeline against the CSS Transforms spec.
+    ///
+    /// Test case: `rotate(90deg)` on a 150×100 box with default origin (75,50).
+    ///
+    /// CSS spec algorithm (CSS Transforms Level 1 §11):
+    ///   1. Start with identity
+    ///   2. Translate by transform-origin: T(75, 50)
+    ///   3. Multiply by rotate(90deg)
+    ///   4. Translate by negated origin: T(-75, -50)
+    ///
+    /// The resulting column-vector matrix is:
+    ///   | 0  -1  0  125 |
+    ///   | 1   0  0  -25 |
+    ///   | 0   0  1    0 |
+    ///   | 0   0  0    1 |
+    ///
+    /// Point mappings (spec-correct):
+    ///   (0,0)   → (125, -25)
+    ///   (150,0) → (125, 125)
+    ///   (0,100) → (25, -25)
+    #[test]
+    fn spec_rotate90_euclid_to_makepad_point_mapping() {
+        use makepad_widgets::Mat4f;
+
+        // Build the euclid transform the same way the production code does.
+        let rotate = euclid::Transform3D::<f32, euclid::UnknownUnit, euclid::UnknownUnit>::rotation(
+            0.0, 0.0, 1.0,
+            euclid::Angle::degrees(90.0),
+        );
+        let combined = super::change_basis(&rotate, 75.0, 50.0, 0.0);
+
+        // Verify euclid-side point mapping first (row-vector convention).
+        let p00 = combined.transform_point3d(euclid::point3(0.0f32, 0.0, 0.0)).unwrap();
+        assert!((p00.x - 125.0).abs() < 0.01, "euclid (0,0).x = {}", p00.x);
+        assert!((p00.y - (-25.0)).abs() < 0.01, "euclid (0,0).y = {}", p00.y);
+
+        let p10 = combined.transform_point3d(euclid::point3(150.0f32, 0.0, 0.0)).unwrap();
+        assert!((p10.x - 125.0).abs() < 0.01, "euclid (150,0).x = {}", p10.x);
+        assert!((p10.y - 125.0).abs() < 0.01, "euclid (150,0).y = {}", p10.y);
+
+        let p01 = combined.transform_point3d(euclid::point3(0.0f32, 100.0, 0.0)).unwrap();
+        assert!((p01.x - 25.0).abs() < 0.01, "euclid (0,100).x = {}", p01.x);
+        assert!((p01.y - (-25.0)).abs() < 0.01, "euclid (0,100).y = {}", p01.y);
+
+        // Serialize to Makepad Mat4f via transform_to_array.
+        let arr = super::transform_to_array(&combined);
+        let m = Mat4f { v: arr };
+
+        // Verify Makepad-side point mapping matches.
+        let mp00 = m.transform_vec4(makepad_widgets::vec4f(0.0, 0.0, 0.0, 1.0));
+        assert!((mp00.x - 125.0).abs() < 0.01, "makepad (0,0).x = {}", mp00.x);
+        assert!((mp00.y - (-25.0)).abs() < 0.01, "makepad (0,0).y = {}", mp00.y);
+
+        let mp10 = m.transform_vec4(makepad_widgets::vec4f(150.0, 0.0, 0.0, 1.0));
+        assert!((mp10.x - 125.0).abs() < 0.01, "makepad (150,0).x = {}", mp10.x);
+        assert!((mp10.y - 125.0).abs() < 0.01, "makepad (150,0).y = {}", mp10.y);
+
+        let mp01 = m.transform_vec4(makepad_widgets::vec4f(0.0, 100.0, 0.0, 1.0));
+        assert!((mp01.x - 25.0).abs() < 0.01, "makepad (0,100).x = {}", mp01.x);
+        assert!((mp01.y - (-25.0)).abs() < 0.01, "makepad (0,100).y = {}", mp01.y);
+    }
+
     #[test]
     fn flatten_3d_rotatey_keeps_origin_finite() {
         let c = std::f32::consts::FRAC_1_SQRT_2;
@@ -104,42 +166,14 @@ mod tests {
         assert!(flattened[12].is_finite());
         assert!(flattened[13].is_finite());
     }
-
-    #[test]
-    fn change_basis_rotate_90deg_center_maps_points_and_matrix_as_expected() {
-        let rotate = euclid::Transform3D::<f32, euclid::UnknownUnit, euclid::UnknownUnit>::new(
-            0.0, 1.0, 0.0, 0.0,
-            -1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
-        );
-        let transformed = super::change_basis(&rotate, 75.0, 50.0, 0.0);
-        let matrix = super::transform_to_array(&transformed);
-        let m = Mat4f { v: matrix };
-
-        let p00 = m.transform_vec4(makepad_widgets::vec4f(0.0, 0.0, 0.0, 1.0));
-        let p10 = m.transform_vec4(makepad_widgets::vec4f(150.0, 0.0, 0.0, 1.0));
-        let p01 = m.transform_vec4(makepad_widgets::vec4f(0.0, 100.0, 0.0, 1.0));
-
-        assert!((p00.x - 125.0).abs() < 0.01);
-        assert!((p00.y + 25.0).abs() < 0.01);
-        assert!((p10.x - 125.0).abs() < 0.01);
-        assert!((p10.y - 125.0).abs() < 0.01);
-        assert!((p01.x - 25.0).abs() < 0.01);
-        assert!((p01.y + 25.0).abs() < 0.01);
-
-        let expected = [
-            0.0, 1.0, 0.0, 0.0,
-            -1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            125.0, -25.0, 0.0, 1.0,
-        ];
-        for (actual, expected) in matrix.into_iter().zip(expected) {
-            assert!((actual - expected).abs() < 0.01, "actual={actual} expected={expected}");
-        }
-    }
 }
 
+/// Compute the renderer's 2D reference-frame matrix for the element's own
+/// transform chain.
+///
+/// CSS `perspective` affects descendants, not the element's own geometry, so it
+/// is not folded into the direct reference-frame transform here. Perspective is
+/// handled structurally elsewhere.
 pub(crate) fn compute_css_reference_frame_matrix(
     computed: &ComputedValues,
     bw: f32,
@@ -167,8 +201,6 @@ pub(crate) fn compute_css_self_transform_3d(
     Some(transform_to_array(&transform))
 }
 
-// CSS `perspective` affects descendants, not the element's own geometry, so it
-// is lowered separately from the element's self transform.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn compute_css_descendant_perspective_matrix(
     computed: &ComputedValues,
@@ -284,6 +316,7 @@ fn transform_to_array<U, V>(transform: &euclid::Transform3D<f32, U, V>) -> [f32;
     ]
 }
 
+/// Check if a column-major 4x4 matrix has 3D components (not a pure 2D affine).
 #[cfg(test)]
 pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     // In column-major layout:
@@ -301,9 +334,14 @@ pub(crate) fn is_3d_matrix(m: &[f32; 16]) -> bool {
     (m[15] - 1.0).abs() > 1e-5                       // m44
 }
 
-// Flatten a 3D reference frame by solving the affine map from projected corner
-// positions on the local z=0 plane. Sampling only basis vectors is not enough
-// once perspective and shear are involved.
+/// Flatten a 3D reference frame into a 2D affine matrix when the transformed
+/// z=0 plane remains planar in screen space.
+///
+/// CSS 3D transforms used without `preserve-3d` are painted as the projection
+/// of the element's local z=0 plane. An affine 2D fallback therefore needs the
+/// exact projected corner positions, not just a basis sampled from the local
+/// axes. Solve the affine map from the projected top-left, top-right, and
+/// bottom-left corners so translation and shear match the projected quad.
 #[cfg(test)]
 fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[f32; 16]> {
     fn project(m: &[f32; 16], x: f32, y: f32) -> Option<(f32, f32)> {
@@ -338,7 +376,20 @@ fn flatten_3d_reference_frame_to_2d(m: &[f32; 16], bw: f32, bh: f32) -> Option<[
     ])
 }
 
-// Apply CSS transform-origin in euclid's row-vector convention.
+/// CSS change-of-basis: T(origin) * M * T(-origin) in column-vector convention.
+///
+/// Euclid uses row-vector convention where `A.then(B)` computes the row-vector
+/// product `A * B`. The `transform_to_array` function stores the result in
+/// row-major order, which Makepad's column-major `Mat4f` reads as the transpose.
+/// Transposing a row-vector transform gives the equivalent column-vector
+/// transform. So the row-vector computation must be the transpose of the
+/// desired column-vector result:
+///
+///   column target: T(o) * M * T(-o)
+///   row equivalent: (T(o) * M * T(-o))^T = T(-o)^T * M^T * T(o)^T
+///                 = T(-o)_row * M_row * T(o)_row
+///
+/// In euclid chaining: `T(-o).then(M).then_translate(o)`.
 fn change_basis<U, V>(m: &euclid::Transform3D<f32, U, V>, x: f32, y: f32, z: f32) -> euclid::Transform3D<f32, U, V> {
     euclid::Transform3D::translation(-x, -y, -z)
         .then(m)
