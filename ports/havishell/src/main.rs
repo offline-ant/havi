@@ -150,26 +150,32 @@ fn main() {
         std::env::set_var("HAVI_PYLON_MODE", pylon_mode);
     }
 
+    let screenshot_mode = std::env::var("HAVI_SCREENSHOT")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .is_some();
     let startup_url = std::env::var("HAVI_URL").ok().filter(|url| !url.is_empty());
     let items: Vec<&str> = startup_url.iter().map(|url| url.as_str()).collect();
-    match havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance_with_build(
-        "dev.makepad.havi",
-        BUILD_ID,
-        &items,
-    ) {
-        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Secondary => {
-            if let Ok(state) = std::fs::read_to_string(havi_state_file_path()) {
-                print!("{}", state);
-            }
-            return;
-        },
-        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::DifferentBuild => {
-            eprintln!(
-                "another HAVI instance is already running from a different build; refusing to start"
-            );
-            std::process::exit(1);
-        },
-        havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Primary => {}
+    if !screenshot_mode {
+        match havishell::makepad_widgets::makepad_platform::Cx::enable_single_instance_with_build(
+            "dev.makepad.havi",
+            BUILD_ID,
+            &items,
+        ) {
+            havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Secondary => {
+                if let Ok(state) = std::fs::read_to_string(havi_state_file_path()) {
+                    print!("{}", state);
+                }
+                return;
+            },
+            havishell::makepad_widgets::makepad_platform::SingleInstanceResult::DifferentBuild => {
+                eprintln!(
+                    "another HAVI instance is already running from a different build; refusing to start"
+                );
+                std::process::exit(1);
+            },
+            havishell::makepad_widgets::makepad_platform::SingleInstanceResult::Primary => {}
+        }
     }
 
     havishell::app::app_main()

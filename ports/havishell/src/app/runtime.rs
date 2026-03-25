@@ -127,7 +127,10 @@ impl App {
             .filter(|path| !path.is_empty())
             .map(|path| super::screenshot::ScreenshotMode::WaitingForLoad {
                 output_path: path.into(),
+                deadline: std::time::Instant::now()
+                    + std::time::Duration::from_millis(super::screenshot::SCREENSHOT_MAX_LOAD_WAIT_MS),
             });
+        self.screenshot_poll = Timer::empty();
         self.start_navigation_done = pylon_mode == PylonMode::None;
 
         // Startup state machine: Booting -> Ready/Failed.
@@ -396,6 +399,9 @@ impl App {
 
         // Start the frame loop
         self.next_frame = cx.new_next_frame();
+        if self.screenshot_mode.is_some() {
+            self.request_spin_redraw(cx);
+        }
 
         // Control mode. KEEP existing stdin/stdout behavior when
         // HAVI_MAKEPAD_EVENTS is set.

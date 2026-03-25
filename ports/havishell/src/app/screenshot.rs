@@ -6,14 +6,22 @@ use std::time::{Duration, Instant};
 
 const SCREENSHOT_QUIESCENCE_MS: u64 = 250;
 #[cfg(debug_assertions)]
-const SCREENSHOT_MAX_SETTLE_MS: u64 = 10000;
+pub(super) const SCREENSHOT_MAX_SETTLE_MS: u64 = 10000;
 #[cfg(not(debug_assertions))]
-const SCREENSHOT_MAX_SETTLE_MS: u64 = 2000;
+pub(super) const SCREENSHOT_MAX_SETTLE_MS: u64 = 2000;
+#[cfg(debug_assertions)]
+pub(super) const SCREENSHOT_MAX_LOAD_WAIT_MS: u64 = 10000;
+#[cfg(not(debug_assertions))]
+pub(super) const SCREENSHOT_MAX_LOAD_WAIT_MS: u64 = 2000;
 const SCREENSHOT_SETTLE_FRAMES: u8 = 1;
+const SCREENSHOT_POLL_MS: f64 = 0.05;
 
 #[derive(Clone, Debug)]
 pub(super) enum ScreenshotMode {
-    WaitingForLoad { output_path: PathBuf },
+    WaitingForLoad {
+        output_path: PathBuf,
+        deadline: Instant,
+    },
     WaitingForSettle {
         output_path: PathBuf,
         deadline: Instant,
@@ -53,27 +61,73 @@ fn durable_exit_failure() -> ! {
 }
 
 impl App {
-    pub(super) fn maybe_start_screenshot_capture(&mut self, cx: &mut Cx) {
-        let Some(ScreenshotMode::WaitingForLoad { output_path }) = self.screenshot_mode.clone() else {
+    fn schedule_screenshot_poll(&mut self, cx: &mut Cx) {
+        self.screenshot_poll = cx.start_timeout(SCREENSHOT_POLL_MS);
+        self.request_spin_redraw(cx);
+    }
+
+    pub(super) fn extend_screenshot_load_deadline(&mut self) {
+        let Some(ScreenshotMode::WaitingForLoad { output_path, .. }) = self.screenshot_mode.clone() else {
             return;
         };
-        if !self.start_navigation_done {
+        self.screenshot_mode = Some(ScreenshotMode::WaitingForLoad {
+            output_path,
+            deadline: Instant::now() + Duration::from_millis(SCREENSHOT_MAX_LOAD_WAIT_MS),
+        });
+    }
+
+    fn advance_screenshot_waiting_for_load(
+        &mut self,
+        cx: &mut Cx,
+        output_path: PathBuf,
+        deadline: Instant,
+    ) {
+        if !self.start_navigation_done { 
+            self.screenshot_mode = Some(ScreenshotMode::WaitingForLoad {
+                output_path,
+                deadline,
+            });
+            self.schedule_screenshot_poll(cx);
             return;
         }
         let Some(webview) = self.active_webview() else {
+            self.screenshot_mode = Some(ScreenshotMode::WaitingForLoad {
+                output_path,
+                deadline,
+            });
+            self.schedule_screenshot_poll(cx);
             return;
         };
-        if webview.load_status() != servo::LoadStatus::Complete {
+
+        let now = Instant::now();
+        let load_complete = webview.load_status() == servo::LoadStatus::Complete;
+        let timed_out = now > deadline;
+
+        if !load_complete && !timed_out { 
+            self.screenshot_mode = Some(ScreenshotMode::WaitingForLoad {
+                output_path,
+                deadline,
+            });
+            self.schedule_screenshot_poll(cx);
             return;
         }
 
-        let now = Instant::now();
         self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
             output_path,
             deadline: now + Duration::from_millis(SCREENSHOT_MAX_SETTLE_MS),
             last_visual_change: self.last_active_page_visual_change.unwrap_or(now),
         });
-        self.request_spin_redraw(cx);
+        self.schedule_screenshot_poll(cx);
+    }
+
+    pub(super) fn maybe_start_screenshot_capture(&mut self, cx: &mut Cx) {
+        let Some(ScreenshotMode::WaitingForLoad {
+            output_path,
+            deadline,
+        }) = self.screenshot_mode.clone() else {
+            return;
+        };
+        self.advance_screenshot_waiting_for_load(cx, output_path, deadline);
     }
 
     pub(super) fn update_screenshot_mode(&mut self, cx: &mut Cx) {
@@ -81,7 +135,12 @@ impl App {
             return;
         };
         match mode {
-            ScreenshotMode::WaitingForLoad { .. } => {}
+            ScreenshotMode::WaitingForLoad {
+                output_path,
+                deadline,
+            } => {
+                self.advance_screenshot_waiting_for_load(cx, output_path, deadline);
+            }
             ScreenshotMode::WaitingForSettle {
                 output_path,
                 deadline,
@@ -97,11 +156,12 @@ impl App {
                     > Duration::from_millis(SCREENSHOT_QUIESCENCE_MS);
                 let timed_out = now > deadline;
                 if quiesced || timed_out {
+                    eprintln!("[havi][screenshot] entering settling output={}", output_path.display());
                     self.screenshot_mode = Some(ScreenshotMode::Settling {
                         output_path,
                         frames_left: SCREENSHOT_SETTLE_FRAMES,
                     });
-                    self.request_spin_redraw(cx);
+                    self.schedule_screenshot_poll(cx);
                     return;
                 }
                 self.screenshot_mode = Some(ScreenshotMode::WaitingForSettle {
@@ -109,7 +169,7 @@ impl App {
                     deadline,
                     last_visual_change,
                 });
-                self.request_spin_redraw(cx);
+                self.schedule_screenshot_poll(cx);
                 return;
             }
             ScreenshotMode::Settling {
@@ -121,7 +181,7 @@ impl App {
                         output_path,
                         frames_left: frames_left - 1,
                     });
-                    self.request_spin_redraw(cx);
+                    self.schedule_screenshot_poll(cx);
                     return;
                 }
 
@@ -129,6 +189,7 @@ impl App {
                     return;
                 };
                 let output_path_clone = output_path.clone();
+                eprintln!("[havi][screenshot] calling take_screenshot output={}", output_path_clone.display());
                 webview.take_screenshot(None, move |result| match result {
                     Ok(image) => match write_png(&output_path_clone, &image) {
                         Ok(()) => {

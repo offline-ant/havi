@@ -52,7 +52,7 @@ Environment variables:
 - `HAVI_CONFIG` — config directory override
 - `HAVI_URL` — startup URL override
 - `HAVI_SCREENSHOT` — internal screenshot output path set by
-  `--screenshot <output.png>`
+  `--screenshot <output.png>`; screenshot mode bypasses single-instance reuse
 
 Screenshot mode waits for the active page to reach load-complete and then for
 active-page visual updates to go quiet. Shell chrome redraws and generic event

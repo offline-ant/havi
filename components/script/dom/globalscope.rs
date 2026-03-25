@@ -2795,6 +2795,13 @@ impl GlobalScope {
                 dedicated.forward_error_to_worker_object(error_info);
             } else if self.is::<Window>() {
                 // Step 7.3. Otherwise, the user agent may report exception to a developer console.
+                eprintln!(
+                    "[page-error] {}:{}:{} {}",
+                    error_info.filename,
+                    error_info.lineno,
+                    error_info.column,
+                    error_info.message
+                );
                 if let Some(ref chan) = self.devtools_chan {
                     let _ = chan.send(ScriptToDevtoolsControlMsg::ReportPageError(
                         self.pipeline_id,
