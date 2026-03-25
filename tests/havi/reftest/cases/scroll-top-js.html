@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+html, body { margin: 0; background: white; }
+.box {
+  width: 200px;
+  height: 200px;
+  overflow: hidden;
+  position: absolute;
+  left: 20px;
+  top: 20px;
+}
+.band { width: 200px; height: 200px; }
+.red   { background: rgb(255, 0, 0); }
+.green { background: rgb(0, 128, 0); }
+.blue  { background: rgb(0, 0, 255); }
+</style>
+<div class="box" id="box">
+  <div class="band red"></div>
+  <div class="band green"></div>
+  <div class="band blue"></div>
+</div>
+<script>
+window.onload = function() {
+  document.getElementById('box').scrollTop = 200;
+};
+</script>

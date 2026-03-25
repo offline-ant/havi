@@ -11,3 +11,4 @@
 == cases/text-dense-retained.html refs/text-dense-retained-ref.html
 == cases/long-scroll-snapshot.html refs/long-scroll-snapshot-ref.html
 == cases/embed-inline.html refs/embed-inline-ref.html
+== cases/scroll-top-js.html refs/scroll-top-js-ref.html
