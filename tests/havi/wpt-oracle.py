@@ -106,9 +106,54 @@ def load_cases(manifest: Path | None, wpt_test: Path | None, wpt_manifest: Path 
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
-            cases.extend(parse_wpt_links(Path(line).resolve()))
+            # Support "== test ref" lines inline in wpt-manifest files
+            parts = line.split()
+            if len(parts) == 3 and parts[0] in {"==", "!="}:
+                cases.append(ReftestCase(
+                    operator=parts[0],
+                    test_path=Path(parts[1]).resolve(),
+                    ref_path=Path(parts[2]).resolve(),
+                    manifest_line=line,
+                ))
+                continue
+            # Try WPT rel=match parsing; fall back to self-compare
+            test_path = Path(line).resolve()
+            wpt_cases = _try_parse_wpt_links(test_path)
+            if wpt_cases:
+                cases.extend(wpt_cases)
+            else:
+                cases.append(ReftestCase(
+                    operator="==",
+                    test_path=test_path,
+                    ref_path=test_path,
+                    manifest_line=f"== {test_path} (self)",
+                ))
         return cases
     raise SystemExit("one of --manifest, --wpt-test, or --wpt-manifest is required")
+
+
+def _try_parse_wpt_links(test_path: Path) -> list[ReftestCase]:
+    """Like parse_wpt_links but returns [] instead of raising on no links."""
+    parser = LinkParser()
+    parser.feed(test_path.read_text(encoding="utf-8", errors="ignore"))
+    cases: list[ReftestCase] = []
+    for href in parser.matches:
+        ref_path = (test_path.parent / href).resolve()
+        cases.append(ReftestCase(
+            operator="==",
+            test_path=test_path.resolve(),
+            ref_path=ref_path,
+            manifest_line=f"== {test_path} {ref_path}",
+        ))
+    for href in parser.mismatches:
+        ref_path = (test_path.parent / href).resolve()
+        cases.append(ReftestCase(
+            operator="!=",
+            test_path=test_path.resolve(),
+            ref_path=ref_path,
+            manifest_line=f"!= {test_path} {ref_path}",
+        ))
+    return cases
 
 
 def slice_cases(cases: list[ReftestCase], offset: int, limit: int) -> list[ReftestCase]:

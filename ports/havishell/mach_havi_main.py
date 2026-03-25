@@ -207,8 +207,11 @@ def _run_logged(cmd: list[str], **kwargs: Any) -> int:
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs,
     )
     assert proc.stdout is not None
-    for raw_line in iter(proc.stdout.readline, b""):
-        text = raw_line.decode("utf-8", errors="replace")  # type: ignore[union-attr]
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        text = line if isinstance(line, str) else line.decode("utf-8", errors="replace")
         sys.stdout.write(text)
         log_file.write(text)
     proc.wait()
@@ -821,12 +824,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_test(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
-    cmd = [sys.executable, str(HAVI_ROOT / "tests" / "havi" / "reftest.py")]
-    extra = getattr(args, "extra", None)
-    if extra:
-        cmd.extend(extra)
-
-    _log("desktop test", env=env, cmd=cmd)
+    extra = getattr(args, "extra", None) or []
+    cmd = ["cargo", "test"] + extra
+    _log("cargo test", env=env, cmd=cmd)
     return subprocess.call(cmd, env=env, cwd=str(HAVI_ROOT))
 
 
@@ -1030,8 +1030,8 @@ def run(topdir: str) -> int:
     p_check.set_defaults(func=cmd_check)
 
     # --- test ---
-    p_test = sub.add_parser("test", help="Run HAVI tests (desktop reftests)")
-    p_test.add_argument("extra", nargs="*", help="Extra arguments forwarded to tests/havi/reftest.py")
+    p_test = sub.add_parser("test", help="Run cargo test with havi env")
+    p_test.add_argument("extra", nargs=argparse.REMAINDER, help="Arguments forwarded to cargo test")
     p_test.set_defaults(func=cmd_test)
 
     # --- run ---
@@ -1068,6 +1068,12 @@ def run(topdir: str) -> int:
     p_studio = sub.add_parser("studio", help="Launch Makepad Studio with havi workspace")
     p_studio.add_argument("extra", nargs="*", help="Extra arguments")
     p_studio.set_defaults(func=cmd_studio)
+
+    # For `test`, pass everything after "test" verbatim to cargo test.
+    argv = sys.argv[1:]
+    if argv and argv[0] == "test":
+        args = argparse.Namespace(command="test", func=cmd_test, extra=argv[1:])
+        return args.func(args)
 
     args = parser.parse_args()
     return args.func(args)
