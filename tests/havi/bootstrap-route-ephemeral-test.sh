@@ -32,7 +32,7 @@ EOF
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
     -H 'Seal-By: oldest' \
     -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
-    -H "Content-Signer: $REMOTE_REPO_VKEY" <<< ''
+    -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 # Publish a bootstrap index entry signed by a test bootstrap key.
 BOOTSTRAP_KEY="bootstrap-index-$TEST_NAME-$$"

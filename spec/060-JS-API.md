@@ -182,18 +182,18 @@ Result fields:
 - `endpoint`: selected endpoint string
 - `signer`: signer identity string used to access the repo when routed access is
   used
-- `contentSigner`: resolved content-authority signer for the document, or `null`
+- `contentAuthority`: resolved content-authority signer for the document, or `null`
 - `isRepo`: whether the resolved source came from the home repo path
 
-For app-content URLs, `contentSigner` comes from the app content pointer's
-`Content-Signer`.
-For direct sealed content, `contentSigner` comes from packet `Seal-By`.
+For app-content URLs, `contentAuthority` comes from the app content pointer's
+`Content-Authority`.
+For direct sealed content, `contentAuthority` comes from packet `Seal-By`.
 For unsigned content, it is `null`.
 
-`signer` and `contentSigner` are distinct:
+`signer` and `contentAuthority` are distinct:
 
 - `signer` identifies the route or repo capability used for access
-- `contentSigner` identifies the signer that authorized the resolved content
+- `contentAuthority` identifies the signer that authorized the resolved content
 
 `window.resolve()` is document resolve only.
 Listing stays on `window.home.list()` or `window.route.list()`.
@@ -209,9 +209,9 @@ For non-HPPR pages, it returns `null`.
 
 Loaded HPPR documents also carry browser metadata for the resolved content
 signer.
-For app-content URLs this metadata comes from `Content-Signer`.
+For app-content URLs this metadata comes from `Content-Authority`.
 For direct sealed content it comes from `Seal-By`.
-This content-signer metadata is distinct from the route signer or home-repo
+This content-authority metadata is distinct from the route signer or home-repo
 signer used to access the repo.
 
 ## HpprPacket

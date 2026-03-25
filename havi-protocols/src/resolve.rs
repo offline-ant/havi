@@ -27,7 +27,7 @@ use crate::util::{RouteEndpointSource, append_location, resolve_route_endpoint, 
 pub struct ResolvedSourceRef {
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub packet_hash: String,
     pub is_repo: bool,
 }
@@ -37,7 +37,7 @@ pub struct ResolvedDocument {
     pub packet: Packet,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub is_repo: bool,
     pub source: ResolvedSourceRef,
 }
@@ -47,7 +47,7 @@ pub struct ResolvedMediaSource {
     pub packet: Packet,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub is_repo: bool,
     pub source: ResolvedSourceRef,
 }
@@ -57,7 +57,7 @@ pub struct ResolvedListing {
     pub children: Vec<String>,
     pub endpoint: ViaSpec,
     pub signer: Option<Signer>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub is_repo: bool,
 }
 
@@ -71,7 +71,7 @@ struct ResolvedTarget {
 struct ResolvedAccess {
     endpoint: ViaSpec,
     signer: Option<Signer>,
-    content_signer: Option<String>,
+    content_authority: Option<String>,
     is_repo: bool,
     client: Arc<HpprdClientAsync>,
     urc: String,
@@ -109,11 +109,11 @@ pub async fn resolve_document(
 
     let access = resolve_access(&address, repo_client, credential_store, false).await?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
-    let content_signer = access.content_signer.or_else(|| packet_content_signer(&packet));
+    let content_authority = access.content_authority.or_else(|| packet_content_authority(&packet));
     let source = ResolvedSourceRef {
         endpoint: access.endpoint.clone(),
         signer: access.signer.clone(),
-        content_signer: content_signer.clone(),
+        content_authority: content_authority.clone(),
         packet_hash: packet.pkt_hash().to_string(),
         is_repo: access.is_repo,
     };
@@ -122,7 +122,7 @@ pub async fn resolve_document(
         packet,
         endpoint: access.endpoint,
         signer: access.signer,
-        content_signer,
+        content_authority,
         is_repo: access.is_repo,
         source,
     })
@@ -140,11 +140,11 @@ pub async fn resolve_media(
 
     let access = resolve_access(&address, repo_client, credential_store, false).await?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
-    let content_signer = access.content_signer.or_else(|| packet_content_signer(&packet));
+    let content_authority = access.content_authority.or_else(|| packet_content_authority(&packet));
     let source = ResolvedSourceRef {
         endpoint: access.endpoint.clone(),
         signer: access.signer.clone(),
-        content_signer: content_signer.clone(),
+        content_authority: content_authority.clone(),
         packet_hash: packet.pkt_hash().to_string(),
         is_repo: access.is_repo,
     };
@@ -153,7 +153,7 @@ pub async fn resolve_media(
         packet,
         endpoint: access.endpoint,
         signer: access.signer,
-        content_signer,
+        content_authority,
         is_repo: access.is_repo,
         source,
     })
@@ -171,7 +171,7 @@ pub async fn resolve_listing(
         children,
         endpoint: access.endpoint,
         signer: access.signer,
-        content_signer: access.content_signer,
+        content_authority: access.content_authority,
         is_repo: access.is_repo,
     })
 }
@@ -186,7 +186,7 @@ pub async fn read_resolved_bytes(
     read_packet_bytes(&client, &source.packet_hash, offset, length).await
 }
 
-pub async fn resolve_embed_content_signer(
+pub async fn resolve_embed_content_authority(
     url: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
@@ -194,8 +194,8 @@ pub async fn resolve_embed_content_signer(
     let address = HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     let access = resolve_access(&address, repo_client, credential_store, address.is_listing()).await?;
     Ok(access
-        .content_signer
-        .or_else(|| seal_signer_from_urc(&access.urc)))
+        .content_authority
+        .or_else(|| seal_authority_from_urc(&access.urc)))
 }
 
 async fn resolve_access(
@@ -218,7 +218,7 @@ async fn resolve_access(
         return Ok(ResolvedAccess {
             endpoint: repo_client.target(),
             signer: None,
-            content_signer: None,
+            content_authority: None,
             is_repo: true,
             client: repo_client.clone(),
             urc,
@@ -242,7 +242,7 @@ async fn resolve_access(
     };
 
     let requested_location = address.location_with_slash();
-    let (urc, content_signer) = if is_repo {
+    let (urc, content_authority) = if is_repo {
         (
             HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location),
             None,
@@ -262,7 +262,7 @@ async fn resolve_access(
     Ok(ResolvedAccess {
         endpoint: target.endpoint,
         signer,
-        content_signer,
+        content_authority,
         is_repo,
         client,
         urc,
@@ -330,9 +330,9 @@ async fn resolve_content_pointer_target(
     let urc = if is_listing {
         format!("{}/", target.trim_end_matches('/'))
     } else {
-        format!("{}/|/seal/{}", target, content_pointer.signer)
+        format!("{}/|/seal/{}", target, content_pointer.authority)
     };
-    Ok((urc, Some(content_pointer.signer)))
+    Ok((urc, Some(content_pointer.authority)))
 }
 
 async fn build_route_signer(
@@ -460,11 +460,11 @@ fn packet_headers(packet: &Packet) -> Vec<(String, String)> {
         .collect()
 }
 
-fn packet_content_signer(packet: &Packet) -> Option<String> {
+fn packet_content_authority(packet: &Packet) -> Option<String> {
     packet.header("Seal-By").map(str::to_string)
 }
 
-fn seal_signer_from_urc(urc: &str) -> Option<String> {
+fn seal_authority_from_urc(urc: &str) -> Option<String> {
     let (_, rest) = urc.split_once("/|/seal/")?;
     let signer = rest.split('/').next()?;
     if signer.starts_with("V.") && signer.ends_with(".H3") {

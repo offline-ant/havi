@@ -1180,8 +1180,8 @@ pub struct Metadata {
     pub hppr_packet: Option<hppr_packet::Packet>,
     /// HPPR: endpoint address used to fetch this content.
     pub hppr_endpoint: Option<String>,
-    /// HPPR: resolved content signer for the loaded content.
-    pub hppr_content_signer: Option<String>,
+    /// HPPR: resolved content authority for the loaded content.
+    pub hppr_content_authority: Option<String>,
     /// HPPR: site ring1 credentials (ring1_name, signing_key) for the home repo (window.home).
     pub site_credentials: Option<(String, String)>,
     /// HPPR: pre-built signer for ring2 auth (window.route).
@@ -1209,7 +1209,7 @@ impl Metadata {
             tls_security_info: None,
             hppr_packet: None,
             hppr_endpoint: None,
-            hppr_content_signer: None,
+            hppr_content_authority: None,
             site_credentials: None,
             hppr_signer: None,
             admin_credentials: None,

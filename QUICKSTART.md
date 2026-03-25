@@ -79,7 +79,7 @@ Trailing slash means LIST view; no trailing slash means GET and render content.
 
 For routed origins, HAVI resolves content through a group app content pointer
 (`//<group>/admin/deploy/<app>/|`) that declares `Content-Root` and
-`Content-Signer`.
+`Content-Authority`.
 
 ACL enforcement still happens server-side in `hpprd` for every command.
 
@@ -215,7 +215,7 @@ Embedding primitive:
 
 - `<x src="...">` for HPPR-native embedding
 - optional `policy="auto|isolated|strict"` to control embed mode
-- readonly `embedMode` and `contentSigner` for diagnostics
+- readonly `embedMode` and `contentAuthority` for diagnostics
 
 JSONqa for client-side view state on coordinates:
 

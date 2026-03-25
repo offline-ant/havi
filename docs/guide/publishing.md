@@ -41,7 +41,7 @@ For routed origins (`hppr://<group>/<app>/...`), set app content pointer
 metadata on the upstream repo:
 
 ```bash
-./havi/havi-cli deploy <group> <app> //<content-root> <content-signer>
+./havi/havi-cli deploy <group> <app> //<content-root> <content-authority>
 ```
 
 This writes:
@@ -51,7 +51,7 @@ This writes:
 Headers:
 
 - `Content-Root: //<...>`
-- `Content-Signer: V.<...>.H3`
+- `Content-Authority: V.<...>.H3`
 
 At runtime HAVI resolves routed GET/LIST through this app content pointer.
 

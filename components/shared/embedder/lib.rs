@@ -479,7 +479,7 @@ pub enum HpprResolveRequest {
 pub struct HpprResolvedSourceRef {
     pub endpoint: String,
     pub signer: Option<String>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub packet_hash: String,
     pub is_repo: bool,
 }
@@ -489,7 +489,7 @@ pub struct HpprResolvedDocument {
     pub packet: Vec<u8>,
     pub endpoint: String,
     pub signer: Option<String>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub is_repo: bool,
 }
 
@@ -498,7 +498,7 @@ pub struct HpprResolvedMediaSource {
     pub packet: Vec<u8>,
     pub endpoint: String,
     pub signer: Option<String>,
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
     pub is_repo: bool,
     pub source: HpprResolvedSourceRef,
 }
@@ -513,7 +513,7 @@ pub enum HpprResolveResponse {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HpprEmbedResolveResponse {
-    pub content_signer: Option<String>,
+    pub content_authority: Option<String>,
 }
 
 /// Control operations handled by the embedder.

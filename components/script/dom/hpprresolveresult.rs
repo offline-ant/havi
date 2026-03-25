@@ -20,7 +20,7 @@ pub(crate) struct HpprResolveResult {
     packet: Dom<HpprPacket>,
     endpoint: String,
     signer: Option<String>,
-    content_signer: Option<String>,
+    content_authority: Option<String>,
     is_repo: bool,
 }
 
@@ -29,7 +29,7 @@ impl HpprResolveResult {
         packet: &HpprPacket,
         endpoint: String,
         signer: Option<String>,
-        content_signer: Option<String>,
+        content_authority: Option<String>,
         is_repo: bool,
     ) -> Self {
         Self {
@@ -37,7 +37,7 @@ impl HpprResolveResult {
             packet: Dom::from_ref(packet),
             endpoint,
             signer,
-            content_signer,
+            content_authority,
             is_repo,
         }
     }
@@ -47,12 +47,12 @@ impl HpprResolveResult {
         packet: &HpprPacket,
         endpoint: String,
         signer: Option<String>,
-        content_signer: Option<String>,
+        content_authority: Option<String>,
         is_repo: bool,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
-            Box::new(Self::new_inherited(packet, endpoint, signer, content_signer, is_repo)),
+            Box::new(Self::new_inherited(packet, endpoint, signer, content_authority, is_repo)),
             global,
             can_gc,
         )
@@ -72,8 +72,8 @@ impl HpprResolveResultMethods<crate::DomTypeHolder> for HpprResolveResult {
         self.signer.as_deref().map(DOMString::from)
     }
 
-    fn GetContentSigner(&self) -> Option<DOMString> {
-        self.content_signer.as_deref().map(DOMString::from)
+    fn GetContentAuthority(&self) -> Option<DOMString> {
+        self.content_authority.as_deref().map(DOMString::from)
     }
 
     fn IsRepo(&self) -> bool {

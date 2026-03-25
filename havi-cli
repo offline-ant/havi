@@ -169,18 +169,18 @@ def cmd_open_target(args):
 
 def cmd_deploy(args):
     if len(args) < 4:
-        sys.exit("usage: havi-cli deploy <group> <app> <content-root> <content-signer>")
-    group, app, content_root, content_signer = args[0], args[1], args[2], args[3]
+        sys.exit("usage: havi-cli deploy <group> <app> <content-root> <content-authority>")
+    group, app, content_root, content_authority = args[0], args[1], args[2], args[3]
     if not content_root.startswith("//"):
         sys.exit("error: content-root must start with //")
-    if not (content_signer.startswith("V.") and content_signer.endswith(".H3")):
-        sys.exit("error: content-signer must be V.<...>.H3")
+    if not (content_authority.startswith("V.") and content_authority.endswith(".H3")):
+        sys.exit("error: content-authority must be V.<...>.H3")
 
     _run([
         "hppr", "add", "--seal-by", "oldest",
         f"//{group}/admin/deploy/{app}",
         "-H", f"Content-Root: {content_root}",
-        "-H", f"Content-Signer: {content_signer}",
+        "-H", f"Content-Authority: {content_authority}",
     ])
 
 
@@ -224,7 +224,7 @@ Subcommand groups (delegate to standalone tools):
 
 Built-in commands:
     navigate <url>                                         Navigate HAVI to a URL
-    deploy <group> <app> <content-root> <content-signer>  Write app content pointer
+    deploy <group> <app> <content-root> <content-authority>  Write app content pointer
     publish <coordinate> <file>                            Store signed file, navigate
     publish-dir <coordinate> <dir>                         Store directory tree, navigate
 

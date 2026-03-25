@@ -382,7 +382,7 @@ setup_remote_deploy() {
         $HPPR add "//$group/admin/deploy/$app" \
         -H "Seal-By: oldest" \
         -H "Content-Root: //$group/$app" \
-        -H "Content-Signer: $REMOTE_SIGNING_KEY" <<< ""
+        -H "Content-Authority: $REMOTE_SIGNING_KEY" <<< ""
 }
 
 # Set up ring2 on remote repo and pre-create site ring1 account locally.

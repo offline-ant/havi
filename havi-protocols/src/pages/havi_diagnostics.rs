@@ -101,23 +101,23 @@ async fn inspect_route_content_pointer_auth_join(
     };
 
     let mut content_root: Option<String> = None;
-    let mut content_signer: Option<String> = None;
+    let mut content_authority: Option<String> = None;
     let mut target_get: Option<String> = None;
 
     if let Some(repo_vkey) = remote_repo_vkey.clone() {
         match route_anyone.get_content_pointer(group, app, &repo_vkey).await {
             Ok(content_pointer) => {
                 let target = append_location(&content_pointer.root, location);
-                let target_urc = format!("{}/|/seal/{}", target, content_pointer.signer);
+                let target_urc = format!("{}/|/seal/{}", target, content_pointer.authority);
                 content_root = Some(content_pointer.root.clone());
-                content_signer = Some(content_pointer.signer.clone());
+                content_authority = Some(content_pointer.authority.clone());
                 target_get = Some(target_urc.clone());
                 content_pointer_json = serde_json::json!({
                     "available": true,
                     "endpoint": route_endpoint.to_string(),
                     "repoVerificationKey": repo_vkey,
                     "root": content_pointer.root,
-                    "signer": content_pointer.signer,
+                    "authority": content_pointer.authority,
                     "targetGet": target_urc,
                     "error": serde_json::Value::Null,
                 });
@@ -155,9 +155,9 @@ async fn inspect_route_content_pointer_auth_join(
     let mut auth_probe = "not_checked".to_string();
     let mut auth_error: Option<String> = None;
 
-    if let (Some(root), Some(content_signer_value), Some(signing_key)) = (
+    if let (Some(root), Some(content_authority_value), Some(signing_key)) = (
         content_root.as_ref(),
-        content_signer.as_ref(),
+        content_authority.as_ref(),
         route_signing_key.as_ref(),
     ) {
         let ring2_signer = hppr_client::Signer::ring2(group, signing_key);
@@ -166,7 +166,7 @@ async fn inspect_route_content_pointer_auth_join(
             ring2_signer,
         ));
         let target = append_location(root, location);
-        let target_urc = format!("{}/|/seal/{}", target, content_signer_value);
+        let target_urc = format!("{}/|/seal/{}", target, content_authority_value);
         match route_auth.get_packet_authenticated(&target_urc).await {
             Ok(_) => auth_probe = "authorized".to_string(),
             Err(e) => {

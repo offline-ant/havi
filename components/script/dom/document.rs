@@ -643,8 +643,8 @@ pub(crate) struct Document {
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     #[no_trace]
     hppr_signer: DomRefCell<Option<hppr_client::Signer>>,
-    /// HPPR: resolved content signer for the loaded document.
-    hppr_content_signer: DomRefCell<Option<String>>,
+    /// HPPR: resolved content authority for the loaded document.
+    hppr_content_authority: DomRefCell<Option<String>>,
     /// HPPR: the packet that was used to load this document (route navigation)
     hppr_packet: MutNullableDom<HpprPacket>,
     /// HPPR: shared WatchSocket pool for <x watch>, keyed by watch prefix
@@ -3757,12 +3757,12 @@ impl Document {
         *self.hppr_signer.borrow_mut() = Some(signer);
     }
 
-    pub(crate) fn hppr_content_signer(&self) -> Option<String> {
-        self.hppr_content_signer.borrow().clone()
+    pub(crate) fn hppr_content_authority(&self) -> Option<String> {
+        self.hppr_content_authority.borrow().clone()
     }
 
-    pub(crate) fn set_hppr_content_signer(&self, content_signer: String) {
-        *self.hppr_content_signer.borrow_mut() = Some(content_signer);
+    pub(crate) fn set_hppr_content_authority(&self, content_authority: String) {
+        *self.hppr_content_authority.borrow_mut() = Some(content_authority);
     }
 
     pub(crate) fn hppr_packet(&self) -> Option<DomRoot<HpprPacket>> {
@@ -4146,7 +4146,7 @@ impl Document {
             hppr_admin_credentials: DomRefCell::new(None),
             hppr_endpoint: DomRefCell::new(None),
             hppr_signer: DomRefCell::new(None),
-            hppr_content_signer: DomRefCell::new(None),
+            hppr_content_authority: DomRefCell::new(None),
             hppr_packet: Default::default(),
             watch_pool: DomRefCell::new(HashMapTracedValues::new()),
             state_override: Default::default(),

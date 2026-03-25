@@ -48,8 +48,8 @@ pub struct PageResponse {
     pub hppr_endpoint: Option<String>,
     /// Route signer string for window.route (Ring2 identity).
     pub hppr_signer: Option<String>,
-    /// Resolved content signer for the loaded HPPR content.
-    pub hppr_content_signer: Option<String>,
+    /// Resolved content authority for the loaded HPPR content.
+    pub hppr_content_authority: Option<String>,
 }
 
 impl PageResponse {
@@ -64,7 +64,7 @@ impl PageResponse {
             site_credentials: None,
             hppr_endpoint: None,
             hppr_signer: None,
-            hppr_content_signer: None,
+            hppr_content_authority: None,
         }
     }
 
@@ -79,7 +79,7 @@ impl PageResponse {
             site_credentials: None,
             hppr_endpoint: None,
             hppr_signer: None,
-            hppr_content_signer: None,
+            hppr_content_authority: None,
         }
     }
 

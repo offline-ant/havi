@@ -50,10 +50,10 @@ this order:
 
 Fetch behavior:
 
-- GET uses sealed target: `<target>/|/seal/<Content-Signer>`
+- GET uses sealed target: `<target>/|/seal/<Content-Authority>`
 - LIST uses unsealed target: `<target>/`
 
-This is a hard cutover fetch path. When `Content-Signer` changes, older signer
+This is a hard cutover fetch path. When `Content-Authority` changes, older signer
 content is no longer reachable through the app URL.
 
 Origin remains `//<group>/<app>/`.

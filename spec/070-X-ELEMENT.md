@@ -7,7 +7,7 @@
 `<x>` is HPPR-native embedding.
 
 Compared with HTTP iframe assumptions, `<x>` supports coordinate-aware loading,
-content-signer-aware policy selection, watch reloads, and packet access.
+content-authority-aware policy selection, watch reloads, and packet access.
 
 ## Basic usage
 
@@ -30,7 +30,7 @@ Default `policy` is `auto`.
 ## Properties
 
 - `packet`: loaded `HpprPacket`, `null` before load
-- `contentSigner`: resolved child content signer, or `null`
+- `contentAuthority`: resolved child content authority, or `null`
 - `embedMode`: `inherited`, `isolated`, `strict`, or `sandbox-preview`
 - `contentDocument`: available only in `inherited` mode under ordinary
   same-origin rules
@@ -43,15 +43,15 @@ Default `policy` is `auto`.
 
 ## Content-signer comparison
 
-`<x>` compares parent and child content signer by exact verification-key
+`<x>` compares parent and child content authority by exact verification-key
 equality.
 
 Comparison source:
 
-- app-content URLs use `Content-Signer`
+- app-content URLs use `Content-Authority`
 - direct explicit Seal URLs use resolved `Seal-By`
-- unsealed direct content has no content signer
-- `hppr-sandbox://` has no content signer
+- unsealed direct content has no content authority
+- `hppr-sandbox://` has no content authority
 
 Matching `//<group>/<app>` is not enough.
 Matching route or repo endpoint is not enough.
@@ -70,7 +70,7 @@ Matching route or repo endpoint is not enough.
 Conditions:
 
 - `policy="auto"`
-- child content signer equals parent content signer
+- child content authority equals parent content authority
 
 Behavior:
 
@@ -86,7 +86,7 @@ Conditions:
 
 - `policy="isolated"`, or
 - `policy="auto"` with signer mismatch, or
-- `policy="auto"` with no child content signer
+- `policy="auto"` with no child content authority
 
 Behavior:
 
@@ -127,7 +127,7 @@ Behavior:
 - explicit preview mode
 - anonymous fetch
 - current sandbox preview CSP
-- no content signer
+- no content authority
 - DOM access behaves like `isolated`
 
 ## Policy selection
@@ -141,9 +141,9 @@ Mode selection rules:
 2. `policy="strict"` -> `strict`
 3. `policy="isolated"` -> `isolated`
 4. `policy="auto"`:
-   - same content signer -> `inherited`
-   - different content signer -> `isolated`
-   - missing child content signer -> `isolated`
+   - same content authority -> `inherited`
+   - different content authority -> `isolated`
+   - missing child content authority -> `isolated`
 
 `policy="auto"` never overrides a signer mismatch.
 There is no `trustParent` attribute.
@@ -188,8 +188,8 @@ On `+` event matching the element's coordinate, the element reloads its content.
 `-` events are ignored.
 
 Every watch-triggered reload re-runs content resolution and embed-mode
-selection. If the resolved content signer changes, the element updates
-`contentSigner` and `embedMode` accordingly.
+selection. If the resolved content authority changes, the element updates
+`contentAuthority` and `embedMode` accordingly.
 
 Elements sharing a watch prefix share a single WatchSocket connection per
 document, managed by a refcounted pool. The connection closes when the last

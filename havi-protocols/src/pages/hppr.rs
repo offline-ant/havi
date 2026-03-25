@@ -123,7 +123,7 @@ async fn handle_get(
         &mut response,
         &resolved.endpoint.to_string(),
         resolved.signer.as_ref(),
-        resolved.content_signer.as_deref(),
+        resolved.content_authority.as_deref(),
         group,
         app,
         client,
@@ -154,7 +154,7 @@ async fn handle_list(
                 &mut response,
                 &resolved.endpoint.to_string(),
                 resolved.signer.as_ref(),
-                resolved.content_signer.as_deref(),
+                resolved.content_authority.as_deref(),
                 group,
                 app,
                 client,
@@ -179,7 +179,7 @@ async fn apply_page_context(
     response: &mut PageResponse,
     endpoint: &str,
     signer: Option<&Signer>,
-    content_signer: Option<&str>,
+    content_authority: Option<&str>,
     group: &str,
     app: &str,
     client: &Arc<HpprdClientAsync>,
@@ -200,7 +200,7 @@ async fn apply_page_context(
     }
 
     response.hppr_signer = signer.and_then(signer_identity_string);
-    response.hppr_content_signer = content_signer.map(str::to_string);
+    response.hppr_content_authority = content_authority.map(str::to_string);
 }
 
 fn signer_identity_string(signer: &Signer) -> Option<String> {

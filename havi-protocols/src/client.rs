@@ -62,7 +62,7 @@ pub struct RouteKeyInfo {
 #[derive(Debug, Clone)]
 pub struct ContentPointerInfo {
     pub root: String,
-    pub signer: String,
+    pub authority: String,
 }
 
 /// Helper to get raw admin credentials from the global store, falling back to defaults.
@@ -471,22 +471,22 @@ impl HpprdClientAsync {
             .header("Content-Root")
             .ok_or("Content pointer packet missing Content-Root header")?
             .to_string();
-        let signer = packet
-            .header("Content-Signer")
-            .ok_or("Content pointer packet missing Content-Signer header")?
+        let authority = packet
+            .header("Content-Authority")
+            .ok_or("Content pointer packet missing Content-Authority header")?
             .to_string();
 
         if !root.starts_with("//") {
             return Err(format!("invalid Content-Root '{}': must start with //", root));
         }
-        if !(signer.starts_with("V.") && signer.ends_with(".H3")) {
+        if !(authority.starts_with("V.") && authority.ends_with(".H3")) {
             return Err(format!(
-                "invalid Content-Signer '{}': must start with V. and end with .H3",
-                signer
+                "invalid Content-Authority '{}': must start with V. and end with .H3",
+                authority
             ));
         }
 
-        Ok(ContentPointerInfo { root, signer })
+        Ok(ContentPointerInfo { root, authority })
     }
 
     // ========================================================================

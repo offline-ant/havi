@@ -112,8 +112,8 @@ pub(crate) struct HTMLXFrame {
     pending_navigation: Cell<bool>,
     /// Current embed mode for the child browsing context.
     embed_mode: Cell<EmbedMode>,
-    /// Resolved child content signer.
-    content_signer: DomRefCell<Option<String>>,
+    /// Resolved child content authority.
+    content_authority: DomRefCell<Option<String>>,
     /// Monotonic embed resolve request id used to ignore stale preflight callbacks.
     embed_resolve_serial: Cell<u64>,
     /// Current watch prefix (None = not watching)
@@ -149,8 +149,8 @@ impl HTMLXFrame {
         }
     }
 
-    fn parent_content_signer(&self) -> Option<String> {
-        self.owner_document().hppr_content_signer()
+    fn parent_content_authority(&self) -> Option<String> {
+        self.owner_document().hppr_content_authority()
     }
 
     fn next_embed_resolve_serial(&self) -> u64 {
@@ -159,26 +159,26 @@ impl HTMLXFrame {
         next
     }
 
-    fn set_embed_state(&self, mode: EmbedMode, content_signer: Option<String>) {
+    fn set_embed_state(&self, mode: EmbedMode, content_authority: Option<String>) {
         self.embed_mode.set(mode);
-        *self.content_signer.borrow_mut() = content_signer;
+        *self.content_authority.borrow_mut() = content_authority;
     }
 
-    fn refresh_loaded_content_signer(&self) {
+    fn refresh_loaded_content_authority(&self) {
         let Some(pipeline_id) = self.pipeline_id.get() else {
             return;
         };
         let Some(document) = ScriptThread::find_document(pipeline_id) else {
             return;
         };
-        if let Some(content_signer) = document.hppr_content_signer() {
-            *self.content_signer.borrow_mut() = Some(content_signer);
+        if let Some(content_authority) = document.hppr_content_authority() {
+            *self.content_authority.borrow_mut() = Some(content_authority);
         }
     }
 
-    fn current_content_signer(&self) -> Option<String> {
-        self.refresh_loaded_content_signer();
-        self.content_signer.borrow().clone()
+    fn current_content_authority(&self) -> Option<String> {
+        self.refresh_loaded_content_authority();
+        self.content_authority.borrow().clone()
     }
 
     fn current_embed_mode(&self) -> EmbedMode {
@@ -197,7 +197,7 @@ impl HTMLXFrame {
         &self,
         url: &BrowserUrl,
         policy: EmbedPolicy,
-        child_content_signer: Option<&str>,
+        child_content_authority: Option<&str>,
     ) -> EmbedMode {
         if Self::is_sandbox_preview_url(url) {
             return EmbedMode::SandboxPreview;
@@ -209,13 +209,13 @@ impl HTMLXFrame {
             EmbedPolicy::Strict => EmbedMode::Strict,
             EmbedPolicy::Isolated => EmbedMode::Isolated,
             EmbedPolicy::Auto => {
-                let Some(parent_signer) = self.parent_content_signer() else {
+                let Some(parent_authority) = self.parent_content_authority() else {
                     return EmbedMode::Isolated;
                 };
-                let Some(child_signer) = child_content_signer else {
+                let Some(child_authority) = child_content_authority else {
                     return EmbedMode::Isolated;
                 };
-                if parent_signer == child_signer {
+                if parent_authority == child_authority {
                     EmbedMode::Inherited
                 } else {
                     EmbedMode::Isolated
@@ -375,12 +375,12 @@ impl HTMLXFrame {
         &self,
         url: BrowserUrl,
         embed_mode: EmbedMode,
-        content_signer: Option<String>,
+        content_authority: Option<String>,
     ) {
         let window = self.owner_window();
         let document = self.owner_document();
 
-        self.set_embed_state(embed_mode, content_signer);
+        self.set_embed_state(embed_mode, content_authority);
 
         let creator_pipeline_id = if url.as_str() == "about:blank" {
             Some(window.pipeline_id())
@@ -437,10 +437,10 @@ impl HTMLXFrame {
                 if xframe.embed_resolve_serial.get() != request_serial {
                     return;
                 }
-                let content_signer = match message {
+                let content_authority = match message {
                     Ok(HpprControlResponse::EmbedResolve(HpprEmbedResolveResponse {
-                        content_signer,
-                    })) => content_signer,
+                        content_authority,
+                    })) => content_authority,
                     Ok(HpprControlResponse::Error(error)) => {
                         warn!("<x> embed resolve failed for {}: {}", callback_url, error);
                         None
@@ -462,12 +462,12 @@ impl HTMLXFrame {
                 let embed_mode = xframe.compute_embed_mode(
                     &callback_url,
                     EmbedPolicy::Auto,
-                    content_signer.as_deref(),
+                    content_authority.as_deref(),
                 );
                 if !xframe.upcast::<Node>().is_connected_with_browsing_context() {
                     return;
                 }
-                xframe.navigate_with_embed_mode(callback_url, embed_mode, content_signer);
+                xframe.navigate_with_embed_mode(callback_url, embed_mode, content_authority);
             }));
         })
         .expect("Could not create <x> embed resolve callback");
@@ -593,7 +593,7 @@ impl HTMLXFrame {
             script_window_proxies: ScriptThread::window_proxies(),
             pending_navigation: Default::default(),
             embed_mode: Cell::new(EmbedMode::Inherited),
-            content_signer: DomRefCell::new(None),
+            content_authority: DomRefCell::new(None),
             embed_resolve_serial: Cell::new(0),
             watch_prefix: DomRefCell::new(None),
             watch_socket: Default::default(),
@@ -655,7 +655,7 @@ impl HTMLXFrame {
             // do not fire if there is a pending navigation.
             !self.pending_navigation.get()
         };
-        self.refresh_loaded_content_signer();
+        self.refresh_loaded_content_authority();
         if should_fire_event {
             self.upcast::<EventTarget>()
                 .fire_event(atom!("load"), CanGc::from_cx(cx));
@@ -861,8 +861,8 @@ impl HTMLXFrameMethods<crate::DomTypeHolder> for HTMLXFrame {
         element.set_string_attribute(&LocalName::from("policy"), value, CanGc::note())
     }
 
-    fn GetContentSigner(&self) -> Option<DOMString> {
-        self.current_content_signer().map(DOMString::from)
+    fn GetContentAuthority(&self) -> Option<DOMString> {
+        self.current_content_authority().map(DOMString::from)
     }
 
     fn EmbedMode(&self) -> DOMString {

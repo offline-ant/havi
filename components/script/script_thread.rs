@@ -3684,8 +3684,8 @@ impl ScriptThread {
         if let Some(signer) = metadata.hppr_signer {
             document.set_hppr_signer(signer);
         }
-        if let Some(content_signer) = metadata.hppr_content_signer {
-            document.set_hppr_content_signer(content_signer);
+        if let Some(content_authority) = metadata.hppr_content_authority {
+            document.set_hppr_content_authority(content_authority);
         }
         if let Some(pkt) = metadata.hppr_packet {
             if let Ok(packet) = HpprPacket::new(

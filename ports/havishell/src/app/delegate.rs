@@ -242,7 +242,7 @@ fn map_document(result: resolve::ResolvedDocument) -> HpprResolveResponse {
         packet: result.packet.as_bytes().to_vec(),
         endpoint: result.endpoint.to_string(),
         signer: result.signer.as_ref().and_then(signer_identity_string),
-        content_signer: result.content_signer,
+        content_authority: result.content_authority,
         is_repo: result.is_repo,
     })
 }
@@ -252,12 +252,12 @@ fn map_media(result: resolve::ResolvedMediaSource) -> HpprResolveResponse {
         packet: result.packet.as_bytes().to_vec(),
         endpoint: result.endpoint.to_string(),
         signer: result.signer.as_ref().and_then(signer_identity_string),
-        content_signer: result.content_signer,
+        content_authority: result.content_authority,
         is_repo: result.is_repo,
         source: HpprResolvedSourceRef {
             endpoint: result.source.endpoint.to_string(),
             signer: result.source.signer.as_ref().and_then(signer_identity_string),
-            content_signer: result.source.content_signer,
+            content_authority: result.source.content_authority,
             packet_hash: result.source.packet_hash,
             is_repo: result.source.is_repo,
         },
@@ -275,7 +275,7 @@ fn parse_source_ref(source: HpprResolvedSourceRef) -> Result<resolve::ResolvedSo
     Ok(resolve::ResolvedSourceRef {
         endpoint,
         signer,
-        content_signer: source.content_signer,
+        content_authority: source.content_authority,
         packet_hash: source.packet_hash,
         is_repo: source.is_repo,
     })
@@ -352,10 +352,10 @@ fn embed_resolve_response(url: String) -> HpprControlResponse {
                     },
                 };
                 let creds = global_credential_store();
-                match resolve::resolve_embed_content_signer(&url, &client, &creds).await {
-                    Ok(content_signer) => {
+                match resolve::resolve_embed_content_authority(&url, &client, &creds).await {
+                    Ok(content_authority) => {
                         HpprControlResponse::EmbedResolve(HpprEmbedResolveResponse {
-                            content_signer,
+                            content_authority,
                         })
                     },
                     Err(error) => HpprControlResponse::Error(error),

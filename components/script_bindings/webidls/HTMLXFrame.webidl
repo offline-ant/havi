@@ -22,7 +22,7 @@ interface HTMLXFrame : HTMLElement {
     [CEReactions] attribute DOMString height;
 
     // Content access and diagnostics
-    readonly attribute DOMString? contentSigner;
+    readonly attribute DOMString? contentAuthority;
     readonly attribute DOMString embedMode;
     readonly attribute HpprPacket? packet;
     readonly attribute Document? contentDocument;

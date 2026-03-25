@@ -32,10 +32,10 @@ content.
 
 Current concrete representation:
 
-- app-content URLs use exact `Content-Signer` equality
+- app-content URLs use exact `Content-Authority` equality
 - direct explicit Seal URLs use `Seal-By`
-- unsealed direct content has no content signer
-- `hppr-sandbox://` has no content signer
+- unsealed direct content has no content authority
+- `hppr-sandbox://` has no content authority
 
 For app-content URLs, HAVI resolves the app content pointer at:
 
@@ -44,19 +44,19 @@ For app-content URLs, HAVI resolves the app content pointer at:
 Required headers:
 
 - `Content-Root`
-- `Content-Signer`
+- `Content-Authority`
 
 The browser appends the requested location to `Content-Root` and fetches the
 final document from:
 
-`<target>/|/seal/<Content-Signer>`
+`<target>/|/seal/<Content-Authority>`
 
-That fetch path is a hard cutover. If `Content-Signer` changes, old signer
+That fetch path is a hard cutover. If `Content-Authority` changes, old signer
 content is no longer reachable through the app URL.
 
 ### `<x>` authority comparison
 
-`<x>` compares parent and child content signer by exact verification-key
+`<x>` compares parent and child content authority by exact verification-key
 equality.
 
 `//<group>/<app>` equality is not enough.
@@ -65,9 +65,9 @@ Repo endpoint equality is not enough.
 
 Default `policy="auto"` behavior:
 
-- same content signer -> `inherited`
-- different content signer -> `isolated`
-- missing child content signer -> `isolated`
+- same content authority -> `inherited`
+- different content authority -> `isolated`
+- missing child content authority -> `isolated`
 - `hppr-sandbox://` -> `sandbox-preview`
 
 Cross-signer default is `isolated`.
