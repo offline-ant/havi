@@ -990,6 +990,10 @@ pub struct App {
     #[rust]
     splash_timeout: Timer,
 
+    /// Timer driving screenshot state progression independently of render activity.
+    #[rust]
+    screenshot_poll: Timer,
+
     #[rust]
     pending_screenshot_callbacks: HashMap<u64, PendingScreenshotCallback>,
 
@@ -1007,6 +1011,48 @@ const MAX_IDLE_FRAMES: u32 = 10;
 const TAP_DISTANCE_THRESHOLD: f64 = 5.0;
 
 impl App {
+    pub(super) fn drain_pending_screenshot_requests(&mut self, cx: &mut Cx) {
+        let Some(servo) = &self.servo else {
+            return;
+        };
+
+        for request in servo.paint_screenshot_bridge().drain_requests() {
+            if !self
+                .tabs
+                .get(self.active_tab_idx)
+                .map(|tab| tab.webview_id == request.webview_id)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            let source = match self
+                .ui
+                .view(cx, ids!(web_view_texture))
+                .cached_capture_source()
+            {
+                Ok(source) => source,
+                Err(err) => {
+                    eprintln!(
+                        "[havi][screenshot] failed to get cached capture source for webview {:?}: {}",
+                        request.webview_id,
+                        err
+                    );
+                    continue;
+                }
+            };
+            let capture_request_id = cx.request_capture(source);
+            self.pending_screenshot_callbacks.insert(
+                capture_request_id,
+                PendingScreenshotCallback {
+                    request_id: request.request_id,
+                },
+            );
+            self.next_frame = cx.new_next_frame();
+            cx.redraw_all();
+        }
+    }
+
     pub(super) fn request_spin(&mut self, cx: &mut Cx) {
         self.needs_spin = true;
         self.idle_frames = 0;

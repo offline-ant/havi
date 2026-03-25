@@ -550,36 +550,6 @@ impl MatchEvent for App {
             }
         }
 
-        if let Some(servo) = &self.servo {
-            for request in servo.paint_screenshot_bridge().drain_requests() {
-                if self
-                    .tabs
-                    .get(self.active_tab_idx)
-                    .map(|tab| tab.webview_id == request.webview_id)
-                    .unwrap_or(false)
-                {
-                    let source = match self
-                        .ui
-                        .view(cx, ids!(web_view_texture))
-                        .cached_capture_source()
-                    {
-                        Ok(source) => source,
-                        Err(_) => {
-                            continue;
-                        }
-                    };
-                    let capture_request_id = cx.request_capture(source);
-                    self.pending_screenshot_callbacks.insert(
-                        capture_request_id,
-                        PendingScreenshotCallback {
-                            request_id: request.request_id,
-                        },
-                    );
-                    self.next_frame = cx.new_next_frame();
-                    cx.redraw_all();
-                }
-            }
-        }
 
         // Handle Servo actions (Wake + WebView delegate events)
         for action in actions {
@@ -623,10 +593,13 @@ impl MatchEvent for App {
                         .tabs
                         .get(self.active_tab_idx)
                         .map_or(false, |t| t.webview_id == webview_id)
-                        && status == servo::LoadStatus::Complete
                     {
-                        self.focus_active_webview(cx);
-                        self.maybe_start_screenshot_capture(cx);
+                        if status == servo::LoadStatus::Complete {
+                            self.focus_active_webview(cx);
+                            self.maybe_start_screenshot_capture(cx);
+                        } else {
+                            self.extend_screenshot_load_deadline();
+                        }
                     }
                 },
                 Some(MakepadServoAction::NewFrameReady {
@@ -642,6 +615,7 @@ impl MatchEvent for App {
                             self.active_root_pipeline_id = Some(pipeline_id);
                             self.attach_active_render_state(cx);
                             self.request_active_page_redraw(cx);
+                            self.maybe_start_screenshot_capture(cx);
                         }
                     }
                 },
@@ -992,9 +966,15 @@ impl AppMain for App {
             }
         }
 
+        if self.screenshot_poll.is_event(event).is_some() {
+            self.screenshot_poll = Timer::empty();
+            self.update_screenshot_mode(cx);
+        }
+
         // Handle next-frame for servo update loop
         if let Some(_ne) = self.next_frame.is_event(event) {
             self.update_screenshot_mode(cx);
+            self.drain_pending_screenshot_requests(cx);
             self.handle_screenshot_capture_results(cx);
             for result in cx.drain_capture_results() {
                 if let Some(pending) = self.pending_screenshot_callbacks.remove(&result.request_id) {
@@ -1145,7 +1125,11 @@ impl AppMain for App {
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
             // Keep running in control mode so stdin messages are polled.
-            if self.idle_frames < MAX_IDLE_FRAMES || scroll_fading || Cx::has_studio_web_socket() {
+            if self.idle_frames < MAX_IDLE_FRAMES
+                || scroll_fading
+                || self.screenshot_mode.is_some()
+                || Cx::has_studio_web_socket()
+            {
                 self.next_frame = cx.new_next_frame();
                 cx.redraw_all();
             }
