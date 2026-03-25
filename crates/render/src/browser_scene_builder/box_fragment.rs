@@ -160,7 +160,7 @@ pub(super) fn build_box_fragment(
                 },
                 content_rect: Rect {
                     pos: dvec2(0.0, 0.0),
-                    size: border_rect.size,
+                    size: physical_rect_to_rect(generation.scrollable_overflow_for(fragment_id)).size,
                 },
                 scroll_offset,
             }),
