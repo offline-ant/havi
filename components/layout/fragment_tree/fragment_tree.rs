@@ -265,7 +265,32 @@ impl<'a> ArenaBuilder<'a> {
             return Some(id);
         }
 
+        // Reserve the arena slot before processing children. Children call
+        // build_geometry recursively and use self.nodes.len() to compute their
+        // own ids. Without this reservation the first child would see the same
+        // len as its parent and receive a duplicate FragmentId.
         let id = published::FragmentId(self.nodes.len() as u32);
+        self.internal_to_node.insert(key, id);
+        let base = convert_fragment_base(fragment);
+        self.record_node_mapping(id, base.tag);
+        self.push_derived(fragment, &base);
+        if let Some(placement_id) = fragment_out_of_flow_placement_id(fragment) {
+            self.placement_targets.insert(placement_id, id);
+        }
+        // Placeholder node to reserve the slot. The kind is never read;
+        // it is overwritten at the end of this function after children
+        // are processed. Only .parent matters (ensure_placement reads it).
+        self.nodes.push(published::FragmentNode {
+            parent,
+            kind: published::FragmentKind::Positioning(published::PositioningFragment {
+                base: base.clone(),
+                geometry_children: Vec::new(),
+                paint_children: Vec::new(),
+            }),
+        });
+
+        // Build the real kind. Container types recurse into children here;
+        // those children now correctly see self.nodes.len() > id.
         let kind = match fragment {
             Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => {
                 let box_fragment = box_fragment.borrow();
@@ -274,10 +299,9 @@ impl<'a> ArenaBuilder<'a> {
                     .iter()
                     .filter_map(|child| self.build_geometry(child, Some(id)))
                     .collect();
-                let base = convert_base(&box_fragment.base);
                 let specific_layout_info = convert_specific_layout_info(box_fragment.specific_layout_info());
                 let node = published::BoxFragment {
-                    base: base.clone(),
+                    base,
                     geometry_children,
                     paint_children: Vec::new(),
                     padding: box_fragment.padding,
@@ -302,9 +326,6 @@ impl<'a> ArenaBuilder<'a> {
                         })
                     }),
                 };
-                if let Some(placement_id) = box_fragment.base.out_of_flow_placement_id {
-                    self.placement_targets.insert(placement_id, id);
-                }
                 if matches!(fragment, Fragment::Float(_)) {
                     published::FragmentKind::Float(node)
                 } else {
@@ -313,7 +334,6 @@ impl<'a> ArenaBuilder<'a> {
             }
             Fragment::Positioning(positioning_fragment) => {
                 let positioning_fragment = positioning_fragment.borrow();
-                let base = convert_base(&positioning_fragment.base);
                 let geometry_children = positioning_fragment
                     .children
                     .iter()
@@ -340,13 +360,10 @@ impl<'a> ArenaBuilder<'a> {
                     pipeline_id: iframe_fragment.pipeline_id,
                 })
             }
-            Fragment::AbsoluteOrFixedPositioned(_) => return None,
+            Fragment::AbsoluteOrFixedPositioned(_) => unreachable!("filtered by internal_fragment_key"),
         };
 
-        self.internal_to_node.insert(key, id);
-        self.record_node_mapping(id, kind.base().tag);
-        self.push_derived(fragment, kind.base());
-        self.nodes.push(published::FragmentNode { parent, kind });
+        self.nodes[id.0 as usize] = published::FragmentNode { parent, kind };
         Some(id)
     }
 
@@ -687,6 +704,19 @@ fn print_generation_fragment(
         print_generation_fragment(generation, *child, tree);
     }
     tree.end_level();
+}
+
+fn convert_fragment_base(fragment: &Fragment) -> published::BaseFragment {
+    match fragment {
+        Fragment::Box(bf) | Fragment::Float(bf) => convert_base(&bf.borrow().base),
+        Fragment::Positioning(pf) => convert_base(&pf.borrow().base),
+        Fragment::Text(tf) => convert_base(&tf.borrow().base),
+        Fragment::Image(imf) => convert_base(&imf.borrow().base),
+        Fragment::IFrame(ifr) => convert_base(&ifr.borrow().base),
+        Fragment::AbsoluteOrFixedPositioned(_) => {
+            unreachable!("filtered by internal_fragment_key")
+        }
+    }
 }
 
 fn fragment_out_of_flow_placement_id(fragment: &Fragment) -> Option<u32> {
