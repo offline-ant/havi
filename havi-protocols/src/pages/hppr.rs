@@ -87,16 +87,16 @@ async fn handle_get(
     let resolved = match resolve_document(url, client, credential_store).await {
         Ok(resolved) => resolved,
         Err(error) => {
-            if error.contains("UNAUTHORIZED") {
-                if let Ok(address) = HAVIAddress::parse(url) {
-                    if address.has_direct_endpoint() || address.is_routed() {
-                        return unauthorized_join_redirect(group, app);
-                    }
-                }
+            if let Ok(address) = HAVIAddress::parse(url)
+                && let Some(response) = classify_routed_error(url, group, app, &address, &error)
+            {
+                return response;
             }
             if error.contains("NOT_FOUND") {
+                eprintln!("[havi] hppr error: url={} action=not-found error={}", url, error);
                 return render_not_found_response(url);
             }
+            eprintln!("[havi] hppr error: url={} action=error error={}", url, error);
             return PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)));
         },
     };
@@ -164,13 +164,12 @@ async fn handle_list(
             response
         },
         Err(error) => {
-            if error.contains("UNAUTHORIZED") {
-                if let Ok(address) = HAVIAddress::parse(url) {
-                    if address.has_direct_endpoint() || address.is_routed() {
-                        return unauthorized_join_redirect(group, app);
-                    }
-                }
+            if let Ok(address) = HAVIAddress::parse(url)
+                && let Some(response) = classify_routed_error(url, group, app, &address, &error)
+            {
+                return response;
             }
+            eprintln!("[havi] hppr list error: url={} action=error error={}", url, error);
             PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)))
         },
     }
@@ -222,6 +221,47 @@ fn signer_identity_string(signer: &Signer) -> Option<String> {
         },
         Signer::Anyone { .. } => None,
     }
+}
+
+fn classify_routed_error(
+    url: &str,
+    group: &str,
+    app: &str,
+    address: &HAVIAddress,
+    error: &str,
+) -> Option<PageResponse> {
+    if !address.has_direct_endpoint() && !address.is_routed() {
+        return None;
+    }
+
+    if error.contains("UNAUTHORIZED not a member") {
+        eprintln!("[havi] hppr error: url={} action=join error={}", url, error);
+        return Some(unauthorized_join_redirect(group, app));
+    }
+
+    if error.contains("NOT_FOUND ring2 setup") {
+        eprintln!("[havi] hppr error: url={} action=ring2-setup-missing error={}", url, error);
+        return Some(PageResponse::error(
+            "Route Setup Error",
+            error,
+            Some("Target repo is missing Ring2 setup for this group."),
+        ));
+    }
+
+    if error.contains("MEMBERS resolution failed") {
+        eprintln!("[havi] hppr error: url={} action=route-membership-error error={}", url, error);
+        return Some(PageResponse::error(
+            "Route Membership Error",
+            error,
+            Some("Target repo membership configuration is broken or incomplete."),
+        ));
+    }
+
+    if error.contains("UNAUTHORIZED") {
+        eprintln!("[havi] hppr error: url={} action=routed-auth-error error={}", url, error);
+    }
+
+    None
 }
 
 fn unauthorized_join_redirect(group: &str, app: &str) -> PageResponse {

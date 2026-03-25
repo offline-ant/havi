@@ -18,7 +18,22 @@ pub use crate::credentials::{CredentialStoreHandle, global_credential_store};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteEndpointSource {
     HomeFallback,
-    Routed,
+    LocalRoute,
+    BootstrapIndex,
+    DirectVia,
+    ParentRoute,
+}
+
+impl RouteEndpointSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RouteEndpointSource::HomeFallback => "home-fallback",
+            RouteEndpointSource::LocalRoute => "local-route",
+            RouteEndpointSource::BootstrapIndex => "bootstrap-index",
+            RouteEndpointSource::DirectVia => "direct-via",
+            RouteEndpointSource::ParentRoute => "parent-route",
+        }
+    }
 }
 
 /// Characters that need encoding in URL path segments.
@@ -224,6 +239,36 @@ pub fn render_error_page(title: &str, message: &str, hint: Option<&str>) -> Stri
     render_page(&html_escape(title), css, &body)
 }
 
+fn report_route_resolution(
+    group: &str,
+    app: &str,
+    source: RouteEndpointSource,
+    endpoint: &ViaSpec,
+    upstream_verification_key: Option<&str>,
+    note: Option<&str>,
+) {
+    if group.is_empty() || app.is_empty() {
+        return;
+    }
+
+    let mut line = format!(
+        "[havi] route resolve: //{}/{} source={} endpoint={}",
+        group,
+        app,
+        source.as_str(),
+        endpoint
+    );
+    if let Some(vkey) = upstream_verification_key {
+        line.push_str(" upstream_vkey=");
+        line.push_str(vkey);
+    }
+    if let Some(note) = note {
+        line.push_str(" note=");
+        line.push_str(note);
+    }
+    eprintln!("{}", line);
+}
+
 /// Resolve route endpoint for a group/app via admin route lookup.
 ///
 /// Looks up the route packet in the home repo using admin credentials.
@@ -231,7 +276,7 @@ pub fn render_error_page(title: &str, message: &str, hint: Option<&str>) -> Stri
 /// - Group or app is empty
 /// - No admin credential available
 /// - Admin identity lookup fails
-/// - Route lookup fails or has no upstream address
+/// - Route lookup fails and bootstrap lookup does not resolve
 ///
 /// Returns `(endpoint, upstream_verification_key, source)`.
 pub async fn resolve_route_endpoint(
@@ -248,6 +293,14 @@ pub async fn resolve_route_endpoint(
 
     if credential_store.get_admin().is_none() {
         log::debug!("No admin credential for route lookup, falling back to repo");
+        report_route_resolution(
+            group,
+            app,
+            RouteEndpointSource::HomeFallback,
+            &repo_target,
+            None,
+            Some("no-admin-credential"),
+        );
         return (repo_target, None, RouteEndpointSource::HomeFallback);
     }
 
@@ -257,6 +310,14 @@ pub async fn resolve_route_endpoint(
             log::debug!(
                 "Failed to get admin identity for route lookup: {}, falling back to repo",
                 e
+            );
+            report_route_resolution(
+                group,
+                app,
+                RouteEndpointSource::HomeFallback,
+                &repo_target,
+                None,
+                Some("admin-identity-failed"),
             );
             return (repo_target, None, RouteEndpointSource::HomeFallback);
         },
@@ -275,10 +336,18 @@ pub async fn resolve_route_endpoint(
                 );
                 repo_target.clone()
             });
+            report_route_resolution(
+                group,
+                app,
+                RouteEndpointSource::LocalRoute,
+                &endpoint,
+                route_info.upstream_verification_key.as_deref(),
+                None,
+            );
             (
                 endpoint,
                 route_info.upstream_verification_key,
-                RouteEndpointSource::Routed,
+                RouteEndpointSource::LocalRoute,
             )
         },
         Err(e) => {
@@ -286,43 +355,45 @@ pub async fn resolve_route_endpoint(
 
             match hppr_client::tokio::index::lookup_bootstrap_index_if_indexed(group, app).await {
                 Ok(Some(index)) => {
-                    let mut headers = format!(
-                        "Group: repo\nApp: admin\nLocation: route/{group}/{app}\nSeal-By: oldest\nUpstream: {}\n",
-                        index.upstream
+                    report_route_resolution(
+                        group,
+                        app,
+                        RouteEndpointSource::BootstrapIndex,
+                        &index.upstream,
+                        index.upstream_verification_key.as_deref(),
+                        Some("ephemeral"),
                     );
-                    if let Some(vkey) = &index.upstream_verification_key {
-                        headers.push_str(&format!("Upstream-Verification-Key: {}\n", vkey));
-                    }
-
-                    let add_args = hppr_client::build_add_args(headers.as_bytes(), Some(&[]));
-                    match repo_client.add(&add_args).await {
-                        Ok(_) => log::info!(
-                            "Installed bootstrap route for //{}/{} -> {}",
-                            group,
-                            app,
-                            index.upstream
-                        ),
-                        Err(err) => log::info!(
-                            "Bootstrap route resolved for //{}/{}, install failed (continuing): {}",
-                            group,
-                            app,
-                            err
-                        ),
-                    }
-
                     (
                         index.upstream,
                         index.upstream_verification_key,
-                        RouteEndpointSource::Routed,
+                        RouteEndpointSource::BootstrapIndex,
                     )
                 }
-                Ok(None) => (repo_target, None, RouteEndpointSource::HomeFallback),
+                Ok(None) => {
+                    report_route_resolution(
+                        group,
+                        app,
+                        RouteEndpointSource::HomeFallback,
+                        &repo_target,
+                        None,
+                        Some("bootstrap-disabled"),
+                    );
+                    (repo_target, None, RouteEndpointSource::HomeFallback)
+                }
                 Err(err) => {
                     log::info!(
                         "Bootstrap lookup failed for //{}/{}: {}, falling back to repo",
                         group,
                         app,
                         err
+                    );
+                    report_route_resolution(
+                        group,
+                        app,
+                        RouteEndpointSource::HomeFallback,
+                        &repo_target,
+                        None,
+                        Some("bootstrap-lookup-failed"),
                     );
                     (repo_target, None, RouteEndpointSource::HomeFallback)
                 }

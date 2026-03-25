@@ -61,6 +61,21 @@ loop wakeups do not extend screenshot settling.
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
 
+### Bootstrap routing
+
+For `hppr://<group>/<app>/...` without a local route, HAVI may query the
+bootstrap index for an upstream endpoint.
+
+Current HAVI behavior:
+
+- bootstrap lookup is used for the current navigation only
+- HAVI does not auto-install a local route packet from bootstrap discovery
+- routed resolution decisions are printed to stderr with the selected source and
+  endpoint
+- `hppr-join://` is used only for routed `UNAUTHORIZED not a member` failures
+- missing Ring2 setup on the target repo is shown as a route setup error, not a
+  join flow
+
 ## Pylon integration
 
 HAVI runs through pylon.

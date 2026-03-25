@@ -283,10 +283,24 @@ async fn resolve_target(
             (repo_target, None, RouteEndpointSource::HomeFallback)
         } else {
             let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
-            (via, None, RouteEndpointSource::Routed)
+            eprintln!(
+                "[havi] route resolve: //{}/{} source={} endpoint={}",
+                parts.group,
+                parts.app,
+                RouteEndpointSource::DirectVia.as_str(),
+                via
+            );
+            (via, None, RouteEndpointSource::DirectVia)
         }
     } else if let Some(endpoint) = page_endpoint {
-        (endpoint.clone(), None, RouteEndpointSource::Routed)
+        eprintln!(
+            "[havi] route resolve: //{}/{} source={} endpoint={}",
+            parts.group,
+            parts.app,
+            RouteEndpointSource::ParentRoute.as_str(),
+            endpoint
+        );
+        (endpoint.clone(), None, RouteEndpointSource::ParentRoute)
     } else {
         resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await
     };
