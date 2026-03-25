@@ -812,11 +812,10 @@ impl LayoutThread {
     fn build_element_offsets_from(
         &self,
         offsets: &FxHashMap<ExternalScrollId, LayoutVector2D>,
-        root_scroll_id: ExternalScrollId,
+        _root_scroll_id: ExternalScrollId,
     ) -> FxHashMap<usize, (f64, f64)> {
         offsets
             .iter()
-            .filter(|(id, _)| **id != root_scroll_id)
             .map(|(id, v)| (id.0 as usize, (v.x as f64, v.y as f64)))
             .collect()
     }
