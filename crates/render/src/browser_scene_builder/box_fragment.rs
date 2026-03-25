@@ -30,9 +30,7 @@ pub(super) fn build_box_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    if bf.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
-        return Ok(());
-    }
+    let skip_own_paint = bf.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT);
 
     let border_rect = physical_rect_to_rect(bf.border_rect());
     let content_rect = physical_rect_to_rect(bf.content_rect());
@@ -106,20 +104,22 @@ pub(super) fn build_box_fragment(
     } else {
         build_cx.containing_block_origin
     };
-    push_fragment_primitives(
-        cx,
-        generation,
-        scene,
-        registry,
-        state,
-        &RenderPaintItem {
-            section: StackingContextSection::OwnBackgroundsAndBorders,
-            local_origin: item_origin,
-            fragment_id,
-        },
-        owner_node_id_for_fragment(generation, fragment_id),
-        box_cx,
-    )?;
+    if !skip_own_paint {
+        push_fragment_primitives(
+            cx,
+            generation,
+            scene,
+            registry,
+            state,
+            &RenderPaintItem {
+                section: StackingContextSection::OwnBackgroundsAndBorders,
+                local_origin: item_origin,
+                fragment_id,
+            },
+            owner_node_id_for_fragment(generation, fragment_id),
+            box_cx,
+        )?;
+    }
 
     let mut child_cx = box_cx;
     if needs_overflow_clip(bf) {
