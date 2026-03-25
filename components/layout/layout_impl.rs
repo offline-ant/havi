@@ -166,6 +166,11 @@ pub struct LayoutThread {
     /// tree. This is set to true every time a restyle requests overflow calculation.
     need_overflow_calculation: Cell<bool>,
 
+    /// Whether a new shared fragment publication is necessary for a rendering update.
+    /// This is used for visual updates that do not rebuild layout, such as late image
+    /// availability and widget selection changes.
+    need_new_display_list: Cell<bool>,
+
     /// The box tree.
     box_tree: RefCell<Option<Arc<BoxTree>>>,
 
@@ -690,12 +695,11 @@ impl Layout for LayoutThread {
     }
 
     fn needs_new_display_list(&self) -> bool {
-        // Always report true since we no longer track display list state.
-        true
+        self.need_new_display_list.get()
     }
 
     fn set_needs_new_display_list(&self) {
-        // No-op: display list tracking removed.
+        self.need_new_display_list.set(true);
     }
 
     /// <https://drafts.css-houdini.org/css-properties-values-api-1/#the-registerproperty-function>
@@ -881,6 +885,7 @@ impl LayoutThread {
             first_reflow: Cell::new(true),
             device_has_changed: false,
             need_overflow_calculation: Cell::new(false),
+            need_new_display_list: Cell::new(false),
             box_tree: Default::default(),
             fragment_tree: Default::default(),
             fragment_tree_generation: Cell::new(0),
@@ -977,7 +982,8 @@ impl LayoutThread {
             return true;
         }
 
-        // Display list construction removed; always considered up-to-date.
+        // Display list construction was removed. Shared fragment publication for
+        // rendering updates is handled without forcing a relayout here.
         true
     }
 
@@ -1037,15 +1043,25 @@ impl LayoutThread {
             let image_animation_revision = animating_images.image_animation_revision();
             drop(animating_images);
 
-            // We can skip layout, but we might need to update a scroll node.
+            // We can skip layout, but we might still need to publish updated
+            // shared fragments for image availability or other repaint-only changes.
+            let image_changed = self.published_image_animation_revision != image_animation_revision;
+            let needs_visual_update = self.need_new_display_list.get();
             let mut phases = ReflowPhasesRun::empty();
-            if has_animations &&
+            if (has_animations || needs_visual_update) &&
                 self.publish_shared_layout_fragments_if_needed(
                     image_animation_revision,
                     &image_resolver,
+                    needs_visual_update,
                 )
             {
-                phases.insert(ReflowPhasesRun::UpdatedImageData);
+                if image_changed {
+                    phases.insert(ReflowPhasesRun::UpdatedImageData);
+                }
+                if needs_visual_update {
+                    phases.insert(ReflowPhasesRun::BuiltDisplayList);
+                    self.need_new_display_list.set(false);
+                }
             }
             if self.handle_update_scroll_node_request(&reflow_request) {
                 phases.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
@@ -1088,9 +1104,25 @@ impl LayoutThread {
             root_element,
             &image_resolver,
         );
-        if self.calculate_overflow(&image_resolver) {
+        if self.calculate_overflow() {
             reflow_phases_run.insert(ReflowPhasesRun::CalculatedOverflow);
         }
+
+        let image_animation_revision = image_resolver
+            .animating_images
+            .read()
+            .image_animation_revision();
+        let needs_visual_update = self.need_new_display_list.get();
+        if self.publish_shared_layout_fragments_if_needed(
+            image_animation_revision,
+            &image_resolver,
+            needs_visual_update,
+        ) && needs_visual_update
+        {
+            reflow_phases_run.insert(ReflowPhasesRun::BuiltDisplayList);
+            self.need_new_display_list.set(false);
+        }
+
         // Stacking context tree and display list construction removed (havi-render).
         if self.handle_update_scroll_node_request(&reflow_request) {
             reflow_phases_run.insert(ReflowPhasesRun::UpdatedScrollNodeOffset);
@@ -1287,7 +1319,9 @@ impl LayoutThread {
         if damage.contains(RestyleDamage::RECALCULATE_OVERFLOW) {
             self.need_overflow_calculation.set(true);
         }
-        // REBUILD_STACKING_CONTEXT and REPAINT damage flags no longer tracked locally.
+        if damage.contains(RestyleDamage::REPAINT) {
+            self.need_new_display_list.set(true);
+        }
         if !damage.contains(RestyleDamage::RELAYOUT) {
             layout_context.style_context.stylist.rule_tree().maybe_gc();
             return (ReflowPhasesRun::empty(), IFrameSizes::default());
@@ -1346,6 +1380,7 @@ impl LayoutThread {
         &mut self,
         image_animation_revision: u64,
         image_resolver: &Arc<ImageResolver>,
+        force_republish: bool,
     ) -> bool {
         let Some(fragment_tree) = self.fragment_tree.borrow().clone() else {
             return false;
@@ -1354,7 +1389,10 @@ impl LayoutThread {
         let fragment_tree_generation = self.fragment_tree_generation.get();
         let tree_changed = self.published_fragment_tree_generation != Some(fragment_tree_generation);
         let image_changed = self.published_image_animation_revision != image_animation_revision;
-        let needs_publish = tree_changed || image_changed || self.published_layout_fragments.is_none();
+        let needs_publish = force_republish ||
+            tree_changed ||
+            image_changed ||
+            self.published_layout_fragments.is_none();
         if !needs_publish {
             if shared_layout_publication_stats_enabled() {
                 eprintln!(
@@ -1390,25 +1428,13 @@ impl LayoutThread {
     }
 
     #[servo_tracing::instrument(name = "Overflow Calculation", skip_all)]
-    fn calculate_overflow(
-        &mut self,
-        image_resolver: &Arc<ImageResolver>,
-    ) -> bool {
+    fn calculate_overflow(&mut self) -> bool {
         if !self.need_overflow_calculation.get() {
             return false;
         }
 
         let fragment_tree = self.fragment_tree.borrow().clone();
         if let Some(fragment_tree) = fragment_tree {
-            let image_animation_revision = image_resolver
-                .animating_images
-                .read()
-                .image_animation_revision();
-            self.publish_shared_layout_fragments_if_needed(
-                image_animation_revision,
-                image_resolver,
-            );
-
             if self.debug.flow_tree {
                 fragment_tree.print();
             }
