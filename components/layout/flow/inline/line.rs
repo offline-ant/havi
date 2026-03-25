@@ -174,7 +174,7 @@ impl LineItemLayout<'_, '_> {
             state_stack: Vec::new(),
             current_state: LineItemLayoutInlineContainerState::root(
                 start_position.inline,
-                baseline_offset,
+                start_position.block + baseline_offset,
             ),
             line_metrics: LineMetrics {
                 block_offset: start_position.block,
