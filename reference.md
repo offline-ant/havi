@@ -160,6 +160,7 @@ Current behavior:
 - prepared browser text batches are per-draw snapshots only; they are invalid after any glyph-cache generation or page-generation change
 - layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
+- `HAVI_BROWSER_SURFACE_CACHE=0` disables the coarse retained browser-output surface cache; by default HAVI promotes stable browser content into an offscreen texture and reuses it on unchanged frames
 
 This keeps renderer ownership on the retained path while coverage work continues.
 

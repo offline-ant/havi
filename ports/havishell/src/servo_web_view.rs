@@ -1,4 +1,8 @@
+use makepad_widgets::draw_list_2d::{DrawList2d, DrawListExt};
 use makepad_widgets::*;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::LazyLock;
 
 
 // ---------------------------------------------------------------------------
@@ -7,6 +11,16 @@ use makepad_widgets::*;
 
 script_mod! {
     use mod.prelude.widgets.*
+    use mod.draw
+
+    mod.widgets.DrawCachedSurface = mod.std.set_type_default() do #(DrawCachedSurface::script_shader(vm)) {
+        ..draw.DrawQuad
+        image: texture_2d(float)
+
+        pixel: fn() {
+            return self.image.sample(self.pos)
+        }
+    }
 
     mod.widgets.ServoWebViewBase = #(ServoWebView::register_widget(vm))
     mod.widgets.ServoWebView = set_type_default() do mod.widgets.ServoWebViewBase{
@@ -17,6 +31,152 @@ script_mod! {
 
 #[derive(Default)]
 struct FrameDrawLists(havi_render::FrameDrawListState);
+
+#[derive(Script, ScriptHook, Debug)]
+#[repr(C)]
+struct DrawCachedSurface {
+    #[deref]
+    draw_super: DrawQuad,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BrowserSurfaceCacheKey {
+    fragment_ptr: usize,
+    viewport_width_bits: u64,
+    viewport_height_bits: u64,
+    dpi_bits: u64,
+    scroll_hash: u64,
+    selection_hash: u64,
+}
+
+struct BrowserSurfaceCache {
+    pass: DrawPass,
+    draw_list: DrawList2d,
+    color_texture: Texture,
+    size: DVec2,
+}
+
+#[derive(Default)]
+struct BrowserSurfaceCacheState {
+    last_seen_key: Option<BrowserSurfaceCacheKey>,
+    stable_repeat_count: u32,
+    cached_key: Option<BrowserSurfaceCacheKey>,
+    surface: Option<BrowserSurfaceCache>,
+}
+
+impl BrowserSurfaceCacheState {
+    fn invalidate(&mut self) {
+        self.last_seen_key = None;
+        self.stable_repeat_count = 0;
+        self.cached_key = None;
+    }
+
+    fn observe(&mut self, key: BrowserSurfaceCacheKey) {
+        if self.last_seen_key == Some(key) {
+            self.stable_repeat_count = self.stable_repeat_count.saturating_add(1);
+        } else {
+            self.last_seen_key = Some(key);
+            self.stable_repeat_count = 1;
+        }
+        if self.cached_key != Some(key) {
+            self.cached_key = None;
+        }
+    }
+
+    fn can_reuse(&self, key: BrowserSurfaceCacheKey) -> bool {
+        self.cached_key == Some(key) && self.surface.is_some()
+    }
+
+    fn should_promote(&self, key: BrowserSurfaceCacheKey) -> bool {
+        self.cached_key != Some(key) && self.stable_repeat_count >= 2
+    }
+}
+
+static BROWSER_SURFACE_CACHE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
+    !matches!(
+        std::env::var("HAVI_BROWSER_SURFACE_CACHE"),
+        Ok(value) if matches!(value.as_str(), "0" | "false" | "no")
+    )
+});
+
+fn hash_browser_scroll_state(scroll_state: &havi_render::ScrollState) -> u64 {
+    let mut entries: Vec<_> = scroll_state.iter().collect();
+    entries.sort_by_key(|(id, _)| *id);
+    let mut hasher = DefaultHasher::new();
+    for (id, offset) in entries {
+        id.hash(&mut hasher);
+        offset.x.to_bits().hash(&mut hasher);
+        offset.y.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_selection_highlight(selection: Option<&havi_render::SelectionHighlight>) -> u64 {
+    let Some(selection) = selection else {
+        return 0;
+    };
+    let mut hasher = DefaultHasher::new();
+    selection.color.x.to_bits().hash(&mut hasher);
+    selection.color.y.to_bits().hash(&mut hasher);
+    selection.color.z.to_bits().hash(&mut hasher);
+    selection.color.w.to_bits().hash(&mut hasher);
+    for rect in &selection.rects {
+        rect.pos.x.to_bits().hash(&mut hasher);
+        rect.pos.y.to_bits().hash(&mut hasher);
+        rect.size.x.to_bits().hash(&mut hasher);
+        rect.size.y.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn ensure_browser_surface_cache<'a>(
+    cx: &mut Cx,
+    cache_state: &'a mut BrowserSurfaceCacheState,
+    size: DVec2,
+) -> &'a mut BrowserSurfaceCache {
+    let cache = cache_state.surface.get_or_insert_with(|| {
+        let pass = DrawPass::new_with_name(cx, "ServoWebViewBrowserSurfaceCache");
+        let color_texture = Texture::new_with_format(
+            cx,
+            TextureFormat::RenderBGRAu8 {
+                size: TextureSize::Auto,
+                initial: true,
+            },
+        );
+        pass.set_color_texture(
+            cx,
+            &color_texture,
+            DrawPassClearColor::ClearWith(vec4(0.0, 0.0, 0.0, 0.0)),
+        );
+        BrowserSurfaceCache {
+            pass,
+            draw_list: DrawList2d::new(cx),
+            color_texture,
+            size,
+        }
+    });
+    if cache.size != size {
+        cache.size = size;
+        cache.pass.set_size(cx, size);
+        cache_state.cached_key = None;
+    }
+    cache
+}
+
+fn draw_cached_browser_surface(
+    draw_cached_surface: &mut DrawCachedSurface,
+    cx: &mut Cx2d,
+    rect: Rect,
+    cache: &BrowserSurfaceCache,
+) {
+    draw_cached_surface
+        .draw_super
+        .draw_vars
+        .set_texture(0, &cache.color_texture);
+    draw_cached_surface.draw_super.draw_abs(cx, rect);
+    let area = draw_cached_surface.draw_super.draw_vars.area;
+    cx.set_pass_area_with_origin(&cache.pass, area, dvec2(0.0, 0.0));
+}
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -103,8 +263,12 @@ pub struct ServoWebView {
     draw_bg: DrawColor,
     #[live]
     draw_content_bg: DrawColor,
+    #[live]
+    draw_cached_surface: DrawCachedSurface,
     #[rust]
     frame_draw_lists: FrameDrawLists,
+    #[rust]
+    browser_surface_cache: BrowserSurfaceCacheState,
     /// Shared semantic fragment tree from layout. When set, draw_walk renders
     /// through havi-render's semantic path.
     #[rust]
@@ -275,6 +439,7 @@ impl Widget for ServoWebView {
         if frag_ptr != self.last_fragment_ptr {
             self.last_fragment_ptr = frag_ptr;
             self.cached_fragment_source = None;
+            self.browser_surface_cache.invalidate();
         }
 
         // Peek at the walk rect BEFORE begin() so we know our expected
@@ -324,41 +489,113 @@ impl Widget for ServoWebView {
                 .map(|s| s.image_overrides())
                 .unwrap_or_default();
 
-            havi_render::render_fragments_clipped(
-                cx,
-                havi_render::RenderFragmentsClippedParams {
-                    webview_id: self.shared_webview_id.expect("shared webview id"),
-                    cached_fragments: self.cached_fragment_source.as_ref().unwrap(),
-                    host_rect: rect,
-                    draw_bg: &mut self.draw_content_bg,
-                    scroll_state: &render_scroll,
-                    selection: self
-                        .shared_selection
-                        .as_ref()
-                        .map(|ss| {
-                            let snapshot = ss.snapshot();
-                            havi_render::SelectionHighlight {
-                                color: makepad_widgets::makepad_draw::Vec4f {
-                                    x: 0.26,
-                                    y: 0.52,
-                                    z: 0.96,
-                                    w: 0.4,
-                                },
-                                rects: snapshot
-                                    .rects
-                                    .iter()
-                                    .map(|r| makepad_widgets::Rect {
-                                        pos: dvec2(r.origin.x as f64, r.origin.y as f64),
-                                        size: dvec2(r.size.width as f64, r.size.height as f64),
-                                    })
-                                    .collect(),
-                            }
+            let selection_highlight = self.shared_selection.as_ref().map(|ss| {
+                let snapshot = ss.snapshot();
+                havi_render::SelectionHighlight {
+                    color: makepad_widgets::makepad_draw::Vec4f {
+                        x: 0.26,
+                        y: 0.52,
+                        z: 0.96,
+                        w: 0.4,
+                    },
+                    rects: snapshot
+                        .rects
+                        .iter()
+                        .map(|r| makepad_widgets::Rect {
+                            pos: dvec2(r.origin.x as f64, r.origin.y as f64),
+                            size: dvec2(r.size.width as f64, r.size.height as f64),
                         })
-                        .as_ref(),
-                    frame_draw_lists: &mut self.frame_draw_lists.0,
-                    image_overrides: &image_overrides,
-                },
-            );
+                        .collect(),
+                }
+            });
+
+            let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_overrides.is_empty() {
+                Some(BrowserSurfaceCacheKey {
+                    fragment_ptr: frag_ptr,
+                    viewport_width_bits: rect.size.x.to_bits(),
+                    viewport_height_bits: rect.size.y.to_bits(),
+                    dpi_bits: cx.current_dpi_factor().to_bits(),
+                    scroll_hash: hash_browser_scroll_state(&render_scroll),
+                    selection_hash: hash_selection_highlight(selection_highlight.as_ref()),
+                })
+            } else {
+                None
+            };
+
+            let webview_id = self.shared_webview_id.expect("shared webview id");
+            let cached_fragments = havi_render::CachedFragmentSource::new(frag_ptr);
+
+            if let Some(surface_cache_key) = surface_cache_key {
+                self.browser_surface_cache.observe(surface_cache_key);
+
+                if self.browser_surface_cache.can_reuse(surface_cache_key) {
+                    let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
+                    draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
+                } else if self.browser_surface_cache.should_promote(surface_cache_key) {
+                    let dpi = cx.current_dpi_factor();
+                    {
+                        let draw_content_bg = &mut self.draw_content_bg;
+                        let frame_draw_lists = &mut self.frame_draw_lists.0;
+                        let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
+                        cache.pass.set_size(cx.cx, rect.size);
+                        cx.make_child_pass(&cache.pass);
+                        cx.begin_pass(&cache.pass, Some(dpi));
+                        cache.draw_list.begin_always(cx);
+                        cx.begin_root_turtle(rect.size, Layout::flow_down());
+                        havi_render::render_fragments_clipped(
+                            cx,
+                            havi_render::RenderFragmentsClippedParams {
+                                webview_id,
+                                cached_fragments: &cached_fragments,
+                                host_rect: Rect {
+                                    pos: dvec2(0.0, 0.0),
+                                    size: rect.size,
+                                },
+                                draw_bg: draw_content_bg,
+                                scroll_state: &render_scroll,
+                                selection: selection_highlight.as_ref(),
+                                frame_draw_lists,
+                                image_overrides: &image_overrides,
+                            },
+                        );
+                        cx.end_pass_sized_turtle();
+                        cache.draw_list.end(cx);
+                        cx.end_pass(&cache.pass);
+                    }
+                    self.browser_surface_cache.cached_key = Some(surface_cache_key);
+                    let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
+                    draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
+                } else {
+                    havi_render::render_fragments_clipped(
+                        cx,
+                        havi_render::RenderFragmentsClippedParams {
+                            webview_id,
+                            cached_fragments: &cached_fragments,
+                            host_rect: rect,
+                            draw_bg: &mut self.draw_content_bg,
+                            scroll_state: &render_scroll,
+                            selection: selection_highlight.as_ref(),
+                            frame_draw_lists: &mut self.frame_draw_lists.0,
+                            image_overrides: &image_overrides,
+                        },
+                    );
+                }
+            } else {
+                self.browser_surface_cache.invalidate();
+                havi_render::render_fragments_clipped(
+                    cx,
+                    havi_render::RenderFragmentsClippedParams {
+                        webview_id,
+                        cached_fragments: &cached_fragments,
+                        host_rect: rect,
+                        draw_bg: &mut self.draw_content_bg,
+                        scroll_state: &render_scroll,
+                        selection: selection_highlight.as_ref(),
+                        frame_draw_lists: &mut self.frame_draw_lists.0,
+                        image_overrides: &image_overrides,
+                    },
+                );
+            }
         }
 
         self.draw_scroll_overlay(cx, &rect);
@@ -439,6 +676,7 @@ impl ServoWebViewRef {
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.
             // Surface passes are reconfigured each frame so reuse is safe.
+            inner.browser_surface_cache.invalidate();
             inner.redraw(cx);
         }
     }

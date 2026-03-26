@@ -317,6 +317,14 @@ animated background/image content changes the published derived data.
 Steady-state frames therefore hit the retained document cache instead of
 rebuilding scene data every draw.
 
+`ServoWebView` now adds a second outer cache on top of that retained document.
+When the browser output key stays stable across consecutive frames, HAVI
+promotes the rendered browser content into a dedicated offscreen pass texture
+and reuses that texture on later unchanged frames. The key includes fragment
+pointer, viewport size, pass DPI, scroll hash, and selection hash. Dynamic
+image overrides disable this coarse cache. Set `HAVI_BROWSER_SURFACE_CACHE=0`
+to disable it.
+
 Files:
 
 - `havi/crates/render/src/lib.rs`
