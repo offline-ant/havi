@@ -280,7 +280,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     }
 
     if document_cache_hit {
-        let (scroll_changed, resource_changed) = {
+        let scroll_changed = {
             let cache = frame_draw_lists.browser_document_cache.as_mut().unwrap();
             let scroll_changed = cache.scroll_hash != scroll_hash;
             if scroll_changed {
@@ -291,20 +291,36 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
                 );
                 cache.scroll_hash = scroll_hash;
                 frame_draw_lists.counters.retained_document_scroll_patch_count += 1;
-                if cache.lowered_scene.is_some() {
-                    frame_draw_lists.counters.retained_scene_scroll_relower_count += 1;
-                }
-                // Temporary until retained scroll patching lands: keep scroll out
-                // of the structural key, update the retained document in place,
-                // then drop only the lowered scene.
-                cache.lowered_scene = None;
             }
+            scroll_changed
+        };
+        if scroll_changed {
+            let host_rect = document_rect;
+            let patch_result = {
+                let renderer = frame_draw_lists.browser_renderer.as_mut().unwrap();
+                let cache = frame_draw_lists.browser_document_cache.as_mut().unwrap();
+                match cache.lowered_scene.as_mut() {
+                    Some(retained_scene) => {
+                        renderer.patch_retained_document_scene(retained_scene, &cache.document, host_rect)
+                    }
+                    None => Ok(()),
+                }
+            };
+            if let Err(err) = patch_result {
+                frame_draw_lists.counters.browser_scene_failure_count += 1;
+                frame_draw_lists.browser_document_cache = None;
+                eprintln!("[havi][render] retained browser_scene scroll patch failed: {err:?}");
+                return;
+            }
+        }
+        let resource_changed = {
+            let cache = frame_draw_lists.browser_document_cache.as_mut().unwrap();
             let resource_changed =
                 cache.structural_key.resource_generation != renderer_resource_generation;
             if resource_changed {
                 cache.lowered_scene = None;
             }
-            (scroll_changed, resource_changed)
+            resource_changed
         };
 
         let lowered_scene_hit = frame_draw_lists

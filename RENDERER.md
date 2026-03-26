@@ -260,13 +260,15 @@ Browser draw does not mutate atlas textures.
 
 Prepared batches now live on the retained lowered-scene owner, not in transient
 per-draw traversal. Validation is cheap: compare the retained prepared-run key,
-cache generation, and referenced atlas page generations. Only invalid runs
-rebuild. Unchanged retained text runs skip glyph walking entirely.
+retained glyph-entry generations, and referenced atlas page generations. Only
+invalid runs rebuild. Unchanged retained text runs skip glyph walking entirely.
 
-Remaining gap: expensive outline MSDF generation still executes synchronously on
-the first browser glyph miss. Warm retained frames avoid that work through
-prepared-text and glyph-residency hits, but the worker-backed async MSDF
-promotion path is not landed yet.
+Outline MSDF promotion is browser-owned and asynchronous. The first MSDF miss
+publishes an alpha fallback entry immediately, queues browser-owned worker
+promotion, then promotes the final MSDF entry before page upload on a later
+frame. Promotion invalidates only prepared runs that reference the promoted
+`BrowserGlyphKey`; ordinary atlas page allocation and promotion do not trigger a
+global browser glyph-cache reset.
 
 Current direct text execution uses the retained text-run path when the run can
 stay on the local clip-rect fast path. Higher-level picture boundaries still
@@ -329,11 +331,13 @@ Fast path:
 - same renderer resource-generation identity
 - retained lowered-scene reuse without relowering
 
-Scroll offsets still update in place through retained scroll nodes on the
-retained document layer. The retained lowered-scene entry is intentionally keyed
-from structural inputs plus resource identity only. Scroll is not a structural
-key. Temporary relowering remains only until retained lowered-scene scroll patch
-metadata is wired through the new seam.
+Scroll offsets update in place through retained scroll nodes on the retained
+`MpDocument` layer and through source-driven retained patch metadata on the
+retained lowered-scene layer. The retained lowered-scene entry stays keyed from
+structural inputs plus resource identity only. Scroll is not a structural key.
+Scroll-only frames patch retained transforms, clip chains, primitive rects,
+text-run rects, picture rects, and nested task/iframe retained scenes without
+structural relowering.
 
 Layout republishes the arena when the fragment-tree generation changes or when
 animated background/image content changes the published derived data.
