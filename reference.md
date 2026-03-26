@@ -56,7 +56,8 @@ Environment variables:
 
 Screenshot mode waits for the active page to reach load-complete and then for
 active-page visual updates to go quiet. Shell chrome redraws and generic event
-loop wakeups do not extend screenshot settling.
+loop wakeups do not extend screenshot settling. The final PNG is captured from
+the browser-owned page output surface, not from shell chrome composition.
 
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
@@ -160,7 +161,7 @@ Current behavior:
 - prepared browser text batches are per-draw snapshots only; they are invalid after any glyph-cache generation or page-generation change
 - layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
-- `HAVI_BROWSER_SURFACE_CACHE=0` disables the coarse retained browser-output surface cache; by default HAVI promotes stable browser content into an offscreen texture and reuses it on unchanged frames
+- `HAVI_BROWSER_SURFACE_CACHE=0` disables the browser-owned retained output-surface cache; by default HAVI promotes stable page content into an offscreen texture and reuses it on unchanged frames
 
 This keeps renderer ownership on the retained path while coverage work continues.
 

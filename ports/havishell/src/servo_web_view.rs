@@ -272,6 +272,8 @@ pub struct ServoWebView {
     frame_draw_lists: FrameDrawLists,
     #[rust]
     browser_surface_cache: BrowserSurfaceCacheState,
+    #[rust]
+    capture_surface_requested: bool,
     /// Shared semantic fragment tree from layout. When set, draw_walk renders
     /// through havi-render's semantic path.
     #[rust]
@@ -528,8 +530,14 @@ impl Widget for ServoWebView {
             let webview_id = self.shared_webview_id.expect("shared webview id");
             let cached_fragments = havi_render::CachedFragmentSource::new(frag_ptr);
 
+            let capture_requested = self.capture_surface_requested;
+            let mut render_into_surface = capture_requested;
+            let mut draw_from_surface = capture_requested;
+            let mut reusable_surface_key = None;
+
             if let Some(surface_cache_key) = surface_cache_key {
                 self.browser_surface_cache.observe(surface_cache_key);
+                reusable_surface_key = Some(surface_cache_key);
 
                 if self.browser_surface_cache.can_reuse(surface_cache_key) {
                     if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
@@ -539,8 +547,7 @@ impl Widget for ServoWebView {
                             self.browser_surface_cache.stable_repeat_count,
                         );
                     }
-                    let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
-                    draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
+                    draw_from_surface = true;
                 } else if self.browser_surface_cache.should_promote(surface_cache_key) {
                     if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
                         eprintln!(
@@ -549,56 +556,30 @@ impl Widget for ServoWebView {
                             self.browser_surface_cache.stable_repeat_count,
                         );
                     }
-                    let dpi = cx.current_dpi_factor();
-                    {
-                        let draw_content_bg = &mut self.draw_content_bg;
-                        let frame_draw_lists = &mut self.frame_draw_lists.0;
-                        let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
-                        cache.pass.set_size(cx.cx, rect.size);
-                        cx.make_child_pass(&cache.pass);
-                        cx.begin_pass(&cache.pass, Some(dpi));
-                        cache.draw_list.begin_always(cx);
-                        cx.begin_root_turtle(rect.size, Layout::flow_down());
-                        havi_render::render_fragments_clipped(
-                            cx,
-                            havi_render::RenderFragmentsClippedParams {
-                                webview_id,
-                                cached_fragments: &cached_fragments,
-                                host_rect: Rect {
-                                    pos: dvec2(0.0, 0.0),
-                                    size: rect.size,
-                                },
-                                draw_bg: draw_content_bg,
-                                scroll_state: &render_scroll,
-                                selection: selection_highlight.as_ref(),
-                                frame_draw_lists,
-                                image_overrides: &image_overrides,
-                            },
-                        );
-                        cx.end_pass_sized_turtle();
-                        cache.draw_list.end(cx);
-                        cx.end_pass(&cache.pass);
-                    }
-                    self.browser_surface_cache.cached_key = Some(surface_cache_key);
-                    let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
-                    draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
-                } else {
-                    havi_render::render_fragments_clipped(
-                        cx,
-                        havi_render::RenderFragmentsClippedParams {
-                            webview_id,
-                            cached_fragments: &cached_fragments,
-                            host_rect: rect,
-                            draw_bg: &mut self.draw_content_bg,
-                            scroll_state: &render_scroll,
-                            selection: selection_highlight.as_ref(),
-                            frame_draw_lists: &mut self.frame_draw_lists.0,
-                            image_overrides: &image_overrides,
-                        },
-                    );
+                    render_into_surface = true;
+                    draw_from_surface = true;
                 }
             } else {
                 self.browser_surface_cache.invalidate();
+            }
+
+            if render_into_surface {
+                self.render_into_browser_surface(
+                    cx,
+                    rect,
+                    webview_id,
+                    &cached_fragments,
+                    &render_scroll,
+                    selection_highlight.as_ref(),
+                    &image_overrides,
+                );
+                self.browser_surface_cache.cached_key = reusable_surface_key;
+            }
+
+            if draw_from_surface {
+                let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
+                draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
+            } else {
                 havi_render::render_fragments_clipped(
                     cx,
                     havi_render::RenderFragmentsClippedParams {
@@ -613,6 +594,8 @@ impl Widget for ServoWebView {
                     },
                 );
             }
+
+            self.capture_surface_requested = false;
         }
 
         self.draw_scroll_overlay(cx, &rect);
@@ -626,6 +609,46 @@ impl Widget for ServoWebView {
 // ---------------------------------------------------------------------------
 
 impl ServoWebView {
+    fn render_into_browser_surface(
+        &mut self,
+        cx: &mut Cx2d,
+        rect: Rect,
+        webview_id: base::id::WebViewId,
+        cached_fragments: &havi_render::CachedFragmentSource,
+        render_scroll: &havi_render::ScrollState,
+        selection_highlight: Option<&havi_render::SelectionHighlight>,
+        image_overrides: &havi_types::ImageOverrides,
+    ) {
+        let dpi = cx.current_dpi_factor();
+        let draw_content_bg = &mut self.draw_content_bg;
+        let frame_draw_lists = &mut self.frame_draw_lists.0;
+        let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
+        cache.pass.set_size(cx.cx, rect.size);
+        cx.make_child_pass(&cache.pass);
+        cx.begin_pass(&cache.pass, Some(dpi));
+        cache.draw_list.begin_always(cx);
+        cx.begin_root_turtle(rect.size, Layout::flow_down());
+        havi_render::render_fragments_clipped(
+            cx,
+            havi_render::RenderFragmentsClippedParams {
+                webview_id,
+                cached_fragments,
+                host_rect: Rect {
+                    pos: dvec2(0.0, 0.0),
+                    size: rect.size,
+                },
+                draw_bg: draw_content_bg,
+                scroll_state: render_scroll,
+                selection: selection_highlight,
+                frame_draw_lists,
+                image_overrides,
+            },
+        );
+        cx.end_pass_sized_turtle();
+        cache.draw_list.end(cx);
+        cx.end_pass(&cache.pass);
+    }
+
     fn draw_scroll_overlay(&mut self, cx: &mut Cx2d, rect: &Rect) {
         let scroll_state = self
             .shared_scroll_state
@@ -698,6 +721,37 @@ impl ServoWebViewRef {
             // when the rendered content key actually changes.
             inner.redraw(cx);
         }
+    }
+
+    pub fn prepare_capture_source(&self, cx: &mut Cx) -> Result<CaptureSource, String> {
+        let Some(mut inner) = self.borrow_mut() else {
+            return Err("webview missing".to_string());
+        };
+        let area = inner.area();
+        if area.is_empty() {
+            return Err("webview area unavailable".to_string());
+        }
+        let rect = area.rect(cx);
+        if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
+            return Err("webview rect unavailable".to_string());
+        }
+        if inner
+            .shared_layout_fragments
+            .as_ref()
+            .and_then(|shared| shared.payload_ptr())
+            .unwrap_or(0)
+            == 0
+        {
+            return Err("browser fragments unavailable".to_string());
+        }
+
+        inner.capture_surface_requested = true;
+        let draw_pass_id = {
+            let cache = ensure_browser_surface_cache(cx, &mut inner.browser_surface_cache, rect.size);
+            cache.pass.draw_pass_id()
+        };
+        inner.redraw(cx);
+        Ok(CaptureSource::CachedView { draw_pass_id })
     }
 
     /// Convenience accessor for the widget's draw area.

@@ -45,7 +45,6 @@ use crate::servo_web_view::ServoWebViewWidgetRefExt;
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.HaviShellRoot
-    use mod.widgets.WebViewCachedSurface
     use mod.widgets.HaviTabBar
     use mod.widgets.HaviToolbar
     use mod.widgets.HaviContextMenu
@@ -1028,13 +1027,13 @@ impl App {
 
             let source = match self
                 .ui
-                .view(cx, ids!(web_view_texture))
-                .cached_capture_source()
+                .servo_web_view(cx, ids!(web_view))
+                .prepare_capture_source(cx)
             {
                 Ok(source) => source,
                 Err(err) => {
                     eprintln!(
-                        "[havi][screenshot] failed to get cached capture source for webview {:?}: {}",
+                        "[havi][screenshot] failed to prepare browser capture source for webview {:?}: {}",
                         request.webview_id,
                         err
                     );
@@ -1107,7 +1106,7 @@ impl App {
         self.ui
             .servo_web_view(cx, ids!(web_view))
             .set_shared_layout_fragments(cx, tab.webview_id, shared, scroll, selection, images);
-        self.ui.view(cx, ids!(web_view_texture)).redraw(cx);
+        self.ui.servo_web_view(cx, ids!(web_view)).redraw(cx);
     }
 
     pub(super) fn focus_active_webview(&self, cx: &mut Cx) {
