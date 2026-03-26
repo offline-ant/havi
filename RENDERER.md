@@ -200,6 +200,11 @@ Important retained execution types:
 - `MpBrowserPrimitiveScene`
 - `MpBrowserTextRun`
 
+Each retained lowered scene now carries one retained-scene id plus stable text-run
+ids allocated during lowering. Those ids are the future prepared-text cache keys.
+They are allocated once per retained lowered-scene tree and cover root direct
+text, picture-fallback text, nested task scenes, and iframe child documents.
+
 ## Render-task graph
 
 Current task kinds:
@@ -242,21 +247,26 @@ Prepare owns:
 - glyph residency lookup in one global browser glyph cache
 - page allocation in separate alpha, msdf, and color page pools
 - page upload to explicit GPU textures
-- per-scene prepared batches grouped by page binding
+- retained prepared batches keyed by retained-scene id plus stable text-run id
 
 Draw owns:
 
 - decoration quads
-- prepared glyph batch submission only
+- validated prepared glyph batch submission only
 
 Browser draw does not call `font.rasterize_glyph()`.
 Browser draw does not allocate atlas slots.
 Browser draw does not mutate atlas textures.
 
-Prepared batches are disposable per-draw views. They are valid only for the
-cache generation and page generations they were prepared against. Any cache
-reset or page replacement invalidates those batches and forces rebuild on the
-next prepare pass.
+Prepared batches now live on the retained lowered-scene owner, not in transient
+per-draw traversal. Validation is cheap: compare the retained prepared-run key,
+cache generation, and referenced atlas page generations. Only invalid runs
+rebuild. Unchanged retained text runs skip glyph walking entirely.
+
+Remaining gap: expensive outline MSDF generation still executes synchronously on
+the first browser glyph miss. Warm retained frames avoid that work through
+prepared-text and glyph-residency hits, but the worker-backed async MSDF
+promotion path is not landed yet.
 
 Current direct text execution uses the retained text-run path when the run can
 stay on the local clip-rect fast path. Higher-level picture boundaries still
@@ -304,13 +314,26 @@ File:
 
 ## 3. Render crate reuses or rebuilds `MpDocument`
 
-`FrameDrawListState` caches the last built document and its scroll-node map.
+`FrameDrawListState` is now the retained browser-output owner. It caches one
+entry that contains:
+
+- the retained `MpDocument`
+- the retained document scroll-node map
+- the retained lowered `makepad_compositor::MpBrowserScene`
+- retained-scene structural metadata and instrumentation inputs
 
 Fast path:
 
 - same published arena pointer
 - same viewport size
-- scroll offsets update in place through retained scroll nodes
+- same renderer resource-generation identity
+- retained lowered-scene reuse without relowering
+
+Scroll offsets still update in place through retained scroll nodes on the
+retained document layer. The retained lowered-scene entry is intentionally keyed
+from structural inputs plus resource identity only. Scroll is not a structural
+key. Temporary relowering remains only until retained lowered-scene scroll patch
+metadata is wired through the new seam.
 
 Layout republishes the arena when the fragment-tree generation changes or when
 animated background/image content changes the published derived data.
@@ -464,8 +487,10 @@ HAVI_RENDER_STATS=1
 
 This logs browser-scene stats from the HAVI render crate.
 It also logs shared-fragment publication reuse vs publish on the layout side,
-browser-document cache hit vs miss on the render side, and coarse browser
-surface-cache promotion and reuse in `ServoWebView`.
+browser-document cache hit vs miss, retained lowered-scene hit vs miss,
+prepared-text rebuild counters, glyph residency hit vs miss, atlas page
+allocation, and synchronous browser glyph generation on the render path.
+`FrameDrawListState` is the single retained-scene cache owner at this seam.
 
 Those stats now describe the retained compositor picture/task model rather than
 legacy scratch ownership.

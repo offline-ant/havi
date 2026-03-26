@@ -388,6 +388,10 @@ mod tests {
             bounds_h: 30.0,
             tile_w: 20.0,
             tile_h: 10.0,
+            paint_x: 10.0,
+            paint_y: 20.0,
+            paint_w: 50.0,
+            paint_h: 30.0,
         });
 
         assert_eq!(rects.len(), 9);

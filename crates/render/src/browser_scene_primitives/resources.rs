@@ -1,4 +1,4 @@
-use std::collections::hash_map::{DefaultHasher, Entry};
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -13,8 +13,8 @@ pub(super) fn ensure_background_image_resource(
     bg: &havi_types::BackgroundImage,
 ) -> MpImageKey {
     let key = background_image_key(owner_node_id, layer_index, bg);
-    if let Entry::Vacant(entry) = registry.images.entry(key) {
-        entry.insert(materialize_background_image_resource(bg));
+    if !registry.images.contains_key(&key) {
+        registry.upsert_image(key, materialize_background_image_resource(bg));
     }
     key
 }
@@ -46,8 +46,8 @@ pub(super) fn ensure_image_resource_for_fragment(
     image: &ImageFragment,
 ) -> MpImageKey {
     let key = image_key_for_fragment(image);
-    if let Entry::Vacant(entry) = registry.images.entry(key) {
-        entry.insert(materialize_image_resource(image));
+    if !registry.images.contains_key(&key) {
+        registry.upsert_image(key, materialize_image_resource(image));
     }
     key
 }
@@ -78,8 +78,8 @@ pub(super) fn ensure_font_resource(
     tf: &TextFragment,
 ) -> Result<MpFontKey, String> {
     let key = font_key_for_text(tf)?;
-    if let Entry::Vacant(entry) = registry.fonts.entry(key) {
-        entry.insert(materialize_font_resource(tf)?);
+    if !registry.fonts.contains_key(&key) {
+        registry.upsert_font(key, materialize_font_resource(tf)?);
     }
     Ok(key)
 }
