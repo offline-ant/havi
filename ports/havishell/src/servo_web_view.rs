@@ -98,6 +98,9 @@ static BROWSER_SURFACE_CACHE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
         Ok(value) if matches!(value.as_str(), "0" | "false" | "no")
     )
 });
+static BROWSER_SURFACE_CACHE_STATS_ENABLED: LazyLock<bool> = LazyLock::new(|| {
+    matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1")
+});
 
 fn hash_browser_scroll_state(scroll_state: &havi_render::ScrollState) -> u64 {
     let mut entries: Vec<_> = scroll_state.iter().collect();
@@ -529,9 +532,23 @@ impl Widget for ServoWebView {
                 self.browser_surface_cache.observe(surface_cache_key);
 
                 if self.browser_surface_cache.can_reuse(surface_cache_key) {
+                    if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
+                        eprintln!(
+                            "[havi][surface-cache] reuse fragment_ptr={} stable_repeat_count={}",
+                            frag_ptr,
+                            self.browser_surface_cache.stable_repeat_count,
+                        );
+                    }
                     let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
                     draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
                 } else if self.browser_surface_cache.should_promote(surface_cache_key) {
+                    if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
+                        eprintln!(
+                            "[havi][surface-cache] promote fragment_ptr={} stable_repeat_count={}",
+                            frag_ptr,
+                            self.browser_surface_cache.stable_repeat_count,
+                        );
+                    }
                     let dpi = cx.current_dpi_factor();
                     {
                         let draw_content_bg = &mut self.draw_content_bg;
@@ -676,7 +693,9 @@ impl ServoWebViewRef {
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.
             // Surface passes are reconfigured each frame so reuse is safe.
-            inner.browser_surface_cache.invalidate();
+            // The browser surface cache keys itself by fragment pointer, viewport,
+            // scroll state, and selection state. Let draw_walk invalidate it only
+            // when the rendered content key actually changes.
             inner.redraw(cx);
         }
     }

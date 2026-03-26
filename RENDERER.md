@@ -462,8 +462,9 @@ HAVI_RENDER_STATS=1
 ```
 
 This logs browser-scene stats from the HAVI render crate.
-It also logs shared-fragment publication reuse vs publish on the layout side and
-browser-document cache hit vs miss on the render side.
+It also logs shared-fragment publication reuse vs publish on the layout side,
+browser-document cache hit vs miss on the render side, and coarse browser
+surface-cache promotion and reuse in `ServoWebView`.
 
 Those stats now describe the retained compositor picture/task model rather than
 legacy scratch ownership.

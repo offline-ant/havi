@@ -555,7 +555,7 @@ impl MatchEvent for App {
         for action in actions {
             match action.downcast_ref::<MakepadServoAction>() {
                 Some(MakepadServoAction::Wake) => {
-                    self.request_spin_redraw(cx);
+                    self.request_spin(cx);
                 },
                 Some(MakepadServoAction::TitleChanged { webview_id, title }) => {
                     let webview_id = *webview_id;
@@ -1125,12 +1125,14 @@ impl AppMain for App {
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
             // Keep running in control mode so stdin messages are polled.
-            if self.idle_frames < MAX_IDLE_FRAMES
+            let keep_spinning = self.idle_frames < MAX_IDLE_FRAMES
                 || scroll_fading
                 || self.screenshot_mode.is_some()
-                || Cx::has_studio_web_socket()
-            {
+                || Cx::has_studio_web_socket();
+            if keep_spinning {
                 self.next_frame = cx.new_next_frame();
+            }
+            if scroll_fading || self.screenshot_mode.is_some() || Cx::has_studio_web_socket() {
                 cx.redraw_all();
             }
         }
