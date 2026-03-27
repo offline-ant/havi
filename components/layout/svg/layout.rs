@@ -11,6 +11,7 @@ use super::dom::{
 use super::resources::{
     SVGResourceGraph, SVGResourceGraphNode, SVGResourceReferenceInputs,
 };
+use super::transform::compute_view_box_mapper;
 use super::style::{SVGPaintFallback, SVGResolvedPaint};
 use crate::context::LayoutContext;
 use crate::fragment_tree::{
@@ -71,6 +72,12 @@ fn build_svg_node_fragment(
                 })
                 .collect();
             let viewport_rect = svg_rect_from_physical_rect(rect);
+            let view_box_rect = viewport.view_box.as_deref().and_then(parse_view_box);
+            let mapper = compute_view_box_mapper(
+                viewport_rect,
+                view_box_rect,
+                viewport_style.preserve_aspect_ratio,
+            );
             let overflow_clip = viewport_style.overflow_hidden.then_some(havi_types::fragment_tree::SVGOverflowClip {
                 enabled: true,
                 rect: viewport_rect,
@@ -80,8 +87,8 @@ fn build_svg_node_fragment(
                     base: BaseFragment::new(base_fragment_info, style.into(), rect),
                     children,
                     viewport_rect,
-                    view_box_rect: viewport.view_box.as_deref().and_then(parse_view_box),
-                    local_to_parent_transform: havi_types::fragment_tree::SVGTransform::identity(),
+                    view_box_rect,
+                    local_to_parent_transform: mapper.local_to_parent,
                     overflow_clip,
                     resource_graph,
                 },
