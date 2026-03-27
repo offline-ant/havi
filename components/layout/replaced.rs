@@ -42,6 +42,7 @@ use crate::sizing::{
     ComputeInlineContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
 };
 use crate::style_ext::{AspectRatio, Clamp, ComputedValuesExt, LayoutStyle};
+use crate::svg::layout::{build_inline_svg_fragments, snapshot_inline_svg_subtree};
 use crate::{ConstraintSpace, ContainingBlock};
 
 #[derive(Debug, MallocSizeOf)]
@@ -136,12 +137,19 @@ pub(crate) struct VideoInfo {
 }
 
 #[derive(Debug, MallocSizeOf)]
+pub(crate) struct SVGElementInfo {
+    pub vector_image: Option<VectorImage>,
+    #[ignore_malloc_size_of = "SVG DOM snapshots are layout-local transient data"]
+    pub dom_tree: Option<crate::svg::dom::SVGDOMTree>,
+}
+
+#[derive(Debug, MallocSizeOf)]
 pub(crate) enum ReplacedContentKind {
     Image(ImageInfo),
     IFrame(IFrameInfo),
     Canvas(CanvasInfo),
     Video(VideoInfo),
-    SVGElement(Option<VectorImage>),
+    SVGElement(SVGElementInfo),
     Audio,
 }
 
@@ -275,8 +283,15 @@ impl ReplacedContents {
             },
             _ => unreachable!("SVG element can't contain a raster image."),
         });
+        let dom_tree = snapshot_inline_svg_subtree(node, context);
 
-        (ReplacedContentKind::SVGElement(vector_image), natural_size)
+        (
+            ReplacedContentKind::SVGElement(SVGElementInfo {
+                vector_image,
+                dom_tree,
+            }),
+            natural_size,
+        )
     }
 
     fn from_content_property(
@@ -549,8 +564,20 @@ impl ReplacedContents {
                     raster_image: None,
                 }))]
             },
-            ReplacedContentKind::SVGElement(vector_image) => {
-                let Some(vector_image) = vector_image else {
+            ReplacedContentKind::SVGElement(svg) => {
+                if let Some(dom_tree) = &svg.dom_tree {
+                    let fragments = build_inline_svg_fragments(
+                        dom_tree,
+                        self.base_fragment_info,
+                        style,
+                        base.rect,
+                    );
+                    if !fragments.is_empty() {
+                        return fragments;
+                    }
+                }
+
+                let Some(vector_image) = &svg.vector_image else {
                     return vec![];
                 };
 

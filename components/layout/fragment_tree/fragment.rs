@@ -9,6 +9,10 @@ use atomic_refcell::{AtomicRef, AtomicRefMut};
 use base::id::PipelineId;
 use base::print_tree::PrintTree;
 use fonts::{FontMetrics, FontRef, GlyphStore};
+use havi_types::fragment_tree::{
+    SVGGlyphRun, SVGOverflowClip, SVGPaint, SVGPathData, SVGRect, SVGResourceReferences,
+    SVGStrokeStyle, SVGTransform,
+};
 use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
 use webrender_api::{FontInstanceKey, ImageKey};
@@ -41,6 +45,12 @@ pub enum Fragment {
     Text(ArcRefCell<TextFragment>),
     Image(ArcRefCell<ImageFragment>),
     IFrame(ArcRefCell<IFrameFragment>),
+    SVGViewport(ArcRefCell<SVGViewportFragment>),
+    SVGGroup(ArcRefCell<SVGGroupFragment>),
+    SVGPath(ArcRefCell<SVGPathFragment>),
+    SVGText(ArcRefCell<SVGTextFragment>),
+    SVGForeignObject(ArcRefCell<SVGForeignObjectFragment>),
+    SVGImage(ArcRefCell<SVGImageFragment>),
 }
 
 #[derive(Clone, MallocSizeOf)]
@@ -91,6 +101,89 @@ pub struct IFrameFragment {
     pub pipeline_id: PipelineId,
 }
 
+#[derive(MallocSizeOf)]
+pub struct SVGViewportFragment {
+    pub base: BaseFragment,
+    pub children: Vec<Fragment>,
+    #[ignore_malloc_size_of = "SVG viewport metadata is small and copied into published fragments"]
+    pub viewport_rect: SVGRect,
+    #[ignore_malloc_size_of = "SVG viewport metadata is small and copied into published fragments"]
+    pub view_box_rect: Option<SVGRect>,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_to_parent_transform: SVGTransform,
+    #[ignore_malloc_size_of = "SVG overflow clips are copied into published fragments"]
+    pub overflow_clip: Option<SVGOverflowClip>,
+    #[ignore_malloc_size_of = "SVG resource graphs are published separately into the fragment arena"]
+    pub resource_graph: Option<crate::svg::resources::SVGResourceGraph>,
+}
+
+#[derive(MallocSizeOf)]
+pub struct SVGGroupFragment {
+    pub base: BaseFragment,
+    pub children: Vec<Fragment>,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_transform: SVGTransform,
+    pub opacity: f32,
+    #[ignore_malloc_size_of = "SVG resource references are copied into published fragments"]
+    pub resources: SVGResourceReferences,
+}
+
+#[derive(MallocSizeOf)]
+pub struct SVGPathFragment {
+    pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG path data is copied into published fragments"]
+    pub path: SVGPathData,
+    #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
+    pub object_bounding_box: SVGRect,
+    #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
+    pub decorated_bounding_box: SVGRect,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_transform: SVGTransform,
+    #[ignore_malloc_size_of = "SVG paints are copied into published fragments"]
+    pub fill: SVGPaint,
+    #[ignore_malloc_size_of = "SVG stroke styles are copied into published fragments"]
+    pub stroke: Option<SVGStrokeStyle>,
+    #[ignore_malloc_size_of = "SVG resource references are copied into published fragments"]
+    pub resources: SVGResourceReferences,
+}
+
+#[derive(MallocSizeOf)]
+pub struct SVGTextFragment {
+    pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG glyph runs are copied into published fragments"]
+    pub glyph_runs: Vec<SVGGlyphRun>,
+    #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
+    pub object_bounding_box: SVGRect,
+    #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
+    pub decorated_bounding_box: SVGRect,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_transform: SVGTransform,
+    #[ignore_malloc_size_of = "SVG resource references are copied into published fragments"]
+    pub resources: SVGResourceReferences,
+}
+
+#[derive(MallocSizeOf)]
+pub struct SVGForeignObjectFragment {
+    pub base: BaseFragment,
+    pub children: Vec<Fragment>,
+    #[ignore_malloc_size_of = "SVG viewport metadata is copied into published fragments"]
+    pub svg_viewport_rect: SVGRect,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_transform: SVGTransform,
+}
+
+#[derive(MallocSizeOf)]
+pub struct SVGImageFragment {
+    pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG viewport metadata is copied into published fragments"]
+    pub viewport_rect: SVGRect,
+    #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
+    pub local_transform: SVGTransform,
+    pub href: Option<String>,
+    #[ignore_malloc_size_of = "SVG resource references are copied into published fragments"]
+    pub resources: SVGResourceReferences,
+}
+
 impl Fragment {
     pub fn base<'a>(&'a self) -> Option<AtomicRef<'a, BaseFragment>> {
         Some(match self {
@@ -106,6 +199,24 @@ impl Fragment {
                 AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
             },
             Fragment::IFrame(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGViewport(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGGroup(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGPath(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGText(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGForeignObject(fragment) => {
+                AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
+            },
+            Fragment::SVGImage(fragment) => {
                 AtomicRef::map(fragment.borrow(), |fragment| &fragment.base)
             },
             Fragment::Float(fragment) => {
@@ -132,6 +243,24 @@ impl Fragment {
             Fragment::IFrame(fragment) => {
                 AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
             },
+            Fragment::SVGViewport(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
+            Fragment::SVGGroup(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
+            Fragment::SVGPath(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
+            Fragment::SVGText(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
+            Fragment::SVGForeignObject(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
+            Fragment::SVGImage(fragment) => {
+                AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
+            },
             Fragment::Float(fragment) => {
                 AtomicRefMut::map(fragment.borrow_mut(), |fragment| &mut fragment.base)
             },
@@ -153,6 +282,12 @@ impl Fragment {
             Fragment::Text(_) => {},
             Fragment::Image(_) => {},
             Fragment::IFrame(_) => {},
+            Fragment::SVGViewport(_) => {},
+            Fragment::SVGGroup(_) => {},
+            Fragment::SVGPath(_) => {},
+            Fragment::SVGText(_) => {},
+            Fragment::SVGForeignObject(_) => {},
+            Fragment::SVGImage(_) => {},
         }
     }
 
@@ -182,6 +317,12 @@ impl Fragment {
             Fragment::Text(fragment) => fragment.borrow().print(tree),
             Fragment::Image(fragment) => fragment.borrow().print(tree),
             Fragment::IFrame(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGViewport(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGGroup(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGPath(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGText(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGForeignObject(fragment) => fragment.borrow().print(tree),
+            Fragment::SVGImage(fragment) => fragment.borrow().print(tree),
         }
     }
 
@@ -194,7 +335,13 @@ impl Fragment {
             Fragment::AbsoluteOrFixedPositioned(_) |
             Fragment::Text(..) |
             Fragment::Image(..) |
-            Fragment::IFrame(..) => self.base().map(|base| base.rect).unwrap_or_default(),
+            Fragment::IFrame(..) |
+            Fragment::SVGPath(..) |
+            Fragment::SVGText(..) |
+            Fragment::SVGImage(..) => self.base().map(|base| base.rect).unwrap_or_default(),
+            Fragment::SVGViewport(fragment) => fragment.borrow().base.rect,
+            Fragment::SVGGroup(fragment) => fragment.borrow().base.rect,
+            Fragment::SVGForeignObject(fragment) => fragment.borrow().base.rect,
         }
     }
 
@@ -265,6 +412,33 @@ impl Fragment {
                     .iter()
                     .find_map(|child| child.find(&new_manager, level + 1, process_func))
             },
+            Fragment::SVGViewport(fragment) => {
+                let fragment = fragment.borrow();
+                let content_rect = fragment.base.rect.translate(containing_block.origin.to_vector());
+                let new_manager = manager.new_for_non_absolute_descendants(&content_rect);
+                fragment
+                    .children
+                    .iter()
+                    .find_map(|child| child.find(&new_manager, level + 1, process_func))
+            },
+            Fragment::SVGGroup(fragment) => {
+                let fragment = fragment.borrow();
+                let content_rect = fragment.base.rect.translate(containing_block.origin.to_vector());
+                let new_manager = manager.new_for_non_absolute_descendants(&content_rect);
+                fragment
+                    .children
+                    .iter()
+                    .find_map(|child| child.find(&new_manager, level + 1, process_func))
+            },
+            Fragment::SVGForeignObject(fragment) => {
+                let fragment = fragment.borrow();
+                let content_rect = fragment.base.rect.translate(containing_block.origin.to_vector());
+                let new_manager = manager.new_for_non_absolute_descendants(&content_rect);
+                fragment
+                    .children
+                    .iter()
+                    .find_map(|child| child.find(&new_manager, level + 1, process_func))
+            },
             _ => None,
         }
     }
@@ -308,6 +482,54 @@ impl IFrameFragment {
                 \npipeline={:?} rect={:?}",
             self.pipeline_id, self.base.rect
         ));
+    }
+}
+
+impl SVGViewportFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.new_level(format!("SVGViewport rect={:?}", self.base.rect));
+        for child in &self.children {
+            child.print(tree);
+        }
+        tree.end_level();
+    }
+}
+
+impl SVGGroupFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.new_level(format!("SVGGroup rect={:?}", self.base.rect));
+        for child in &self.children {
+            child.print(tree);
+        }
+        tree.end_level();
+    }
+}
+
+impl SVGPathFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.add_item(format!("SVGPath rect={:?}", self.base.rect));
+    }
+}
+
+impl SVGTextFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.add_item(format!("SVGText rect={:?}", self.base.rect));
+    }
+}
+
+impl SVGForeignObjectFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.new_level(format!("SVGForeignObject rect={:?}", self.base.rect));
+        for child in &self.children {
+            child.print(tree);
+        }
+        tree.end_level();
+    }
+}
+
+impl SVGImageFragment {
+    pub fn print(&self, tree: &mut PrintTree) {
+        tree.add_item(format!("SVGImage rect={:?}", self.base.rect));
     }
 }
 

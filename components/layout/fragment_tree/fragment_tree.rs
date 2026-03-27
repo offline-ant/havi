@@ -362,6 +362,88 @@ impl<'a> ArenaBuilder<'a> {
                     pipeline_id: iframe_fragment.pipeline_id,
                 })
             }
+            Fragment::SVGViewport(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                let geometry_children = svg_fragment
+                    .children
+                    .iter()
+                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .collect();
+                published::FragmentKind::SVGViewport(published::SVGViewportFragment {
+                    base,
+                    geometry_children,
+                    paint_children: Vec::new(),
+                    viewport_rect: svg_fragment.viewport_rect,
+                    view_box_rect: svg_fragment.view_box_rect,
+                    local_to_parent_transform: svg_fragment.local_to_parent_transform,
+                    overflow_clip: svg_fragment.overflow_clip.clone(),
+                })
+            }
+            Fragment::SVGGroup(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                let geometry_children = svg_fragment
+                    .children
+                    .iter()
+                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .collect();
+                published::FragmentKind::SVGGroup(published::SVGGroupFragment {
+                    base,
+                    geometry_children,
+                    paint_children: Vec::new(),
+                    local_transform: svg_fragment.local_transform,
+                    opacity: svg_fragment.opacity,
+                    resources: svg_fragment.resources.clone(),
+                })
+            }
+            Fragment::SVGPath(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                published::FragmentKind::SVGPath(published::SVGPathFragment {
+                    base,
+                    path: svg_fragment.path.clone(),
+                    object_bounding_box: svg_fragment.object_bounding_box,
+                    decorated_bounding_box: svg_fragment.decorated_bounding_box,
+                    local_transform: svg_fragment.local_transform,
+                    fill: svg_fragment.fill.clone(),
+                    stroke: svg_fragment.stroke.clone(),
+                    resources: svg_fragment.resources.clone(),
+                })
+            }
+            Fragment::SVGText(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                published::FragmentKind::SVGText(published::SVGTextFragment {
+                    base,
+                    glyph_runs: svg_fragment.glyph_runs.clone(),
+                    object_bounding_box: svg_fragment.object_bounding_box,
+                    decorated_bounding_box: svg_fragment.decorated_bounding_box,
+                    local_transform: svg_fragment.local_transform,
+                    resources: svg_fragment.resources.clone(),
+                })
+            }
+            Fragment::SVGForeignObject(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                let geometry_children = svg_fragment
+                    .children
+                    .iter()
+                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .collect();
+                published::FragmentKind::SVGForeignObject(published::SVGForeignObjectFragment {
+                    base,
+                    geometry_children,
+                    paint_children: Vec::new(),
+                    svg_viewport_rect: svg_fragment.svg_viewport_rect,
+                    local_transform: svg_fragment.local_transform,
+                })
+            }
+            Fragment::SVGImage(svg_fragment) => {
+                let svg_fragment = svg_fragment.borrow();
+                published::FragmentKind::SVGImage(published::SVGImageFragment {
+                    base,
+                    viewport_rect: svg_fragment.viewport_rect,
+                    local_transform: svg_fragment.local_transform,
+                    href: svg_fragment.href.clone(),
+                    resources: svg_fragment.resources.clone(),
+                })
+            }
             Fragment::AbsoluteOrFixedPositioned(_) => unreachable!("filtered by internal_fragment_key"),
         };
 
@@ -383,7 +465,15 @@ impl<'a> ArenaBuilder<'a> {
             Fragment::Positioning(positioning_fragment) => {
                 positioning_fragment.borrow().scrollable_overflow_for_parent()
             }
-            Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => base.rect,
+            Fragment::Text(_) |
+            Fragment::Image(_) |
+            Fragment::IFrame(_) |
+            Fragment::SVGViewport(_) |
+            Fragment::SVGGroup(_) |
+            Fragment::SVGPath(_) |
+            Fragment::SVGText(_) |
+            Fragment::SVGForeignObject(_) |
+            Fragment::SVGImage(_) => base.rect,
             Fragment::AbsoluteOrFixedPositioned(_) => PhysicalRect::zero(),
         });
         self.derived.sticky_insets.push(match fragment {
@@ -424,7 +514,15 @@ impl<'a> ArenaBuilder<'a> {
         let children = match fragment {
             Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => box_fragment.borrow().children.clone(),
             Fragment::Positioning(positioning_fragment) => positioning_fragment.borrow().children.clone(),
-            Fragment::Text(_) | Fragment::Image(_) | Fragment::IFrame(_) => Vec::new(),
+            Fragment::SVGViewport(svg_fragment) => svg_fragment.borrow().children.clone(),
+            Fragment::SVGGroup(svg_fragment) => svg_fragment.borrow().children.clone(),
+            Fragment::SVGForeignObject(svg_fragment) => svg_fragment.borrow().children.clone(),
+            Fragment::Text(_) |
+            Fragment::Image(_) |
+            Fragment::IFrame(_) |
+            Fragment::SVGPath(_) |
+            Fragment::SVGText(_) |
+            Fragment::SVGImage(_) => Vec::new(),
             Fragment::AbsoluteOrFixedPositioned(_) => return,
         };
 
@@ -729,6 +827,12 @@ fn convert_fragment_base(fragment: &Fragment) -> published::BaseFragment {
         Fragment::Text(tf) => convert_base(&tf.borrow().base),
         Fragment::Image(imf) => convert_base(&imf.borrow().base),
         Fragment::IFrame(ifr) => convert_base(&ifr.borrow().base),
+        Fragment::SVGViewport(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGGroup(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGPath(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGText(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGForeignObject(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGImage(fragment) => convert_base(&fragment.borrow().base),
         Fragment::AbsoluteOrFixedPositioned(_) => {
             unreachable!("filtered by internal_fragment_key")
         }
@@ -742,6 +846,12 @@ fn fragment_out_of_flow_placement_id(fragment: &Fragment) -> Option<u32> {
         Fragment::Text(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::Image(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::IFrame(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGViewport(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGGroup(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGPath(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGText(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGForeignObject(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGImage(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }
@@ -754,6 +864,12 @@ fn internal_fragment_key(fragment: &Fragment) -> Option<usize> {
         Fragment::Text(fragment) => Some(fragment_key(fragment)),
         Fragment::Image(fragment) => Some(fragment_key(fragment)),
         Fragment::IFrame(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGViewport(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGGroup(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGPath(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGText(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGForeignObject(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGImage(fragment) => Some(fragment_key(fragment)),
         Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }
