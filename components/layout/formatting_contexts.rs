@@ -417,6 +417,7 @@ impl IndependentFormattingContext {
             },
             IndependentFormattingContextContents::Svg(contents) => contents.layout(
                 layout_context,
+                positioning_context,
                 containing_block_for_children,
                 preferred_aspect_ratio,
                 &self.base,

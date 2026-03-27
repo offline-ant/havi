@@ -313,6 +313,46 @@ impl PositioningContext {
         }
     }
 
+    pub(crate) fn layout_collected_children_for_non_box_containing_block(
+        &mut self,
+        layout_context: &LayoutContext,
+        fragments: &mut Vec<Fragment>,
+        containing_block: &DefiniteContainingBlock,
+        containing_block_padding: PhysicalSides<Au>,
+        parent_context: &mut PositioningContext,
+    ) {
+        if self.absolutes.is_empty() {
+            return;
+        }
+
+        let (mut boxes_to_layout, mut fixed_position_boxes_to_hoist): (Vec<_>, Vec<_>) = self
+            .absolutes
+            .drain(..)
+            .partition(|hoisted_box| hoisted_box.position() != Position::Fixed);
+
+        while !boxes_to_layout.is_empty() {
+            HoistedAbsolutelyPositionedBox::layout_many(
+                layout_context,
+                mem::take(&mut boxes_to_layout),
+                fragments,
+                &mut self.absolutes,
+                containing_block,
+                containing_block_padding,
+            );
+
+            let (mut more_boxes_to_layout, mut more_fixed_position_boxes_to_hoist): (Vec<_>, Vec<_>) =
+                self.absolutes
+                    .drain(..)
+                    .partition(|hoisted_box| hoisted_box.position() != Position::Fixed);
+            boxes_to_layout.append(&mut more_boxes_to_layout);
+            fixed_position_boxes_to_hoist.append(&mut more_fixed_position_boxes_to_hoist);
+        }
+
+        parent_context.append(PositioningContext {
+            absolutes: fixed_position_boxes_to_hoist,
+        });
+    }
+
     pub(crate) fn layout_initial_containing_block_children(
         &mut self,
         layout_context: &LayoutContext,

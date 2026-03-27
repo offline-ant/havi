@@ -25,7 +25,7 @@ use super::dom::{
     resolve_svg_child_node, resolve_svg_node, SVGLayoutNodeKind, SVGNodeResolvedStyle,
     SVGResolvedNode,
 };
-use super::foreign_object::layout_foreign_object;
+use super::foreign_object::{layout_foreign_object, layout_foreign_object_children};
 use super::path::{
     decorated_bounds, normalize_svg_geometry, parse_svg_length, path_bounds, transform_svg_path_data,
 };
@@ -45,6 +45,7 @@ use crate::fragment_tree::{
 };
 use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSize};
 use crate::layout_box_base::{CacheableLayoutResult, LayoutBoxBase};
+use crate::positioned::PositioningContext;
 use crate::sizing::{
     ComputeInlineContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
 };
@@ -186,6 +187,7 @@ impl SVGRootContents {
     pub(crate) fn layout(
         &self,
         layout_context: &LayoutContext,
+        positioning_context: &mut PositioningContext,
         containing_block_for_children: &ContainingBlock,
         preferred_aspect_ratio: Option<AspectRatio>,
         base: &LayoutBoxBase,
@@ -210,7 +212,8 @@ impl SVGRootContents {
         ));
         let fragments = build_svg_root_fragment(
             root_node,
-            &layout_context.style_context,
+            layout_context,
+            positioning_context,
             base.base_fragment_info,
             &base.style,
             rect,
@@ -269,11 +272,13 @@ fn intrinsic_svg_root_sizes(svg_data: &SVGElementData<'_>) -> SVGRootIntrinsicSi
 
 pub(crate) fn build_svg_root_fragment(
     root: ServoThreadSafeLayoutNode<'_>,
-    style_context: &SharedStyleContext,
+    layout_context: &LayoutContext,
+    positioning_context: &mut PositioningContext,
     base_fragment_info: BaseFragmentInfo,
     outer_style: &ServoArc<ComputedValues>,
     outer_rect: PhysicalRect<Au>,
 ) -> Option<Fragment> {
+    let style_context = &layout_context.style_context;
     let root = resolve_svg_node(root, style_context)?;
     if root.summary.kind != SVGLayoutNodeKind::Viewport {
         return None;
@@ -282,7 +287,8 @@ pub(crate) fn build_svg_root_fragment(
     resolve_svg_resources(&root, style_context, &nodes_by_opaque, &mut resource_graph);
     build_svg_node_fragment(
         &root,
-        style_context,
+        layout_context,
+        positioning_context,
         base_fragment_info,
         outer_style.clone(),
         outer_rect,
@@ -338,7 +344,8 @@ fn published_tag(tag: Tag) -> PublishedTag {
 
 fn build_svg_node_fragment(
     node: &SVGResolvedNode<'_>,
-    style_context: &SharedStyleContext,
+    layout_context: &LayoutContext,
+    positioning_context: &mut PositioningContext,
     base_fragment_info: BaseFragmentInfo,
     style: ServoArc<ComputedValues>,
     rect: PhysicalRect<Au>,
@@ -368,20 +375,14 @@ fn build_svg_node_fragment(
                     rect: viewport_rect,
                 },
             );
-            let children = node
-                .node
-                .children()
-                .filter_map(|child| {
-                    let child = resolve_svg_child_node(child, style_context, node)?;
-                    build_svg_child_fragment(
-                        &child,
-                        style_context,
-                        &resource_graph,
-                        nodes_by_opaque,
-                        SVGFragmentIdentityContext::default(),
-                    )
-                })
-                .collect();
+            let children = build_svg_children(
+                node,
+                layout_context,
+                positioning_context,
+                &resource_graph,
+                nodes_by_opaque,
+                SVGFragmentIdentityContext::default(),
+            );
             Some(Fragment::SVGViewport(crate::cell::ArcRefCell::new(
                 SVGViewportFragment {
                     base: BaseFragment::new(base_fragment_info, style.into(), rect),
@@ -399,33 +400,57 @@ fn build_svg_node_fragment(
     }
 }
 
+fn build_svg_children(
+    node: &SVGResolvedNode<'_>,
+    layout_context: &LayoutContext,
+    positioning_context: &mut PositioningContext,
+    resource_graph: &SVGResourceGraph,
+    nodes_by_opaque: &SVGNodeMap<'_>,
+    identity_context: SVGFragmentIdentityContext,
+) -> Vec<Fragment> {
+    let mut children = Vec::new();
+    for child in node.node.children() {
+        let Some(child) = resolve_svg_child_node(child, &layout_context.style_context, node) else {
+            continue;
+        };
+        let Some(fragment) = build_svg_child_fragment(
+            &child,
+            layout_context,
+            positioning_context,
+            resource_graph,
+            nodes_by_opaque,
+            identity_context.clone(),
+        ) else {
+            continue;
+        };
+        children.push(fragment);
+    }
+    children
+}
+
 fn build_svg_child_fragment(
     node: &SVGResolvedNode<'_>,
-    style_context: &SharedStyleContext,
+    layout_context: &LayoutContext,
+    positioning_context: &mut PositioningContext,
     resource_graph: &SVGResourceGraph,
     nodes_by_opaque: &SVGNodeMap<'_>,
     identity_context: SVGFragmentIdentityContext,
 ) -> Option<Fragment> {
+    let style_context = &layout_context.style_context;
     let resolved = resolved_node_resources(resource_graph, node.tag.node);
     let base_fragment_info = identity_context.base_fragment_info(node.tag);
     let identity = identity_context.fragment_identity(node.tag);
 
     match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (SVGLayoutNodeKind::Group, _, SVGNodeResolvedStyle::Geometry(style)) => {
-            let children = node
-                .node
-                .children()
-                .filter_map(|child| {
-                    let child = resolve_svg_child_node(child, style_context, node)?;
-                    build_svg_child_fragment(
-                        &child,
-                        style_context,
-                        resource_graph,
-                        nodes_by_opaque,
-                        identity_context.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
+            let children = build_svg_children(
+                node,
+                layout_context,
+                positioning_context,
+                resource_graph,
+                nodes_by_opaque,
+                identity_context,
+            );
             let rect = union_fragment_rects(&children);
             Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
                 SVGGroupFragment {
@@ -441,20 +466,23 @@ fn build_svg_child_fragment(
         (SVGLayoutNodeKind::Use, _, SVGNodeResolvedStyle::Geometry(style)) => {
             let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
             let referenced_identity_context = identity_context.for_expanded_use(node.tag);
-            let children = expansion
-                .referenced_node
-                .into_iter()
-                .filter_map(|referenced| {
-                    let referenced = resolve_svg_node(referenced, style_context)?;
-                    build_svg_child_fragment(
-                        &referenced,
-                        style_context,
-                        resource_graph,
-                        nodes_by_opaque,
-                        referenced_identity_context.clone(),
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut children = Vec::new();
+            for referenced in expansion.referenced_node.into_iter() {
+                let Some(referenced) = resolve_svg_node(referenced, style_context) else {
+                    continue;
+                };
+                let Some(fragment) = build_svg_child_fragment(
+                    &referenced,
+                    layout_context,
+                    positioning_context,
+                    resource_graph,
+                    nodes_by_opaque,
+                    referenced_identity_context.clone(),
+                ) else {
+                    continue;
+                };
+                children.push(fragment);
+            }
             let rect = union_fragment_rects(&children);
             Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
                 SVGGroupFragment {
@@ -470,6 +498,12 @@ fn build_svg_child_fragment(
         (SVGLayoutNodeKind::ForeignObject, _, SVGNodeResolvedStyle::Geometry(_)) => {
             let foreign_object = layout_foreign_object(node);
             let viewport_rect = foreign_object.viewport_rect.unwrap_or_default();
+            let children = layout_foreign_object_children(
+                node,
+                layout_context,
+                positioning_context,
+                viewport_rect,
+            );
             Some(Fragment::SVGForeignObject(crate::cell::ArcRefCell::new(
                 SVGForeignObjectFragment {
                     base: BaseFragment::new(
@@ -478,7 +512,7 @@ fn build_svg_child_fragment(
                         physical_rect_from_svg_rect(viewport_rect),
                     ),
                     identity,
-                    children: Vec::new(),
+                    children,
                     svg_viewport_rect: viewport_rect,
                     local_transform: foreign_object.local_transform,
                 },
