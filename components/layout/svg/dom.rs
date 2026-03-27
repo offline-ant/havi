@@ -9,6 +9,7 @@ pub enum SVGLayoutNodeKind {
     Gradient,
     Stop,
     ClipPath,
+    Mask,
     ForeignObject,
     Image,
 }
