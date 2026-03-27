@@ -14,9 +14,10 @@ use base::generic_channel::GenericCallback;
 use constellation_traits::{KeyboardScroll, ScriptToConstellationMessage};
 use embedder_traits::{
     Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventAndId,
-    InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton, MouseButtonAction,
-    MouseButtonEvent, MouseLeftViewportEvent, TouchEvent as EmbedderTouchEvent, TouchEventType,
-    TouchId, UntrustedNodeAddress, WheelEvent as EmbedderWheelEvent,
+    InputEventId, InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
+    TouchEvent as EmbedderTouchEvent, TouchEventType, TouchId, UntrustedNodeAddress,
+    WheelEvent as EmbedderWheelEvent,
 };
 #[cfg(feature = "gamepad")]
 use embedder_traits::{
@@ -149,8 +150,16 @@ pub(crate) struct DocumentEventHandler {
     pending_input_events: DomRefCell<Vec<ConstellationInputEvent>>,
     /// The index of the last mouse move event in the pending input events queue.
     mouse_move_event_index: DomRefCell<Option<usize>>,
+    /// The [`InputEventId`]s of mousemove events that have been coalesced.
+    #[no_trace]
+    #[ignore_malloc_size_of = "InputEventId contains data from outside crates"]
+    coalesced_move_event_ids: DomRefCell<Vec<InputEventId>>,
     /// The index of the last wheel event in the pending input events queue.
     wheel_event_index: DomRefCell<Option<usize>>,
+    /// The [`InputEventId`]s of wheel events that have been coalesced.
+    #[no_trace]
+    #[ignore_malloc_size_of = "InputEventId contains data from outside crates"]
+    coalesced_wheel_event_ids: DomRefCell<Vec<InputEventId>>,
     /// <https://w3c.github.io/uievents/#event-type-dblclick>
     click_counting_info: DomRefCell<ClickCountingInfo>,
     #[no_trace]
@@ -190,7 +199,9 @@ impl DocumentEventHandler {
             window: Dom::from_ref(window),
             pending_input_events: Default::default(),
             mouse_move_event_index: Default::default(),
+            coalesced_move_event_ids: Default::default(),
             wheel_event_index: Default::default(),
+            coalesced_wheel_event_ids: Default::default(),
             click_counting_info: Default::default(),
             last_mouse_button_down_point: Default::default(),
             down_button_count: Cell::new(0),
@@ -217,6 +228,9 @@ impl DocumentEventHandler {
                 .borrow()
                 .and_then(|index| pending_input_events.get_mut(index))
             {
+                self.coalesced_move_event_ids
+                    .borrow_mut()
+                    .push(mouse_move_event.event.id);
                 *mouse_move_event = event;
                 return;
             }
@@ -235,6 +249,9 @@ impl DocumentEventHandler {
                     existing_constellation_wheel_event.event.event
                 {
                     if existing_wheel_event.delta.mode == new_wheel_event.delta.mode {
+                        self.coalesced_wheel_event_ids
+                            .borrow_mut()
+                            .push(existing_constellation_wheel_event.event.id);
                         existing_wheel_event.delta.x += new_wheel_event.delta.x;
                         existing_wheel_event.delta.y += new_wheel_event.delta.y;
                         existing_wheel_event.delta.z += new_wheel_event.delta.z;
@@ -279,6 +296,10 @@ impl DocumentEventHandler {
         *self.mouse_move_event_index.borrow_mut() = None;
         *self.wheel_event_index.borrow_mut() = None;
         let pending_input_events = mem::take(&mut *self.pending_input_events.borrow_mut());
+        let mut coalesced_move_event_ids =
+            mem::take(&mut *self.coalesced_move_event_ids.borrow_mut());
+        let mut coalesced_wheel_event_ids =
+            mem::take(&mut *self.coalesced_wheel_event_ids.borrow_mut());
 
         for event in pending_input_events {
             self.active_keyboard_modifiers
@@ -296,7 +317,11 @@ impl DocumentEventHandler {
                 },
                 InputEvent::MouseMove(_) => {
                     self.handle_native_mouse_move_event(&event, can_gc);
-                    InputEventResult::default()
+                    let result = InputEventResult::default();
+                    for id in coalesced_move_event_ids.drain(..) {
+                        self.notify_embedder_that_event_id_was_handled(id, result);
+                    }
+                    result
                 },
                 InputEvent::MouseLeftViewport(mouse_leave_event) => {
                     self.handle_mouse_left_viewport_event(&event, &mouse_leave_event, can_gc);
@@ -306,7 +331,11 @@ impl DocumentEventHandler {
                     self.handle_touch_event(touch_event, &event, can_gc)
                 },
                 InputEvent::Wheel(wheel_event) => {
-                    self.handle_wheel_event(wheel_event, &event, can_gc)
+                    let result = self.handle_wheel_event(wheel_event, &event, can_gc);
+                    for id in coalesced_wheel_event_ids.drain(..) {
+                        self.notify_embedder_that_event_id_was_handled(id, result);
+                    }
+                    result
                 },
                 InputEvent::Keyboard(keyboard_event) => {
                     self.handle_keyboard_event(keyboard_event, can_gc)
@@ -331,9 +360,16 @@ impl DocumentEventHandler {
         event: InputEventAndId,
         result: InputEventResult,
     ) {
+        self.notify_embedder_that_event_id_was_handled(event.id, result);
+    }
+
+    fn notify_embedder_that_event_id_was_handled(
+        &self,
+        id: InputEventId,
+        result: InputEventResult,
+    ) {
         // Wait to to notify the embedder that the vent was handled until all pending DOM
         // event processing is finished.
-        let id = event.id;
         let trusted_window = Trusted::new(&*self.window);
         self.window
             .as_global_scope()
