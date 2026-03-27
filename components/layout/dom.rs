@@ -650,7 +650,9 @@ impl<'dom> NodeExt<'dom> for ServoThreadSafeLayoutNode<'dom> {
                 InlineItem::Atomic(atomic_box, _, _) => {
                     let flags = match contents() {
                         Contents::NonReplaced(_) => FragmentFlags::empty(),
-                        Contents::Replaced(_) => FragmentFlags::IS_REPLACED,
+                        Contents::Replaced(_) | Contents::SvgRoot(_) => {
+                            FragmentFlags::IS_REPLACED
+                        },
                         Contents::Widget(_) => FragmentFlags::IS_WIDGET,
                     };
                     if !info.style.is_atomic_inline_level(flags) {

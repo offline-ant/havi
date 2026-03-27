@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::str::FromStr;
-
 use app_units::Au;
 use base::id::{BrowsingContextId, PipelineId};
 use data_url::DataUrl;
@@ -11,7 +9,7 @@ use embedder_traits::ViewportDetails;
 use euclid::{Scale, Size2D};
 use html5ever::local_name;
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
-use layout_api::{IFrameSize, LayoutImageDestination, SVGElementData};
+use layout_api::{IFrameSize, LayoutImageDestination};
 use malloc_size_of_derive::MallocSizeOf;
 use net_traits::image_cache::{Image, ImageOrMetadataAvailable};
 use script::layout_dom::ServoThreadSafeLayoutNode;
@@ -42,7 +40,6 @@ use crate::sizing::{
     ComputeInlineContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
 };
 use crate::style_ext::{AspectRatio, Clamp, ComputedValuesExt, LayoutStyle};
-use crate::svg::layout::{build_inline_svg_fragments, snapshot_inline_svg_subtree};
 use crate::{ConstraintSpace, ContainingBlock};
 
 #[derive(Debug, MallocSizeOf)]
@@ -63,9 +60,6 @@ pub(crate) struct ReplacedContents {
 /// * Form controls have both natural width and height **but no natural ratio**.
 ///   See <https://github.com/w3c/csswg-drafts/issues/1044> and
 ///   <https://drafts.csswg.org/css-images/#natural-dimensions> “In general, […]”
-///
-/// * For SVG, see <https://svgwg.org/svg2-draft/coords.html#SizingSVGInCSS>
-///   and again <https://github.com/w3c/csswg-drafts/issues/4572>.
 ///
 /// * IFrames do not have natural width and height or natural ratio according
 ///   to <https://drafts.csswg.org/css-images/#intrinsic-dimensions>.
@@ -137,18 +131,11 @@ pub(crate) struct VideoInfo {
 }
 
 #[derive(Debug, MallocSizeOf)]
-pub(crate) struct SVGElementInfo {
-    #[ignore_malloc_size_of = "SVG DOM snapshots are layout-local transient data"]
-    pub dom_tree: Option<crate::svg::dom::SVGDOMTree>,
-}
-
-#[derive(Debug, MallocSizeOf)]
 pub(crate) enum ReplacedContentKind {
     Image(ImageInfo),
     IFrame(IFrameInfo),
     Canvas(CanvasInfo),
     Video(VideoInfo),
-    SVGElement(SVGElementInfo),
     Audio,
 }
 
@@ -192,8 +179,6 @@ impl ReplacedContents {
                     natural_size_in_dots
                         .map_or_else(NaturalSizes::empty, NaturalSizes::from_natural_size_in_dots),
                 )
-            } else if let Some(svg_data) = node.as_svg().filter(|data| data.viewport().is_some()) {
-                Self::svg_kind_size(svg_data, context, node)
             } else if node
                 .as_html_element()
                 .is_some_and(|element| element.has_local_name(&local_name!("audio")))
@@ -226,36 +211,6 @@ impl ReplacedContents {
             natural_size,
             base_fragment_info: node.into(),
         })
-    }
-
-    fn svg_kind_size(
-        svg_data: SVGElementData,
-        context: &LayoutContext,
-        node: ServoThreadSafeLayoutNode<'_>,
-    ) -> (ReplacedContentKind, NaturalSizes) {
-        let viewport = svg_data
-            .viewport()
-            .expect("inline SVG replaced sizing only applies to <svg> viewport nodes");
-        let width = viewport.width.and_then(parse_svg_length_attribute);
-        let height = viewport.height.and_then(parse_svg_length_attribute);
-
-        let ratio = match (width, height) {
-            (Some(width), Some(height)) if width > 0.0 && height > 0.0 => Some(width / height),
-            _ => viewport.ratio_from_view_box(),
-        };
-
-        let natural_size = NaturalSizes {
-            width: width.map(Au::from_f32_px),
-            height: height.map(Au::from_f32_px),
-            ratio,
-        };
-
-        let dom_tree = snapshot_inline_svg_subtree(node, context);
-
-        (
-            ReplacedContentKind::SVGElement(SVGElementInfo { dom_tree }),
-            natural_size,
-        )
     }
 
     fn from_content_property(
@@ -528,18 +483,6 @@ impl ReplacedContents {
                     raster_image: None,
                 }))]
             },
-            ReplacedContentKind::SVGElement(svg) => svg
-                .dom_tree
-                .as_ref()
-                .map(|dom_tree| {
-                    build_inline_svg_fragments(
-                        dom_tree,
-                        self.base_fragment_info,
-                        style,
-                        base.rect,
-                    )
-                })
-                .unwrap_or_default(),
             ReplacedContentKind::Audio => vec![],
         }
     }
@@ -666,25 +609,6 @@ impl ComputeInlineContentSizes for ReplacedContents {
             depends_on_block_constraints: constraint_space.preferred_aspect_ratio.is_some(),
         }
     }
-}
-
-fn parse_svg_length_attribute(raw: &str) -> Option<f32> {
-    let length = svgtypes::Length::from_str(raw).ok()?;
-    let px = match length.unit {
-        svgtypes::LengthUnit::None | svgtypes::LengthUnit::Px => length.number,
-        svgtypes::LengthUnit::In => length.number * 96.0,
-        svgtypes::LengthUnit::Cm => length.number * (96.0 / 2.54),
-        svgtypes::LengthUnit::Mm => length.number * (96.0 / 25.4),
-        svgtypes::LengthUnit::Pt => length.number * (96.0 / 72.0),
-        svgtypes::LengthUnit::Pc => length.number * 16.0,
-        svgtypes::LengthUnit::Percent | svgtypes::LengthUnit::Em | svgtypes::LengthUnit::Ex => {
-            return None;
-        }
-    };
-    if !px.is_finite() || px < 0.0 {
-        return None;
-    }
-    Some(px as f32)
 }
 
 fn try_to_parse_image_data_url(string: &str) -> Option<Url> {

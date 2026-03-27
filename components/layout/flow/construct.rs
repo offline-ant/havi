@@ -121,9 +121,11 @@ impl BlockLevelCreator {
                     contents: Contents::NonReplaced(contents),
                 },
             },
-            Contents::Replaced(_) | Contents::Widget(_) => Self::Independent {
-                display_inside,
-                contents,
+            Contents::Replaced(_) | Contents::SvgRoot(_) | Contents::Widget(_) => {
+                Self::Independent {
+                    display_inside,
+                    contents,
+                }
             },
         }
     }

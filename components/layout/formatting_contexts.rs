@@ -27,6 +27,7 @@ use crate::sizing::{
     self, ComputeInlineContentSizes, ContentSizes, InlineContentSizesResult, LazySize,
 };
 use crate::style_ext::{AspectRatio, Display, DisplayInside, LayoutStyle};
+use crate::svg::layout::SVGRootContents;
 use crate::table::Table;
 use crate::taffy::TaffyContainer;
 use crate::{
@@ -53,6 +54,7 @@ pub(crate) enum IndependentFormattingContextContents {
         ReplacedContents,
         Option<ArcRefCell<IndependentFormattingContext>>,
     ),
+    Svg(SVGRootContents),
     Flow(BlockFormattingContext),
     Flex(FlexContainer),
     Grid(TaffyContainer),
@@ -180,6 +182,10 @@ impl IndependentFormattingContext {
                     });
                 return IndependentFormattingContextContents::Replaced(contents, widget);
             },
+            Contents::SvgRoot(contents) => {
+                base_fragment_info.flags.insert(FragmentFlags::IS_REPLACED);
+                return IndependentFormattingContextContents::Svg(contents);
+            },
             Contents::Widget(non_replaced_contents) => {
                 base_fragment_info.flags.insert(FragmentFlags::IS_WIDGET);
                 non_replaced_contents
@@ -284,6 +290,19 @@ impl IndependentFormattingContext {
                 };
                 Some(block_size.into())
             },
+            IndependentFormattingContextContents::Svg(contents) => {
+                let ratio = preferred_aspect_ratio?;
+                let writing_mode = self.style().writing_mode;
+                let natural_sizes = contents.logical_natural_sizes(writing_mode);
+                let block_size = match (natural_sizes.block, natural_sizes.inline) {
+                    (Some(block_size), None) => block_size,
+                    _ => {
+                        let inline_size = contents.fallback_inline_size(writing_mode);
+                        ratio.compute_dependent_size(Direction::Block, inline_size)
+                    },
+                };
+                Some(block_size.into())
+            },
             _ => None,
         }
     }
@@ -325,6 +344,7 @@ impl IndependentFormattingContext {
                     widget.borrow_mut().repair_style(context, &node, new_style);
                 }
             },
+            IndependentFormattingContextContents::Svg(_) => {},
             IndependentFormattingContextContents::Flow(block_formatting_context) => {
                 block_formatting_context.repair_style(context, node, new_style);
             },
@@ -349,7 +369,8 @@ impl IndependentFormattingContext {
     pub(crate) fn is_replaced(&self) -> bool {
         matches!(
             self.contents,
-            IndependentFormattingContextContents::Replaced(_, _)
+            IndependentFormattingContextContents::Replaced(_, _) |
+                IndependentFormattingContextContents::Svg(_)
         )
     }
 
@@ -394,6 +415,13 @@ impl IndependentFormattingContext {
                 }
                 replaced_layout
             },
+            IndependentFormattingContextContents::Svg(contents) => contents.layout(
+                layout_context,
+                containing_block_for_children,
+                preferred_aspect_ratio,
+                &self.base,
+                lazy_block_size,
+            ),
             IndependentFormattingContextContents::Flow(bfc) => bfc.layout(
                 layout_context,
                 positioning_context,
@@ -476,6 +504,7 @@ impl IndependentFormattingContext {
             IndependentFormattingContextContents::Replaced(replaced, _) => {
                 replaced.layout_style(&self.base)
             },
+            IndependentFormattingContextContents::Svg(_) => LayoutStyle::Default(&self.base.style),
             IndependentFormattingContextContents::Flow(fc) => fc.layout_style(&self.base),
             IndependentFormattingContextContents::Flex(fc) => fc.layout_style(),
             IndependentFormattingContextContents::Grid(fc) => fc.layout_style(),
@@ -492,6 +521,9 @@ impl IndependentFormattingContext {
             IndependentFormattingContextContents::Replaced(replaced, _) => {
                 replaced.preferred_aspect_ratio(self.style(), padding_border_sums)
             },
+            IndependentFormattingContextContents::Svg(contents) => {
+                contents.preferred_aspect_ratio(self.style(), padding_border_sums)
+            },
             // TODO: support preferred aspect ratios on non-replaced boxes.
             _ => None,
         }
@@ -504,6 +536,7 @@ impl IndependentFormattingContext {
                     widget.borrow_mut().base.parent_box.replace(layout_box);
                 }
             },
+            IndependentFormattingContextContents::Svg(_) => {},
             IndependentFormattingContextContents::Flow(contents) => {
                 contents.attached_to_tree(layout_box)
             },
@@ -530,6 +563,7 @@ impl ComputeInlineContentSizes for IndependentFormattingContextContents {
             Self::Replaced(inner, _) => {
                 inner.compute_inline_content_sizes(layout_context, constraint_space)
             },
+            Self::Svg(inner) => inner.compute_inline_content_sizes(layout_context, constraint_space),
             Self::Flow(inner) => inner
                 .contents
                 .compute_inline_content_sizes(layout_context, constraint_space),

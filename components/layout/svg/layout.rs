@@ -1,17 +1,22 @@
 use std::str::FromStr;
 
 use app_units::Au;
+use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use servo_arc::Arc as ServoArc;
+use style::computed_values::object_fit::T as ObjectFit;
 use style::dom::OpaqueNode;
+use style::logical_geometry::{Direction, WritingMode};
 use style::properties::ComputedValues;
+use style::values::CSSFloat;
 
 use havi_types::fragment_tree::{
     SVGClipPathResource, SVGColor, SVGCoordinateUnits, SVGGradientKind, SVGGradientResource,
     SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint, SVGPathData, SVGPoint,
-    SVGRadialGradient, SVGRect, SVGResourceId, SVGResourceKind,
-    SVGStrokeStyle, SVGTransform,
+    SVGRadialGradient, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle, SVGTransform,
 };
+use layout_api::SVGElementData;
+use script::layout_dom::ServoThreadSafeLayoutNode;
 
 use super::dom::{
     snapshot_svg_subtree, SVGClipPathDataOwned, SVGDOMNode, SVGDOMTree, SVGGradientDataOwned,
@@ -26,36 +31,240 @@ use super::resources::{
 };
 use super::style::{SVGPaintFallback, SVGResolvedPaint};
 use super::text::layout_svg_text;
-use super::transform::{
-    compute_view_box_mapper, parse_svg_transform, then_svg_transform,
-};
+use super::transform::{compute_view_box_mapper, parse_svg_transform, then_svg_transform};
 use super::use_expansion::expand_use_node;
 use crate::context::LayoutContext;
+use crate::dom::NodeExt;
 use crate::fragment_tree::{
-    BaseFragment, BaseFragmentInfo, Fragment, FragmentFlags, Tag, SVGForeignObjectFragment,
-    SVGGroupFragment, SVGImageFragment, SVGPathFragment, SVGTextFragment, SVGViewportFragment,
+    BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags, Tag,
+    SVGForeignObjectFragment, SVGGroupFragment, SVGImageFragment, SVGPathFragment,
+    SVGTextFragment, SVGViewportFragment,
 };
-use crate::geom::PhysicalRect;
+use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSize};
+use crate::layout_box_base::{CacheableLayoutResult, LayoutBoxBase};
+use crate::sizing::{
+    ComputeInlineContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
+};
+use crate::style_ext::{AspectRatio, Clamp, ComputedValuesExt};
+use crate::{ConstraintSpace, ContainingBlock};
 
-#[derive(Clone, Debug, Default)]
-pub struct SVGViewportLayoutResult {
-    pub viewport_rect: Option<SVGRect>,
-    pub view_box_rect: Option<SVGRect>,
+#[derive(Debug, Default, MallocSizeOf)]
+struct SVGRootIntrinsicSizes {
+    width: Option<Au>,
+    height: Option<Au>,
+    ratio: Option<CSSFloat>,
 }
 
-pub(crate) fn snapshot_inline_svg_subtree(
-    root: script::layout_dom::ServoThreadSafeLayoutNode<'_>,
-    context: &LayoutContext,
-) -> Option<SVGDOMTree> {
-    snapshot_svg_subtree(root, &context.style_context)
+#[derive(Debug, MallocSizeOf)]
+pub(crate) struct SVGRootContents {
+    #[ignore_malloc_size_of = "SVG DOM snapshots are layout-local transient data"]
+    dom_tree: Option<SVGDOMTree>,
+    intrinsic_size: SVGRootIntrinsicSizes,
 }
 
-pub fn build_inline_svg_fragments(
+impl SVGRootContents {
+    pub(crate) fn for_element(
+        node: ServoThreadSafeLayoutNode<'_>,
+        context: &LayoutContext,
+    ) -> Option<Self> {
+        let svg_data = node.as_svg().filter(|data| data.viewport().is_some())?;
+        Some(Self {
+            dom_tree: snapshot_svg_subtree(node, &context.style_context),
+            intrinsic_size: intrinsic_svg_root_sizes(&svg_data),
+        })
+    }
+
+    fn content_size(
+        &self,
+        axis: Direction,
+        preferred_aspect_ratio: Option<AspectRatio>,
+        get_size_in_opposite_axis: &dyn Fn() -> SizeConstraint,
+        get_fallback_size: &dyn Fn() -> Au,
+    ) -> Au {
+        let Some(ratio) = preferred_aspect_ratio else {
+            return get_fallback_size();
+        };
+        let transfer = |size| ratio.compute_dependent_size(axis, size);
+        match get_size_in_opposite_axis() {
+            SizeConstraint::Definite(size) => transfer(size),
+            SizeConstraint::MinMax(min_size, max_size) => get_fallback_size()
+                .clamp_between_extremums(transfer(min_size), max_size.map(transfer)),
+        }
+    }
+
+    fn calculate_fragment_rect(
+        &self,
+        style: &ServoArc<ComputedValues>,
+        size: PhysicalSize<Au>,
+    ) -> PhysicalRect<Au> {
+        let natural_size = PhysicalSize::new(
+            self.intrinsic_size.width.unwrap_or(size.width),
+            self.intrinsic_size.height.unwrap_or(size.height),
+        );
+
+        let object_fit_size = self.intrinsic_size.ratio.map_or(size, |width_over_height| {
+            let preserve_aspect_ratio_with_comparison =
+                |size: PhysicalSize<Au>, comparison: fn(&Au, &Au) -> bool| {
+                    let candidate_width = size.height.scale_by(width_over_height);
+                    if comparison(&candidate_width, &size.width) {
+                        return PhysicalSize::new(candidate_width, size.height);
+                    }
+
+                    let candidate_height = size.width.scale_by(1. / width_over_height);
+                    debug_assert!(comparison(&candidate_height, &size.height));
+                    PhysicalSize::new(size.width, candidate_height)
+                };
+
+            match style.clone_object_fit() {
+                ObjectFit::Fill => size,
+                ObjectFit::Contain => preserve_aspect_ratio_with_comparison(size, PartialOrd::le),
+                ObjectFit::Cover => preserve_aspect_ratio_with_comparison(size, PartialOrd::ge),
+                ObjectFit::None => natural_size,
+                ObjectFit::ScaleDown => {
+                    preserve_aspect_ratio_with_comparison(size.min(natural_size), PartialOrd::le)
+                },
+            }
+        });
+
+        let object_position = style.clone_object_position();
+        let horizontal_position = object_position
+            .horizontal
+            .to_used_value(size.width - object_fit_size.width);
+        let vertical_position = object_position
+            .vertical
+            .to_used_value(size.height - object_fit_size.height);
+
+        PhysicalRect::new(
+            PhysicalPoint::new(horizontal_position, vertical_position),
+            object_fit_size,
+        )
+    }
+
+    pub(crate) fn preferred_aspect_ratio(
+        &self,
+        style: &ComputedValues,
+        padding_border_sums: &LogicalVec2<Au>,
+    ) -> Option<AspectRatio> {
+        style.preferred_aspect_ratio(self.intrinsic_size.ratio, padding_border_sums)
+    }
+
+    pub(crate) fn fallback_inline_size(&self, writing_mode: WritingMode) -> Au {
+        if writing_mode.is_horizontal() {
+            self.intrinsic_size.width.unwrap_or_else(|| Au::from_px(300))
+        } else {
+            self.intrinsic_size.height.unwrap_or_else(|| Au::from_px(150))
+        }
+    }
+
+    pub(crate) fn fallback_block_size(&self, writing_mode: WritingMode) -> Au {
+        if writing_mode.is_horizontal() {
+            self.intrinsic_size.height.unwrap_or_else(|| Au::from_px(150))
+        } else {
+            self.intrinsic_size.width.unwrap_or_else(|| Au::from_px(300))
+        }
+    }
+
+    pub(crate) fn logical_natural_sizes(
+        &self,
+        writing_mode: WritingMode,
+    ) -> LogicalVec2<Option<Au>> {
+        if writing_mode.is_horizontal() {
+            LogicalVec2 {
+                inline: self.intrinsic_size.width,
+                block: self.intrinsic_size.height,
+            }
+        } else {
+            LogicalVec2 {
+                inline: self.intrinsic_size.height,
+                block: self.intrinsic_size.width,
+            }
+        }
+    }
+
+    pub(crate) fn layout(
+        &self,
+        _layout_context: &LayoutContext,
+        containing_block_for_children: &ContainingBlock,
+        preferred_aspect_ratio: Option<AspectRatio>,
+        base: &LayoutBoxBase,
+        lazy_block_size: &LazySize,
+    ) -> CacheableLayoutResult {
+        let writing_mode = base.style.writing_mode;
+        let inline_size = containing_block_for_children.size.inline;
+        let content_block_size = self.content_size(
+            Direction::Block,
+            preferred_aspect_ratio,
+            &|| SizeConstraint::Definite(inline_size),
+            &|| self.fallback_block_size(writing_mode),
+        );
+        let size = LogicalVec2 {
+            inline: inline_size,
+            block: lazy_block_size.resolve(|| content_block_size),
+        }
+        .to_physical_size(writing_mode);
+        let rect = self.calculate_fragment_rect(&base.style, size);
+        let fragments = self
+            .dom_tree
+            .as_ref()
+            .and_then(|tree| build_svg_root_fragment(tree, base.base_fragment_info, &base.style, rect))
+            .into_iter()
+            .collect();
+        CacheableLayoutResult {
+            baselines: Default::default(),
+            collapsible_margins_in_children: CollapsedBlockMargins::zero(),
+            content_block_size,
+            content_inline_size_for_table: None,
+            depends_on_block_constraints: true,
+            fragments,
+            specific_layout_info: None,
+        }
+    }
+}
+
+impl ComputeInlineContentSizes for SVGRootContents {
+    fn compute_inline_content_sizes(
+        &self,
+        _: &LayoutContext,
+        constraint_space: &ConstraintSpace,
+    ) -> InlineContentSizesResult {
+        let inline_content_size = self.content_size(
+            Direction::Inline,
+            constraint_space.preferred_aspect_ratio,
+            &|| constraint_space.block_size,
+            &|| self.fallback_inline_size(constraint_space.style.writing_mode),
+        );
+        InlineContentSizesResult {
+            sizes: inline_content_size.into(),
+            depends_on_block_constraints: constraint_space.preferred_aspect_ratio.is_some(),
+        }
+    }
+}
+
+fn intrinsic_svg_root_sizes(svg_data: &SVGElementData<'_>) -> SVGRootIntrinsicSizes {
+    let viewport = svg_data
+        .viewport()
+        .expect("outer SVG sizing only applies to viewport nodes");
+    let width = parse_svg_length(viewport.width).filter(|width| *width >= 0.0);
+    let height = parse_svg_length(viewport.height).filter(|height| *height >= 0.0);
+
+    let ratio = match (width, height) {
+        (Some(width), Some(height)) if width > 0.0 && height > 0.0 => Some(width / height),
+        _ => viewport.ratio_from_view_box(),
+    };
+
+    SVGRootIntrinsicSizes {
+        width: width.map(Au::from_f32_px),
+        height: height.map(Au::from_f32_px),
+        ratio,
+    }
+}
+
+pub(crate) fn build_svg_root_fragment(
     tree: &SVGDOMTree,
     base_fragment_info: BaseFragmentInfo,
     outer_style: &ServoArc<ComputedValues>,
     outer_rect: PhysicalRect<Au>,
-) -> Vec<Fragment> {
+) -> Option<Fragment> {
     let mut resource_graph = SVGResourceGraph::build(&collect_resource_graph_nodes(&tree.root));
     let mut nodes_by_opaque = FxHashMap::default();
     index_svg_nodes(&tree.root, &mut nodes_by_opaque);
@@ -68,8 +277,6 @@ pub fn build_inline_svg_fragments(
         resource_graph,
         &nodes_by_opaque,
     )
-    .into_iter()
-    .collect()
 }
 
 fn build_svg_node_fragment(

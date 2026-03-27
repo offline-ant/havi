@@ -24,6 +24,7 @@ use crate::flow::inline::SharedInlineStyles;
 use crate::quotes::quotes_for_lang;
 use crate::replaced::ReplacedContents;
 use crate::style_ext::{Display, DisplayGeneratingBox, DisplayInside, DisplayOutside};
+use crate::svg::layout::SVGRootContents;
 
 /// A data structure used to pass and store related layout information together to
 /// avoid having to repeat the same arguments in argument lists.
@@ -71,6 +72,8 @@ pub(super) enum Contents {
     /// Example: an `<img src=…>` element.
     /// <https://drafts.csswg.org/css2/conform.html#replaced-element>
     Replaced(ReplacedContents),
+    /// Outer `<svg>` participates in native layout construction but keeps replaced-like sizing semantics.
+    SvgRoot(SVGRootContents),
 }
 
 #[derive(Debug)]
@@ -146,7 +149,8 @@ fn traverse_element<'dom>(
     match Display::from(info.style.get_box().display) {
         Display::None => {},
         Display::Contents => {
-            if ReplacedContents::for_element(element, context).is_some() {
+            let contents = Contents::for_element(element, context);
+            if contents.is_replaced() {
                 // `display: content` on a replaced element computes to `display: none`
                 // <https://drafts.csswg.org/css-display-3/#valdef-display-contents>
                 element.unset_all_boxes()
@@ -251,13 +255,16 @@ fn traverse_pseudo_element_contents<'dom>(
 impl Contents {
     /// Returns true iff the `try_from` impl below would return `Err(_)`
     pub fn is_replaced(&self) -> bool {
-        matches!(self, Contents::Replaced(_))
+        matches!(self, Contents::Replaced(_) | Contents::SvgRoot(_))
     }
 
     pub(crate) fn for_element(
         node: ServoThreadSafeLayoutNode<'_>,
         context: &LayoutContext,
     ) -> Self {
+        if let Some(svg_root) = SVGRootContents::for_element(node, context) {
+            return Self::SvgRoot(svg_root);
+        }
         if let Some(replaced) = ReplacedContents::for_element(node, context) {
             return Self::Replaced(replaced);
         }
@@ -283,7 +290,7 @@ impl Contents {
     pub(crate) fn non_replaced_contents(self) -> Option<NonReplacedContents> {
         match self {
             Self::NonReplaced(contents) | Self::Widget(contents) => Some(contents),
-            Self::Replaced(_) => None,
+            Self::Replaced(_) | Self::SvgRoot(_) => None,
         }
     }
 }
