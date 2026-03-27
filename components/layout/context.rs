@@ -6,9 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base::id::PainterId;
-use embedder_traits::UntrustedNodeAddress;
 use fonts::FontContext;
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use layout_api::{
     AnimatingImages, IFrameSizes, LayoutImageDestination, PendingImage, PendingImageState,
     PendingRasterizationImage,
@@ -18,7 +16,6 @@ use net_traits::image_cache::{
 };
 use parking_lot::{Mutex, RwLock};
 use pixels::RasterImage;
-use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;
@@ -73,12 +70,6 @@ pub(crate) struct ImageResolver {
     /// size determined by layout. This will be shared with the script thread.
     pub pending_rasterization_images: Mutex<Vec<PendingRasterizationImage>>,
 
-    /// A list of `SVGSVGElement`s encountered during layout that are not
-    /// serialized yet. This supports inline SVGs, which layout treats as
-    /// replaced elements and serializes into data URLs before loading them,
-    /// similar to background images.
-    pub pending_svg_elements_for_serialization: Mutex<Vec<UntrustedNodeAddress>>,
-
     /// A shared reference to script's map of DOM nodes with animated images. This is used
     /// to manage image animations in script and inform the script about newly animating
     /// nodes.
@@ -97,11 +88,6 @@ impl Drop for ImageResolver {
         if !std::thread::panicking() {
             assert!(self.pending_images.lock().is_empty());
             assert!(self.pending_rasterization_images.lock().is_empty());
-            assert!(
-                self.pending_svg_elements_for_serialization
-                    .lock()
-                    .is_empty()
-            );
         }
     }
 }
@@ -218,15 +204,6 @@ impl ImageResolver {
                 });
         }
         result
-    }
-
-    pub(crate) fn queue_svg_element_for_serialization(
-        &self,
-        element: ServoThreadSafeLayoutNode<'_>,
-    ) {
-        self.pending_svg_elements_for_serialization
-            .lock()
-            .push(element.opaque().into())
     }
 
 }

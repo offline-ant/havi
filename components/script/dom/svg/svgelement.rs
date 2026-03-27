@@ -94,7 +94,7 @@ impl VirtualMethods for SVGElement {
         }
         for ancestor in self.upcast::<Node>().inclusive_ancestors(ShadowIncluding::No) {
             if let Some(svg_root) = ancestor.downcast::<crate::dom::svg::svgsvgelement::SVGSVGElement>() {
-                svg_root.invalidate_cached_serialized_subtree();
+                svg_root.invalidate_svg_subtree();
             }
         }
         self.upcast::<Node>().dirty(NodeDamage::Other);
@@ -142,7 +142,7 @@ impl VirtualMethods for SVGElement {
         }
         for ancestor in self.upcast::<Node>().inclusive_ancestors(ShadowIncluding::No) {
             if let Some(svg_root) = ancestor.downcast::<crate::dom::svg::svgsvgelement::SVGSVGElement>() {
-                svg_root.invalidate_cached_serialized_subtree();
+                svg_root.invalidate_svg_subtree();
             }
         }
         self.upcast::<Node>().dirty(NodeDamage::Other);

@@ -401,11 +401,8 @@ impl SVGGeometryData<'_> {
 
 #[derive(Clone, Debug)]
 pub struct SVGViewportData<'dom> {
-    /// The SVG's XML source represented as a base64 encoded `data:` url.
-    pub source: Option<Result<BrowserUrl, ()>>,
     pub width: Option<&'dom str>,
     pub height: Option<&'dom str>,
-    pub svg_id: String,
     pub view_box: Option<&'dom str>,
     pub preserve_aspect_ratio: Option<&'dom str>,
     pub overflow: Option<&'dom str>,
@@ -1010,10 +1007,6 @@ pub struct ReflowResult {
     pub pending_images: Vec<PendingImage>,
     /// The list of vector images that were encountered that still need to be rasterized.
     pub pending_rasterization_images: Vec<PendingRasterizationImage>,
-    /// The list of `SVGSVGElement`s encountered in the DOM that need to be serialized.
-    /// This is needed to support inline SVGs as the serialization needs to happen on
-    /// the script thread.
-    pub pending_svg_elements_for_serialization: Vec<UntrustedNodeAddress>,
     /// The list of iframes in this layout and their sizes, used in order
     /// to communicate them with the Constellation and also the `Window`
     /// element of their content pages. Returning None if incremental reflow

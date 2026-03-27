@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 
-use app_units::{Au, MAX_AU};
+use app_units::Au;
 use base::id::{BrowsingContextId, PipelineId};
 use data_url::DataUrl;
 use embedder_traits::ViewportDetails;
@@ -13,7 +13,7 @@ use html5ever::local_name;
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use layout_api::{IFrameSize, LayoutImageDestination, SVGElementData};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::image_cache::{Image, ImageOrMetadataAvailable, VectorImage};
+use net_traits::image_cache::{Image, ImageOrMetadataAvailable};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use selectors::Element;
 use servo_arc::Arc as ServoArc;
@@ -138,7 +138,6 @@ pub(crate) struct VideoInfo {
 
 #[derive(Debug, MallocSizeOf)]
 pub(crate) struct SVGElementInfo {
-    pub vector_image: Option<VectorImage>,
     #[ignore_malloc_size_of = "SVG DOM snapshots are layout-local transient data"]
     pub dom_tree: Option<crate::svg::dom::SVGDOMTree>,
 }
@@ -251,45 +250,10 @@ impl ReplacedContents {
             ratio,
         };
 
-        let svg_source = match viewport.source.clone() {
-            None => {
-                // The SVGSVGElement is not yet serialized, so we add it to a list
-                // and hand it over to script to peform the serialization.
-                context
-                    .image_resolver
-                    .queue_svg_element_for_serialization(node);
-                None
-            },
-            // If `svg_source_result` is `Err()`, it means that the previous attempt
-            // had errored, then don't attempt to serialize again.
-            Some(svg_source_result) => svg_source_result.ok(),
-        };
-
-        let cached_image = svg_source.and_then(|svg_source| {
-            context
-                .image_resolver
-                .get_cached_image_for_url(
-                    node.opaque(),
-                    svg_source,
-                    LayoutImageDestination::BoxTreeConstruction,
-                )
-                .ok()
-        });
-
-        let vector_image = cached_image.map(|image| match image {
-            Image::Vector(mut vector_image) => {
-                vector_image.svg_id = Some(viewport.svg_id.clone());
-                vector_image
-            },
-            _ => unreachable!("SVG element can't contain a raster image."),
-        });
         let dom_tree = snapshot_inline_svg_subtree(node, context);
 
         (
-            ReplacedContentKind::SVGElement(SVGElementInfo {
-                vector_image,
-                dom_tree,
-            }),
+            ReplacedContentKind::SVGElement(SVGElementInfo { dom_tree }),
             natural_size,
         )
     }
@@ -478,7 +442,7 @@ impl ReplacedContents {
         let (object_fit_size, rect) = self.calculate_fragment_rect(style, size);
         let clip = PhysicalRect::new(PhysicalPoint::origin(), size);
 
-        let mut base = BaseFragment::new(self.base_fragment_info, style.clone().into(), rect);
+        let base = BaseFragment::new(self.base_fragment_info, style.clone().into(), rect);
         match &self.kind {
             ReplacedContentKind::Image(image_info) => image_info
                 .image
@@ -564,66 +528,18 @@ impl ReplacedContents {
                     raster_image: None,
                 }))]
             },
-            ReplacedContentKind::SVGElement(svg) => {
-                if let Some(dom_tree) = &svg.dom_tree {
-                    let fragments = build_inline_svg_fragments(
+            ReplacedContentKind::SVGElement(svg) => svg
+                .dom_tree
+                .as_ref()
+                .map(|dom_tree| {
+                    build_inline_svg_fragments(
                         dom_tree,
                         self.base_fragment_info,
                         style,
                         base.rect,
-                    );
-                    if !fragments.is_empty() {
-                        return fragments;
-                    }
-                }
-
-                let Some(vector_image) = &svg.vector_image else {
-                    return vec![];
-                };
-
-                // TODO: This is incorrect if the SVG has a viewBox.
-                base.rect = PhysicalSize::new(
-                    vector_image
-                        .metadata
-                        .width
-                        .try_into()
-                        .map_or(MAX_AU, Au::from_px),
-                    vector_image
-                        .metadata
-                        .height
-                        .try_into()
-                        .map_or(MAX_AU, Au::from_px),
-                )
-                .into();
-
-                let scale = layout_context.style_context.device_pixel_ratio();
-                let raster_size = Size2D::new(
-                    base.rect.size.width.scale_by(scale.0).to_px(),
-                    base.rect.size.height.scale_by(scale.0).to_px(),
-                );
-
-                let tag = self.base_fragment_info.tag.unwrap();
-                layout_context
-                    .image_resolver
-                    .rasterize_vector_image(
-                        vector_image.id,
-                        raster_size,
-                        tag.node,
-                        vector_image.svg_id.clone(),
                     )
-                    .map(|raster| {
-                        let image_key = raster.id;
-                        Fragment::Image(ArcRefCell::new(ImageFragment {
-                            base,
-                            clip,
-                            image_key,
-                            showing_broken_image_icon: false,
-                            raster_image: Some(std::sync::Arc::new(raster)),
-                        }))
-                    })
-                    .into_iter()
-                    .collect()
-            },
+                })
+                .unwrap_or_default(),
             ReplacedContentKind::Audio => vec![],
         }
     }

@@ -105,7 +105,6 @@ use webrender_api::units::{DeviceIntSize, DevicePixel, LayoutPixel, LayoutPoint}
 use super::bindings::codegen::Bindings::MessagePortBinding::StructuredSerializeOptions;
 use super::bindings::trace::HashMapTracedValues;
 use super::performanceresourcetiming::InitiatorType;
-use super::types::SVGSVGElement;
 use crate::dom::bindings::cell::{DomRefCell, Ref};
 use crate::dom::bindings::codegen::Bindings::DocumentBinding::{
     DocumentMethods, DocumentReadyState, NamedPropertyValue,
@@ -2848,7 +2847,6 @@ impl Window {
         self.handle_pending_images_post_reflow(
             reflow_result.pending_images,
             reflow_result.pending_rasterization_images,
-            reflow_result.pending_svg_elements_for_serialization,
         );
 
         if let Some(iframe_sizes) = reflow_result.iframe_sizes {
@@ -3900,7 +3898,6 @@ impl Window {
         &self,
         pending_images: Vec<PendingImage>,
         pending_rasterization_images: Vec<PendingRasterizationImage>,
-        pending_svg_element_for_serialization: Vec<UntrustedNodeAddress>,
     ) {
         let pipeline_id = self.pipeline_id();
         for image in pending_images {
@@ -3956,12 +3953,6 @@ impl Window {
             }
         }
 
-        for node in pending_svg_element_for_serialization.into_iter() {
-            let node = unsafe { from_untrusted_node_address(node) };
-            let svg = node.downcast::<SVGSVGElement>().unwrap();
-            svg.serialize_and_cache_subtree();
-            node.dirty(NodeDamage::Other);
-        }
     }
 
     /// <https://html.spec.whatwg.org/multipage/#sticky-activation>

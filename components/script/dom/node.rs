@@ -132,7 +132,6 @@ use crate::dom::raredata::NodeRareData;
 use crate::dom::servoparser::html::HtmlSerialize;
 use crate::dom::servoparser::{ServoParser, serialize_html_fragment};
 use crate::dom::shadowroot::{IsUserAgentWidget, LayoutShadowRootHelpers, ShadowRoot};
-use crate::dom::svg::svgsvgelement::{LayoutSVGSVGElementHelpers, SVGSVGElement};
 use crate::dom::text::Text;
 use crate::dom::types::KeyboardEvent;
 use crate::dom::virtualmethods::{VirtualMethods, vtable_for};
@@ -2482,18 +2481,13 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
         };
 
         let node_kind = match element.local_name() {
-            &local_name!("svg") => {
-                let svg = self.downcast::<SVGSVGElement>()?;
-                layout_api::SVGNodeKind::Viewport(layout_api::SVGViewportData {
-                    source: svg.serialized_source(),
-                    width: attr(&local_name!("width")),
-                    height: attr(&local_name!("height")),
-                    svg_id: svg.svg_id(),
-                    view_box: attr(&local_name!("viewBox")),
-                    preserve_aspect_ratio: attr(&local_name!("preserveAspectRatio")),
-                    overflow: attr(&local_name!("overflow")),
-                })
-            }
+            &local_name!("svg") => layout_api::SVGNodeKind::Viewport(layout_api::SVGViewportData {
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+                view_box: attr(&local_name!("viewBox")),
+                preserve_aspect_ratio: attr(&local_name!("preserveAspectRatio")),
+                overflow: attr(&local_name!("overflow")),
+            }),
             &local_name!("g") => layout_api::SVGNodeKind::Group,
             &local_name!("defs") => layout_api::SVGNodeKind::Defs,
             &local_name!("path") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Path {
