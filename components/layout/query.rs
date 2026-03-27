@@ -52,6 +52,7 @@ use crate::flow::inline::construct::{TextTransformation, WhitespaceCollapse, cap
 use crate::fragment_tree::{FragmentFlags, FragmentTree};
 use crate::geom::PhysicalRect;
 use crate::style_ext::ComputedValuesExt;
+use crate::svg::hit_test::hit_test_svg_path;
 use havi_types::fragment_tree as published;
 
 fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<CSSPixelLength, CSSPixel> {
@@ -2029,9 +2030,18 @@ pub fn query_elements_from_point(
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
                 };
-                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
-                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                if point.x < rect.origin.x ||
+                    point.x > rect.origin.x + rect.size.width ||
+                    point.y < rect.origin.y ||
+                    point.y > rect.origin.y + rect.size.height
                 {
+                    return;
+                }
+                let svg_point = published::SVGPoint::new(
+                    point.x - rect.origin.x + svg_fragment.decorated_bounding_box.origin.x,
+                    point.y - rect.origin.y + svg_fragment.decorated_bounding_box.origin.y,
+                );
+                if hit_test_svg_path(&svg_fragment.path, svg_fragment.stroke.as_ref(), svg_point).hit {
                     if let Some(tag) = svg_fragment.base.tag {
                         results.push(layout_api::ElementsFromPointResult {
                             node: tag.node,
