@@ -486,6 +486,7 @@ dependencies = [
 name = "base"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
  "crossbeam-channel",
  "ipc-channel",
  "libc",
