@@ -93,6 +93,22 @@ impl<'dom> ServoLayoutNode<'dom> {
         self.node
     }
 
+    pub fn to_trusted_node_address(&self) -> TrustedNodeAddress {
+        self.node.unsafe_get().to_trusted_node_address()
+    }
+
+    pub fn trusted_node_id(&self) -> usize {
+        self.to_trusted_node_address().0 as usize
+    }
+
+    pub fn from_trusted_node_address(address: TrustedNodeAddress) -> Self {
+        unsafe { Self::new(&address) }
+    }
+
+    pub fn from_trusted_node_id(id: usize) -> Self {
+        Self::from_trusted_node_address(TrustedNodeAddress(id as *const libc::c_void))
+    }
+
     pub(crate) fn assigned_slot(self) -> Option<ServoLayoutElement<'dom>> {
         self.node
             .assigned_slot_for_layout()

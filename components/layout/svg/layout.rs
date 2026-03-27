@@ -5,6 +5,7 @@ use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use servo_arc::Arc as ServoArc;
 use style::computed_values::object_fit::T as ObjectFit;
+use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;
 use style::logical_geometry::{Direction, WritingMode};
 use style::properties::ComputedValues;
@@ -15,12 +16,13 @@ use havi_types::fragment_tree::{
     SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint, SVGPathData, SVGPoint,
     SVGRadialGradient, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle, SVGTransform,
 };
-use layout_api::SVGElementData;
-use script::layout_dom::ServoThreadSafeLayoutNode;
+use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use layout_api::{SVGElementData, SVGGradientData, SVGNodeKind};
+use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 
 use super::dom::{
-    snapshot_svg_subtree, SVGClipPathDataOwned, SVGDOMNode, SVGDOMTree, SVGGradientDataOwned,
-    SVGLayoutNodeKind, SVGNodeKindOwned, SVGNodeResolvedStyle, SVGStopDataOwned,
+    resolve_svg_child_node, resolve_svg_node, SVGLayoutNodeKind, SVGNodeResolvedStyle,
+    SVGResolvedNode,
 };
 use super::foreign_object::layout_foreign_object;
 use super::path::{
@@ -57,19 +59,18 @@ struct SVGRootIntrinsicSizes {
 
 #[derive(Debug, MallocSizeOf)]
 pub(crate) struct SVGRootContents {
-    #[ignore_malloc_size_of = "SVG DOM snapshots are layout-local transient data"]
-    dom_tree: Option<SVGDOMTree>,
+    root_node_id: usize,
     intrinsic_size: SVGRootIntrinsicSizes,
 }
 
 impl SVGRootContents {
     pub(crate) fn for_element(
         node: ServoThreadSafeLayoutNode<'_>,
-        context: &LayoutContext,
+        _context: &LayoutContext,
     ) -> Option<Self> {
         let svg_data = node.as_svg().filter(|data| data.viewport().is_some())?;
         Some(Self {
-            dom_tree: snapshot_svg_subtree(node, &context.style_context),
+            root_node_id: node.unsafe_get().trusted_node_id(),
             intrinsic_size: intrinsic_svg_root_sizes(&svg_data),
         })
     }
@@ -183,7 +184,7 @@ impl SVGRootContents {
 
     pub(crate) fn layout(
         &self,
-        _layout_context: &LayoutContext,
+        layout_context: &LayoutContext,
         containing_block_for_children: &ContainingBlock,
         preferred_aspect_ratio: Option<AspectRatio>,
         base: &LayoutBoxBase,
@@ -203,12 +204,18 @@ impl SVGRootContents {
         }
         .to_physical_size(writing_mode);
         let rect = self.calculate_fragment_rect(&base.style, size);
-        let fragments = self
-            .dom_tree
-            .as_ref()
-            .and_then(|tree| build_svg_root_fragment(tree, base.base_fragment_info, &base.style, rect))
-            .into_iter()
-            .collect();
+        let root_node = ServoThreadSafeLayoutNode::new(ServoLayoutNode::from_trusted_node_id(
+            self.root_node_id,
+        ));
+        let fragments = build_svg_root_fragment(
+            root_node,
+            &layout_context.style_context,
+            base.base_fragment_info,
+            &base.style,
+            rect,
+        )
+        .into_iter()
+        .collect();
         CacheableLayoutResult {
             baselines: Default::default(),
             collapsible_margins_in_children: CollapsedBlockMargins::zero(),
@@ -260,17 +267,21 @@ fn intrinsic_svg_root_sizes(svg_data: &SVGElementData<'_>) -> SVGRootIntrinsicSi
 }
 
 pub(crate) fn build_svg_root_fragment(
-    tree: &SVGDOMTree,
+    root: ServoThreadSafeLayoutNode<'_>,
+    style_context: &SharedStyleContext,
     base_fragment_info: BaseFragmentInfo,
     outer_style: &ServoArc<ComputedValues>,
     outer_rect: PhysicalRect<Au>,
 ) -> Option<Fragment> {
-    let mut resource_graph = SVGResourceGraph::build(&collect_resource_graph_nodes(&tree.root));
-    let mut nodes_by_opaque = FxHashMap::default();
-    index_svg_nodes(&tree.root, &mut nodes_by_opaque);
-    resolve_svg_resources(&tree.root, &nodes_by_opaque, &mut resource_graph);
+    let root = resolve_svg_node(root, style_context)?;
+    if root.summary.kind != SVGLayoutNodeKind::Viewport {
+        return None;
+    }
+    let (mut resource_graph, nodes_by_opaque) = build_svg_resource_graph(&root, style_context);
+    resolve_svg_resources(&root, style_context, &nodes_by_opaque, &mut resource_graph);
     build_svg_node_fragment(
-        &tree.root,
+        &root,
+        style_context,
         base_fragment_info,
         outer_style.clone(),
         outer_rect,
@@ -279,22 +290,25 @@ pub(crate) fn build_svg_root_fragment(
     )
 }
 
+type SVGNodeMap<'dom> = FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'dom>>;
+
 fn build_svg_node_fragment(
-    node: &SVGDOMNode,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
     base_fragment_info: BaseFragmentInfo,
     style: ServoArc<ComputedValues>,
     rect: PhysicalRect<Au>,
     resource_graph: SVGResourceGraph,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    nodes_by_opaque: &SVGNodeMap<'_>,
 ) -> Option<Fragment> {
-    match (&node.summary.kind, &node.node_kind, &node.resolved_style) {
+    match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (
             SVGLayoutNodeKind::Viewport,
-            SVGNodeKindOwned::Viewport(viewport),
+            SVGNodeKind::Viewport(viewport),
             SVGNodeResolvedStyle::Viewport { viewport: viewport_style, .. },
         ) => {
             let viewport_rect = svg_rect_from_physical_rect(rect);
-            let view_box_rect = viewport.view_box.as_deref().and_then(parse_view_box);
+            let view_box_rect = viewport.view_box.and_then(parse_view_box);
             let mapper = compute_view_box_mapper(
                 viewport_rect,
                 view_box_rect,
@@ -302,7 +316,7 @@ fn build_svg_node_fragment(
             );
             let viewport_transform = then_svg_transform(
                 mapper.local_to_parent,
-                parse_svg_transform(node.common.transform.as_deref()),
+                parse_svg_transform(node.svg_data.common.transform),
             );
             let overflow_clip = viewport_style.overflow_hidden.then_some(
                 havi_types::fragment_tree::SVGOverflowClip {
@@ -311,15 +325,11 @@ fn build_svg_node_fragment(
                 },
             );
             let children = node
-                .children
-                .iter()
+                .node
+                .children()
                 .filter_map(|child| {
-                    build_svg_child_fragment(
-                        child,
-                        &resource_graph,
-                        nodes_by_opaque,
-                        None,
-                    )
+                    let child = resolve_svg_child_node(child, style_context, node)?;
+                    build_svg_child_fragment(&child, style_context, &resource_graph, nodes_by_opaque, None)
                 })
                 .collect();
             Some(Fragment::SVGViewport(crate::cell::ArcRefCell::new(
@@ -339,9 +349,10 @@ fn build_svg_node_fragment(
 }
 
 fn build_svg_child_fragment(
-    node: &SVGDOMNode,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
     resource_graph: &SVGResourceGraph,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     tag_override: Option<Tag>,
 ) -> Option<Fragment> {
     let resolved = resolved_node_resources(resource_graph, node.tag.node);
@@ -350,13 +361,14 @@ fn build_svg_child_fragment(
         flags: FragmentFlags::empty(),
     };
 
-    match (&node.summary.kind, &node.node_kind, &node.resolved_style) {
+    match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (SVGLayoutNodeKind::Group, _, SVGNodeResolvedStyle::Geometry(style)) => {
             let children = node
-                .children
-                .iter()
+                .node
+                .children()
                 .filter_map(|child| {
-                    build_svg_child_fragment(child, resource_graph, nodes_by_opaque, tag_override)
+                    let child = resolve_svg_child_node(child, style_context, node)?;
+                    build_svg_child_fragment(&child, style_context, resource_graph, nodes_by_opaque, tag_override)
                 })
                 .collect::<Vec<_>>();
             let rect = union_fragment_rects(&children);
@@ -364,7 +376,7 @@ fn build_svg_child_fragment(
                 SVGGroupFragment {
                     base: BaseFragment::new(base_fragment_info, node.computed_style.clone().into(), rect),
                     children,
-                    local_transform: parse_svg_transform(node.common.transform.as_deref()),
+                    local_transform: parse_svg_transform(node.svg_data.common.transform),
                     opacity: style.opacity,
                     resources: resolved.resources.clone(),
                 },
@@ -376,8 +388,10 @@ fn build_svg_child_fragment(
                 .referenced_node
                 .into_iter()
                 .filter_map(|referenced| {
+                    let referenced = resolve_svg_node(referenced, style_context)?;
                     build_svg_child_fragment(
-                        referenced,
+                        &referenced,
+                        style_context,
                         resource_graph,
                         nodes_by_opaque,
                         Some(tag_override.unwrap_or(node.tag)),
@@ -413,7 +427,7 @@ fn build_svg_child_fragment(
         }
         (
             SVGLayoutNodeKind::Geometry,
-            SVGNodeKindOwned::Geometry(geometry),
+            SVGNodeKind::Geometry(geometry),
             SVGNodeResolvedStyle::Geometry(style),
         ) => {
             let path: SVGPathData = normalize_svg_geometry(geometry, style.fill_rule).into();
@@ -429,7 +443,7 @@ fn build_svg_child_fragment(
                 path,
                 object_bounding_box,
                 decorated_bounding_box,
-                local_transform: parse_svg_transform(node.common.transform.as_deref()),
+                local_transform: parse_svg_transform(node.svg_data.common.transform),
                 fill: convert_resolved_paint(resource_graph, node.tag.node, &style.paint.fill),
                 stroke: style.paint.stroke.as_ref().map(|stroke| {
                     convert_stroke_style(resource_graph, node.tag.node, stroke)
@@ -437,8 +451,8 @@ fn build_svg_child_fragment(
                 resources: resolved.resources.clone(),
             })))
         }
-        (SVGLayoutNodeKind::Text, _, SVGNodeResolvedStyle::Text(_text_style)) => {
-            let text_layout = layout_svg_text(node);
+        (SVGLayoutNodeKind::Text, _, SVGNodeResolvedStyle::Text(_)) => {
+            let text_layout = layout_svg_text(node, style_context);
             Some(Fragment::SVGText(crate::cell::ArcRefCell::new(SVGTextFragment {
                 base: BaseFragment::new(
                     base_fragment_info,
@@ -448,11 +462,11 @@ fn build_svg_child_fragment(
                 glyph_runs: text_layout.glyph_runs,
                 object_bounding_box: text_layout.object_bounding_box,
                 decorated_bounding_box: text_layout.decorated_bounding_box,
-                local_transform: parse_svg_transform(node.common.transform.as_deref()),
+                local_transform: parse_svg_transform(node.svg_data.common.transform),
                 resources: resolved.resources.clone(),
             })))
         }
-        (SVGLayoutNodeKind::Image, SVGNodeKindOwned::Image(image), SVGNodeResolvedStyle::Geometry(_)) => {
+        (SVGLayoutNodeKind::Image, SVGNodeKind::Image(image), SVGNodeResolvedStyle::Geometry(_)) => {
             let viewport_rect = image_viewport(image);
             Some(Fragment::SVGImage(crate::cell::ArcRefCell::new(SVGImageFragment {
                 base: BaseFragment::new(
@@ -461,8 +475,8 @@ fn build_svg_child_fragment(
                     physical_rect_from_svg_rect(viewport_rect),
                 ),
                 viewport_rect,
-                local_transform: parse_svg_transform(node.common.transform.as_deref()),
-                href: image.href.clone(),
+                local_transform: parse_svg_transform(node.svg_data.common.transform),
+                href: image.href.map(str::to_owned),
                 resources: resolved.resources.clone(),
             })))
         }
@@ -475,45 +489,63 @@ fn build_svg_child_fragment(
     }
 }
 
+fn build_svg_resource_graph<'dom>(
+    root: &SVGResolvedNode<'dom>,
+    style_context: &SharedStyleContext,
+) -> (SVGResourceGraph, SVGNodeMap<'dom>) {
+    let mut nodes = Vec::new();
+    let mut nodes_by_opaque = FxHashMap::default();
+    collect_resource_graph_node(root, style_context, None, &mut nodes, &mut nodes_by_opaque);
+    (SVGResourceGraph::build(&nodes), nodes_by_opaque)
+}
+
 fn resolve_svg_resources(
-    root: &SVGDOMNode,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    root: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     resource_graph: &mut SVGResourceGraph,
 ) {
     let mut visiting = Vec::new();
-    resolve_svg_resource_node(root, nodes_by_opaque, resource_graph, &mut visiting);
+    resolve_svg_resource_node(root, style_context, nodes_by_opaque, resource_graph, &mut visiting);
 }
 
 fn resolve_svg_resource_node(
-    node: &SVGDOMNode,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     resource_graph: &mut SVGResourceGraph,
     visiting: &mut Vec<OpaqueNode>,
 ) {
-    match &node.node_kind {
-        SVGNodeKindOwned::Gradient(_) => {
+    match &node.svg_data.node_kind {
+        SVGNodeKind::Gradient(_) => {
             if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
                 if let Some(gradient) = resolve_gradient_resource(
                     node,
+                    style_context,
                     nodes_by_opaque,
                     resource_graph,
                     visiting,
                 ) {
-                    if let Some(SVGResourceKind::Gradient(resource)) = resource_graph.resource_mut(resource_id) {
+                    if let Some(SVGResourceKind::Gradient(resource)) =
+                        resource_graph.resource_mut(resource_id)
+                    {
                         *resource = gradient;
                     }
                 }
             }
         }
-        SVGNodeKindOwned::ClipPath(_) => {
+        SVGNodeKind::ClipPath(_) => {
             if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
-                let clip_path = resolve_clip_path_resource(node, nodes_by_opaque, resource_graph);
-                if let Some(SVGResourceKind::ClipPath(resource)) = resource_graph.resource_mut(resource_id) {
+                let clip_path =
+                    resolve_clip_path_resource(node, style_context, nodes_by_opaque, resource_graph);
+                if let Some(SVGResourceKind::ClipPath(resource)) =
+                    resource_graph.resource_mut(resource_id)
+                {
                     *resource = clip_path;
                 }
             }
         }
-        SVGNodeKindOwned::Use(_) => {
+        SVGNodeKind::Use(_) => {
             if let Some(use_resource_id) = resource_graph
                 .node_resources(node.tag.node)
                 .and_then(|resolved| resolved.use_instance_source)
@@ -522,7 +554,9 @@ fn resolve_svg_resource_node(
                     .node_resources(node.tag.node)
                     .and_then(|resolved| resolved.referenced_node)
                     .and_then(|source| nodes_by_opaque.get(&source).copied())
-                    .map(|source| collect_subtree_resource_dependencies(source, resource_graph))
+                    .map(|source| {
+                        collect_subtree_resource_dependencies(source, style_context, resource_graph)
+                    })
                     .unwrap_or_default();
                 if let Some(SVGResourceKind::UseInstanceSource(resource)) =
                     resource_graph.resource_mut(use_resource_id)
@@ -534,14 +568,18 @@ fn resolve_svg_resource_node(
         _ => {}
     }
 
-    for child in &node.children {
-        resolve_svg_resource_node(child, nodes_by_opaque, resource_graph, visiting);
+    for child in node.node.children() {
+        let Some(child) = resolve_svg_child_node(child, style_context, node) else {
+            continue;
+        };
+        resolve_svg_resource_node(&child, style_context, nodes_by_opaque, resource_graph, visiting);
     }
 }
 
 fn resolve_gradient_resource(
-    node: &SVGDOMNode,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     resource_graph: &SVGResourceGraph,
     visiting: &mut Vec<OpaqueNode>,
 ) -> Option<SVGGradientResource> {
@@ -550,12 +588,14 @@ fn resolve_gradient_resource(
     }
     visiting.push(node.tag.node);
 
-    let template = gradient_template_node(node, nodes_by_opaque, resource_graph)
-        .and_then(|template| resolve_gradient_resource(template, nodes_by_opaque, resource_graph, visiting));
+    let template = gradient_template_node(node, style_context, nodes_by_opaque, resource_graph)
+        .and_then(|template| {
+            resolve_gradient_resource(&template, style_context, nodes_by_opaque, resource_graph, visiting)
+        });
 
     let mut gradient = template.unwrap_or_else(default_gradient_resource);
-    match &node.node_kind {
-        SVGNodeKindOwned::Gradient(SVGGradientDataOwned::Linear {
+    match &node.svg_data.node_kind {
+        SVGNodeKind::Gradient(SVGGradientData::Linear {
             x1,
             y1,
             x2,
@@ -565,10 +605,9 @@ fn resolve_gradient_resource(
             spread_method,
             ..
         }) => {
-            gradient.units = parse_coordinate_units(gradient_units.as_deref())
-                .unwrap_or(gradient.units);
-            gradient.gradient_transform = parse_svg_transform(gradient_transform.as_deref());
-            gradient.spread_method = parse_spread_method(spread_method.as_deref())
+            gradient.units = parse_coordinate_units(*gradient_units).unwrap_or(gradient.units);
+            gradient.gradient_transform = parse_svg_transform(*gradient_transform);
+            gradient.spread_method = parse_spread_method(*spread_method)
                 .unwrap_or(gradient.spread_method);
             let linear = match gradient.kind {
                 SVGGradientKind::Linear(ref linear) => linear.clone(),
@@ -579,16 +618,16 @@ fn resolve_gradient_resource(
             };
             gradient.kind = SVGGradientKind::Linear(SVGLinearGradient {
                 start: SVGPoint::new(
-                    parse_gradient_length(x1.as_deref(), linear.start.x),
-                    parse_gradient_length(y1.as_deref(), linear.start.y),
+                    parse_gradient_length(*x1, linear.start.x),
+                    parse_gradient_length(*y1, linear.start.y),
                 ),
                 end: SVGPoint::new(
-                    parse_gradient_length(x2.as_deref(), linear.end.x),
-                    parse_gradient_length(y2.as_deref(), linear.end.y),
+                    parse_gradient_length(*x2, linear.end.x),
+                    parse_gradient_length(*y2, linear.end.y),
                 ),
             });
         }
-        SVGNodeKindOwned::Gradient(SVGGradientDataOwned::Radial {
+        SVGNodeKind::Gradient(SVGGradientData::Radial {
             cx,
             cy,
             r,
@@ -599,10 +638,9 @@ fn resolve_gradient_resource(
             spread_method,
             ..
         }) => {
-            gradient.units = parse_coordinate_units(gradient_units.as_deref())
-                .unwrap_or(gradient.units);
-            gradient.gradient_transform = parse_svg_transform(gradient_transform.as_deref());
-            gradient.spread_method = parse_spread_method(spread_method.as_deref())
+            gradient.units = parse_coordinate_units(*gradient_units).unwrap_or(gradient.units);
+            gradient.gradient_transform = parse_svg_transform(*gradient_transform);
+            gradient.spread_method = parse_spread_method(*spread_method)
                 .unwrap_or(gradient.spread_method);
             let radial = match gradient.kind {
                 SVGGradientKind::Radial(ref radial) => radial.clone(),
@@ -613,22 +651,22 @@ fn resolve_gradient_resource(
                 },
             };
             let center = SVGPoint::new(
-                parse_gradient_length(cx.as_deref(), radial.center.x),
-                parse_gradient_length(cy.as_deref(), radial.center.y),
+                parse_gradient_length(*cx, radial.center.x),
+                parse_gradient_length(*cy, radial.center.y),
             );
             gradient.kind = SVGGradientKind::Radial(SVGRadialGradient {
                 center,
                 focal: SVGPoint::new(
-                    parse_gradient_length(fx.as_deref(), center.x),
-                    parse_gradient_length(fy.as_deref(), center.y),
+                    parse_gradient_length(*fx, center.x),
+                    parse_gradient_length(*fy, center.y),
                 ),
-                radius: parse_gradient_length(r.as_deref(), radial.radius),
+                radius: parse_gradient_length(*r, radial.radius),
             });
         }
         _ => {}
     }
 
-    let stops = collect_gradient_stops(node);
+    let stops = collect_gradient_stops(node, style_context);
     if !stops.is_empty() {
         gradient.stops = stops;
     }
@@ -638,37 +676,45 @@ fn resolve_gradient_resource(
 }
 
 fn resolve_clip_path_resource(
-    node: &SVGDOMNode,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     resource_graph: &SVGResourceGraph,
 ) -> SVGClipPathResource {
-    let (units, transform) = match &node.node_kind {
-        SVGNodeKindOwned::ClipPath(SVGClipPathDataOwned { clip_path_units }) => (
-            parse_coordinate_units(clip_path_units.as_deref())
+    let (units, transform) = match &node.svg_data.node_kind {
+        SVGNodeKind::ClipPath(data) => (
+            parse_coordinate_units(data.clip_path_units)
                 .unwrap_or(SVGCoordinateUnits::UserSpaceOnUse),
-            parse_svg_transform(node.common.transform.as_deref()),
+            parse_svg_transform(node.svg_data.common.transform),
         ),
         _ => (SVGCoordinateUnits::UserSpaceOnUse, SVGTransform::identity()),
     };
     SVGClipPathResource {
         units,
         transform,
-        paths: collect_clip_paths(node, nodes_by_opaque, resource_graph, SVGTransform::identity()),
+        paths: collect_clip_paths(
+            node,
+            style_context,
+            nodes_by_opaque,
+            resource_graph,
+            SVGTransform::identity(),
+        ),
     }
 }
 
 fn collect_clip_paths(
-    node: &SVGDOMNode,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, &SVGDOMNode>,
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
     resource_graph: &SVGResourceGraph,
     inherited_transform: SVGTransform,
 ) -> Vec<SVGPathData> {
-    let node_transform = parse_svg_transform(node.common.transform.as_deref());
+    let node_transform = parse_svg_transform(node.svg_data.common.transform);
     let combined_transform = then_svg_transform(inherited_transform, node_transform);
-    match (&node.summary.kind, &node.node_kind, &node.resolved_style) {
+    match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (
             SVGLayoutNodeKind::Geometry,
-            SVGNodeKindOwned::Geometry(geometry),
+            SVGNodeKind::Geometry(geometry),
             SVGNodeResolvedStyle::Geometry(style),
         ) => {
             let path: SVGPathData = normalize_svg_geometry(geometry, style.clip_rule).into();
@@ -679,11 +725,19 @@ fn collect_clip_paths(
             }
         }
         (SVGLayoutNodeKind::Group, _, _) | (SVGLayoutNodeKind::ClipPath, _, _) => node
-            .children
-            .iter()
-            .flat_map(|child| {
-                collect_clip_paths(child, nodes_by_opaque, resource_graph, combined_transform)
+            .node
+            .children()
+            .filter_map(|child| {
+                let child = resolve_svg_child_node(child, style_context, node)?;
+                Some(collect_clip_paths(
+                    &child,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    combined_transform,
+                ))
             })
+            .flatten()
             .collect(),
         (SVGLayoutNodeKind::Use, _, _) => {
             let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
@@ -691,78 +745,100 @@ fn collect_clip_paths(
             expansion
                 .referenced_node
                 .into_iter()
-                .flat_map(|referenced| {
-                    collect_clip_paths(referenced, nodes_by_opaque, resource_graph, use_transform)
+                .filter_map(|referenced| {
+                    let referenced = resolve_svg_node(referenced, style_context)?;
+                    Some(collect_clip_paths(
+                        &referenced,
+                        style_context,
+                        nodes_by_opaque,
+                        resource_graph,
+                        use_transform,
+                    ))
                 })
+                .flatten()
                 .collect()
         }
         _ => Vec::new(),
     }
 }
 
-fn collect_gradient_stops(node: &SVGDOMNode) -> Vec<SVGGradientStop> {
-    node.children
-        .iter()
-        .filter_map(|child| match &child.node_kind {
-            SVGNodeKindOwned::Stop(stop) => Some(resolve_gradient_stop(stop, child)),
-            _ => None,
+fn collect_gradient_stops(
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+) -> Vec<SVGGradientStop> {
+    node.node
+        .children()
+        .filter_map(|child| {
+            let child = resolve_svg_child_node(child, style_context, node)?;
+            match &child.svg_data.node_kind {
+                SVGNodeKind::Stop(stop) => Some(resolve_gradient_stop(stop, &child)),
+                _ => None,
+            }
         })
         .collect()
 }
 
-fn resolve_gradient_stop(stop: &SVGStopDataOwned, node: &SVGDOMNode) -> SVGGradientStop {
+fn resolve_gradient_stop(
+    stop: &layout_api::SVGStopData<'_>,
+    node: &SVGResolvedNode<'_>,
+) -> SVGGradientStop {
     let color = match &node.resolved_style {
         SVGNodeResolvedStyle::Geometry(style) => style.paint.current_color,
         SVGNodeResolvedStyle::Viewport { geometry, .. } => geometry.paint.current_color,
         SVGNodeResolvedStyle::Text(text) => text.paint.current_color,
     };
     SVGGradientStop {
-        offset: parse_stop_offset(stop.offset.as_deref()).unwrap_or(0.0),
+        offset: parse_stop_offset(stop.offset).unwrap_or(0.0),
         color: stop
             .stop_color
-            .as_deref()
             .and_then(parse_svg_color)
             .unwrap_or(color),
         opacity: stop
             .stop_opacity
-            .as_deref()
             .and_then(parse_unit_interval)
             .unwrap_or(1.0),
     }
 }
 
-fn gradient_template_node<'a>(
-    node: &'a SVGDOMNode,
-    nodes_by_opaque: &'a FxHashMap<OpaqueNode, &'a SVGDOMNode>,
+fn gradient_template_node<'dom>(
+    node: &SVGResolvedNode<'dom>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'dom>,
     resource_graph: &SVGResourceGraph,
-) -> Option<&'a SVGDOMNode> {
-    let href = match &node.node_kind {
-        SVGNodeKindOwned::Gradient(SVGGradientDataOwned::Linear { href, .. })
-        | SVGNodeKindOwned::Gradient(SVGGradientDataOwned::Radial { href, .. }) => href.as_deref(),
+) -> Option<SVGResolvedNode<'dom>> {
+    let href = match &node.svg_data.node_kind {
+        SVGNodeKind::Gradient(SVGGradientData::Linear { href, .. })
+        | SVGNodeKind::Gradient(SVGGradientData::Radial { href, .. }) => *href,
         _ => None,
     }?;
     let id = href.trim().strip_prefix('#')?;
     let target = resource_graph.node_for_element_id(id)?;
     let target = nodes_by_opaque.get(&target).copied()?;
-    matches!(target.node_kind, SVGNodeKindOwned::Gradient(_)).then_some(target)
+    let target = resolve_svg_node(target, style_context)?;
+    matches!(target.svg_data.node_kind, SVGNodeKind::Gradient(_)).then_some(target)
 }
 
 fn collect_subtree_resource_dependencies(
-    node: &SVGDOMNode,
+    node: ServoThreadSafeLayoutNode<'_>,
+    style_context: &SharedStyleContext,
     resource_graph: &SVGResourceGraph,
 ) -> Vec<SVGResourceId> {
     let mut resources = Vec::new();
-    collect_subtree_resource_dependencies_into(node, resource_graph, &mut resources);
+    collect_subtree_resource_dependencies_into(node, style_context, resource_graph, &mut resources);
     resources.sort_by_key(|id| id.0);
     resources.dedup();
     resources
 }
 
 fn collect_subtree_resource_dependencies_into(
-    node: &SVGDOMNode,
+    node: ServoThreadSafeLayoutNode<'_>,
+    style_context: &SharedStyleContext,
     resource_graph: &SVGResourceGraph,
     resources: &mut Vec<SVGResourceId>,
 ) {
+    let Some(node) = resolve_svg_node(node, style_context) else {
+        return;
+    };
     let resolved = resolved_node_resources(resource_graph, node.tag.node);
     resources.extend(
         [
@@ -781,37 +857,27 @@ fn collect_subtree_resource_dependencies_into(
     if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
         resources.push(resource_id);
     }
-    for child in &node.children {
-        collect_subtree_resource_dependencies_into(child, resource_graph, resources);
+    for child in node.node.children() {
+        collect_subtree_resource_dependencies_into(child, style_context, resource_graph, resources);
     }
 }
 
-fn index_svg_nodes<'a>(node: &'a SVGDOMNode, map: &mut FxHashMap<OpaqueNode, &'a SVGDOMNode>) {
-    map.insert(node.tag.node, node);
-    for child in &node.children {
-        index_svg_nodes(child, map);
-    }
-}
-
-fn collect_resource_graph_nodes(root: &SVGDOMNode) -> Vec<SVGResourceGraphNode> {
-    let mut nodes = Vec::new();
-    collect_resource_graph_node(root, None, &mut nodes);
-    nodes
-}
-
-fn collect_resource_graph_node(
-    node: &SVGDOMNode,
+fn collect_resource_graph_node<'dom>(
+    node: &SVGResolvedNode<'dom>,
+    style_context: &SharedStyleContext,
     parent: Option<style::dom::OpaqueNode>,
     nodes: &mut Vec<SVGResourceGraphNode>,
+    nodes_by_opaque: &mut SVGNodeMap<'dom>,
 ) {
     let mut graph_node = SVGResourceGraphNode::new(node.tag.node, node.summary.kind);
+    nodes_by_opaque.insert(node.tag.node, node.node);
     graph_node.parent = parent;
-    graph_node.element_id = node.common.element_id.clone();
+    graph_node.element_id = node.svg_data.common.element_id.map(str::to_owned);
     graph_node.establishes_viewport = node.summary.establishes_viewport;
     graph_node.participates_in_paint = node.summary.participates_in_paint;
 
-    match (&node.node_kind, &node.resolved_style) {
-        (SVGNodeKindOwned::Viewport(_), SVGNodeResolvedStyle::Viewport { geometry, .. }) => {
+    match (&node.svg_data.node_kind, &node.resolved_style) {
+        (SVGNodeKind::Viewport(_), SVGNodeResolvedStyle::Viewport { geometry, .. }) => {
             assign_style_resources(&mut graph_node, geometry);
         }
         (_, SVGNodeResolvedStyle::Geometry(geometry)) => {
@@ -836,18 +902,25 @@ fn collect_resource_graph_node(
         _ => {}
     }
 
-    graph_node.href = match &node.node_kind {
-        SVGNodeKindOwned::Use(data) => data.href.clone(),
-        SVGNodeKindOwned::Gradient(data) => match data {
-            super::dom::SVGGradientDataOwned::Linear { href, .. }
-            | super::dom::SVGGradientDataOwned::Radial { href, .. } => href.clone(),
-        },
+    graph_node.href = match &node.svg_data.node_kind {
+        SVGNodeKind::Use(data) => data.href.map(str::to_owned),
+        SVGNodeKind::Gradient(SVGGradientData::Linear { href, .. })
+        | SVGNodeKind::Gradient(SVGGradientData::Radial { href, .. }) => href.map(str::to_owned),
         _ => None,
     };
 
     nodes.push(graph_node);
-    for child in &node.children {
-        collect_resource_graph_node(child, Some(node.tag.node), nodes);
+    for child in node.node.children() {
+        let Some(child) = resolve_svg_child_node(child, style_context, node) else {
+            continue;
+        };
+        collect_resource_graph_node(
+            &child,
+            style_context,
+            Some(node.tag.node),
+            nodes,
+            nodes_by_opaque,
+        );
     }
 }
 
@@ -966,15 +1039,15 @@ fn parse_view_box(raw: &str) -> Option<SVGRect> {
     ))
 }
 
-fn image_viewport(image: &super::dom::SVGImageDataOwned) -> SVGRect {
+fn image_viewport(image: &layout_api::SVGImageData<'_>) -> SVGRect {
     SVGRect::new(
         euclid::point2(
-            parse_svg_length(image.x.as_deref()).unwrap_or(0.0),
-            parse_svg_length(image.y.as_deref()).unwrap_or(0.0),
+            parse_svg_length(image.x).unwrap_or(0.0),
+            parse_svg_length(image.y).unwrap_or(0.0),
         ),
         euclid::size2(
-            parse_svg_length(image.width.as_deref()).unwrap_or(0.0),
-            parse_svg_length(image.height.as_deref()).unwrap_or(0.0),
+            parse_svg_length(image.width).unwrap_or(0.0),
+            parse_svg_length(image.height).unwrap_or(0.0),
         ),
     )
 }

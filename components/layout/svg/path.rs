@@ -5,7 +5,7 @@ use havi_types::fragment_tree::{
     SVGRect,
 };
 
-use super::dom::SVGGeometryDataOwned;
+use layout_api::SVGGeometryData;
 use super::style::SVGResolvedStroke;
 use super::transform::transform_svg_point;
 
@@ -57,12 +57,12 @@ impl From<SVGNormalizedPath> for SVGPathData {
 }
 
 pub fn normalize_svg_geometry(
-    geometry: &SVGGeometryDataOwned,
+    geometry: &SVGGeometryData<'_>,
     fill_rule: SVGFillRule,
 ) -> SVGNormalizedPath {
     match geometry {
-        SVGGeometryDataOwned::Path { d } => normalize_svg_path_data(d.as_deref(), fill_rule),
-        SVGGeometryDataOwned::Rect {
+        SVGGeometryData::Path { d } => normalize_svg_path_data(*d, fill_rule),
+        SVGGeometryData::Rect {
             x,
             y,
             width,
@@ -75,21 +75,21 @@ pub fn normalize_svg_geometry(
             parse_svg_length(height.as_deref()).unwrap_or(0.0),
             fill_rule,
         ),
-        SVGGeometryDataOwned::Circle { cx, cy, r } => normalize_ellipse(
+        SVGGeometryData::Circle { cx, cy, r } => normalize_ellipse(
             parse_svg_length(cx.as_deref()).unwrap_or(0.0),
             parse_svg_length(cy.as_deref()).unwrap_or(0.0),
             parse_svg_length(r.as_deref()).unwrap_or(0.0),
             parse_svg_length(r.as_deref()).unwrap_or(0.0),
             fill_rule,
         ),
-        SVGGeometryDataOwned::Ellipse { cx, cy, rx, ry } => normalize_ellipse(
+        SVGGeometryData::Ellipse { cx, cy, rx, ry } => normalize_ellipse(
             parse_svg_length(cx.as_deref()).unwrap_or(0.0),
             parse_svg_length(cy.as_deref()).unwrap_or(0.0),
             parse_svg_length(rx.as_deref()).unwrap_or(0.0),
             parse_svg_length(ry.as_deref()).unwrap_or(0.0),
             fill_rule,
         ),
-        SVGGeometryDataOwned::Line { x1, y1, x2, y2 } => SVGNormalizedPath {
+        SVGGeometryData::Line { x1, y1, x2, y2 } => SVGNormalizedPath {
             fill_rule,
             commands: vec![
                 SVGPathCommand::MoveTo(point(
@@ -102,8 +102,8 @@ pub fn normalize_svg_geometry(
                 )),
             ],
         },
-        SVGGeometryDataOwned::Polyline { points } => normalize_points(points.as_deref(), fill_rule, false),
-        SVGGeometryDataOwned::Polygon { points } => normalize_points(points.as_deref(), fill_rule, true),
+        SVGGeometryData::Polyline { points } => normalize_points(*points, fill_rule, false),
+        SVGGeometryData::Polygon { points } => normalize_points(*points, fill_rule, true),
     }
 }
 
