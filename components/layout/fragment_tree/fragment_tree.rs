@@ -432,7 +432,7 @@ impl<'a> ArenaBuilder<'a> {
                 published::FragmentKind::SVGText(published::SVGTextFragment {
                     base,
                     identity: svg_fragment.identity.clone(),
-                    glyph_runs: svg_fragment.glyph_runs.clone(),
+                    text_runs: svg_fragment.text_runs.iter().map(convert_text_fragment).collect(),
                     object_bounding_box: svg_fragment.object_bounding_box,
                     decorated_bounding_box: svg_fragment.decorated_bounding_box,
                     local_transform: svg_fragment.local_transform,

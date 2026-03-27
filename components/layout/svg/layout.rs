@@ -546,7 +546,7 @@ fn build_svg_child_fragment(
             })))
         }
         (SVGLayoutNodeKind::Text, _, SVGNodeResolvedStyle::Text(_)) => {
-            let text_layout = layout_svg_text(node, style_context);
+            let text_layout = layout_svg_text(node, layout_context);
             Some(Fragment::SVGText(crate::cell::ArcRefCell::new(SVGTextFragment {
                 base: BaseFragment::new(
                     base_fragment_info,
@@ -554,7 +554,7 @@ fn build_svg_child_fragment(
                     physical_rect_from_svg_rect(text_layout.decorated_bounding_box),
                 ),
                 identity,
-                glyph_runs: text_layout.glyph_runs,
+                text_runs: text_layout.text_runs,
                 object_bounding_box: text_layout.object_bounding_box,
                 decorated_bounding_box: text_layout.decorated_bounding_box,
                 local_transform: parse_svg_transform(node.svg_data.common.transform),

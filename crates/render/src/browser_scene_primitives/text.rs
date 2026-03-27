@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use havi_types::fragment_tree::TextFragment;
+use havi_types::fragment_tree::{SVGTextFragment, TextFragment};
 use makepad_browser_scene::{
     MpClipChainId, MpFontKey, MpGlyphRunKey, MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag,
     MpPositionedGlyph, MpPrimitive, MpTextDecorations, MpTextShadow, ResourceRegistry,
 };
-use makepad_widgets::{dvec2, Rect};
+use makepad_widgets::{dvec2, DVec2, Rect};
 use style::color::{AbsoluteColor, ColorSpace};
 use style::values::specified::TextDecorationLine;
 
@@ -38,6 +38,42 @@ pub(super) fn lower_text_primitive(
     primitive.effect_id = effect_id;
     primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
     Ok(primitive)
+}
+
+pub(super) fn lower_svg_text_primitives(
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
+    owner_node_id: Option<usize>,
+    local_origin: DVec2,
+    svg: &SVGTextFragment,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+) -> Result<Vec<MpPrimitive>, String> {
+    let mut primitives = Vec::with_capacity(svg.text_runs.len());
+    for text_run in &svg.text_runs {
+        let bounds = Rect {
+            pos: local_origin + dvec2(
+                text_run.base.rect.origin.x.to_f32_px() as f64,
+                text_run.base.rect.origin.y.to_f32_px() as f64,
+            ),
+            size: dvec2(
+                text_run.base.rect.size.width.to_f32_px() as f64,
+                text_run.base.rect.size.height.to_f32_px() as f64,
+            ),
+        };
+        primitives.push(lower_text_primitive(
+            registry,
+            glyph_runs,
+            owner_node_id,
+            bounds,
+            text_run,
+            spatial_id,
+            clip_chain_id,
+            effect_id,
+        )?);
+    }
+    Ok(primitives)
 }
 
 fn make_glyph_run_resource(

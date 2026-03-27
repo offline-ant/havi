@@ -2066,8 +2066,32 @@ pub fn query_elements_from_point(
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
                 };
-                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
-                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                let hits_text_run = svg_fragment.text_runs.iter().any(|text_run| {
+                    let run_rect = PhysicalRect::new(
+                        generation.containing_block(fragment_id).origin +
+                            text_run.base.rect.origin.to_vector(),
+                        text_run.base.rect.size,
+                    );
+                    let run_rect = if fragment_is_fixed_positioned(generation, fragment_id) {
+                        run_rect
+                    } else {
+                        run_rect.translate(-root_scroll_offset)
+                    };
+                    let run_rect: Rect<f32, CSSPixel> = Rect::new(
+                        Point2D::new(run_rect.origin.x.to_f32_px(), run_rect.origin.y.to_f32_px()),
+                        Size2D::new(run_rect.size.width.to_f32_px(), run_rect.size.height.to_f32_px()),
+                    );
+                    point.x >= run_rect.origin.x &&
+                        point.x <= run_rect.origin.x + run_rect.size.width &&
+                        point.y >= run_rect.origin.y &&
+                        point.y <= run_rect.origin.y + run_rect.size.height
+                });
+                if hits_text_run ||
+                    (svg_fragment.text_runs.is_empty() &&
+                        point.x >= rect.origin.x &&
+                        point.x <= rect.origin.x + rect.size.width &&
+                        point.y >= rect.origin.y &&
+                        point.y <= rect.origin.y + rect.size.height)
                 {
                     push_svg_hit_test_result(
                         &svg_fragment.identity,

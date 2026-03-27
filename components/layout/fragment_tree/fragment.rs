@@ -10,7 +10,7 @@ use base::id::PipelineId;
 use base::print_tree::PrintTree;
 use fonts::{FontMetrics, FontRef, GlyphStore};
 use havi_types::fragment_tree::{
-    SVGFragmentIdentity, SVGGlyphRun, SVGOverflowClip, SVGPaint, SVGPathData, SVGRect,
+    SVGFragmentIdentity, SVGOverflowClip, SVGPaint, SVGPathData, SVGRect,
     SVGResourceReferences, SVGStrokeStyle, SVGTransform,
 };
 use malloc_size_of_derive::MallocSizeOf;
@@ -158,8 +158,7 @@ pub struct SVGTextFragment {
     pub base: BaseFragment,
     #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
     pub identity: SVGFragmentIdentity,
-    #[ignore_malloc_size_of = "SVG glyph runs are copied into published fragments"]
-    pub glyph_runs: Vec<SVGGlyphRun>,
+    pub text_runs: Vec<TextFragment>,
     #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
     pub object_bounding_box: SVGRect,
     #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]

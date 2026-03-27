@@ -22,7 +22,7 @@ use self::box_border::{append_box_border_primitives, border_paint, border_radius
 use self::box_shadow::append_box_shadow_primitives;
 use self::resources::ensure_image_resource_for_fragment;
 use self::svg::lower_svg_path_primitives;
-use self::text::lower_text_primitive;
+use self::text::{lower_svg_text_primitives, lower_text_primitive};
 use crate::color::inherited_color;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
@@ -109,7 +109,18 @@ pub(crate) fn paint_run_item_to_primitives(
                 owner_node_id,
             ))
         }
-        (StackingContextSection::Foreground, published::FragmentKind::SVGText(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGText(svg)) => {
+            lower_svg_text_primitives(
+                registry,
+                glyph_runs,
+                owner_node_id,
+                item.local_origin,
+                svg,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+            )
+        }
         (StackingContextSection::Foreground, published::FragmentKind::SVGImage(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGViewport(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGGroup(_)) |

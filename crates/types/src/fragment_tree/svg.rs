@@ -1,7 +1,7 @@
 use euclid::Transform2D;
 use style_traits::CSSPixel;
 
-use super::{BaseFragment, FragmentId, PaintChild, Tag};
+use super::{BaseFragment, FragmentId, PaintChild, Tag, TextFragment};
 use crate::geom::{PhysicalPoint, PhysicalRect};
 
 pub type SVGScalar = f32;
@@ -169,18 +169,10 @@ pub struct SVGPathFragment {
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGGlyphRun {
-    pub text: String,
-    pub origin: SVGPoint,
-    pub advance: f32,
-    pub transform: SVGTransform,
-}
-
-#[derive(Clone, Debug)]
 pub struct SVGTextFragment {
     pub base: BaseFragment,
     pub identity: SVGFragmentIdentity,
-    pub glyph_runs: Vec<SVGGlyphRun>,
+    pub text_runs: Vec<TextFragment>,
     pub object_bounding_box: SVGRect,
     pub decorated_bounding_box: SVGRect,
     pub local_transform: SVGTransform,
