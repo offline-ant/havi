@@ -43,3 +43,18 @@ Route fetches may be cached in the home repo.
 Browsers may persist additional local state for history, credentials, authoring,
 and shell integration. The format and storage location are implementation-
 defined.
+
+## Inline SVG runtime model
+
+Inline `<svg>` participates in the browser's native style, layout, fragment,
+and paint pipeline.
+
+Required runtime behavior:
+
+- inline SVG is not serialized to a temporary image URL for layout or first
+  paint
+- `use`, gradients, and clip paths resolve through the native SVG resource graph
+- SVG text and `foreignObject` remain native fragment kinds even when feature
+  coverage is partial
+- external SVG image resources remain implementation-defined and may use a
+  separate backend from inline SVG
