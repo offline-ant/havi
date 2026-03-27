@@ -3,6 +3,7 @@ mod document;
 mod effects;
 mod geometry;
 mod iframe;
+mod svg;
 mod traversal;
 
 use std::collections::{HashMap, HashSet};

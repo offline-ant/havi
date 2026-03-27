@@ -4,6 +4,9 @@ use makepad_widgets::{dvec2, Cx2d};
 
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
+use super::svg::{
+    build_svg_foreign_object_fragment, build_svg_group_fragment, build_svg_viewport_fragment,
+};
 use super::{
     log_builder_skip_once, BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
 };
@@ -161,10 +164,11 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
-        published::FragmentKind::SVGViewport(svg) => build_paint_list(
+        published::FragmentKind::SVGViewport(svg) => build_svg_viewport_fragment(
             cx,
             generation,
-            &svg.paint_children,
+            fragment_id,
+            svg,
             scroll_state,
             scene,
             registry,
@@ -174,10 +178,11 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
-        published::FragmentKind::SVGGroup(svg) => build_paint_list(
+        published::FragmentKind::SVGGroup(svg) => build_svg_group_fragment(
             cx,
             generation,
-            &svg.paint_children,
+            fragment_id,
+            svg,
             scroll_state,
             scene,
             registry,
@@ -187,10 +192,11 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
-        published::FragmentKind::SVGForeignObject(svg) => build_paint_list(
+        published::FragmentKind::SVGForeignObject(svg) => build_svg_foreign_object_fragment(
             cx,
             generation,
-            &svg.paint_children,
+            fragment_id,
+            svg,
             scroll_state,
             scene,
             registry,

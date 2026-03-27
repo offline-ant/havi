@@ -3,6 +3,7 @@ mod box_border;
 mod box_shadow;
 mod gradient;
 mod resources;
+mod svg;
 mod text;
 
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ use self::box_background::{append_box_background_primitives, has_unsupported_bac
 use self::box_border::{append_box_border_primitives, border_paint, border_radius, outline_paint};
 use self::box_shadow::append_box_shadow_primitives;
 use self::resources::ensure_image_resource_for_fragment;
+use self::svg::lower_svg_path_primitives;
 use self::text::lower_text_primitive;
 use crate::color::inherited_color;
 use crate::layout_stacking_context::StackingContextSection;
@@ -96,13 +98,23 @@ pub(crate) fn paint_run_item_to_primitives(
             primitive.effect_id = effect_id;
             Ok(vec![primitive])
         }
-        (StackingContextSection::Foreground, published::FragmentKind::SVGPath(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGPath(svg)) => {
+            Ok(lower_svg_path_primitives(
+                generation,
+                bounds,
+                svg,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                owner_node_id,
+            ))
+        }
         (StackingContextSection::Foreground, published::FragmentKind::SVGText(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGImage(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGViewport(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGGroup(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGForeignObject(_)) => {
-            Err("SVG paint run not supported by browser-scene adapter yet".to_string())
+            Ok(Vec::new())
         }
         _ => Err("paint run not supported by browser-scene adapter yet".to_string()),
     }
