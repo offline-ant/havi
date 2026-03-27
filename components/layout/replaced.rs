@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use std::str::FromStr;
+
 use app_units::{Au, MAX_AU};
 use base::id::{BrowsingContextId, PipelineId};
 use data_url::DataUrl;
@@ -17,16 +19,13 @@ use selectors::Element;
 use servo_arc::Arc as ServoArc;
 use servo_url::BrowserUrl;
 use style::Zero;
-use style::attr::AttrValue;
 use style::computed_values::object_fit::T as ObjectFit;
 use style::logical_geometry::{Direction, WritingMode};
-use style::properties::{ComputedValues, StyleBuilder};
-use style::rule_cache::RuleCacheConditions;
+use style::properties::ComputedValues;
 use style::servo::url::ComputedUrl;
-use style::stylesheets::container_rule::ContainerSizeQuery;
 use style::values::CSSFloat;
 use style::values::computed::image::Image as ComputedImage;
-use style::values::computed::{Content, Context, ToComputedValue};
+use style::values::computed::Content;
 use style::values::generics::counters::{GenericContentItem, GenericContentItems};
 use url::Url;
 use webrender_api::ImageKey;
@@ -186,7 +185,7 @@ impl ReplacedContents {
                     natural_size_in_dots
                         .map_or_else(NaturalSizes::empty, NaturalSizes::from_natural_size_in_dots),
                 )
-            } else if let Some(svg_data) = node.as_svg() {
+            } else if let Some(svg_data) = node.as_svg().filter(|data| data.viewport().is_some()) {
                 Self::svg_kind_size(svg_data, context, node)
             } else if node
                 .as_html_element()
@@ -227,49 +226,24 @@ impl ReplacedContents {
         context: &LayoutContext,
         node: ServoThreadSafeLayoutNode<'_>,
     ) -> (ReplacedContentKind, NaturalSizes) {
-        let rule_cache_conditions = &mut RuleCacheConditions::default();
-
-        let parent_style = node.style(&context.style_context);
-        let style_builder = StyleBuilder::new(
-            context.style_context.stylist.device(),
-            Some(context.style_context.stylist),
-            Some(&parent_style),
-            None,
-            None,
-            false,
-        );
-
-        let to_computed_context = Context::new(
-            style_builder,
-            context.style_context.quirks_mode(),
-            rule_cache_conditions,
-            ContainerSizeQuery::none(),
-        );
-
-        let attr_to_computed = |attr_val: &AttrValue| {
-            if let AttrValue::Length(_, length) = attr_val {
-                length.to_computed_value(&to_computed_context)
-            } else {
-                None
-            }
-        };
-        let width = svg_data.width.and_then(attr_to_computed);
-        let height = svg_data.height.and_then(attr_to_computed);
+        let viewport = svg_data
+            .viewport()
+            .expect("inline SVG replaced sizing only applies to <svg> viewport nodes");
+        let width = viewport.width.and_then(parse_svg_length_attribute);
+        let height = viewport.height.and_then(parse_svg_length_attribute);
 
         let ratio = match (width, height) {
-            (Some(width), Some(height)) if !width.is_zero() && !height.is_zero() => {
-                Some(width.px() / height.px())
-            },
-            _ => svg_data.ratio_from_view_box(),
+            (Some(width), Some(height)) if width > 0.0 && height > 0.0 => Some(width / height),
+            _ => viewport.ratio_from_view_box(),
         };
 
         let natural_size = NaturalSizes {
-            width: width.map(|w| Au::from_f32_px(w.px())),
-            height: height.map(|h| Au::from_f32_px(h.px())),
+            width: width.map(Au::from_f32_px),
+            height: height.map(Au::from_f32_px),
             ratio,
         };
 
-        let svg_source = match svg_data.source {
+        let svg_source = match viewport.source.clone() {
             None => {
                 // The SVGSVGElement is not yet serialized, so we add it to a list
                 // and hand it over to script to peform the serialization.
@@ -296,7 +270,7 @@ impl ReplacedContents {
 
         let vector_image = cached_image.map(|image| match image {
             Image::Vector(mut vector_image) => {
-                vector_image.svg_id = Some(svg_data.svg_id);
+                vector_image.svg_id = Some(viewport.svg_id.clone());
                 vector_image
             },
             _ => unreachable!("SVG element can't contain a raster image."),
@@ -749,6 +723,25 @@ impl ComputeInlineContentSizes for ReplacedContents {
             depends_on_block_constraints: constraint_space.preferred_aspect_ratio.is_some(),
         }
     }
+}
+
+fn parse_svg_length_attribute(raw: &str) -> Option<f32> {
+    let length = svgtypes::Length::from_str(raw).ok()?;
+    let px = match length.unit {
+        svgtypes::LengthUnit::None | svgtypes::LengthUnit::Px => length.number,
+        svgtypes::LengthUnit::In => length.number * 96.0,
+        svgtypes::LengthUnit::Cm => length.number * (96.0 / 2.54),
+        svgtypes::LengthUnit::Mm => length.number * (96.0 / 25.4),
+        svgtypes::LengthUnit::Pt => length.number * (96.0 / 72.0),
+        svgtypes::LengthUnit::Pc => length.number * 16.0,
+        svgtypes::LengthUnit::Percent | svgtypes::LengthUnit::Em | svgtypes::LengthUnit::Ex => {
+            return None;
+        }
+    };
+    if !px.is_finite() || px < 0.0 {
+        return None;
+    }
+    Some(px as f32)
 }
 
 fn try_to_parse_image_data_url(string: &str) -> Option<Url> {

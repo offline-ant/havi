@@ -161,6 +161,102 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
+        published::FragmentKind::SVGViewport(svg) => build_paint_list(
+            cx,
+            generation,
+            &svg.paint_children,
+            scroll_state,
+            scene,
+            registry,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        ),
+        published::FragmentKind::SVGGroup(svg) => build_paint_list(
+            cx,
+            generation,
+            &svg.paint_children,
+            scroll_state,
+            scene,
+            registry,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        ),
+        published::FragmentKind::SVGForeignObject(svg) => build_paint_list(
+            cx,
+            generation,
+            &svg.paint_children,
+            scroll_state,
+            scene,
+            registry,
+            state,
+            ids,
+            build_cx,
+            scroll_nodes,
+            previous_document,
+        ),
+        published::FragmentKind::SVGPath(svg) => {
+            if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
+                return Ok(());
+            }
+            push_fragment_primitives(
+                cx,
+                generation,
+                scene,
+                registry,
+                state,
+                &RenderPaintItem {
+                    section: StackingContextSection::Foreground,
+                    local_origin: build_cx.containing_block_origin,
+                    fragment_id,
+                },
+                owner_node_id_for_fragment(generation, fragment_id),
+                build_cx,
+            )
+        }
+        published::FragmentKind::SVGText(svg) => {
+            if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
+                return Ok(());
+            }
+            push_fragment_primitives(
+                cx,
+                generation,
+                scene,
+                registry,
+                state,
+                &RenderPaintItem {
+                    section: StackingContextSection::Foreground,
+                    local_origin: build_cx.containing_block_origin,
+                    fragment_id,
+                },
+                owner_node_id_for_fragment(generation, fragment_id),
+                build_cx,
+            )
+        }
+        published::FragmentKind::SVGImage(svg) => {
+            if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
+                return Ok(());
+            }
+            push_fragment_primitives(
+                cx,
+                generation,
+                scene,
+                registry,
+                state,
+                &RenderPaintItem {
+                    section: StackingContextSection::Foreground,
+                    local_origin: build_cx.containing_block_origin,
+                    fragment_id,
+                },
+                owner_node_id_for_fragment(generation, fragment_id),
+                build_cx,
+            )
+        }
         published::FragmentKind::IFrame(iframe) => build_iframe_fragment(
             cx,
             generation,
@@ -238,5 +334,11 @@ pub(super) fn owner_node_id_for_fragment(
         published::FragmentKind::Image(image) => image.base.tag.map(|tag| tag.node.0),
         published::FragmentKind::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
         published::FragmentKind::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGViewport(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGGroup(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGPath(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGText(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGForeignObject(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGImage(svg) => svg.base.tag.map(|tag| tag.node.0),
     }
 }

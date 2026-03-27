@@ -18,7 +18,9 @@ use crate::dom::css::cssstyledeclaration::{
 };
 use crate::dom::document::{Document, FocusInitiator};
 use crate::dom::element::{AttributeMutation, Element};
-use crate::dom::node::{Node, NodeTraits};
+use js::context::JSContext;
+
+use crate::dom::node::{ChildrenMutation, Node, NodeDamage, NodeTraits, ShadowIncluding};
 use crate::dom::virtualmethods::VirtualMethods;
 use crate::script_runtime::CanGc;
 
@@ -90,6 +92,60 @@ impl VirtualMethods for SVGElement {
                 },
             }
         }
+        for ancestor in self.upcast::<Node>().inclusive_ancestors(ShadowIncluding::No) {
+            if let Some(svg_root) = ancestor.downcast::<crate::dom::svg::svgsvgelement::SVGSVGElement>() {
+                svg_root.invalidate_cached_serialized_subtree();
+            }
+        }
+        self.upcast::<Node>().dirty(NodeDamage::Other);
+    }
+
+    fn attribute_affects_presentational_hints(&self, attr: &Attr) -> bool {
+        matches!(
+            attr.local_name(),
+            &local_name!("color") |
+                &local_name!("display") |
+                &local_name!("visibility") |
+                &local_name!("opacity") |
+                &local_name!("fill") |
+                &local_name!("fill-opacity") |
+                &local_name!("fill-rule") |
+                &local_name!("stroke") |
+                &local_name!("stroke-opacity") |
+                &local_name!("stroke-width") |
+                &local_name!("stroke-linecap") |
+                &local_name!("stroke-linejoin") |
+                &local_name!("stroke-miterlimit") |
+                &local_name!("pointer-events") |
+                &local_name!("vector-effect") |
+                &local_name!("clip-rule") |
+                &local_name!("clip-path") |
+                &local_name!("mask") |
+                &local_name!("filter") |
+                &local_name!("marker-start") |
+                &local_name!("marker-mid") |
+                &local_name!("marker-end") |
+                &local_name!("text-anchor") |
+                &local_name!("alignment-baseline") |
+                &local_name!("dominant-baseline") |
+                &local_name!("stop-color") |
+                &local_name!("stop-opacity")
+        ) || self
+            .super_type()
+            .unwrap()
+            .attribute_affects_presentational_hints(attr)
+    }
+
+    fn children_changed(&self, cx: &mut JSContext, mutation: &ChildrenMutation) {
+        if let Some(super_type) = self.super_type() {
+            super_type.children_changed(cx, mutation);
+        }
+        for ancestor in self.upcast::<Node>().inclusive_ancestors(ShadowIncluding::No) {
+            if let Some(svg_root) = ancestor.downcast::<crate::dom::svg::svgsvgelement::SVGSVGElement>() {
+                svg_root.invalidate_cached_serialized_subtree();
+            }
+        }
+        self.upcast::<Node>().dirty(NodeDamage::Other);
     }
 }
 

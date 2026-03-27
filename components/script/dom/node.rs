@@ -104,7 +104,8 @@ use crate::dom::document::{Document, DocumentSource, HasBrowsingContext, IsHTMLD
 use crate::dom::documentfragment::DocumentFragment;
 use crate::dom::documenttype::DocumentType;
 use crate::dom::element::{
-    AttributeMutationReason, CustomElementCreationMode, Element, ElementCreator, SelectorWrapper,
+    AttributeMutationReason, CustomElementCreationMode, Element, ElementCreator,
+    LayoutElementHelpers, SelectorWrapper,
 };
 use crate::dom::event::{Event, EventBubbles, EventCancelable, EventFlags};
 use crate::dom::eventtarget::EventTarget;
@@ -2440,7 +2441,186 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
     }
 
     fn svg_data(self) -> Option<SVGElementData<'dom>> {
-        self.downcast::<SVGSVGElement>().map(|svg| svg.data())
+        let element = self.downcast::<Element>()?;
+        if element.namespace() != &ns!(svg) {
+            return None;
+        }
+
+        let attr = |name: &html5ever::LocalName| element.get_attr_val_for_layout(&ns!(), name);
+        let href = || {
+            element
+                .get_attr_val_for_layout(&ns!(), &local_name!("href"))
+                .or_else(|| element.get_attr_val_for_layout(&ns!(xlink), &local_name!("href")))
+        };
+        let common = layout_api::SVGCommonData {
+            element_id: attr(&local_name!("id")),
+            transform: attr(&local_name!("transform")),
+        };
+        let paint = layout_api::SVGPaintData {
+            color: attr(&local_name!("color")),
+            fill: attr(&local_name!("fill")),
+            fill_opacity: attr(&local_name!("fill-opacity")),
+            fill_rule: attr(&local_name!("fill-rule")),
+            stroke: attr(&local_name!("stroke")),
+            stroke_opacity: attr(&local_name!("stroke-opacity")),
+            stroke_width: attr(&local_name!("stroke-width")),
+            stroke_linejoin: attr(&local_name!("stroke-linejoin")),
+            stroke_linecap: attr(&local_name!("stroke-linecap")),
+            stroke_miterlimit: attr(&local_name!("stroke-miterlimit")),
+            opacity: attr(&local_name!("opacity")),
+            display: attr(&local_name!("display")),
+            visibility: attr(&local_name!("visibility")),
+            pointer_events: attr(&local_name!("pointer-events")),
+            vector_effect: attr(&local_name!("vector-effect")),
+            clip_rule: attr(&local_name!("clip-rule")),
+            clip_path: attr(&local_name!("clip-path")),
+            mask: attr(&local_name!("mask")),
+            filter: attr(&local_name!("filter")),
+            marker_start: attr(&local_name!("marker-start")),
+            marker_mid: attr(&local_name!("marker-mid")),
+            marker_end: attr(&local_name!("marker-end")),
+        };
+
+        let node_kind = match element.local_name() {
+            &local_name!("svg") => {
+                let svg = self.downcast::<SVGSVGElement>()?;
+                layout_api::SVGNodeKind::Viewport(layout_api::SVGViewportData {
+                    source: svg.serialized_source(),
+                    width: attr(&local_name!("width")),
+                    height: attr(&local_name!("height")),
+                    svg_id: svg.svg_id(),
+                    view_box: attr(&local_name!("viewBox")),
+                    preserve_aspect_ratio: attr(&local_name!("preserveAspectRatio")),
+                    overflow: attr(&local_name!("overflow")),
+                })
+            }
+            &local_name!("g") => layout_api::SVGNodeKind::Group,
+            &local_name!("defs") => layout_api::SVGNodeKind::Defs,
+            &local_name!("path") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Path {
+                d: attr(&local_name!("d")),
+            }),
+            &local_name!("rect") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Rect {
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+                rx: attr(&local_name!("rx")),
+                ry: attr(&local_name!("ry")),
+            }),
+            &local_name!("circle") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Circle {
+                cx: attr(&local_name!("cx")),
+                cy: attr(&local_name!("cy")),
+                r: attr(&local_name!("r")),
+            }),
+            &local_name!("ellipse") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Ellipse {
+                cx: attr(&local_name!("cx")),
+                cy: attr(&local_name!("cy")),
+                rx: attr(&local_name!("rx")),
+                ry: attr(&local_name!("ry")),
+            }),
+            &local_name!("line") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Line {
+                x1: attr(&local_name!("x1")),
+                y1: attr(&local_name!("y1")),
+                x2: attr(&local_name!("x2")),
+                y2: attr(&local_name!("y2")),
+            }),
+            &local_name!("polyline") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Polyline {
+                points: attr(&local_name!("points")),
+            }),
+            &local_name!("polygon") => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Polygon {
+                points: attr(&local_name!("points")),
+            }),
+            &local_name!("text") => layout_api::SVGNodeKind::Text(layout_api::SVGTextData {
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                dx: attr(&local_name!("dx")),
+                dy: attr(&local_name!("dy")),
+                rotate: attr(&local_name!("rotate")),
+                text_length: attr(&local_name!("textLength")),
+                length_adjust: attr(&local_name!("lengthAdjust")),
+                text_anchor: attr(&local_name!("text-anchor")),
+                alignment_baseline: attr(&local_name!("alignment-baseline")),
+                dominant_baseline: attr(&local_name!("dominant-baseline")),
+            }),
+            &local_name!("tspan") => layout_api::SVGNodeKind::TSpan(layout_api::SVGTextData {
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                dx: attr(&local_name!("dx")),
+                dy: attr(&local_name!("dy")),
+                rotate: attr(&local_name!("rotate")),
+                text_length: attr(&local_name!("textLength")),
+                length_adjust: attr(&local_name!("lengthAdjust")),
+                text_anchor: attr(&local_name!("text-anchor")),
+                alignment_baseline: attr(&local_name!("alignment-baseline")),
+                dominant_baseline: attr(&local_name!("dominant-baseline")),
+            }),
+            &local_name!("use") => layout_api::SVGNodeKind::Use(layout_api::SVGUseData {
+                href: href(),
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+            }),
+            &local_name!("foreignObject") => layout_api::SVGNodeKind::ForeignObject(layout_api::SVGForeignObjectData {
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+            }),
+            &local_name!("linearGradient") => layout_api::SVGNodeKind::Gradient(layout_api::SVGGradientData::Linear {
+                href: href(),
+                x1: attr(&local_name!("x1")),
+                y1: attr(&local_name!("y1")),
+                x2: attr(&local_name!("x2")),
+                y2: attr(&local_name!("y2")),
+                gradient_units: attr(&local_name!("gradientUnits")),
+                gradient_transform: attr(&local_name!("gradientTransform")),
+                spread_method: attr(&local_name!("spreadMethod")),
+            }),
+            &local_name!("radialGradient") => layout_api::SVGNodeKind::Gradient(layout_api::SVGGradientData::Radial {
+                href: href(),
+                cx: attr(&local_name!("cx")),
+                cy: attr(&local_name!("cy")),
+                r: attr(&local_name!("r")),
+                fx: attr(&local_name!("fx")),
+                fy: attr(&local_name!("fy")),
+                fr: attr(&local_name!("fr")),
+                gradient_units: attr(&local_name!("gradientUnits")),
+                gradient_transform: attr(&local_name!("gradientTransform")),
+                spread_method: attr(&local_name!("spreadMethod")),
+            }),
+            &local_name!("stop") => layout_api::SVGNodeKind::Stop(layout_api::SVGStopData {
+                offset: attr(&local_name!("offset")),
+                stop_color: attr(&local_name!("stop-color")),
+                stop_opacity: attr(&local_name!("stop-opacity")),
+            }),
+            &local_name!("clipPath") => layout_api::SVGNodeKind::ClipPath(layout_api::SVGClipPathData {
+                clip_path_units: attr(&local_name!("clipPathUnits")),
+            }),
+            &local_name!("mask") => layout_api::SVGNodeKind::Mask(layout_api::SVGMaskData {
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+                mask_units: attr(&local_name!("maskUnits")),
+                mask_content_units: attr(&local_name!("maskContentUnits")),
+            }),
+            &local_name!("image") => layout_api::SVGNodeKind::Image(layout_api::SVGImageData {
+                href: href(),
+                x: attr(&local_name!("x")),
+                y: attr(&local_name!("y")),
+                width: attr(&local_name!("width")),
+                height: attr(&local_name!("height")),
+                preserve_aspect_ratio: attr(&local_name!("preserveAspectRatio")),
+            }),
+            _ => return None,
+        };
+
+        Some(SVGElementData {
+            common,
+            node_kind,
+            paint,
+        })
     }
 
     fn iframe_browsing_context_id(self) -> Option<BrowsingContextId> {

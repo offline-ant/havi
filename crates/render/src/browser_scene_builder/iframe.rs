@@ -66,6 +66,7 @@ pub(super) fn build_iframe_fragment(
                     background_images: Vec::new(),
                 },
                 node_fragments: std::collections::HashMap::new(),
+                svg_resources: Arc::from(Vec::<published::SVGResourceNode>::new()),
                 initial_containing_block: havi_types::PhysicalRect::zero(),
                 scrollable_overflow: havi_types::PhysicalRect::zero(),
             })

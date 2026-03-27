@@ -96,6 +96,14 @@ pub(crate) fn paint_run_item_to_primitives(
             primitive.effect_id = effect_id;
             Ok(vec![primitive])
         }
+        (StackingContextSection::Foreground, published::FragmentKind::SVGPath(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGText(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGImage(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGViewport(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGGroup(_)) |
+        (StackingContextSection::Foreground, published::FragmentKind::SVGForeignObject(_)) => {
+            Err("SVG paint run not supported by browser-scene adapter yet".to_string())
+        }
         _ => Err("paint run not supported by browser-scene adapter yet".to_string()),
     }
 }
@@ -178,6 +186,12 @@ fn paint_item_bounds(
         published::FragmentKind::Text(tf) => physical_rect_to_rect(tf.base.rect),
         published::FragmentKind::Image(image) => physical_rect_to_rect(image.base.rect),
         published::FragmentKind::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
+        published::FragmentKind::SVGViewport(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGGroup(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGPath(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGText(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGForeignObject(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGImage(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::Positioning(_) => Rect {
             pos: dvec2(0.0, 0.0),
             size: dvec2(0.0, 0.0),

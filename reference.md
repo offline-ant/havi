@@ -165,6 +165,31 @@ Current behavior:
 
 This keeps renderer ownership on the retained path while coverage work continues.
 
+## Inline SVG rollout status
+
+HAVI is moving inline `<svg>` from the current serialized-image fallback to a
+native DOM -> layout -> fragment arena -> browser-scene pipeline.
+
+Current architectural model:
+
+- native fragment kinds: `SVGViewport`, `SVGGroup`, `SVGPath`, `SVGText`,
+  `SVGForeignObject`, `SVGImage`
+- native resource kinds: gradients, clip paths, masks, filters, markers,
+  patterns, and `use` instance sources
+- explicit layout subsystem ownership in `components/layout/svg/`
+
+First landing subset:
+
+- tags: `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
+  `polygon`, `defs`, `use`, `linearGradient`, `radialGradient`, `stop`,
+  `clipPath`, `foreignObject`, `image`
+- properties: transforms, `viewBox`, `preserveAspectRatio`, solid fill and
+  stroke, gradients, `currentColor`, `display`, `visibility`, `opacity`,
+  `pointer-events`, `fill-rule`, `clip-rule`,
+  `vector-effect: non-scaling-stroke`
+- deferred: full filters, full masks, markers, patterns, SVG animation,
+  `textPath`, full DOM API parity, and standalone SVG documents
+
 ## Diagnostics
 
 `havi:///diagnostics` exposes HAVI-specific inspection and test controls.

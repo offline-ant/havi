@@ -165,6 +165,7 @@ impl FragmentTree {
                 placements: self.generation.placements.clone(),
                 derived,
                 node_fragments: self.generation.node_fragments.clone(),
+                svg_resources: self.generation.svg_resources.clone(),
                 initial_containing_block: self.generation.initial_containing_block,
                 scrollable_overflow: self.generation.scrollable_overflow,
             }),
@@ -215,6 +216,7 @@ fn build_generation(
             .into_iter()
             .map(|(key, ids)| (key, Arc::from(ids)))
             .collect(),
+        svg_resources: Arc::from(Vec::<published::SVGResourceNode>::new()),
         initial_containing_block,
         scrollable_overflow,
     }
@@ -441,7 +443,21 @@ impl<'a> ArenaBuilder<'a> {
             published::FragmentKind::Positioning(positioning_fragment) => {
                 positioning_fragment.paint_children = paint_children;
             }
-            published::FragmentKind::Text(_) | published::FragmentKind::Image(_) | published::FragmentKind::IFrame(_) => {}
+            published::FragmentKind::SVGViewport(svg_fragment) => {
+                svg_fragment.paint_children = paint_children;
+            }
+            published::FragmentKind::SVGGroup(svg_fragment) => {
+                svg_fragment.paint_children = paint_children;
+            }
+            published::FragmentKind::SVGForeignObject(svg_fragment) => {
+                svg_fragment.paint_children = paint_children;
+            }
+            published::FragmentKind::Text(_) |
+            published::FragmentKind::Image(_) |
+            published::FragmentKind::IFrame(_) |
+            published::FragmentKind::SVGPath(_) |
+            published::FragmentKind::SVGText(_) |
+            published::FragmentKind::SVGImage(_) => {}
         }
     }
 

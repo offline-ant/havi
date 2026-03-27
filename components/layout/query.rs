@@ -157,6 +157,30 @@ fn box_area_rect(
             let containing_block = generation.containing_block(fragment_id);
             Some(positioning_fragment.base.rect.translate(containing_block.origin.to_vector()))
         }
+        published::FragmentKind::SVGViewport(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::SVGGroup(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::SVGPath(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::SVGText(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::SVGForeignObject(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
+        published::FragmentKind::SVGImage(svg_fragment) => {
+            let containing_block = generation.containing_block(fragment_id);
+            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+        }
         published::FragmentKind::Text(_) |
         published::FragmentKind::Image(_) |
         published::FragmentKind::IFrame(_) => None,
@@ -264,8 +288,13 @@ fn resolved_size_should_be_used_value(
         published::FragmentKind::Float(_) |
         published::FragmentKind::Positioning(_) |
         published::FragmentKind::Image(_) |
-        published::FragmentKind::IFrame(_) => true,
-        published::FragmentKind::Text(_) => false,
+        published::FragmentKind::IFrame(_) |
+        published::FragmentKind::SVGViewport(_) |
+        published::FragmentKind::SVGGroup(_) |
+        published::FragmentKind::SVGPath(_) |
+        published::FragmentKind::SVGForeignObject(_) |
+        published::FragmentKind::SVGImage(_) => true,
+        published::FragmentKind::Text(_) | published::FragmentKind::SVGText(_) => false,
     }
 }
 
@@ -524,7 +553,13 @@ pub fn process_resolved_style_request(
             ),
             published::FragmentKind::Text(_) |
             published::FragmentKind::Image(_) |
-            published::FragmentKind::IFrame(_) => return computed_style(Some(fragment_id)),
+            published::FragmentKind::IFrame(_) |
+            published::FragmentKind::SVGViewport(_) |
+            published::FragmentKind::SVGGroup(_) |
+            published::FragmentKind::SVGPath(_) |
+            published::FragmentKind::SVGText(_) |
+            published::FragmentKind::SVGForeignObject(_) |
+            published::FragmentKind::SVGImage(_) => return computed_style(Some(fragment_id)),
         };
 
         if display.inside() == DisplayInside::Grid {
@@ -1819,6 +1854,30 @@ pub fn query_elements_from_point(
                 generation.containing_block(fragment_id).origin + iframe_fragment.base.rect.origin.to_vector(),
                 iframe_fragment.base.rect.size,
             ),
+            published::FragmentKind::SVGViewport(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
+            published::FragmentKind::SVGGroup(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
+            published::FragmentKind::SVGPath(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
+            published::FragmentKind::SVGText(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
+            published::FragmentKind::SVGForeignObject(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
+            published::FragmentKind::SVGImage(svg_fragment) => PhysicalRect::new(
+                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
+                svg_fragment.base.rect.size,
+            ),
             published::FragmentKind::Positioning(_) => return None,
         };
         let rect = if fragment_is_fixed_positioned(generation, fragment_id) {
@@ -1901,6 +1960,52 @@ pub fn query_elements_from_point(
                     hit_test_paint_child(generation, child, point, root_scroll_offset, results);
                 }
             }
+            published::FragmentKind::SVGViewport(svg_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x < rect.origin.x ||
+                    point.x > rect.origin.x + rect.size.width ||
+                    point.y < rect.origin.y ||
+                    point.y > rect.origin.y + rect.size.height
+                {
+                    return;
+                }
+                for child in svg_fragment.paint_children.iter().rev() {
+                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
+                }
+                if let Some(tag) = svg_fragment.base.tag {
+                    results.push(layout_api::ElementsFromPointResult {
+                        node: tag.node,
+                        point_in_target: Point2D::new(
+                            point.x - rect.origin.x,
+                            point.y - rect.origin.y,
+                        ),
+                        cursor: cursor_from_style(&svg_fragment.base.style),
+                    });
+                }
+            }
+            published::FragmentKind::SVGGroup(svg_fragment) => {
+                for child in svg_fragment.paint_children.iter().rev() {
+                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
+                }
+                if let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) {
+                    if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                        point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                    {
+                        if let Some(tag) = svg_fragment.base.tag {
+                            results.push(layout_api::ElementsFromPointResult {
+                                node: tag.node,
+                                point_in_target: Point2D::new(
+                                    point.x - rect.origin.x,
+                                    point.y - rect.origin.y,
+                                ),
+                                cursor: cursor_from_style(&svg_fragment.base.style),
+                            });
+                        }
+                    }
+                }
+            }
             published::FragmentKind::Text(text_fragment) => {
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
@@ -1916,6 +2021,44 @@ pub fn query_elements_from_point(
                                 point.y - rect.origin.y,
                             ),
                             cursor: cursor_from_style(&text_fragment.base.style),
+                        });
+                    }
+                }
+            }
+            published::FragmentKind::SVGPath(svg_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = svg_fragment.base.tag {
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
+                            cursor: cursor_from_style(&svg_fragment.base.style),
+                        });
+                    }
+                }
+            }
+            published::FragmentKind::SVGText(svg_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = svg_fragment.base.tag {
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
+                            cursor: cursor_from_style(&svg_fragment.base.style),
                         });
                     }
                 }
@@ -1939,6 +2082,25 @@ pub fn query_elements_from_point(
                     }
                 }
             }
+            published::FragmentKind::SVGImage(svg_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                {
+                    if let Some(tag) = svg_fragment.base.tag {
+                        results.push(layout_api::ElementsFromPointResult {
+                            node: tag.node,
+                            point_in_target: Point2D::new(
+                                point.x - rect.origin.x,
+                                point.y - rect.origin.y,
+                            ),
+                            cursor: cursor_from_style(&svg_fragment.base.style),
+                        });
+                    }
+                }
+            }
             published::FragmentKind::IFrame(iframe_fragment) => {
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
@@ -1956,6 +2118,31 @@ pub fn query_elements_from_point(
                             cursor: Cursor::Default,
                         });
                     }
+                }
+            }
+            published::FragmentKind::SVGForeignObject(svg_fragment) => {
+                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
+                    return;
+                };
+                if point.x < rect.origin.x ||
+                    point.x > rect.origin.x + rect.size.width ||
+                    point.y < rect.origin.y ||
+                    point.y > rect.origin.y + rect.size.height
+                {
+                    return;
+                }
+                for child in svg_fragment.paint_children.iter().rev() {
+                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
+                }
+                if let Some(tag) = svg_fragment.base.tag {
+                    results.push(layout_api::ElementsFromPointResult {
+                        node: tag.node,
+                        point_in_target: Point2D::new(
+                            point.x - rect.origin.x,
+                            point.y - rect.origin.y,
+                        ),
+                        cursor: cursor_from_style(&svg_fragment.base.style),
+                    });
                 }
             }
         }

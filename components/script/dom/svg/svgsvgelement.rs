@@ -5,10 +5,9 @@
 use base64::Engine as _;
 use cssparser::{Parser, ParserInput};
 use dom_struct::dom_struct;
-use html5ever::{LocalName, Prefix, local_name, ns};
+use html5ever::{LocalName, Prefix, local_name};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use layout_api::SVGElementData;
 use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::parser::ParserContext;
@@ -26,7 +25,7 @@ use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::root::{DomRoot, LayoutDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::document::Document;
-use crate::dom::element::{AttributeMutation, Element, LayoutElementHelpers};
+use crate::dom::element::{AttributeMutation, Element};
 use crate::dom::node::{
     ChildrenMutation, CloneChildrenFlag, Node, NodeDamage, NodeTraits, ShadowIncluding,
     UnbindContext,
@@ -161,36 +160,30 @@ impl SVGSVGElement {
         }
     }
 
-    fn invalidate_cached_serialized_subtree(&self) {
+    pub(crate) fn invalidate_cached_serialized_subtree(&self) {
         *self.cached_serialized_data_url.borrow_mut() = None;
         self.upcast::<Node>().dirty(NodeDamage::Other);
     }
 }
 
-pub(crate) trait LayoutSVGSVGElementHelpers<'dom> {
-    fn data(self) -> SVGElementData<'dom>;
+pub(crate) trait LayoutSVGSVGElementHelpers {
+    fn serialized_source(self) -> Option<Result<BrowserUrl, ()>>;
+    fn svg_id(self) -> String;
 }
 
-impl<'dom> LayoutSVGSVGElementHelpers<'dom> for LayoutDom<'dom, SVGSVGElement> {
+impl LayoutSVGSVGElementHelpers for LayoutDom<'_, SVGSVGElement> {
     #[expect(unsafe_code)]
-    fn data(self) -> SVGElementData<'dom> {
-        let svg_id = self.unsafe_get().uuid.clone();
-        let element = self.upcast::<Element>();
-        let width = element.get_attr_for_layout(&ns!(), &local_name!("width"));
-        let height = element.get_attr_for_layout(&ns!(), &local_name!("height"));
-        let view_box = element.get_attr_for_layout(&ns!(), &local_name!("viewBox"));
-        SVGElementData {
-            source: unsafe {
-                self.unsafe_get()
-                    .cached_serialized_data_url
-                    .borrow_for_layout()
-                    .clone()
-            },
-            width,
-            height,
-            view_box,
-            svg_id,
+    fn serialized_source(self) -> Option<Result<BrowserUrl, ()>> {
+        unsafe {
+            self.unsafe_get()
+                .cached_serialized_data_url
+                .borrow_for_layout()
+                .clone()
         }
+    }
+
+    fn svg_id(self) -> String {
+        self.unsafe_get().uuid.clone()
     }
 }
 

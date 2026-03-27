@@ -7,7 +7,10 @@ use style::logical_geometry::WritingMode;
 use style::computed_values::position::T as Position;
 use style::values::specified::align::AlignFlags;
 
-use super::{BaseFragment, BoxFragment};
+use super::{
+    BaseFragment, BoxFragment, SVGForeignObjectFragment, SVGGroupFragment, SVGImageFragment,
+    SVGPathFragment, SVGTextFragment, SVGViewportFragment,
+};
 use crate::geom::{LogicalVec2, PhysicalRect, PhysicalSides};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -36,6 +39,12 @@ impl FragmentNode {
             FragmentKind::Text(fragment) => &fragment.base,
             FragmentKind::Image(fragment) => &fragment.base,
             FragmentKind::IFrame(fragment) => &fragment.base,
+            FragmentKind::SVGViewport(fragment) => &fragment.base,
+            FragmentKind::SVGGroup(fragment) => &fragment.base,
+            FragmentKind::SVGPath(fragment) => &fragment.base,
+            FragmentKind::SVGText(fragment) => &fragment.base,
+            FragmentKind::SVGForeignObject(fragment) => &fragment.base,
+            FragmentKind::SVGImage(fragment) => &fragment.base,
         }
     }
 }
@@ -48,6 +57,12 @@ pub enum FragmentKind {
     Text(TextFragment),
     Image(ImageFragment),
     IFrame(IFrameFragment),
+    SVGViewport(SVGViewportFragment),
+    SVGGroup(SVGGroupFragment),
+    SVGPath(SVGPathFragment),
+    SVGText(SVGTextFragment),
+    SVGForeignObject(SVGForeignObjectFragment),
+    SVGImage(SVGImageFragment),
 }
 
 impl FragmentKind {
@@ -58,6 +73,12 @@ impl FragmentKind {
             FragmentKind::Text(fragment) => &fragment.base,
             FragmentKind::Image(fragment) => &fragment.base,
             FragmentKind::IFrame(fragment) => &fragment.base,
+            FragmentKind::SVGViewport(fragment) => &fragment.base,
+            FragmentKind::SVGGroup(fragment) => &fragment.base,
+            FragmentKind::SVGPath(fragment) => &fragment.base,
+            FragmentKind::SVGText(fragment) => &fragment.base,
+            FragmentKind::SVGForeignObject(fragment) => &fragment.base,
+            FragmentKind::SVGImage(fragment) => &fragment.base,
         }
     }
 }

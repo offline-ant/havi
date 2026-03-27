@@ -46,7 +46,6 @@ use servo_arc::Arc as ServoArc;
 use servo_url::{BrowserUrl, ImmutableOrigin};
 use style::Atom;
 use style::animation::DocumentAnimationSet;
-use style::attr::{AttrValue, parse_integer, parse_unsigned_integer};
 use style::context::QuirksMode;
 use style::data::ElementData;
 use style::dom::OpaqueNode;
@@ -337,33 +336,249 @@ pub struct HTMLCanvasData {
     pub height: u32,
 }
 
-pub struct SVGElementData<'dom> {
-    /// The SVG's XML source represented as a base64 encoded `data:` url.
-    pub source: Option<Result<BrowserUrl, ()>>,
-    pub width: Option<&'dom AttrValue>,
-    pub height: Option<&'dom AttrValue>,
-    pub svg_id: String,
-    pub view_box: Option<&'dom AttrValue>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGGeometryElementKind {
+    Path,
+    Rect,
+    Circle,
+    Ellipse,
+    Line,
+    Polyline,
+    Polygon,
 }
 
-impl SVGElementData<'_> {
+#[derive(Clone, Debug)]
+pub enum SVGGeometryData<'dom> {
+    Path {
+        d: Option<&'dom str>,
+    },
+    Rect {
+        x: Option<&'dom str>,
+        y: Option<&'dom str>,
+        width: Option<&'dom str>,
+        height: Option<&'dom str>,
+        rx: Option<&'dom str>,
+        ry: Option<&'dom str>,
+    },
+    Circle {
+        cx: Option<&'dom str>,
+        cy: Option<&'dom str>,
+        r: Option<&'dom str>,
+    },
+    Ellipse {
+        cx: Option<&'dom str>,
+        cy: Option<&'dom str>,
+        rx: Option<&'dom str>,
+        ry: Option<&'dom str>,
+    },
+    Line {
+        x1: Option<&'dom str>,
+        y1: Option<&'dom str>,
+        x2: Option<&'dom str>,
+        y2: Option<&'dom str>,
+    },
+    Polyline {
+        points: Option<&'dom str>,
+    },
+    Polygon {
+        points: Option<&'dom str>,
+    },
+}
+
+impl SVGGeometryData<'_> {
+    pub fn kind(&self) -> SVGGeometryElementKind {
+        match self {
+            Self::Path { .. } => SVGGeometryElementKind::Path,
+            Self::Rect { .. } => SVGGeometryElementKind::Rect,
+            Self::Circle { .. } => SVGGeometryElementKind::Circle,
+            Self::Ellipse { .. } => SVGGeometryElementKind::Ellipse,
+            Self::Line { .. } => SVGGeometryElementKind::Line,
+            Self::Polyline { .. } => SVGGeometryElementKind::Polyline,
+            Self::Polygon { .. } => SVGGeometryElementKind::Polygon,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGViewportData<'dom> {
+    /// The SVG's XML source represented as a base64 encoded `data:` url.
+    pub source: Option<Result<BrowserUrl, ()>>,
+    pub width: Option<&'dom str>,
+    pub height: Option<&'dom str>,
+    pub svg_id: String,
+    pub view_box: Option<&'dom str>,
+    pub preserve_aspect_ratio: Option<&'dom str>,
+    pub overflow: Option<&'dom str>,
+}
+
+impl SVGViewportData<'_> {
     pub fn ratio_from_view_box(&self) -> Option<f32> {
-        let mut iter = self.view_box?.chars();
-        let _min_x = parse_integer(&mut iter).ok()?;
-        let _min_y = parse_integer(&mut iter).ok()?;
-
-        let width = parse_unsigned_integer(&mut iter).ok()?;
-        if width == 0 {
+        let mut numbers = self
+            .view_box?
+            .split(|c: char| c == ',' || char_is_whitespace(c))
+            .filter(|part| !part.is_empty());
+        let _min_x = numbers.next()?.parse::<f32>().ok()?;
+        let _min_y = numbers.next()?.parse::<f32>().ok()?;
+        let width = numbers.next()?.parse::<f32>().ok()?;
+        let height = numbers.next()?.parse::<f32>().ok()?;
+        if width <= 0.0 || height <= 0.0 || numbers.next().is_some() {
             return None;
         }
+        Some(width / height)
+    }
+}
 
-        let height = parse_unsigned_integer(&mut iter).ok()?;
-        if height == 0 {
-            return None;
+#[derive(Clone, Debug)]
+pub struct SVGPaintData<'dom> {
+    pub color: Option<&'dom str>,
+    pub fill: Option<&'dom str>,
+    pub fill_opacity: Option<&'dom str>,
+    pub fill_rule: Option<&'dom str>,
+    pub stroke: Option<&'dom str>,
+    pub stroke_opacity: Option<&'dom str>,
+    pub stroke_width: Option<&'dom str>,
+    pub stroke_linejoin: Option<&'dom str>,
+    pub stroke_linecap: Option<&'dom str>,
+    pub stroke_miterlimit: Option<&'dom str>,
+    pub opacity: Option<&'dom str>,
+    pub display: Option<&'dom str>,
+    pub visibility: Option<&'dom str>,
+    pub pointer_events: Option<&'dom str>,
+    pub vector_effect: Option<&'dom str>,
+    pub clip_rule: Option<&'dom str>,
+    pub clip_path: Option<&'dom str>,
+    pub mask: Option<&'dom str>,
+    pub filter: Option<&'dom str>,
+    pub marker_start: Option<&'dom str>,
+    pub marker_mid: Option<&'dom str>,
+    pub marker_end: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGTextData<'dom> {
+    pub x: Option<&'dom str>,
+    pub y: Option<&'dom str>,
+    pub dx: Option<&'dom str>,
+    pub dy: Option<&'dom str>,
+    pub rotate: Option<&'dom str>,
+    pub text_length: Option<&'dom str>,
+    pub length_adjust: Option<&'dom str>,
+    pub text_anchor: Option<&'dom str>,
+    pub alignment_baseline: Option<&'dom str>,
+    pub dominant_baseline: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGUseData<'dom> {
+    pub href: Option<&'dom str>,
+    pub x: Option<&'dom str>,
+    pub y: Option<&'dom str>,
+    pub width: Option<&'dom str>,
+    pub height: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGForeignObjectData<'dom> {
+    pub x: Option<&'dom str>,
+    pub y: Option<&'dom str>,
+    pub width: Option<&'dom str>,
+    pub height: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SVGGradientData<'dom> {
+    Linear {
+        href: Option<&'dom str>,
+        x1: Option<&'dom str>,
+        y1: Option<&'dom str>,
+        x2: Option<&'dom str>,
+        y2: Option<&'dom str>,
+        gradient_units: Option<&'dom str>,
+        gradient_transform: Option<&'dom str>,
+        spread_method: Option<&'dom str>,
+    },
+    Radial {
+        href: Option<&'dom str>,
+        cx: Option<&'dom str>,
+        cy: Option<&'dom str>,
+        r: Option<&'dom str>,
+        fx: Option<&'dom str>,
+        fy: Option<&'dom str>,
+        fr: Option<&'dom str>,
+        gradient_units: Option<&'dom str>,
+        gradient_transform: Option<&'dom str>,
+        spread_method: Option<&'dom str>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGStopData<'dom> {
+    pub offset: Option<&'dom str>,
+    pub stop_color: Option<&'dom str>,
+    pub stop_opacity: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGClipPathData<'dom> {
+    pub clip_path_units: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGMaskData<'dom> {
+    pub x: Option<&'dom str>,
+    pub y: Option<&'dom str>,
+    pub width: Option<&'dom str>,
+    pub height: Option<&'dom str>,
+    pub mask_units: Option<&'dom str>,
+    pub mask_content_units: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGImageData<'dom> {
+    pub href: Option<&'dom str>,
+    pub x: Option<&'dom str>,
+    pub y: Option<&'dom str>,
+    pub width: Option<&'dom str>,
+    pub height: Option<&'dom str>,
+    pub preserve_aspect_ratio: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGCommonData<'dom> {
+    pub element_id: Option<&'dom str>,
+    pub transform: Option<&'dom str>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SVGNodeKind<'dom> {
+    Viewport(SVGViewportData<'dom>),
+    Group,
+    Geometry(SVGGeometryData<'dom>),
+    Text(SVGTextData<'dom>),
+    TSpan(SVGTextData<'dom>),
+    Defs,
+    Use(SVGUseData<'dom>),
+    ForeignObject(SVGForeignObjectData<'dom>),
+    Gradient(SVGGradientData<'dom>),
+    Stop(SVGStopData<'dom>),
+    ClipPath(SVGClipPathData<'dom>),
+    Mask(SVGMaskData<'dom>),
+    Image(SVGImageData<'dom>),
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGElementData<'dom> {
+    pub common: SVGCommonData<'dom>,
+    pub node_kind: SVGNodeKind<'dom>,
+    pub paint: SVGPaintData<'dom>,
+}
+
+impl<'dom> SVGElementData<'dom> {
+    pub fn viewport(&self) -> Option<&SVGViewportData<'dom>> {
+        match &self.node_kind {
+            SVGNodeKind::Viewport(data) => Some(data),
+            _ => None,
         }
-
-        let mut iter = iter.skip_while(|c| char_is_whitespace(*c));
-        iter.next().is_none().then(|| width as f32 / height as f32)
     }
 }
 

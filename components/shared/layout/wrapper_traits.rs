@@ -223,6 +223,7 @@ pub trait ThreadSafeLayoutNode<'dom>: Clone + Copy + Debug + NodeInfo + PartialE
 
     fn canvas_data(&self) -> Option<HTMLCanvasData>;
 
+    /// Returns SVG layout wrapper data for any SVG element node.
     fn svg_data(&self) -> Option<SVGElementData<'dom>>;
 
     fn media_data(&self) -> Option<HTMLMediaData>;

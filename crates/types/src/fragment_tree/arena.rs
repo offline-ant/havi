@@ -7,7 +7,7 @@ use style::selector_parser::PseudoElement;
 
 use super::{
     BaseFragment, FragmentDerivedData, FragmentId, FragmentKind, FragmentNode, OutOfFlowPlacement,
-    PaintChild, PlacementId,
+    PaintChild, PlacementId, SVGResourceId, SVGResourceNode,
 };
 use crate::geom::PhysicalRect;
 
@@ -25,6 +25,7 @@ pub struct FragmentArenaGeneration {
     pub placements: Arc<[OutOfFlowPlacement]>,
     pub derived: FragmentDerivedData,
     pub node_fragments: HashMap<FragmentMapKey, Arc<[FragmentId]>>,
+    pub svg_resources: Arc<[SVGResourceNode]>,
     pub initial_containing_block: PhysicalRect<Au>,
     pub scrollable_overflow: PhysicalRect<Au>,
 }
@@ -52,7 +53,15 @@ impl FragmentArenaGeneration {
                 fragment.geometry_children.as_slice()
             }
             FragmentKind::Positioning(fragment) => fragment.geometry_children.as_slice(),
-            FragmentKind::Text(_) | FragmentKind::Image(_) | FragmentKind::IFrame(_) => &[],
+            FragmentKind::SVGViewport(fragment) => fragment.geometry_children.as_slice(),
+            FragmentKind::SVGGroup(fragment) => fragment.geometry_children.as_slice(),
+            FragmentKind::SVGForeignObject(fragment) => fragment.geometry_children.as_slice(),
+            FragmentKind::Text(_) |
+            FragmentKind::Image(_) |
+            FragmentKind::IFrame(_) |
+            FragmentKind::SVGPath(_) |
+            FragmentKind::SVGText(_) |
+            FragmentKind::SVGImage(_) => &[],
         }
     }
 
@@ -62,7 +71,15 @@ impl FragmentArenaGeneration {
                 fragment.paint_children.as_slice()
             }
             FragmentKind::Positioning(fragment) => fragment.paint_children.as_slice(),
-            FragmentKind::Text(_) | FragmentKind::Image(_) | FragmentKind::IFrame(_) => &[],
+            FragmentKind::SVGViewport(fragment) => fragment.paint_children.as_slice(),
+            FragmentKind::SVGGroup(fragment) => fragment.paint_children.as_slice(),
+            FragmentKind::SVGForeignObject(fragment) => fragment.paint_children.as_slice(),
+            FragmentKind::Text(_) |
+            FragmentKind::Image(_) |
+            FragmentKind::IFrame(_) |
+            FragmentKind::SVGPath(_) |
+            FragmentKind::SVGText(_) |
+            FragmentKind::SVGImage(_) => &[],
         }
     }
 
@@ -79,6 +96,10 @@ impl FragmentArenaGeneration {
 
     pub fn containing_block(&self, id: FragmentId) -> PhysicalRect<Au> {
         self.derived.containing_blocks[id.0 as usize]
+    }
+
+    pub fn svg_resource(&self, id: SVGResourceId) -> Option<&SVGResourceNode> {
+        self.svg_resources.get(id.0 as usize)
     }
 
     pub fn scrollable_overflow_for(&self, id: FragmentId) -> PhysicalRect<Au> {
