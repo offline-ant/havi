@@ -11,9 +11,9 @@ from typing import Any
 
 # Import generic Makepad control library.
 _tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "..", "..", "..", "makepad", "tools")
+                          "..", "..", "..", "havi-makepad", "tools")
 sys.path.insert(0, _tools_dir)
-import makepad_control as mc  # type: ignore[import-not-found]
+import makepad_control as mc  # ty: ignore[unresolved-import]
 
 
 def _log(action: str, *, cmd: list[str] | None = None) -> None:

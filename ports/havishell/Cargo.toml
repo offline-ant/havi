@@ -28,7 +28,7 @@ refcell_backtrace = ["libservo/refcell_backtrace"]
 
 [dependencies]
 makepad-widgets = { path = "../../../makepad/widgets" }
-makepad-media = { path = "../../../makepad/media", features = ["svt-av1"] }
+makepad-media = { path = "../../../havi-makepad/media", features = ["svt-av1"] }
 libservo = { path = "../../components/servo", features = ["background_hang_monitor"], default-features = false }
 url = "2"
 log = "0.4"
