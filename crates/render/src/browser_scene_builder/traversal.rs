@@ -5,7 +5,8 @@ use makepad_widgets::{dvec2, Cx2d};
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
 use super::svg::{
-    build_svg_foreign_object_fragment, build_svg_group_fragment, build_svg_viewport_fragment,
+    build_svg_foreign_object_fragment, build_svg_group_fragment, build_svg_path_fragment,
+    build_svg_viewport_fragment,
 };
 use super::{
     log_builder_skip_once, BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
@@ -210,18 +211,14 @@ pub(super) fn build_fragment(
             if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
                 return Ok(());
             }
-            push_fragment_primitives(
+            build_svg_path_fragment(
                 cx,
                 generation,
+                fragment_id,
+                svg,
                 scene,
                 registry,
                 state,
-                &RenderPaintItem {
-                    section: StackingContextSection::Foreground,
-                    local_origin: build_cx.containing_block_origin,
-                    fragment_id,
-                },
-                owner_node_id_for_fragment(generation, fragment_id),
                 build_cx,
             )
         }

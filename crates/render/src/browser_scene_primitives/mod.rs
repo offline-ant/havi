@@ -200,7 +200,16 @@ fn paint_item_bounds(
         published::FragmentKind::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
         published::FragmentKind::SVGViewport(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::SVGGroup(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGPath(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGPath(svg) => Rect {
+            pos: dvec2(
+                svg.decorated_bounding_box.origin.x as f64,
+                svg.decorated_bounding_box.origin.y as f64,
+            ),
+            size: dvec2(
+                svg.decorated_bounding_box.size.width as f64,
+                svg.decorated_bounding_box.size.height as f64,
+            ),
+        },
         published::FragmentKind::SVGText(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::SVGForeignObject(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::SVGImage(svg) => physical_rect_to_rect(svg.base.rect),
