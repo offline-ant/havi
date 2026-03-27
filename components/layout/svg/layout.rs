@@ -17,6 +17,7 @@ use super::dom::{
     snapshot_svg_subtree, SVGClipPathDataOwned, SVGDOMNode, SVGDOMTree, SVGGradientDataOwned,
     SVGLayoutNodeKind, SVGNodeKindOwned, SVGNodeResolvedStyle, SVGStopDataOwned,
 };
+use super::foreign_object::layout_foreign_object;
 use super::path::{
     decorated_bounds, normalize_svg_geometry, parse_svg_length, path_bounds, transform_svg_path_data,
 };
@@ -187,7 +188,8 @@ fn build_svg_child_fragment(
             )))
         }
         (SVGLayoutNodeKind::ForeignObject, _, SVGNodeResolvedStyle::Geometry(_)) => {
-            let viewport_rect = foreign_object_viewport(node);
+            let foreign_object = layout_foreign_object(node);
+            let viewport_rect = foreign_object.viewport_rect.unwrap_or_default();
             Some(Fragment::SVGForeignObject(crate::cell::ArcRefCell::new(
                 SVGForeignObjectFragment {
                     base: BaseFragment::new(
@@ -197,7 +199,7 @@ fn build_svg_child_fragment(
                     ),
                     children: Vec::new(),
                     svg_viewport_rect: viewport_rect,
-                    local_transform: parse_svg_transform(node.common.transform.as_deref()),
+                    local_transform: foreign_object.local_transform,
                 },
             )))
         }
@@ -750,22 +752,6 @@ fn parse_view_box(raw: &str) -> Option<SVGRect> {
         euclid::point2(min_x, min_y),
         euclid::size2(width, height),
     ))
-}
-
-fn foreign_object_viewport(node: &SVGDOMNode) -> SVGRect {
-    match &node.node_kind {
-        SVGNodeKindOwned::ForeignObject(data) => SVGRect::new(
-            euclid::point2(
-                parse_svg_length(data.x.as_deref()).unwrap_or(0.0),
-                parse_svg_length(data.y.as_deref()).unwrap_or(0.0),
-            ),
-            euclid::size2(
-                parse_svg_length(data.width.as_deref()).unwrap_or(0.0),
-                parse_svg_length(data.height.as_deref()).unwrap_or(0.0),
-            ),
-        ),
-        _ => SVGRect::zero(),
-    }
 }
 
 fn image_viewport(image: &super::dom::SVGImageDataOwned) -> SVGRect {
