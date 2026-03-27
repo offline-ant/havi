@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use base::generic_channel::GenericCallback;
 use constellation_traits::{KeyboardScroll, ScriptToConstellationMessage};
 use embedder_traits::{
-    Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventAndId,
-    InputEventId, InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton,
+    Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventId,
+    InputEventOutcome, InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton,
     MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
     TouchEvent as EmbedderTouchEvent, TouchEventType, TouchId, UntrustedNodeAddress,
     WheelEvent as EmbedderWheelEvent,
@@ -290,6 +290,10 @@ impl DocumentEventHandler {
     }
 
     pub(crate) fn handle_pending_input_events(&self, can_gc: CanGc) {
+        debug_assert!(
+            !self.pending_input_events.borrow().is_empty(),
+            "handle_pending_input_events called with no events"
+        );
         let _realm = enter_realm(&*self.window);
 
         // Reset the mouse and wheel event indices.
@@ -300,6 +304,11 @@ impl DocumentEventHandler {
             mem::take(&mut *self.coalesced_move_event_ids.borrow_mut());
         let mut coalesced_wheel_event_ids =
             mem::take(&mut *self.coalesced_wheel_event_ids.borrow_mut());
+        let mut input_event_outcomes = Vec::with_capacity(
+            pending_input_events.len() +
+                coalesced_move_event_ids.len() +
+                coalesced_wheel_event_ids.len(),
+        );
 
         for event in pending_input_events {
             self.active_keyboard_modifiers
@@ -317,11 +326,15 @@ impl DocumentEventHandler {
                 },
                 InputEvent::MouseMove(_) => {
                     self.handle_native_mouse_move_event(&event, can_gc);
-                    let result = InputEventResult::default();
-                    for id in coalesced_move_event_ids.drain(..) {
-                        self.notify_embedder_that_event_id_was_handled(id, result);
-                    }
-                    result
+                    input_event_outcomes.extend(
+                        mem::take(&mut coalesced_move_event_ids)
+                            .into_iter()
+                            .map(|id| InputEventOutcome {
+                                id,
+                                result: InputEventResult::default(),
+                            }),
+                    );
+                    InputEventResult::default()
                 },
                 InputEvent::MouseLeftViewport(mouse_leave_event) => {
                     self.handle_mouse_left_viewport_event(&event, &mouse_leave_event, can_gc);
@@ -332,9 +345,11 @@ impl DocumentEventHandler {
                 },
                 InputEvent::Wheel(wheel_event) => {
                     let result = self.handle_wheel_event(wheel_event, &event, can_gc);
-                    for id in coalesced_wheel_event_ids.drain(..) {
-                        self.notify_embedder_that_event_id_was_handled(id, result);
-                    }
+                    input_event_outcomes.extend(
+                        mem::take(&mut coalesced_wheel_event_ids)
+                            .into_iter()
+                            .map(|id| InputEventOutcome { id, result }),
+                    );
                     result
                 },
                 InputEvent::Keyboard(keyboard_event) => {
@@ -351,24 +366,20 @@ impl DocumentEventHandler {
                 },
             };
 
-            self.notify_embedder_that_event_was_handled(event.event, result);
+            input_event_outcomes.push(InputEventOutcome {
+                id: event.event.id,
+                result,
+            });
         }
+
+        self.notify_embedder_that_events_were_handled(input_event_outcomes);
     }
 
-    fn notify_embedder_that_event_was_handled(
+    fn notify_embedder_that_events_were_handled(
         &self,
-        event: InputEventAndId,
-        result: InputEventResult,
+        input_event_outcomes: Vec<InputEventOutcome>,
     ) {
-        self.notify_embedder_that_event_id_was_handled(event.id, result);
-    }
-
-    fn notify_embedder_that_event_id_was_handled(
-        &self,
-        id: InputEventId,
-        result: InputEventResult,
-    ) {
-        // Wait to to notify the embedder that the vent was handled until all pending DOM
+        // Wait to notify the embedder that the events were handled until all pending DOM
         // event processing is finished.
         let trusted_window = Trusted::new(&*self.window);
         self.window
@@ -378,7 +389,7 @@ impl DocumentEventHandler {
             .queue(task!(notify_webdriver_input_event_completed: move || {
                 let window = trusted_window.root();
                 window.send_to_embedder(
-                    EmbedderMsg::InputEventHandled(window.webview_id(), id, result));
+                    EmbedderMsg::InputEventsHandled(window.webview_id(), input_event_outcomes));
             }));
     }
 

@@ -731,9 +731,9 @@ pub enum EmbedderMsg {
         JavaScriptEvaluationId,
         Result<JSValue, JavaScriptEvaluationError>,
     ),
-    /// Inform the embedding layer that a particular `InputEvent` was handled by Servo
-    /// and the embedder can continue processing it, if necessary.
-    InputEventHandled(WebViewId, InputEventId, InputEventResult),
+    /// Inform the embedding layer that input events were handled by Servo
+    /// and the embedder can continue processing them, if necessary.
+    InputEventsHandled(WebViewId, Vec<InputEventOutcome>),
     /// Send the embedder an accessibility tree update.
     AccessibilityTreeUpdate(WebViewId, accesskit::TreeUpdate),
     /// HPPR control operation (local/embedder state).

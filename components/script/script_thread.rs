@@ -54,8 +54,8 @@ use devtools_traits::{
 use embedder_traits::user_contents::{UserContentManagerId, UserContents, UserScript};
 use embedder_traits::{
     EmbedderControlId, EmbedderControlResponse, EmbedderMsg, FocusSequenceNumber,
-    JavaScriptEvaluationError, JavaScriptEvaluationId, MediaSessionActionType, Theme,
-    ViewportDetails, WebDriverScriptCommand,
+    InputEventOutcome, JavaScriptEvaluationError, JavaScriptEvaluationId, MediaSessionActionType,
+    Theme, ViewportDetails, WebDriverScriptCommand,
 };
 use encoding_rs::Encoding;
 use fonts::{FontContext, SystemFontServiceProxy};
@@ -1092,6 +1092,9 @@ impl ScriptThread {
         // Do not handle events if the BC has been, or is being, discarded
         if document.window().Closed() {
             warn!("Input event sent to a pipeline with a closed window {pipeline_id}.");
+            return;
+        }
+        if !document.event_handler().has_pending_input_events() {
             return;
         }
 
@@ -3797,10 +3800,12 @@ impl ScriptThread {
             let _ = self
                 .senders
                 .pipeline_to_embedder_sender
-                .send(EmbedderMsg::InputEventHandled(
+                .send(EmbedderMsg::InputEventsHandled(
                     webview_id,
-                    event.event.id,
-                    Default::default(),
+                    vec![InputEventOutcome {
+                        id: event.event.id,
+                        result: Default::default(),
+                    }],
                 ));
             return;
         };
