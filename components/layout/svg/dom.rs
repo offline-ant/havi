@@ -7,6 +7,7 @@ use layout_api::{
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc as ServoArc;
 use style::context::SharedStyleContext;
+use style::dom::NodeInfo;
 use style::properties::ComputedValues;
 
 use crate::fragment_tree::Tag;
@@ -147,6 +148,7 @@ pub struct SVGTextDataOwned {
     pub text_anchor: Option<String>,
     pub alignment_baseline: Option<String>,
     pub dominant_baseline: Option<String>,
+    pub text_content: String,
 }
 
 #[derive(Clone, Debug)]
@@ -263,7 +265,7 @@ fn snapshot_svg_node(
             inherited_geometry,
         )),
     };
-    let node_kind = SVGNodeKindOwned::from_svg_data(&svg_data.node_kind);
+    let node_kind = SVGNodeKindOwned::from_svg_data(&svg_data.node_kind, node);
     let common = SVGCommonDataOwned::from_svg_data(&svg_data.common);
 
     let next_geometry = match &resolved_style {
@@ -367,13 +369,13 @@ impl SVGCommonDataOwned {
 }
 
 impl SVGNodeKindOwned {
-    fn from_svg_data(data: &SVGNodeKind<'_>) -> Self {
+    fn from_svg_data(data: &SVGNodeKind<'_>, node: ServoThreadSafeLayoutNode<'_>) -> Self {
         match data {
             SVGNodeKind::Viewport(data) => Self::Viewport(SVGViewportDataOwned::from_svg_data(data)),
             SVGNodeKind::Group => Self::Group,
             SVGNodeKind::Geometry(data) => Self::Geometry(SVGGeometryDataOwned::from_svg_data(data)),
-            SVGNodeKind::Text(data) => Self::Text(SVGTextDataOwned::from_svg_data(data)),
-            SVGNodeKind::TSpan(data) => Self::TSpan(SVGTextDataOwned::from_svg_data(data)),
+            SVGNodeKind::Text(data) => Self::Text(SVGTextDataOwned::from_svg_data(data, node)),
+            SVGNodeKind::TSpan(data) => Self::TSpan(SVGTextDataOwned::from_svg_data(data, node)),
             SVGNodeKind::Defs => Self::Defs,
             SVGNodeKind::Use(data) => Self::Use(SVGUseDataOwned::from_svg_data(data)),
             SVGNodeKind::ForeignObject(data) => {
@@ -449,7 +451,7 @@ impl SVGGeometryDataOwned {
 }
 
 impl SVGTextDataOwned {
-    fn from_svg_data(data: &SVGTextData<'_>) -> Self {
+    fn from_svg_data(data: &SVGTextData<'_>, node: ServoThreadSafeLayoutNode<'_>) -> Self {
         Self {
             x: data.x.map(ToOwned::to_owned),
             y: data.y.map(ToOwned::to_owned),
@@ -461,6 +463,7 @@ impl SVGTextDataOwned {
             text_anchor: data.text_anchor.map(ToOwned::to_owned),
             alignment_baseline: data.alignment_baseline.map(ToOwned::to_owned),
             dominant_baseline: data.dominant_baseline.map(ToOwned::to_owned),
+            text_content: collect_direct_text_content(node),
         }
     }
 }
@@ -579,4 +582,12 @@ impl SVGImageDataOwned {
             preserve_aspect_ratio: data.preserve_aspect_ratio.map(ToOwned::to_owned),
         }
     }
+}
+
+fn collect_direct_text_content(node: ServoThreadSafeLayoutNode<'_>) -> String {
+    node.children()
+        .filter(|child| child.is_text_node())
+        .map(|child| child.text_content().into_owned())
+        .collect::<Vec<_>>()
+        .join("")
 }
