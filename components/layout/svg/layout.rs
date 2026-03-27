@@ -8,6 +8,7 @@ use super::dom::{
     snapshot_svg_subtree, SVGDOMNode, SVGDOMTree, SVGLayoutNodeKind, SVGNodeKindOwned,
     SVGNodeResolvedStyle,
 };
+use super::path::{decorated_bounds, normalize_svg_geometry, path_bounds};
 use super::resources::{
     SVGResourceGraph, SVGResourceGraphNode, SVGResourceReferenceInputs,
 };
@@ -141,15 +142,16 @@ fn build_svg_child_fragment(
                 },
             )))
         }
-        (SVGLayoutNodeKind::Geometry, _, SVGNodeResolvedStyle::Geometry(style)) => {
+        (SVGLayoutNodeKind::Geometry, SVGNodeKindOwned::Geometry(geometry), SVGNodeResolvedStyle::Geometry(style)) => {
+            let path: SVGPathData = normalize_svg_geometry(geometry, style.fill_rule).into();
+            let object_bounding_box = path_bounds(&path).unwrap_or_default();
+            let decorated_bounding_box = decorated_bounds(&path, style.paint.stroke.as_ref())
+                .unwrap_or(object_bounding_box);
             Some(Fragment::SVGPath(crate::cell::ArcRefCell::new(SVGPathFragment {
                 base,
-                path: SVGPathData {
-                    fill_rule: style.fill_rule,
-                    commands: Vec::new(),
-                },
-                object_bounding_box: SVGRect::zero(),
-                decorated_bounding_box: SVGRect::zero(),
+                path,
+                object_bounding_box,
+                decorated_bounding_box,
                 local_transform: havi_types::fragment_tree::SVGTransform::identity(),
                 fill: convert_resolved_paint(&style.paint.fill),
                 stroke: style.paint.stroke.as_ref().map(convert_stroke_style),
