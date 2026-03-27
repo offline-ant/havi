@@ -1,7 +1,7 @@
 use euclid::Transform2D;
 use style_traits::CSSPixel;
 
-use super::{BaseFragment, FragmentId, PaintChild};
+use super::{BaseFragment, FragmentId, PaintChild, Tag};
 use crate::geom::{PhysicalPoint, PhysicalRect};
 
 pub type SVGScalar = f32;
@@ -77,9 +77,32 @@ pub struct SVGOverflowClip {
     pub rect: SVGRect,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SVGUseInstanceChain {
+    pub owner_tag: Tag,
+    pub parent: Option<Box<SVGUseInstanceChain>>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SVGFragmentIdentity {
+    pub source_tag: Tag,
+    pub instance_chain: Option<Box<SVGUseInstanceChain>>,
+}
+
+impl SVGFragmentIdentity {
+    pub fn current_instance_owner_tag(&self) -> Option<Tag> {
+        self.instance_chain.as_ref().map(|chain| chain.owner_tag)
+    }
+
+    pub fn current_instance_owner_or_source_tag(&self) -> Tag {
+        self.current_instance_owner_tag().unwrap_or(self.source_tag)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SVGViewportFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub geometry_children: Vec<FragmentId>,
     pub paint_children: Vec<PaintChild>,
     pub viewport_rect: SVGRect,
@@ -91,6 +114,7 @@ pub struct SVGViewportFragment {
 #[derive(Clone, Debug)]
 pub struct SVGGroupFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub geometry_children: Vec<FragmentId>,
     pub paint_children: Vec<PaintChild>,
     pub local_transform: SVGTransform,
@@ -134,6 +158,7 @@ pub struct SVGStrokeStyle {
 #[derive(Clone, Debug)]
 pub struct SVGPathFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub path: SVGPathData,
     pub object_bounding_box: SVGRect,
     pub decorated_bounding_box: SVGRect,
@@ -154,6 +179,7 @@ pub struct SVGGlyphRun {
 #[derive(Clone, Debug)]
 pub struct SVGTextFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub glyph_runs: Vec<SVGGlyphRun>,
     pub object_bounding_box: SVGRect,
     pub decorated_bounding_box: SVGRect,
@@ -164,6 +190,7 @@ pub struct SVGTextFragment {
 #[derive(Clone, Debug)]
 pub struct SVGForeignObjectFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub geometry_children: Vec<FragmentId>,
     pub paint_children: Vec<PaintChild>,
     pub svg_viewport_rect: SVGRect,
@@ -173,6 +200,7 @@ pub struct SVGForeignObjectFragment {
 #[derive(Clone, Debug)]
 pub struct SVGImageFragment {
     pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
     pub viewport_rect: SVGRect,
     pub local_transform: SVGTransform,
     pub href: Option<String>,

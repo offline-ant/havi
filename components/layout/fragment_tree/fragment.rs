@@ -10,8 +10,8 @@ use base::id::PipelineId;
 use base::print_tree::PrintTree;
 use fonts::{FontMetrics, FontRef, GlyphStore};
 use havi_types::fragment_tree::{
-    SVGGlyphRun, SVGOverflowClip, SVGPaint, SVGPathData, SVGRect, SVGResourceReferences,
-    SVGStrokeStyle, SVGTransform,
+    SVGFragmentIdentity, SVGGlyphRun, SVGOverflowClip, SVGPaint, SVGPathData, SVGRect,
+    SVGResourceReferences, SVGStrokeStyle, SVGTransform,
 };
 use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
@@ -104,6 +104,8 @@ pub struct IFrameFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGViewportFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     pub children: Vec<Fragment>,
     #[ignore_malloc_size_of = "SVG viewport metadata is small and copied into published fragments"]
     pub viewport_rect: SVGRect,
@@ -120,6 +122,8 @@ pub struct SVGViewportFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGGroupFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     pub children: Vec<Fragment>,
     #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]
     pub local_transform: SVGTransform,
@@ -131,6 +135,8 @@ pub struct SVGGroupFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGPathFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     #[ignore_malloc_size_of = "SVG path data is copied into published fragments"]
     pub path: SVGPathData,
     #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
@@ -150,6 +156,8 @@ pub struct SVGPathFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGTextFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     #[ignore_malloc_size_of = "SVG glyph runs are copied into published fragments"]
     pub glyph_runs: Vec<SVGGlyphRun>,
     #[ignore_malloc_size_of = "SVG bounds are copied into published fragments"]
@@ -165,6 +173,8 @@ pub struct SVGTextFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGForeignObjectFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     pub children: Vec<Fragment>,
     #[ignore_malloc_size_of = "SVG viewport metadata is copied into published fragments"]
     pub svg_viewport_rect: SVGRect,
@@ -175,6 +185,8 @@ pub struct SVGForeignObjectFragment {
 #[derive(MallocSizeOf)]
 pub struct SVGImageFragment {
     pub base: BaseFragment,
+    #[ignore_malloc_size_of = "SVG identity is copied into published fragments"]
+    pub identity: SVGFragmentIdentity,
     #[ignore_malloc_size_of = "SVG viewport metadata is copied into published fragments"]
     pub viewport_rect: SVGRect,
     #[ignore_malloc_size_of = "SVG transform storage is accounted for by fragment ownership"]

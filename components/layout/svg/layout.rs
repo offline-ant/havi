@@ -12,9 +12,10 @@ use style::properties::ComputedValues;
 use style::values::CSSFloat;
 
 use havi_types::fragment_tree::{
-    SVGClipPathResource, SVGColor, SVGCoordinateUnits, SVGGradientKind, SVGGradientResource,
-    SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint, SVGPathData, SVGPoint,
-    SVGRadialGradient, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle, SVGTransform,
+    SVGClipPathResource, SVGColor, SVGCoordinateUnits, SVGFragmentIdentity, SVGGradientKind,
+    SVGGradientResource, SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint,
+    SVGPathData, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle,
+    SVGTransform, SVGUseInstanceChain, SVGRadialGradient, Tag as PublishedTag,
 };
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use layout_api::{SVGElementData, SVGGradientData, SVGNodeKind};
@@ -292,6 +293,49 @@ pub(crate) fn build_svg_root_fragment(
 
 type SVGNodeMap<'dom> = FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'dom>>;
 
+#[derive(Clone, Debug, Default)]
+struct SVGFragmentIdentityContext {
+    current_instance_owner_tag: Option<Tag>,
+    instance_chain: Option<Box<SVGUseInstanceChain>>,
+}
+
+impl SVGFragmentIdentityContext {
+    fn for_expanded_use(self, use_tag: Tag) -> Self {
+        Self {
+            current_instance_owner_tag: Some(use_tag),
+            instance_chain: Some(Box::new(SVGUseInstanceChain {
+                owner_tag: published_tag(use_tag),
+                parent: self.instance_chain,
+            })),
+        }
+    }
+
+    fn base_fragment_info(&self, source_tag: Tag) -> BaseFragmentInfo {
+        BaseFragmentInfo {
+            tag: Some(self.publication_tag(source_tag)),
+            flags: FragmentFlags::empty(),
+        }
+    }
+
+    fn fragment_identity(&self, source_tag: Tag) -> SVGFragmentIdentity {
+        SVGFragmentIdentity {
+            source_tag: published_tag(source_tag),
+            instance_chain: self.instance_chain.clone(),
+        }
+    }
+
+    fn publication_tag(&self, source_tag: Tag) -> Tag {
+        self.current_instance_owner_tag.unwrap_or(source_tag)
+    }
+}
+
+fn published_tag(tag: Tag) -> PublishedTag {
+    PublishedTag {
+        node: tag.node,
+        pseudo: tag.pseudo_element_chain.primary,
+    }
+}
+
 fn build_svg_node_fragment(
     node: &SVGResolvedNode<'_>,
     style_context: &SharedStyleContext,
@@ -329,12 +373,19 @@ fn build_svg_node_fragment(
                 .children()
                 .filter_map(|child| {
                     let child = resolve_svg_child_node(child, style_context, node)?;
-                    build_svg_child_fragment(&child, style_context, &resource_graph, nodes_by_opaque, None)
+                    build_svg_child_fragment(
+                        &child,
+                        style_context,
+                        &resource_graph,
+                        nodes_by_opaque,
+                        SVGFragmentIdentityContext::default(),
+                    )
                 })
                 .collect();
             Some(Fragment::SVGViewport(crate::cell::ArcRefCell::new(
                 SVGViewportFragment {
                     base: BaseFragment::new(base_fragment_info, style.into(), rect),
+                    identity: SVGFragmentIdentityContext::default().fragment_identity(node.tag),
                     children,
                     viewport_rect,
                     view_box_rect,
@@ -353,13 +404,11 @@ fn build_svg_child_fragment(
     style_context: &SharedStyleContext,
     resource_graph: &SVGResourceGraph,
     nodes_by_opaque: &SVGNodeMap<'_>,
-    tag_override: Option<Tag>,
+    identity_context: SVGFragmentIdentityContext,
 ) -> Option<Fragment> {
     let resolved = resolved_node_resources(resource_graph, node.tag.node);
-    let base_fragment_info = BaseFragmentInfo {
-        tag: Some(tag_override.unwrap_or(node.tag)),
-        flags: FragmentFlags::empty(),
-    };
+    let base_fragment_info = identity_context.base_fragment_info(node.tag);
+    let identity = identity_context.fragment_identity(node.tag);
 
     match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (SVGLayoutNodeKind::Group, _, SVGNodeResolvedStyle::Geometry(style)) => {
@@ -368,13 +417,20 @@ fn build_svg_child_fragment(
                 .children()
                 .filter_map(|child| {
                     let child = resolve_svg_child_node(child, style_context, node)?;
-                    build_svg_child_fragment(&child, style_context, resource_graph, nodes_by_opaque, tag_override)
+                    build_svg_child_fragment(
+                        &child,
+                        style_context,
+                        resource_graph,
+                        nodes_by_opaque,
+                        identity_context.clone(),
+                    )
                 })
                 .collect::<Vec<_>>();
             let rect = union_fragment_rects(&children);
             Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
                 SVGGroupFragment {
                     base: BaseFragment::new(base_fragment_info, node.computed_style.clone().into(), rect),
+                    identity,
                     children,
                     local_transform: parse_svg_transform(node.svg_data.common.transform),
                     opacity: style.opacity,
@@ -384,6 +440,7 @@ fn build_svg_child_fragment(
         }
         (SVGLayoutNodeKind::Use, _, SVGNodeResolvedStyle::Geometry(style)) => {
             let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
+            let referenced_identity_context = identity_context.for_expanded_use(node.tag);
             let children = expansion
                 .referenced_node
                 .into_iter()
@@ -394,7 +451,7 @@ fn build_svg_child_fragment(
                         style_context,
                         resource_graph,
                         nodes_by_opaque,
-                        Some(tag_override.unwrap_or(node.tag)),
+                        referenced_identity_context.clone(),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -402,6 +459,7 @@ fn build_svg_child_fragment(
             Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
                 SVGGroupFragment {
                     base: BaseFragment::new(base_fragment_info, node.computed_style.clone().into(), rect),
+                    identity,
                     children,
                     local_transform: expansion.instance_transform,
                     opacity: style.opacity,
@@ -419,6 +477,7 @@ fn build_svg_child_fragment(
                         node.computed_style.clone().into(),
                         physical_rect_from_svg_rect(viewport_rect),
                     ),
+                    identity,
                     children: Vec::new(),
                     svg_viewport_rect: viewport_rect,
                     local_transform: foreign_object.local_transform,
@@ -440,6 +499,7 @@ fn build_svg_child_fragment(
                     node.computed_style.clone().into(),
                     physical_rect_from_svg_rect(decorated_bounding_box),
                 ),
+                identity,
                 path,
                 object_bounding_box,
                 decorated_bounding_box,
@@ -459,6 +519,7 @@ fn build_svg_child_fragment(
                     node.computed_style.clone().into(),
                     physical_rect_from_svg_rect(text_layout.decorated_bounding_box),
                 ),
+                identity,
                 glyph_runs: text_layout.glyph_runs,
                 object_bounding_box: text_layout.object_bounding_box,
                 decorated_bounding_box: text_layout.decorated_bounding_box,
@@ -474,6 +535,7 @@ fn build_svg_child_fragment(
                     node.computed_style.clone().into(),
                     physical_rect_from_svg_rect(viewport_rect),
                 ),
+                identity,
                 viewport_rect,
                 local_transform: parse_svg_transform(node.svg_data.common.transform),
                 href: image.href.map(str::to_owned),
@@ -1134,4 +1196,42 @@ fn parse_svg_color(raw: &str) -> Option<SVGColor> {
 
 fn parse_unit_interval(raw: &str) -> Option<f32> {
     raw.trim().parse::<f32>().ok().map(|value| value.clamp(0.0, 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use layout_api::wrapper_traits::PseudoElementChain;
+
+    fn test_tag(id: usize) -> Tag {
+        Tag {
+            node: OpaqueNode(id),
+            pseudo_element_chain: PseudoElementChain::default(),
+        }
+    }
+
+    #[test]
+    fn nested_use_identity_keeps_immediate_owner_and_parent_chain() {
+        let outer_use = test_tag(1);
+        let inner_use = test_tag(2);
+        let source_descendant = test_tag(3);
+
+        let identity = SVGFragmentIdentityContext::default()
+            .for_expanded_use(outer_use)
+            .for_expanded_use(inner_use)
+            .fragment_identity(source_descendant);
+
+        assert_eq!(identity.source_tag.node, source_descendant.node);
+        assert_eq!(
+            identity.current_instance_owner_tag().map(|tag| tag.node),
+            Some(inner_use.node),
+        );
+
+        let parent = identity
+            .instance_chain
+            .as_ref()
+            .and_then(|chain| chain.parent.as_ref())
+            .expect("nested use should preserve parent chain");
+        assert_eq!(parent.owner_tag.node, outer_use.node);
+    }
 }

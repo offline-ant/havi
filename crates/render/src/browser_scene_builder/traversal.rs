@@ -337,11 +337,23 @@ pub(super) fn owner_node_id_for_fragment(
         published::FragmentKind::Image(image) => image.base.tag.map(|tag| tag.node.0),
         published::FragmentKind::IFrame(iframe) => iframe.base.tag.map(|tag| tag.node.0),
         published::FragmentKind::Positioning(positioning) => positioning.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGViewport(svg) => svg.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGGroup(svg) => svg.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGPath(svg) => svg.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGText(svg) => svg.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGForeignObject(svg) => svg.base.tag.map(|tag| tag.node.0),
-        published::FragmentKind::SVGImage(svg) => svg.base.tag.map(|tag| tag.node.0),
+        published::FragmentKind::SVGViewport(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
+        published::FragmentKind::SVGGroup(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
+        published::FragmentKind::SVGPath(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
+        published::FragmentKind::SVGText(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
+        published::FragmentKind::SVGForeignObject(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
+        published::FragmentKind::SVGImage(svg) => {
+            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
+        }
     }
 }

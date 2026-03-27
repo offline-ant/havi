@@ -277,7 +277,7 @@ impl<'a> ArenaBuilder<'a> {
         let id = published::FragmentId(self.nodes.len() as u32);
         self.internal_to_node.insert(key, id);
         let base = convert_fragment_base(fragment);
-        self.record_node_mapping(id, base.tag);
+        self.record_node_mapping(id, published_fragment_mapping_tag(fragment, &base));
         self.push_derived(fragment, &base);
         if let Some(placement_id) = fragment_out_of_flow_placement_id(fragment) {
             self.placement_targets.insert(placement_id, id);
@@ -384,6 +384,7 @@ impl<'a> ArenaBuilder<'a> {
                     .collect();
                 published::FragmentKind::SVGViewport(published::SVGViewportFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     geometry_children,
                     paint_children: Vec::new(),
                     viewport_rect: svg_fragment.viewport_rect,
@@ -401,6 +402,7 @@ impl<'a> ArenaBuilder<'a> {
                     .collect();
                 published::FragmentKind::SVGGroup(published::SVGGroupFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     geometry_children,
                     paint_children: Vec::new(),
                     local_transform: svg_fragment.local_transform,
@@ -412,6 +414,7 @@ impl<'a> ArenaBuilder<'a> {
                 let svg_fragment = svg_fragment.borrow();
                 published::FragmentKind::SVGPath(published::SVGPathFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     path: svg_fragment.path.clone(),
                     object_bounding_box: svg_fragment.object_bounding_box,
                     decorated_bounding_box: svg_fragment.decorated_bounding_box,
@@ -428,6 +431,7 @@ impl<'a> ArenaBuilder<'a> {
                 let svg_fragment = svg_fragment.borrow();
                 published::FragmentKind::SVGText(published::SVGTextFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     glyph_runs: svg_fragment.glyph_runs.clone(),
                     object_bounding_box: svg_fragment.object_bounding_box,
                     decorated_bounding_box: svg_fragment.decorated_bounding_box,
@@ -444,6 +448,7 @@ impl<'a> ArenaBuilder<'a> {
                     .collect();
                 published::FragmentKind::SVGForeignObject(published::SVGForeignObjectFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     geometry_children,
                     paint_children: Vec::new(),
                     svg_viewport_rect: svg_fragment.svg_viewport_rect,
@@ -454,6 +459,7 @@ impl<'a> ArenaBuilder<'a> {
                 let svg_fragment = svg_fragment.borrow();
                 published::FragmentKind::SVGImage(published::SVGImageFragment {
                     base,
+                    identity: svg_fragment.identity.clone(),
                     viewport_rect: svg_fragment.viewport_rect,
                     local_transform: svg_fragment.local_transform,
                     href: svg_fragment.href.clone(),
@@ -852,6 +858,51 @@ fn convert_fragment_base(fragment: &Fragment) -> published::BaseFragment {
         Fragment::AbsoluteOrFixedPositioned(_) => {
             unreachable!("filtered by internal_fragment_key")
         }
+    }
+}
+
+fn published_fragment_mapping_tag(
+    fragment: &Fragment,
+    base: &published::BaseFragment,
+) -> Option<published::Tag> {
+    match fragment {
+        Fragment::SVGViewport(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        Fragment::SVGGroup(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        Fragment::SVGPath(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        Fragment::SVGText(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        Fragment::SVGForeignObject(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        Fragment::SVGImage(fragment) => Some(
+            fragment
+                .borrow()
+                .identity
+                .current_instance_owner_or_source_tag(),
+        ),
+        _ => base.tag,
     }
 }
 
