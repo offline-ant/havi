@@ -7,6 +7,7 @@ use havi_types::fragment_tree::{
 
 use super::dom::SVGGeometryDataOwned;
 use super::style::SVGResolvedStroke;
+use super::transform::transform_svg_point;
 
 #[derive(Clone, Debug)]
 pub struct SVGStrokeStyleSpec {
@@ -268,7 +269,7 @@ fn normalize_points(raw: Option<&str>, fill_rule: SVGFillRule, closed: bool) -> 
     SVGNormalizedPath { fill_rule, commands }
 }
 
-fn parse_svg_length(raw: Option<&str>) -> Option<f32> {
+pub fn parse_svg_length(raw: Option<&str>) -> Option<f32> {
     let raw = raw?;
     let length = svgtypes::Length::from_str(raw).ok()?;
     let px = match length.unit {
@@ -283,6 +284,28 @@ fn parse_svg_length(raw: Option<&str>) -> Option<f32> {
         }
     };
     px.is_finite().then_some(px as f32)
+}
+
+pub fn transform_svg_path_data(path: &SVGPathData, transform: havi_types::fragment_tree::SVGTransform) -> SVGPathData {
+    let mut transformed = path.clone();
+    for command in &mut transformed.commands {
+        match command {
+            SVGPathCommand::MoveTo(point) | SVGPathCommand::LineTo(point) => {
+                *point = transform_svg_point(transform, *point);
+            }
+            SVGPathCommand::QuadTo { ctrl, to } => {
+                *ctrl = transform_svg_point(transform, *ctrl);
+                *to = transform_svg_point(transform, *to);
+            }
+            SVGPathCommand::CubicTo { ctrl1, ctrl2, to } => {
+                *ctrl1 = transform_svg_point(transform, *ctrl1);
+                *ctrl2 = transform_svg_point(transform, *ctrl2);
+                *to = transform_svg_point(transform, *to);
+            }
+            SVGPathCommand::Close => {}
+        }
+    }
+    transformed
 }
 
 fn point(x: f32, y: f32) -> SVGPoint {

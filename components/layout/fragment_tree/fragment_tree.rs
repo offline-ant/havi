@@ -196,7 +196,7 @@ fn build_generation(
     let mut builder = ArenaBuilder::new(containing_blocks, image_resolver);
     let geometry_roots: Vec<_> = root_fragments
         .iter()
-        .filter_map(|fragment| builder.build_geometry(fragment, None))
+        .filter_map(|fragment| builder.build_geometry(fragment, None, None))
         .collect();
     builder.populate_paint_children(root_fragments);
 
@@ -216,7 +216,7 @@ fn build_generation(
             .into_iter()
             .map(|(key, ids)| (key, Arc::from(ids)))
             .collect(),
-        svg_resources: Arc::from(Vec::<published::SVGResourceNode>::new()),
+        svg_resources: Arc::from(builder.svg_resources),
         initial_containing_block,
         scrollable_overflow,
     }
@@ -232,6 +232,7 @@ struct ArenaBuilder<'a> {
     node_fragments: HashMap<published::FragmentMapKey, Vec<published::FragmentId>>,
     placement_targets: HashMap<u32, published::FragmentId>,
     placement_ids: HashMap<u32, published::PlacementId>,
+    svg_resources: Vec<published::SVGResourceNode>,
 }
 
 impl<'a> ArenaBuilder<'a> {
@@ -254,6 +255,7 @@ impl<'a> ArenaBuilder<'a> {
             node_fragments: HashMap::new(),
             placement_targets: HashMap::new(),
             placement_ids: HashMap::new(),
+            svg_resources: Vec::new(),
         }
     }
 
@@ -261,6 +263,7 @@ impl<'a> ArenaBuilder<'a> {
         &mut self,
         fragment: &Fragment,
         parent: Option<published::FragmentId>,
+        resource_offset: Option<u32>,
     ) -> Option<published::FragmentId> {
         let key = internal_fragment_key(fragment)?;
         if let Some(id) = self.internal_to_node.get(&key).copied() {
@@ -299,7 +302,7 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = box_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
                 let specific_layout_info = convert_specific_layout_info(box_fragment.specific_layout_info());
                 let node = published::BoxFragment {
@@ -339,7 +342,7 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = positioning_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
                 published::FragmentKind::Positioning(published::PositioningFragment {
                     base,
@@ -364,10 +367,20 @@ impl<'a> ArenaBuilder<'a> {
             }
             Fragment::SVGViewport(svg_fragment) => {
                 let svg_fragment = svg_fragment.borrow();
+                let resource_offset = svg_fragment.resource_graph.as_ref().map(|graph| {
+                    let offset = self.svg_resources.len() as u32;
+                    self.svg_resources.extend(
+                        graph.resources()
+                            .iter()
+                            .cloned()
+                            .map(|resource| remap_svg_resource_node(resource, offset)),
+                    );
+                    offset
+                }).or(resource_offset);
                 let geometry_children = svg_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
                 published::FragmentKind::SVGViewport(published::SVGViewportFragment {
                     base,
@@ -384,7 +397,7 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = svg_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
                 published::FragmentKind::SVGGroup(published::SVGGroupFragment {
                     base,
@@ -392,7 +405,7 @@ impl<'a> ArenaBuilder<'a> {
                     paint_children: Vec::new(),
                     local_transform: svg_fragment.local_transform,
                     opacity: svg_fragment.opacity,
-                    resources: svg_fragment.resources.clone(),
+                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
                 })
             }
             Fragment::SVGPath(svg_fragment) => {
@@ -403,9 +416,12 @@ impl<'a> ArenaBuilder<'a> {
                     object_bounding_box: svg_fragment.object_bounding_box,
                     decorated_bounding_box: svg_fragment.decorated_bounding_box,
                     local_transform: svg_fragment.local_transform,
-                    fill: svg_fragment.fill.clone(),
-                    stroke: svg_fragment.stroke.clone(),
-                    resources: svg_fragment.resources.clone(),
+                    fill: remap_svg_paint(svg_fragment.fill.clone(), resource_offset),
+                    stroke: svg_fragment
+                        .stroke
+                        .clone()
+                        .map(|stroke| remap_svg_stroke_style(stroke, resource_offset)),
+                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
                 })
             }
             Fragment::SVGText(svg_fragment) => {
@@ -416,7 +432,7 @@ impl<'a> ArenaBuilder<'a> {
                     object_bounding_box: svg_fragment.object_bounding_box,
                     decorated_bounding_box: svg_fragment.decorated_bounding_box,
                     local_transform: svg_fragment.local_transform,
-                    resources: svg_fragment.resources.clone(),
+                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
                 })
             }
             Fragment::SVGForeignObject(svg_fragment) => {
@@ -424,7 +440,7 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = svg_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id)))
+                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
                 published::FragmentKind::SVGForeignObject(published::SVGForeignObjectFragment {
                     base,
@@ -441,7 +457,7 @@ impl<'a> ArenaBuilder<'a> {
                     viewport_rect: svg_fragment.viewport_rect,
                     local_transform: svg_fragment.local_transform,
                     href: svg_fragment.href.clone(),
-                    resources: svg_fragment.resources.clone(),
+                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
                 })
             }
             Fragment::AbsoluteOrFixedPositioned(_) => unreachable!("filtered by internal_fragment_key"),
@@ -886,5 +902,64 @@ fn hash_value<T: Hash>(value: &T) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+fn remap_svg_resource_node(
+    mut node: published::SVGResourceNode,
+    resource_offset: u32,
+) -> published::SVGResourceNode {
+    if let published::SVGResourceKind::UseInstanceSource(resource) = &mut node.kind {
+        resource.source_resource_dependencies = resource
+            .source_resource_dependencies
+            .iter()
+            .copied()
+            .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
+            .collect();
+    }
+    node
+}
+
+fn remap_svg_resource_references(
+    resources: published::SVGResourceReferences,
+    resource_offset: Option<u32>,
+) -> published::SVGResourceReferences {
+    published::SVGResourceReferences {
+        clip_path: resources.clip_path.map(|id| remap_svg_resource_id(id, resource_offset)),
+        mask: resources.mask.map(|id| remap_svg_resource_id(id, resource_offset)),
+        filter: resources.filter.map(|id| remap_svg_resource_id(id, resource_offset)),
+        marker_start: resources
+            .marker_start
+            .map(|id| remap_svg_resource_id(id, resource_offset)),
+        marker_mid: resources
+            .marker_mid
+            .map(|id| remap_svg_resource_id(id, resource_offset)),
+        marker_end: resources
+            .marker_end
+            .map(|id| remap_svg_resource_id(id, resource_offset)),
+    }
+}
+
+fn remap_svg_paint(paint: published::SVGPaint, resource_offset: Option<u32>) -> published::SVGPaint {
+    match paint {
+        published::SVGPaint::Resource(id) => {
+            published::SVGPaint::Resource(remap_svg_resource_id(id, resource_offset))
+        }
+        _ => paint,
+    }
+}
+
+fn remap_svg_stroke_style(
+    mut stroke: published::SVGStrokeStyle,
+    resource_offset: Option<u32>,
+) -> published::SVGStrokeStyle {
+    stroke.paint = remap_svg_paint(stroke.paint, resource_offset);
+    stroke
+}
+
+fn remap_svg_resource_id(
+    id: published::SVGResourceId,
+    resource_offset: Option<u32>,
+) -> published::SVGResourceId {
+    published::SVGResourceId(id.0 + resource_offset.unwrap_or(0))
 }
 

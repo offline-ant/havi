@@ -160,8 +160,14 @@ fn lower_svg_gradient_paint(
         .collect::<Vec<_>>();
     match &gradient.kind {
         published::SVGGradientKind::Linear(linear) => {
-            let start = gradient_point(gradient.units, object_bounding_box, linear.start);
-            let end = gradient_point(gradient.units, object_bounding_box, linear.end);
+            let start = transform_gradient_point(
+                gradient.gradient_transform,
+                gradient_point(gradient.units, object_bounding_box, linear.start),
+            );
+            let end = transform_gradient_point(
+                gradient.gradient_transform,
+                gradient_point(gradient.units, object_bounding_box, linear.end),
+            );
             Some(MpVectorPaint::LinearGradient {
                 start,
                 end,
@@ -174,8 +180,14 @@ fn lower_svg_gradient_paint(
             })
         }
         published::SVGGradientKind::Radial(radial) => {
-            let center = gradient_point(gradient.units, object_bounding_box, radial.center);
-            let radius = gradient_radius(gradient.units, object_bounding_box, radial.radius);
+            let center = transform_gradient_point(
+                gradient.gradient_transform,
+                gradient_point(gradient.units, object_bounding_box, radial.center),
+            );
+            let radius = transform_gradient_radius(
+                gradient.gradient_transform,
+                gradient_radius(gradient.units, object_bounding_box, radial.radius),
+            );
             Some(MpVectorPaint::RadialGradient {
                 center,
                 radius,
@@ -216,4 +228,18 @@ fn gradient_radius(
             radius * object_bounding_box.size.height,
         ),
     }
+}
+
+fn transform_gradient_point(transform: published::SVGTransform, point: Vec2f) -> Vec2f {
+    vec2(
+        transform.m11 * point.x + transform.m21 * point.y + transform.m31,
+        transform.m12 * point.x + transform.m22 * point.y + transform.m32,
+    )
+}
+
+fn transform_gradient_radius(transform: published::SVGTransform, radius: Vec2f) -> Vec2f {
+    vec2(
+        radius.x * transform.m11.hypot(transform.m12),
+        radius.y * transform.m21.hypot(transform.m22),
+    )
 }

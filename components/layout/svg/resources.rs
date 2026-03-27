@@ -226,6 +226,22 @@ impl SVGResourceGraph {
         self.resources.get(id.0 as usize).map(|node| &node.kind)
     }
 
+    pub fn resource_mut(&mut self, id: SVGResourceId) -> Option<&mut SVGResourceKind> {
+        self.resources.get_mut(id.0 as usize).map(|node| &mut node.kind)
+    }
+
+    pub fn resources(&self) -> &[SVGResourceNode] {
+        &self.resources
+    }
+
+    pub fn resource_id_for_node(&self, node: OpaqueNode) -> Option<SVGResourceId> {
+        self.resource_ids_by_node.get(&node).copied()
+    }
+
+    pub fn node_for_element_id(&self, id: &str) -> Option<OpaqueNode> {
+        self.nodes_by_element_id.get(id).copied()
+    }
+
     pub fn resource_owner(&self, id: SVGResourceId) -> Option<OpaqueNode> {
         self.resource_owners.get(&id).copied()
     }
