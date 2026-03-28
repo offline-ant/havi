@@ -226,6 +226,7 @@ pub struct SVGRadialGradient {
     pub center: SVGPoint,
     pub focal: SVGPoint,
     pub radius: f32,
+    pub focal_radius: f32,
 }
 
 #[derive(Clone, Debug)]

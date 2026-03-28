@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use app_units::Au;
+use html5ever::{local_name, ns};
 use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use servo_arc::Arc as ServoArc;
@@ -17,7 +18,7 @@ use havi_types::fragment_tree::{
     SVGPathData, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle,
     SVGTransform, SVGUseInstanceChain, SVGRadialGradient, Tag as PublishedTag,
 };
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
 use layout_api::{SVGElementData, SVGGradientData, SVGNodeKind};
 use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 
@@ -729,6 +730,7 @@ fn resolve_gradient_resource(
             r,
             fx,
             fy,
+            fr,
             gradient_units,
             gradient_transform,
             spread_method,
@@ -744,6 +746,7 @@ fn resolve_gradient_resource(
                     center: SVGPoint::new(0.5, 0.5),
                     focal: SVGPoint::new(0.5, 0.5),
                     radius: 0.5,
+                    focal_radius: 0.0,
                 },
             };
             let center = SVGPoint::new(
@@ -757,6 +760,7 @@ fn resolve_gradient_resource(
                     parse_gradient_length(*fy, center.y),
                 ),
                 radius: parse_gradient_length(*r, radial.radius),
+                focal_radius: parse_gradient_length(*fr, radial.focal_radius),
             });
         }
         _ => {}
@@ -768,7 +772,7 @@ fn resolve_gradient_resource(
     }
 
     visiting.pop();
-    Some(gradient)
+    gradient.gradient_transform.is_invertible().then_some(gradient)
 }
 
 fn resolve_clip_path_resource(
@@ -887,13 +891,28 @@ fn resolve_gradient_stop(
         offset: parse_stop_offset(stop.offset).unwrap_or(0.0),
         color: stop
             .stop_color
+            .map(str::to_owned)
+            .or_else(|| inline_style_property(node, "stop-color"))
+            .as_deref()
             .and_then(parse_svg_color)
             .unwrap_or(color),
         opacity: stop
             .stop_opacity
+            .map(str::to_owned)
+            .or_else(|| inline_style_property(node, "stop-opacity"))
+            .as_deref()
             .and_then(parse_unit_interval)
             .unwrap_or(1.0),
     }
+}
+
+fn inline_style_property(node: &SVGResolvedNode<'_>, property: &str) -> Option<String> {
+    let element = node.node.as_element()?;
+    let style = element.get_attr(&ns!(), &local_name!("style"))?;
+    style.rsplit(';').find_map(|declaration| {
+        let (name, value) = declaration.split_once(':')?;
+        (name.trim().eq_ignore_ascii_case(property)).then_some(value.trim().to_owned())
+    })
 }
 
 fn gradient_template_node<'dom>(
@@ -1060,11 +1079,10 @@ fn convert_resolved_paint(
         SVGResolvedPaint::None => SVGPaint::None,
         SVGResolvedPaint::SolidColor(color) => SVGPaint::SolidColor(*color),
         SVGResolvedPaint::ResourceReference(reference) => {
-            let resource_id = reference
-                .iri
-                .trim()
-                .strip_prefix('#')
-                .and_then(|id| resource_graph.resource_for_element_id(id))
+            let iri = reference.iri.trim();
+            let id = iri.strip_prefix('#').unwrap_or(iri);
+            let resource_id = resource_graph
+                .resource_for_element_id(id)
                 .filter(|id| matches!(resource_graph.resource(*id), Some(SVGResourceKind::Gradient(_))));
             if let Some(resource_id) = resource_id {
                 SVGPaint::Resource(resource_id)
@@ -1235,12 +1253,54 @@ fn parse_unit_interval(raw: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use havi_types::fragment_tree::{SVGGradientResource, SVGLinearGradient, SVGResourceNode};
     use layout_api::wrapper_traits::PseudoElementChain;
+
+    use crate::svg::style;
 
     fn test_tag(id: usize) -> Tag {
         Tag {
             node: OpaqueNode(id),
             pseudo_element_chain: PseudoElementChain::default(),
+        }
+    }
+
+    #[test]
+    fn convert_resolved_paint_accepts_func_iri_without_hash_prefix() {
+        let mut resource_graph = SVGResourceGraph::default();
+        resource_graph.resources.push(SVGResourceNode {
+            kind: SVGResourceKind::Gradient(SVGGradientResource {
+                units: SVGCoordinateUnits::ObjectBoundingBox,
+                gradient_transform: SVGTransform::identity(),
+                spread_method: SVGGradientSpreadMethod::Pad,
+                kind: SVGGradientKind::Linear(SVGLinearGradient {
+                    start: SVGPoint::new(0.0, 0.0),
+                    end: SVGPoint::new(1.0, 0.0),
+                }),
+                stops: Vec::new(),
+            }),
+        });
+        resource_graph
+            .resources_by_element_id
+            .insert("grad".to_owned(), SVGResourceId(0));
+
+        let paint = convert_resolved_paint(
+            &resource_graph,
+            OpaqueNode(0),
+            &SVGResolvedPaint::ResourceReference(style::SVGPaintServerReference {
+                iri: "grad".to_owned(),
+                fallback: Some(SVGPaintFallback::SolidColor(SVGColor {
+                    red: 0.0,
+                    green: 1.0,
+                    blue: 0.0,
+                    alpha: 1.0,
+                })),
+            }),
+        );
+
+        match paint {
+            SVGPaint::Resource(SVGResourceId(0)) => {}
+            other => panic!("expected gradient resource, got {other:?}"),
         }
     }
 

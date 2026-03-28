@@ -192,6 +192,7 @@ fn lower_svg_gradient_paint(
                 center,
                 focal,
                 radius,
+                focal_radius_ratio: radial_focal_radius_ratio(radial),
                 spread_method: gradient_spread_method(gradient.spread_method),
                 stops,
             })
@@ -249,6 +250,17 @@ fn transform_gradient_radius(transform: published::SVGTransform, radius: Vec2f) 
         radius.x * transform.m11.hypot(transform.m12),
         radius.y * transform.m21.hypot(transform.m22),
     )
+}
+
+fn radial_focal_radius_ratio(radial: &published::SVGRadialGradient) -> f32 {
+    if radial.radius.abs() <= f32::EPSILON {
+        return if radial.focal_radius.abs() <= f32::EPSILON {
+            0.0
+        } else {
+            1.0
+        };
+    }
+    (radial.focal_radius / radial.radius).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -359,6 +371,7 @@ mod tests {
                 center: published::SVGPoint::new(0.5, 0.25),
                 focal: published::SVGPoint::new(0.75, 0.5),
                 radius: 0.5,
+                focal_radius: 0.125,
             }),
             stops: vec![stop(0.25), stop(1.0)],
         });
@@ -376,12 +389,14 @@ mod tests {
                 center,
                 focal,
                 radius,
+                focal_radius_ratio,
                 spread_method,
                 stops,
             } => {
                 assert_eq!(center, vec2(227.0, 146.0));
                 assert_eq!(focal, vec2(327.0, 221.0));
                 assert_eq!(radius, vec2(200.0, 150.0));
+                assert_eq!(focal_radius_ratio, 0.25);
                 assert_eq!(spread_method, MpVectorGradientSpreadMethod::Repeat);
                 assert_eq!(stops.len(), 2);
                 assert_eq!(stops[0].color.w, 0.5);

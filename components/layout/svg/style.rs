@@ -393,6 +393,11 @@ fn resolve_paint(
 }
 
 fn parse_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
+    parse_svgtypes_paint(raw, current_color)
+        .or_else(|| parse_func_iri_paint(raw, current_color))
+}
+
+fn parse_svgtypes_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
     match svgtypes::Paint::from_str(raw).ok()? {
         svgtypes::Paint::None => Some(SVGResolvedPaint::None),
         svgtypes::Paint::CurrentColor => Some(SVGResolvedPaint::SolidColor(current_color)),
@@ -417,6 +422,26 @@ fn parse_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
     }
 }
 
+fn parse_func_iri_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
+    let raw = raw.trim();
+    let tail = raw.strip_prefix("url(")?;
+    let close = tail.find(')')?;
+    let iri = tail[..close].trim();
+    if iri.is_empty() {
+        return None;
+    }
+    let fallback = match tail[close + 1..].trim() {
+        "" => None,
+        "none" => Some(SVGPaintFallback::None),
+        "currentColor" => Some(SVGPaintFallback::SolidColor(current_color)),
+        color => Some(SVGPaintFallback::SolidColor(parse_color(color)?)),
+    };
+    Some(SVGResolvedPaint::ResourceReference(SVGPaintServerReference {
+        iri: iri.to_owned(),
+        fallback,
+    }))
+}
+
 fn parse_color(raw: &str) -> Option<SVGColor> {
     svgtypes::Color::from_str(raw).ok().map(convert_svgtypes_color)
 }
@@ -427,6 +452,34 @@ fn convert_svgtypes_color(color: svgtypes::Color) -> SVGColor {
         green: color.green as f32 / 255.0,
         blue: color.blue as f32 / 255.0,
         alpha: color.alpha as f32 / 255.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_paint_keeps_func_iri_fallback_color() {
+        let current = SVGColor {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 1.0,
+        };
+        let paint = parse_paint("url(#grad) green", current).expect("paint");
+        match paint {
+            SVGResolvedPaint::ResourceReference(reference) => {
+                assert_eq!(reference.iri, "grad");
+                match reference.fallback {
+                    Some(SVGPaintFallback::SolidColor(color)) => {
+                        assert_eq!(color.green, 128.0 / 255.0);
+                    }
+                    other => panic!("unexpected fallback: {other:?}"),
+                }
+            }
+            other => panic!("unexpected paint: {other:?}"),
+        }
     }
 }
 

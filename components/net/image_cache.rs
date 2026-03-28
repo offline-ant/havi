@@ -1323,3 +1323,28 @@ impl ImageCacheImpl {
         warn!("Couldn't find cached entry for listener {:?}", id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use resvg::tiny_skia;
+    use resvg::usvg::fontdb;
+
+    use super::parse_svg_document_in_memory;
+
+    #[test]
+    fn resvg_rasterizes_simple_green_svg_non_black() {
+        let svg = br#"<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><rect width='10' height='10' fill='green'/></svg>"#;
+        let tree = parse_svg_document_in_memory(svg, Arc::new(fontdb::Database::new()))
+            .expect("svg tree");
+        let mut pixmap = tiny_skia::Pixmap::new(10, 10).expect("pixmap");
+        resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+        let bytes = pixmap.take();
+        let center = &bytes[(5 * 10 + 5) * 4..(5 * 10 + 6) * 4];
+        assert!(
+            center.iter().take(3).any(|&channel| channel != 0),
+            "center pixel was black: {center:?}"
+        );
+    }
+}
