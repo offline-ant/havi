@@ -57,8 +57,9 @@ Public-network rules:
 
 - group `u` follows the same two-step path through `//u/network/group/u`
 - app `Upstream` inherits from the group record when omitted
-- `Content-Authority` inherits from `//u/network/app/<app>` only when the
-  group app record explicitly includes `Content-Authority-Source: public`
+- `Content-Authority` falls back to `//u/network/app/<app>` when the group
+  app record omits it or is `NOT_FOUND`; only `Content-Authority` is inherited
+  from public app defaults, never `Upstream`
 - when public-network resolution produces an effective `Content-Authority`, the
   browser MUST require exact equality with the deploy pointer
   `Content-Authority`
