@@ -271,9 +271,9 @@ fn report_route_resolution(
 
 /// Resolve route endpoint for a group/app via admin route lookup.
 ///
-/// Looks up the route packet in the home repo using admin credentials.
-/// For public names without a local route, performs public network lookup.
-/// Failed public-network resolution for public names is a hard failure
+/// Looks up the route packet in the home repo using admin credentials when
+/// available. For public names without a local route, performs public network
+/// lookup. Failed public-network resolution for public names is a hard failure
 /// (no silent home-repo fallback).
 ///
 /// Returns `(endpoint, upstream_verification_key, content_authority_pin, source)`.
@@ -282,128 +282,102 @@ pub async fn resolve_route_endpoint(
     app: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
-) -> (ViaSpec, Option<String>, Option<String>, RouteEndpointSource) {
+) -> Result<(ViaSpec, Option<String>, Option<String>, RouteEndpointSource), String> {
     let repo_target = repo_client.target();
 
     if group.is_empty() || app.is_empty() {
-        return (repo_target, None, None, RouteEndpointSource::HomeFallback);
+        return Ok((repo_target, None, None, RouteEndpointSource::HomeFallback));
     }
 
-    if credential_store.get_admin().is_none() {
-        log::debug!("No admin credential for route lookup, falling back to repo");
-        report_route_resolution(
-            group,
-            app,
-            RouteEndpointSource::HomeFallback,
-            &repo_target,
-            None,
-            Some("no-admin-credential"),
-        );
-        return (repo_target, None, None, RouteEndpointSource::HomeFallback);
+    if credential_store.get_admin().is_some() {
+        match repo_client.get_admin_identity().await {
+            Ok(repo_vkey) => match repo_client.get_route(group, app, &repo_vkey).await {
+                Ok(route_info) => {
+                    let endpoint = route_info.upstream.unwrap_or_else(|| {
+                        log::debug!(
+                            "Route for {}/{} has no upstream, falling back to repo",
+                            group,
+                            app
+                        );
+                        repo_target.clone()
+                    });
+                    report_route_resolution(
+                        group,
+                        app,
+                        RouteEndpointSource::LocalRoute,
+                        &endpoint,
+                        route_info.upstream_verification_key.as_deref(),
+                        None,
+                    );
+                    return Ok((
+                        endpoint,
+                        route_info.upstream_verification_key,
+                        None,
+                        RouteEndpointSource::LocalRoute,
+                    ));
+                }
+                Err(e) => {
+                    log::debug!("No route for {}/{}: {}", group, app, e);
+                }
+            },
+            Err(e) => {
+                log::debug!(
+                    "Failed to get admin identity for route lookup: {}, continuing with public network",
+                    e
+                );
+            }
+        }
+    } else {
+        log::debug!("No admin credential for route lookup, continuing with public network");
     }
 
-    let repo_vkey = match repo_client.get_admin_identity().await {
-        Ok(key) => key,
-        Err(e) => {
-            log::debug!(
-                "Failed to get admin identity for route lookup: {}, falling back to repo",
-                e
+    match hppr_client::lookup_network_if_public_async(group, app).await {
+        Ok(Some(lookup)) => {
+            report_route_resolution(
+                group,
+                app,
+                RouteEndpointSource::PublicNetwork,
+                &lookup.endpoint,
+                lookup.upstream_verification_key.as_deref(),
+                Some("ephemeral"),
             );
+            Ok((
+                lookup.endpoint,
+                lookup.upstream_verification_key,
+                lookup.content_authority,
+                RouteEndpointSource::PublicNetwork,
+            ))
+        }
+        Ok(None) => {
             report_route_resolution(
                 group,
                 app,
                 RouteEndpointSource::HomeFallback,
                 &repo_target,
                 None,
-                Some("admin-identity-failed"),
+                Some("not-public-name"),
             );
-            return (repo_target, None, None, RouteEndpointSource::HomeFallback);
-        },
-    };
-
-    match repo_client
-        .get_route(group, app, &repo_vkey)
-        .await
-    {
-        Ok(route_info) => {
-            let endpoint = route_info.upstream.unwrap_or_else(|| {
-                log::debug!(
-                    "Route for {}/{} has no upstream, falling back to repo",
-                    group,
-                    app
-                );
-                repo_target.clone()
-            });
+            Ok((repo_target, None, None, RouteEndpointSource::HomeFallback))
+        }
+        Err(err) => {
+            log::warn!(
+                "Public network lookup failed for //{}/{}: {}",
+                group,
+                app,
+                err
+            );
             report_route_resolution(
                 group,
                 app,
-                RouteEndpointSource::LocalRoute,
-                &endpoint,
-                route_info.upstream_verification_key.as_deref(),
+                RouteEndpointSource::PublicNetwork,
+                &repo_target,
                 None,
+                Some("public-network-failed"),
             );
-            (
-                endpoint,
-                route_info.upstream_verification_key,
-                None,
-                RouteEndpointSource::LocalRoute,
-            )
-        },
-        Err(e) => {
-            log::debug!("No route for {}/{}: {}", group, app, e);
-
-            match hppr_client::lookup_network_if_public_async(group, app).await {
-                Ok(Some(lookup)) => {
-                    report_route_resolution(
-                        group,
-                        app,
-                        RouteEndpointSource::PublicNetwork,
-                        &lookup.endpoint,
-                        lookup.upstream_verification_key.as_deref(),
-                        Some("ephemeral"),
-                    );
-                    (
-                        lookup.endpoint,
-                        lookup.upstream_verification_key,
-                        lookup.content_authority,
-                        RouteEndpointSource::PublicNetwork,
-                    )
-                }
-                Ok(None) => {
-                    // Not a public name (e.g. ~local group)
-                    report_route_resolution(
-                        group,
-                        app,
-                        RouteEndpointSource::HomeFallback,
-                        &repo_target,
-                        None,
-                        Some("not-public-name"),
-                    );
-                    (repo_target, None, None, RouteEndpointSource::HomeFallback)
-                }
-                Err(err) => {
-                    // Public-network resolution failure is a hard error for public names.
-                    // Do not silently fall back to home repo.
-                    log::warn!(
-                        "Public network lookup failed for //{}/{}: {}",
-                        group,
-                        app,
-                        err
-                    );
-                    report_route_resolution(
-                        group,
-                        app,
-                        RouteEndpointSource::PublicNetwork,
-                        &repo_target,
-                        None,
-                        Some("public-network-failed"),
-                    );
-                    // Return home fallback so the caller can surface the error.
-                    // The caller should check source == PublicNetwork with no
-                    // valid endpoint and fail.
-                    (repo_target, None, None, RouteEndpointSource::HomeFallback)
-                }
-            }
+            Err(format!(
+                "public network lookup failed for //{}/{}: {}",
+                group, app, err
+            ))
         }
     }
 }

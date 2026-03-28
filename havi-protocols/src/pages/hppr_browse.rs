@@ -53,9 +53,12 @@ pub async fn handle_request(
             },
         }
     } else {
-        let (ep, _, _, _) =
-            resolve_route_endpoint(&parts.group, &parts.app, client, credential_store).await;
-        ep
+        match resolve_route_endpoint(&parts.group, &parts.app, client, credential_store).await {
+            Ok((ep, _, _, _)) => ep,
+            Err(e) => {
+                return PageResponse::error("Browse Error", &e, None);
+            }
+        }
     };
 
     let endpoint_str = address.endpoint_string();

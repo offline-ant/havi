@@ -305,7 +305,7 @@ async fn resolve_target(
         );
         (endpoint.clone(), None, None, RouteEndpointSource::ParentRoute)
     } else {
-        resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await
+        resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await?
     };
 
     Ok(ResolvedTarget {
