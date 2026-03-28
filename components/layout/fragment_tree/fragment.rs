@@ -84,9 +84,10 @@ pub struct TextFragment {
     pub(crate) offsets: Option<Box<TextRunOffsets>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq)]
 pub enum ImageFragmentSourceKind {
     Raster,
+    SvgDocument,
     Canvas,
     Video,
 }
@@ -97,6 +98,12 @@ pub struct ImageFragment {
     pub clip: PhysicalRect<Au>,
     pub image_key: Option<ImageKey>,
     pub source_kind: ImageFragmentSourceKind,
+    pub svg_document_id: Option<u64>,
+    pub image_revision: u64,
+    pub source_width: u32,
+    pub source_height: u32,
+    #[conditional_malloc_size_of]
+    pub source_data: Option<std::sync::Arc<Vec<u8>>>,
     pub showing_broken_image_icon: bool,
     /// Raster image pixel data, stored for rendering without WebRender.
     #[conditional_malloc_size_of]

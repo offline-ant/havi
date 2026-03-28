@@ -9,7 +9,6 @@ use base::id::PainterId;
 use fonts::FontContext;
 use layout_api::{
     AnimatingImages, IFrameSizes, LayoutImageDestination, PendingImage, PendingImageState,
-    PendingRasterizationImage,
 };
 use net_traits::image_cache::{
     Image as CachedImage, ImageCache, ImageCacheResult, ImageOrMetadataAvailable, PendingImageId,
@@ -19,7 +18,6 @@ use pixels::RasterImage;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;
-use webrender_api::units::DeviceIntSize;
 
 pub(crate) type CachedImageOrError = Result<CachedImage, ResolveImageError>;
 
@@ -66,10 +64,6 @@ pub(crate) struct ImageResolver {
     /// A list of in-progress image loads to be shared with the script thread.
     pub pending_images: Mutex<Vec<PendingImage>>,
 
-    /// A list of fully loaded vector images that need to be rasterized to a specific
-    /// size determined by layout. This will be shared with the script thread.
-    pub pending_rasterization_images: Mutex<Vec<PendingRasterizationImage>>,
-
     /// A shared reference to script's map of DOM nodes with animated images. This is used
     /// to manage image animations in script and inform the script about newly animating
     /// nodes.
@@ -87,7 +81,6 @@ impl Drop for ImageResolver {
     fn drop(&mut self) {
         if !std::thread::panicking() {
             assert!(self.pending_images.lock().is_empty());
-            assert!(self.pending_rasterization_images.lock().is_empty());
         }
     }
 }
@@ -184,26 +177,7 @@ impl ImageResolver {
         }
     }
 
-    pub(crate) fn rasterize_vector_image(
-        &self,
-        image_id: PendingImageId,
-        size: DeviceIntSize,
-        node: OpaqueNode,
-        svg_id: Option<String>,
-    ) -> Option<RasterImage> {
-        let result = self
-            .image_cache
-            .rasterize_vector_image(image_id, size, svg_id);
-        if result.is_none() {
-            self.pending_rasterization_images
-                .lock()
-                .push(PendingRasterizationImage {
-                    id: image_id,
-                    node: node.into(),
-                    size,
-                });
-        }
-        result
+    pub(crate) fn vector_image_bytes(&self, image_id: PendingImageId) -> Option<Arc<Vec<u8>>> {
+        self.image_cache.get_vector_image_bytes(image_id)
     }
-
 }

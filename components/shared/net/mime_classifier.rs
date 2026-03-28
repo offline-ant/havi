@@ -16,7 +16,7 @@ pub struct MimeClassifier {
     font_classifier: GroupedClassifier,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum MediaType {
     Xml,
     Html,
@@ -94,7 +94,8 @@ impl MimeClassifier {
             .unwrap_or(mime::APPLICATION_OCTET_STREAM);
         // Step 1. If the supplied MIME type is an XML MIME type or HTML MIME type,
         // the computed MIME type is the supplied MIME type.
-        if Self::is_xml(&supplied_type_or_octet_stream) ||
+        if Self::is_svg(&supplied_type_or_octet_stream) ||
+            Self::is_xml(&supplied_type_or_octet_stream) ||
             Self::is_html(&supplied_type_or_octet_stream)
         {
             return supplied_type_or_octet_stream;
@@ -251,13 +252,18 @@ impl MimeClassifier {
     }
 
     /// <https://mimesniff.spec.whatwg.org/#xml-mime-type>
-    /// SVG is worth distinguishing from other XML MIME types:
-    /// <https://mimesniff.spec.whatwg.org/#mime-type-miscellaneous>
     fn is_xml(mt: &Mime) -> bool {
         !Self::is_image(mt) &&
             (mt.suffix() == Some(mime::XML) ||
                 mt.essence_str() == "text/xml" ||
                 mt.essence_str() == "application/xml")
+    }
+
+    /// Standalone SVG documents are created through the XML document path even
+    /// though `image/svg+xml` is not treated as a generic XML MIME type by the
+    /// mimesniff XML definition.
+    fn is_svg(mt: &Mime) -> bool {
+        mt.essence_str() == "image/svg+xml"
     }
 
     /// <https://mimesniff.spec.whatwg.org/#html-mime-type>
@@ -338,7 +344,7 @@ impl MimeClassifier {
     }
 
     pub fn get_media_type(mime: &Mime) -> Option<MediaType> {
-        if MimeClassifier::is_xml(mime) {
+        if MimeClassifier::is_svg(mime) || MimeClassifier::is_xml(mime) {
             Some(MediaType::Xml)
         } else if MimeClassifier::is_html(mime) {
             Some(MediaType::Html)
@@ -365,6 +371,28 @@ impl MimeClassifier {
         supplied_type
             .as_ref()
             .and_then(MimeClassifier::get_media_type)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_svg_xml_routes_to_xml_document_mode() {
+        let mime: Mime = "image/svg+xml".parse().unwrap();
+
+        assert!(!MimeClassifier::is_xml(&mime));
+        assert!(MimeClassifier::is_svg(&mime));
+        assert_eq!(MimeClassifier::get_media_type(&mime), Some(MediaType::Xml));
+    }
+
+    #[test]
+    fn png_stays_in_image_document_mode() {
+        let mime: Mime = "image/png".parse().unwrap();
+
+        assert!(!MimeClassifier::is_svg(&mime));
+        assert_eq!(MimeClassifier::get_media_type(&mime), Some(MediaType::Image));
     }
 }
 

@@ -714,7 +714,18 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
                 raster_image.bytes.clone(),
             )
         }
-        None => (0, 0, 0..0, Arc::new(Vec::new())),
+        None => {
+            let image_data = fragment
+                .source_data
+                .clone()
+                .unwrap_or_else(|| Arc::new(Vec::new()));
+            (
+                fragment.source_width,
+                fragment.source_height,
+                0..image_data.len(),
+                image_data,
+            )
+        }
     };
     published::ImageFragment {
         base: convert_base(&fragment.base),
@@ -725,6 +736,9 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
             crate::fragment_tree::ImageFragmentSourceKind::Raster => {
                 published::ImageSourceKind::Raster
             }
+            crate::fragment_tree::ImageFragmentSourceKind::SvgDocument => {
+                published::ImageSourceKind::SvgDocument
+            }
             crate::fragment_tree::ImageFragmentSourceKind::Canvas => {
                 published::ImageSourceKind::Canvas
             }
@@ -732,6 +746,8 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
                 published::ImageSourceKind::Video
             }
         },
+        svg_document_id: fragment.svg_document_id,
+        image_revision: fragment.image_revision,
         frame_width,
         frame_height,
         image_data,
@@ -760,27 +776,53 @@ fn resolve_background_images_for_base(
                     images.push(None);
                     continue;
                 };
-                let Some(raster_image) = cached.as_raster_image() else {
-                    images.push(None);
-                    continue;
-                };
-                let (width, height, bytes) = match raster_image.frames.first() {
-                    Some(frame) => (
-                        frame.width,
-                        frame.height,
-                        raster_image.bytes[frame.byte_range.clone()].to_vec(),
-                    ),
-                    None => (
-                        raster_image.metadata.width,
-                        raster_image.metadata.height,
-                        raster_image.bytes.as_ref().clone(),
-                    ),
-                };
-                images.push(Some(published::BackgroundImage {
-                    width,
-                    height,
-                    pixels: bytes,
-                }));
+                match cached {
+                    net_traits::image_cache::Image::Raster(raster_image) => {
+                        let (width, height, byte_range, data) = match raster_image.frames.first() {
+                            Some(frame) => (
+                                frame.width,
+                                frame.height,
+                                frame.byte_range.clone(),
+                                raster_image.bytes.clone(),
+                            ),
+                            None => (
+                                raster_image.metadata.width,
+                                raster_image.metadata.height,
+                                0..raster_image.bytes.len(),
+                                raster_image.bytes.clone(),
+                            ),
+                        };
+                        images.push(Some(published::BackgroundImage {
+                            image_key: raster_image
+                                .id
+                                .map(|key| published::FragmentImageKey::from((key.0.0, key.1))),
+                            source_kind: published::ImageSourceKind::Raster,
+                            svg_document_id: None,
+                            revision: 0,
+                            width,
+                            height,
+                            data,
+                            byte_range,
+                        }));
+                    }
+                    net_traits::image_cache::Image::Vector(vector_image) => {
+                        let Some(svg_bytes) = image_resolver.vector_image_bytes(vector_image.id) else {
+                            images.push(None);
+                            continue;
+                        };
+                        let byte_len = svg_bytes.len();
+                        images.push(Some(published::BackgroundImage {
+                            image_key: None,
+                            source_kind: published::ImageSourceKind::SvgDocument,
+                            svg_document_id: Some(vector_image.id.0),
+                            revision: vector_image.id.0,
+                            width: vector_image.metadata.width,
+                            height: vector_image.metadata.height,
+                            data: svg_bytes,
+                            byte_range: 0..byte_len,
+                        }));
+                    }
+                }
             }
             _ => images.push(None),
         }

@@ -852,21 +852,10 @@ impl HTMLLinkElement {
                 // This size is completely arbitrary.
                 let size = DeviceIntSize::new(250, 250);
 
-                let image_cache = window.image_cache();
                 if let Some(raster_image) =
-                    image_cache.rasterize_vector_image(vector_image.id, size, None)
+                    window.image_cache().rasterize_vector_image_sync(vector_image.id, size)
                 {
                     send_rasterized_favicon_to_embedder(&raster_image);
-                } else {
-                    // The rasterization callback will end up calling "process_favicon_response" again,
-                    // but this time with a raster image.
-                    let image_cache_sender = self.register_image_cache_callback(vector_image.id);
-                    image_cache.add_rasterization_complete_listener(
-                        window.pipeline_id(),
-                        vector_image.id,
-                        size,
-                        image_cache_sender,
-                    );
                 }
             },
         }

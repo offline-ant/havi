@@ -403,37 +403,44 @@ impl ReplacedContents {
                 .image
                 .as_ref()
                 .and_then(|image| match image {
-                    Image::Raster(raster_image) => {
-                        Some((raster_image.id, Some(raster_image.clone())))
-                    },
-                    Image::Vector(vector_image) => {
-                        let scale = layout_context.style_context.device_pixel_ratio();
-                        let width = object_fit_size.width.scale_by(scale.0).to_px();
-                        let height = object_fit_size.height.scale_by(scale.0).to_px();
-                        let size = Size2D::new(width, height);
-                        let tag = self.base_fragment_info.tag?;
-                        let raster = layout_context
-                            .image_resolver
-                            .rasterize_vector_image(
-                                vector_image.id,
-                                size,
-                                tag.node,
-                                vector_image.svg_id.clone(),
-                            );
-                        let key = raster.as_ref().and_then(|r| r.id);
-                        Some((key, raster.map(std::sync::Arc::new)))
-                    },
-                })
-                .map(|(image_key, raster_image)| {
-                    Fragment::Image(ArcRefCell::new(ImageFragment {
+                    Image::Raster(raster_image) => Some(ImageFragment {
                         base,
                         clip,
-                        image_key,
+                        image_key: raster_image.id,
                         source_kind: crate::fragment_tree::ImageFragmentSourceKind::Raster,
+                        svg_document_id: None,
+                        image_revision: 0,
+                        source_width: 0,
+                        source_height: 0,
+                        source_data: None,
                         showing_broken_image_icon: image_info.showing_broken_image_icon,
-                        raster_image,
-                    }))
+                        raster_image: Some(raster_image.clone()),
+                    }),
+                    Image::Vector(vector_image) => {
+                        let svg_bytes = layout_context.image_resolver.vector_image_bytes(vector_image.id)?;
+                        let scale = layout_context.style_context.device_pixel_ratio();
+                        let width = u32::try_from(object_fit_size.width.scale_by(scale.0).to_px())
+                            .unwrap_or(0)
+                            .max(1);
+                        let height = u32::try_from(object_fit_size.height.scale_by(scale.0).to_px())
+                            .unwrap_or(0)
+                            .max(1);
+                        Some(ImageFragment {
+                            base,
+                            clip,
+                            image_key: None,
+                            source_kind: crate::fragment_tree::ImageFragmentSourceKind::SvgDocument,
+                            svg_document_id: Some(vector_image.id.0),
+                            image_revision: vector_image.id.0,
+                            source_width: width,
+                            source_height: height,
+                            source_data: Some(svg_bytes),
+                            showing_broken_image_icon: image_info.showing_broken_image_icon,
+                            raster_image: None,
+                        })
+                    },
                 })
+                .map(|fragment| Fragment::Image(ArcRefCell::new(fragment)))
                 .into_iter()
                 .collect(),
             ReplacedContentKind::Video(video_info) => {
@@ -442,6 +449,11 @@ impl ReplacedContents {
                     clip,
                     image_key: video_info.image_key,
                     source_kind: crate::fragment_tree::ImageFragmentSourceKind::Video,
+                    svg_document_id: None,
+                    image_revision: 0,
+                    source_width: 0,
+                    source_height: 0,
+                    source_data: None,
                     showing_broken_image_icon: false,
                     raster_image: None,
                 }))]
@@ -482,6 +494,11 @@ impl ReplacedContents {
                     clip,
                     image_key: Some(image_key),
                     source_kind: crate::fragment_tree::ImageFragmentSourceKind::Canvas,
+                    svg_document_id: None,
+                    image_revision: 0,
+                    source_width: 0,
+                    source_height: 0,
+                    source_data: None,
                     showing_broken_image_icon: false,
                     raster_image: None,
                 }))]

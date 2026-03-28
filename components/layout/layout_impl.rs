@@ -1021,7 +1021,6 @@ impl LayoutThread {
             image_cache: self.image_cache.clone(),
             resolved_images_cache: self.resolved_images_cache.clone(),
             pending_images: Mutex::default(),
-            pending_rasterization_images: Mutex::default(),
             animating_images: reflow_request.animating_images.clone(),
             animation_timeline_value: reflow_request.animation_timeline_value,
         })
@@ -1067,16 +1066,13 @@ impl LayoutThread {
             }
 
             let pending_images = std::mem::take(&mut *image_resolver.pending_images.lock());
-            let pending_rasterization_images =
-                std::mem::take(&mut *image_resolver.pending_rasterization_images.lock());
 
-            if phases.is_empty() && pending_images.is_empty() && pending_rasterization_images.is_empty() {
+            if phases.is_empty() && pending_images.is_empty() {
                 return None;
             }
             return Some(ReflowResult {
                 reflow_phases_run: phases,
                 pending_images,
-                pending_rasterization_images,
                 ..Default::default()
             });
         }
@@ -1121,13 +1117,10 @@ impl LayoutThread {
         }
 
         let pending_images = std::mem::take(&mut *image_resolver.pending_images.lock());
-        let pending_rasterization_images =
-            std::mem::take(&mut *image_resolver.pending_rasterization_images.lock());
 
         Some(ReflowResult {
             reflow_phases_run,
             pending_images,
-            pending_rasterization_images,
             iframe_sizes: Some(iframe_sizes),
             reflow_statistics,
         })

@@ -1,0 +1,5 @@
+# Standalone SVG smoke cases. These must route through real SVG document mode.
+
+== cases/standalone-svg-green-rect.svg refs/standalone-svg-green-rect-ref.html
+== cases/standalone-svg-viewbox-fill.svg refs/standalone-svg-viewbox-fill-ref.html
+== cases/standalone-svg-transform.svg refs/standalone-svg-transform-ref.html

@@ -110,6 +110,7 @@ fn decode_bytes_sync(
             .map(|svg_tree| {
                 DecodedImage::Vector(VectorImageData {
                     svg_tree: Arc::new(svg_tree),
+                    bytes: Arc::new(bytes.to_vec()),
                     cors_status: cors,
                 })
             })
@@ -244,6 +245,8 @@ impl CompletedLoad {
 struct VectorImageData {
     #[conditional_malloc_size_of]
     svg_tree: Arc<usvg::Tree>,
+    #[conditional_malloc_size_of]
+    bytes: Arc<Vec<u8>>,
     cors_status: CorsStatus,
 }
 
@@ -924,6 +927,14 @@ impl ImageCache for ImageCacheImpl {
             // Note: this happens if we are pending a batch of image keys.
             _ => ImageCacheResult::Pending(key),
         }
+    }
+
+    fn get_vector_image_bytes(&self, image_id: PendingImageId) -> Option<Arc<Vec<u8>>> {
+        self.store
+            .lock()
+            .vector_images
+            .get(&image_id)
+            .map(|vector_image| vector_image.bytes.clone())
     }
 
     fn add_rasterization_complete_listener(

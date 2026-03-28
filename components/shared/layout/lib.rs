@@ -59,7 +59,7 @@ use style::stylesheets::{DocumentStyleSheet, Stylesheet, UrlExtraData};
 use style::thread_state::{self, ThreadState};
 use style::values::computed::Overflow;
 use style_traits::CSSPixel;
-use webrender_api::units::{DeviceIntSize, LayoutPoint, LayoutVector2D};
+use webrender_api::units::{LayoutPoint, LayoutVector2D};
 use webrender_api::{ExternalScrollId, ImageKey};
 
 /// Thread-safe container for sharing layout fragment payloads with the render
@@ -612,16 +612,6 @@ pub struct PendingImage {
     pub destination: LayoutImageDestination,
 }
 
-/// A data structure to tarck vector image that are fully loaded (i.e has a parsed SVG
-/// tree) but not yet rasterized to the size needed by layout. The rasterization is
-/// happening in the image cache.
-#[derive(Debug)]
-pub struct PendingRasterizationImage {
-    pub node: UntrustedNodeAddress,
-    pub id: PendingImageId,
-    pub size: DeviceIntSize,
-}
-
 #[derive(Clone, Copy, Debug, MallocSizeOf)]
 pub struct MediaFrame {
     pub image_key: webrender_api::ImageKey,
@@ -1005,8 +995,6 @@ pub struct ReflowResult {
     pub reflow_statistics: ReflowStatistics,
     /// The list of images that were encountered that are in progress.
     pub pending_images: Vec<PendingImage>,
-    /// The list of vector images that were encountered that still need to be rasterized.
-    pub pending_rasterization_images: Vec<PendingRasterizationImage>,
     /// The list of iframes in this layout and their sizes, used in order
     /// to communicate them with the Constellation and also the `Window`
     /// element of their content pages. Returning None if incremental reflow

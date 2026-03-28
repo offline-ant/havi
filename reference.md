@@ -182,8 +182,11 @@ Current architectural model:
 - native resource kinds: gradients, clip paths, masks, filters, markers,
   patterns, and `use` instance sources
 - explicit layout subsystem ownership in `components/layout/svg/`
-- external SVG images (`<img src="foo.svg">`, CSS image URLs) remain on the
-  separate image-resource backend for now
+- standalone `image/svg+xml` navigation now creates a real SVG document and
+  renders through the native SVG pipeline
+- external SVG images (`<img src="foo.svg">`, CSS image URLs) now flow through
+  renderer-backed SVG image producers instead of the old layout-triggered
+  rasterization path
 
 Current first-cut coverage:
 
@@ -207,7 +210,6 @@ Still deferred:
 - browser-grade SVG text shaping and `textPath`
 - full `foreignObject` HTML formatting-context embedding
 - full DOM API parity
-- standalone SVG documents
 
 ## Diagnostics
 

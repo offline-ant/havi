@@ -1,0 +1,4 @@
+# Inline SVG smoke cases.
+
+== cases/svg-inline-green-rect.html refs/svg-inline-green-rect-ref.html
+== cases/svg-inline-transform.html refs/svg-inline-transform-ref.html

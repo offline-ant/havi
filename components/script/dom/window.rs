@@ -58,7 +58,7 @@ use js::rust::{
 use layout_api::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, ElementsFromPointFlags,
     ElementsFromPointResult, FragmentType, Layout, LayoutImageDestination, PendingImage,
-    PendingImageState, PendingRasterizationImage, PhysicalSides, QueryMsg, ReflowGoal,
+    PendingImageState, PhysicalSides, QueryMsg, ReflowGoal,
     ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowStatistics, RestyleReason,
     ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
     combine_id_with_fragment_type,
@@ -2844,10 +2844,7 @@ impl Window {
             self.emit_timeline_marker(marker.end());
         }
 
-        self.handle_pending_images_post_reflow(
-            reflow_result.pending_images,
-            reflow_result.pending_rasterization_images,
-        );
+        self.handle_pending_images_post_reflow(reflow_result.pending_images);
 
         if let Some(iframe_sizes) = reflow_result.iframe_sizes {
             document
@@ -3897,7 +3894,6 @@ impl Window {
     fn handle_pending_images_post_reflow(
         &self,
         pending_images: Vec<PendingImage>,
-        pending_rasterization_images: Vec<PendingRasterizationImage>,
     ) {
         let pipeline_id = self.pipeline_id();
         for image in pending_images {
@@ -3928,28 +3924,6 @@ impl Window {
                     node: Dom::from_ref(&*node),
                     destination: image.destination,
                 });
-            }
-        }
-
-        for image in pending_rasterization_images {
-            let node = unsafe { from_untrusted_node_address(image.node) };
-
-            let mut images = self.pending_images_for_rasterization.borrow_mut();
-            if !images.contains_key(&(image.id, image.size)) {
-                let image_cache_sender = self.image_cache_sender.clone();
-                self.image_cache.add_rasterization_complete_listener(
-                    pipeline_id,
-                    image.id,
-                    image.size,
-                    Box::new(move |response| {
-                        let _ = image_cache_sender.send(response);
-                    }),
-                );
-            }
-
-            let nodes = images.entry((image.id, image.size)).or_default();
-            if !nodes.iter().any(|n| std::ptr::eq(&**n, &*node)) {
-                nodes.push(Dom::from_ref(&*node));
             }
         }
 

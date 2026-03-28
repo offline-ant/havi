@@ -1,9 +1,13 @@
+use std::ops::Range;
+use std::sync::Arc;
+
 use app_units::Au;
 use servo_arc::Arc as ServoArc;
 use style::properties::ComputedValues;
 
 use super::{
-    BaseFragment, CollapsedBlockMargins, FragmentId, PaintChild,
+    BaseFragment, CollapsedBlockMargins, FragmentId, FragmentImageKey, ImageSourceKind,
+    PaintChild,
 };
 use crate::geom::PhysicalSides;
 
@@ -15,9 +19,14 @@ pub struct Baselines {
 
 #[derive(Clone, Debug)]
 pub struct BackgroundImage {
+    pub image_key: Option<FragmentImageKey>,
+    pub source_kind: ImageSourceKind,
+    pub svg_document_id: Option<u64>,
+    pub revision: u64,
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<u8>,
+    pub data: Arc<Vec<u8>>,
+    pub byte_range: Range<usize>,
 }
 
 #[derive(Clone, Debug)]

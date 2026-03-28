@@ -194,6 +194,9 @@ pub trait ImageCache: Sync + Send {
         cors_setting: Option<CorsSettings>,
     ) -> ImageCacheResult;
 
+    /// Returns the original SVG bytes for a cached vector image.
+    fn get_vector_image_bytes(&self, image_id: VectorImageId) -> Option<Arc<Vec<u8>>>;
+
     /// Returns `Some` if the given `image_id` has already been rasterized at the given `size`.
     /// Otherwise, triggers a new job to perform the rasterization. If a notification
     /// is needed after rasterization is completed, the `add_rasterization_complete_listener`

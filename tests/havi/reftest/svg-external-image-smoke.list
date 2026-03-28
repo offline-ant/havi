@@ -1,0 +1,7 @@
+# External SVG image smoke cases for <img> and CSS image users.
+
+== cases/svg-external-width-height.html refs/svg-external-width-height-ref.html
+== cases/svg-external-viewbox-only.html refs/svg-external-viewbox-only-ref.html
+== cases/svg-external-width-height-viewbox.html refs/svg-external-width-height-viewbox-ref.html
+== cases/svg-external-percent-dimensions.html refs/svg-external-percent-dimensions-ref.html
+== cases/svg-external-css-background.html refs/svg-external-css-background-ref.html

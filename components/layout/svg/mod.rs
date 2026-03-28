@@ -58,13 +58,6 @@ pub enum SVGDeferredFeature {
     Animation,
     TextPath,
     FullDomApiParity,
-    StandaloneDocuments,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SVGStandaloneDocumentSupport {
-    InScope,
-    Deferred,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -72,7 +65,6 @@ pub struct SVGFirstCutSupport {
     pub supported_tags: &'static [SVGFirstCutTag],
     pub supported_properties: &'static [SVGFirstCutProperty],
     pub deferred_features: &'static [SVGDeferredFeature],
-    pub standalone_documents: SVGStandaloneDocumentSupport,
 }
 
 pub const FIRST_CUT_SUPPORTED_TAGS: &[SVGFirstCutTag] = &[
@@ -119,12 +111,10 @@ pub const FIRST_CUT_DEFERRED_FEATURES: &[SVGDeferredFeature] = &[
     SVGDeferredFeature::Animation,
     SVGDeferredFeature::TextPath,
     SVGDeferredFeature::FullDomApiParity,
-    SVGDeferredFeature::StandaloneDocuments,
 ];
 
 pub const FIRST_CUT_SUPPORT: SVGFirstCutSupport = SVGFirstCutSupport {
     supported_tags: FIRST_CUT_SUPPORTED_TAGS,
     supported_properties: FIRST_CUT_SUPPORTED_PROPERTIES,
     deferred_features: FIRST_CUT_DEFERRED_FEATURES,
-    standalone_documents: SVGStandaloneDocumentSupport::Deferred,
 };

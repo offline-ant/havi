@@ -4813,6 +4813,7 @@ version = "0.1.0"
 dependencies = [
  "makepad-compositor",
  "makepad-widgets",
+ "resvg",
 ]
 
 [[package]]

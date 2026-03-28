@@ -126,9 +126,10 @@ impl From<(u32, u32)> for FragmentImageKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ImageSourceKind {
     Raster,
+    SvgDocument,
     Canvas,
     Video,
 }
@@ -138,6 +139,8 @@ pub struct ImageFragment {
     pub base: BaseFragment,
     pub image_key: Option<FragmentImageKey>,
     pub source_kind: ImageSourceKind,
+    pub svg_document_id: Option<u64>,
+    pub image_revision: u64,
     pub frame_width: u32,
     pub frame_height: u32,
     pub image_data: Arc<Vec<u8>>,
