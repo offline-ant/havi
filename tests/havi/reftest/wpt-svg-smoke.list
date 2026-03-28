@@ -1,0 +1,7 @@
+# Curated simple static WPT SVG screenshot reftests for HAVI.
+# Explicit == pairs are used because some SVG WPT files declare references via
+# html:link inside XML.
+
+== /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-fully-overlapping.svg /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/reference/green-100x100.svg
+== /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-basic-002.svg /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-basic-002-ref.svg
+== /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/gradient-transform-01.svg /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/reference/green-100x100.svg
