@@ -24,10 +24,17 @@ Supported input forms:
 Without `via`, HAVI resolves route config from the home repo.
 
 For `hppr://group/app/path`, HAVI resolves route config from the home repo.
-If no route exists and `group` does not start with `~`, HAVI queries the
-bootstrap index at `//u/index/<group>/<app>`.
-If no bootstrap entry exists (or `group` starts with `~`), HAVI uses the home
-repo endpoint.
+If no local route exists and `group` does not start with `~`, HAVI resolves the
+public network in two steps:
+
+1. `//u/network/group/<group>`
+2. `//<group>/network/app/<app>`
+
+Group `u` follows the same two-step path through `//u/network/group/u`.
+Local overrides at `//repo/network/...` take priority over cached and remote
+public-network records.
+If public-network resolution fails for a public name, navigation fails.
+HAVI does not silently fall back to the home repo for that case.
 
 ## JavaScript globals
 

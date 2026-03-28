@@ -62,17 +62,21 @@ the browser-owned page output surface, not from shell chrome composition.
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.
 
-### Bootstrap routing
+### Public network routing
 
-For `hppr://<group>/<app>/...` without a local route, HAVI may query the
-bootstrap index for an upstream endpoint.
+For `hppr://<group>/<app>/...` without a local route, HAVI may resolve the
+public network for an upstream endpoint.
 
 Current HAVI behavior:
 
-- bootstrap lookup is used for the current navigation only
-- HAVI does not auto-install a local route packet from bootstrap discovery
-- routed resolution decisions are printed to stderr with the selected source and
-  endpoint
+- public-network lookup is used for the current navigation only
+- HAVI does not auto-install a local route packet from public-network discovery
+- local overrides at `//repo/network/...` take priority over cached and remote
+  public-network records
+- routed resolution decisions are printed to stderr with the selected source,
+  endpoint, and public-network details
+- failed public-network resolution for a public name is a navigation failure,
+  not a silent home-repo fallback
 - `hppr-join://` is used only for routed `UNAUTHORIZED not a member` failures
 - missing Ring2 setup on the target repo is shown as a route setup error, not a
   join flow

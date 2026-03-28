@@ -42,11 +42,28 @@ this order:
 
 1. local route packet -> endpoint
    (`//repo/admin/route/<group>/<app>/|/...`)
-2. if route is missing and `group` does not start with `~`, try bootstrap index
-   lookup at `//u/index/<group>/<app>`
-3. remote app content pointer
+2. if no local route exists and `group` does not start with `~`, resolve the
+   public network:
+   - local override at `//repo/network/...`
+   - fresh cached network record in home repo
+   - remote public-network query
+3. public group record at `//u/network/group/<group>`
+4. delegated app record at `//<group>/network/app/<app>`
+5. remote app content pointer
    (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-4. target from `Content-Root` + requested location
+6. target from `Content-Root` + requested location
+
+Public-network rules:
+
+- group `u` follows the same two-step path through `//u/network/group/u`
+- app `Upstream` inherits from the group record when omitted
+- `Content-Authority` inherits from `//u/network/app/<app>` only when the
+  group app record explicitly includes `Content-Authority-Source: public`
+- when public-network resolution produces an effective `Content-Authority`, the
+  browser MUST require exact equality with the deploy pointer
+  `Content-Authority`
+- if public-network resolution fails for a public name, the browser MUST fail
+  navigation instead of silently falling back to the home repo
 
 Fetch behavior:
 

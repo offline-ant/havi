@@ -9,6 +9,7 @@ Packets fetched earlier stay available when route repos are unreachable.
 Home repo stores:
 
 - fetched packets
+- cached public-network records
 - user data under app `user/` paths
 - route and trust config
 - locally created content
@@ -29,6 +30,10 @@ Route fetches are cached automatically in the home repo.
 
 When `window.route.get()` succeeds, HAVI stores returned packets locally before
 returning them to page code.
+
+Public-network group and app records may also be cached in the home repo and
+reused while they remain fresh by `TTL`. Stale public-network records may still
+be reused when the remote network source is unreachable.
 
 Chunk data fetched for manifest reassembly is also cached.
 
