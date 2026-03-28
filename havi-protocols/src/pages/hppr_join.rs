@@ -51,7 +51,7 @@ pub async fn handle_request(
         Err(e) => return render_error(&e),
     };
 
-    let (endpoint, _, _) = resolve_route_endpoint(&group, &app, client, credential_store).await;
+    let (endpoint, _, _, _) = resolve_route_endpoint(&group, &app, client, credential_store).await;
 
     let fixture_state = get_join_fixture_state().as_str().to_string();
     let mut response =

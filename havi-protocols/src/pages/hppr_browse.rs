@@ -53,7 +53,7 @@ pub async fn handle_request(
             },
         }
     } else {
-        let (ep, _, _) =
+        let (ep, _, _, _) =
             resolve_route_endpoint(&parts.group, &parts.app, client, credential_store).await;
         ep
     };

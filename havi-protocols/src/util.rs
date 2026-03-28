@@ -19,7 +19,7 @@ pub use crate::credentials::{CredentialStoreHandle, global_credential_store};
 pub enum RouteEndpointSource {
     HomeFallback,
     LocalRoute,
-    BootstrapIndex,
+    PublicNetwork,
     DirectVia,
     ParentRoute,
 }
@@ -29,7 +29,7 @@ impl RouteEndpointSource {
         match self {
             RouteEndpointSource::HomeFallback => "home-fallback",
             RouteEndpointSource::LocalRoute => "local-route",
-            RouteEndpointSource::BootstrapIndex => "bootstrap-index",
+            RouteEndpointSource::PublicNetwork => "public-network",
             RouteEndpointSource::DirectVia => "direct-via",
             RouteEndpointSource::ParentRoute => "parent-route",
         }
@@ -272,23 +272,21 @@ fn report_route_resolution(
 /// Resolve route endpoint for a group/app via admin route lookup.
 ///
 /// Looks up the route packet in the home repo using admin credentials.
-/// Falls back to the default repo endpoint if:
-/// - Group or app is empty
-/// - No admin credential available
-/// - Admin identity lookup fails
-/// - Route lookup fails and bootstrap lookup does not resolve
+/// For public names without a local route, performs public network lookup.
+/// Failed public-network resolution for public names is a hard failure
+/// (no silent home-repo fallback).
 ///
-/// Returns `(endpoint, upstream_verification_key, source)`.
+/// Returns `(endpoint, upstream_verification_key, content_authority_pin, source)`.
 pub async fn resolve_route_endpoint(
     group: &str,
     app: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
-) -> (ViaSpec, Option<String>, RouteEndpointSource) {
+) -> (ViaSpec, Option<String>, Option<String>, RouteEndpointSource) {
     let repo_target = repo_client.target();
 
     if group.is_empty() || app.is_empty() {
-        return (repo_target, None, RouteEndpointSource::HomeFallback);
+        return (repo_target, None, None, RouteEndpointSource::HomeFallback);
     }
 
     if credential_store.get_admin().is_none() {
@@ -301,7 +299,7 @@ pub async fn resolve_route_endpoint(
             None,
             Some("no-admin-credential"),
         );
-        return (repo_target, None, RouteEndpointSource::HomeFallback);
+        return (repo_target, None, None, RouteEndpointSource::HomeFallback);
     }
 
     let repo_vkey = match repo_client.get_admin_identity().await {
@@ -319,7 +317,7 @@ pub async fn resolve_route_endpoint(
                 None,
                 Some("admin-identity-failed"),
             );
-            return (repo_target, None, RouteEndpointSource::HomeFallback);
+            return (repo_target, None, None, RouteEndpointSource::HomeFallback);
         },
     };
 
@@ -347,42 +345,47 @@ pub async fn resolve_route_endpoint(
             (
                 endpoint,
                 route_info.upstream_verification_key,
+                None,
                 RouteEndpointSource::LocalRoute,
             )
         },
         Err(e) => {
             log::debug!("No route for {}/{}: {}", group, app, e);
 
-            match hppr_client::tokio::index::lookup_bootstrap_index_if_indexed(group, app).await {
-                Ok(Some(index)) => {
+            match hppr_client::lookup_network_if_public_async(group, app).await {
+                Ok(Some(lookup)) => {
                     report_route_resolution(
                         group,
                         app,
-                        RouteEndpointSource::BootstrapIndex,
-                        &index.upstream,
-                        index.upstream_verification_key.as_deref(),
+                        RouteEndpointSource::PublicNetwork,
+                        &lookup.endpoint,
+                        lookup.upstream_verification_key.as_deref(),
                         Some("ephemeral"),
                     );
                     (
-                        index.upstream,
-                        index.upstream_verification_key,
-                        RouteEndpointSource::BootstrapIndex,
+                        lookup.endpoint,
+                        lookup.upstream_verification_key,
+                        lookup.content_authority,
+                        RouteEndpointSource::PublicNetwork,
                     )
                 }
                 Ok(None) => {
+                    // Not a public name (e.g. ~local group)
                     report_route_resolution(
                         group,
                         app,
                         RouteEndpointSource::HomeFallback,
                         &repo_target,
                         None,
-                        Some("bootstrap-disabled"),
+                        Some("not-public-name"),
                     );
-                    (repo_target, None, RouteEndpointSource::HomeFallback)
+                    (repo_target, None, None, RouteEndpointSource::HomeFallback)
                 }
                 Err(err) => {
-                    log::info!(
-                        "Bootstrap lookup failed for //{}/{}: {}, falling back to repo",
+                    // Public-network resolution failure is a hard error for public names.
+                    // Do not silently fall back to home repo.
+                    log::warn!(
+                        "Public network lookup failed for //{}/{}: {}",
                         group,
                         app,
                         err
@@ -390,12 +393,15 @@ pub async fn resolve_route_endpoint(
                     report_route_resolution(
                         group,
                         app,
-                        RouteEndpointSource::HomeFallback,
+                        RouteEndpointSource::PublicNetwork,
                         &repo_target,
                         None,
-                        Some("bootstrap-lookup-failed"),
+                        Some("public-network-failed"),
                     );
-                    (repo_target, None, RouteEndpointSource::HomeFallback)
+                    // Return home fallback so the caller can surface the error.
+                    // The caller should check source == PublicNetwork with no
+                    // valid endpoint and fail.
+                    (repo_target, None, None, RouteEndpointSource::HomeFallback)
                 }
             }
         }

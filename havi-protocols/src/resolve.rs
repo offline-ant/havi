@@ -65,6 +65,7 @@ pub struct ResolvedListing {
 struct ResolvedTarget {
     endpoint: ViaSpec,
     upstream_key: Option<String>,
+    content_authority_pin: Option<String>,
     source: RouteEndpointSource,
 }
 
@@ -227,6 +228,7 @@ async fn resolve_access(
 
     let target = resolve_target(address, repo_client, credential_store, None).await?;
     let is_repo = matches!(target.source, RouteEndpointSource::HomeFallback);
+    let network_content_authority_pin = target.content_authority_pin.clone();
     let signer = if is_repo {
         None
     } else {
@@ -255,6 +257,7 @@ async fn resolve_access(
             &requested_location,
             target.upstream_key.as_deref(),
             is_listing,
+            network_content_authority_pin.as_deref(),
         )
         .await?
     };
@@ -278,9 +281,9 @@ async fn resolve_target(
     let repo_target = repo_client.target();
     let parts = url.parts();
 
-    let (endpoint, upstream_key, source) = if let Some(endpoint) = url.endpoint_string() {
+    let (endpoint, upstream_key, content_authority_pin, source) = if let Some(endpoint) = url.endpoint_string() {
         if endpoint == "repo" {
-            (repo_target, None, RouteEndpointSource::HomeFallback)
+            (repo_target, None, None, RouteEndpointSource::HomeFallback)
         } else {
             let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
             eprintln!(
@@ -290,7 +293,7 @@ async fn resolve_target(
                 RouteEndpointSource::DirectVia.as_str(),
                 via
             );
-            (via, None, RouteEndpointSource::DirectVia)
+            (via, None, None, RouteEndpointSource::DirectVia)
         }
     } else if let Some(endpoint) = page_endpoint {
         eprintln!(
@@ -300,7 +303,7 @@ async fn resolve_target(
             RouteEndpointSource::ParentRoute.as_str(),
             endpoint
         );
-        (endpoint.clone(), None, RouteEndpointSource::ParentRoute)
+        (endpoint.clone(), None, None, RouteEndpointSource::ParentRoute)
     } else {
         resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await
     };
@@ -308,6 +311,7 @@ async fn resolve_target(
     Ok(ResolvedTarget {
         endpoint,
         upstream_key,
+        content_authority_pin,
         source,
     })
 }
@@ -319,6 +323,7 @@ async fn resolve_content_pointer_target(
     requested_location: &str,
     upstream_key: Option<&str>,
     is_listing: bool,
+    network_content_authority_pin: Option<&str>,
 ) -> Result<(String, Option<String>), String> {
     let repo_vkey = match upstream_key {
         Some(key) => key.to_string(),
@@ -326,6 +331,17 @@ async fn resolve_content_pointer_target(
     };
 
     let content_pointer = route_client.get_content_pointer(group, app, &repo_vkey).await?;
+
+    // MUST enforce Content-Authority pin from public network against deploy pointer
+    if let Some(pin) = network_content_authority_pin {
+        if content_pointer.authority != pin {
+            return Err(format!(
+                "Content-Authority mismatch: network pin {} != deploy pointer {}",
+                pin, content_pointer.authority
+            ));
+        }
+    }
+
     let target = append_location(&content_pointer.root, requested_location);
     let urc = if is_listing {
         format!("{}/", target.trim_end_matches('/'))
