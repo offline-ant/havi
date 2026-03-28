@@ -429,6 +429,7 @@ impl ReplacedContents {
                         base,
                         clip,
                         image_key,
+                        source_kind: crate::fragment_tree::ImageFragmentSourceKind::Raster,
                         showing_broken_image_icon: image_info.showing_broken_image_icon,
                         raster_image,
                     }))
@@ -440,6 +441,7 @@ impl ReplacedContents {
                     base,
                     clip,
                     image_key: video_info.image_key,
+                    source_kind: crate::fragment_tree::ImageFragmentSourceKind::Video,
                     showing_broken_image_icon: false,
                     raster_image: None,
                 }))]
@@ -479,6 +481,7 @@ impl ReplacedContents {
                     base,
                     clip,
                     image_key: Some(image_key),
+                    source_kind: crate::fragment_tree::ImageFragmentSourceKind::Canvas,
                     showing_broken_image_icon: false,
                     raster_image: None,
                 }))]

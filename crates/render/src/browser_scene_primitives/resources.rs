@@ -2,8 +2,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use havi_types::fragment_tree::{ImageFragment, TextFragment};
-use makepad_browser_scene::{MpFontKey, MpFontResource, MpImageKey, MpImageResource, ResourceRegistry};
+use havi_types::fragment_tree::{FragmentImageKey, ImageFragment, ImageSourceKind, TextFragment};
+use makepad_browser_scene::{
+    MpFontKey, MpFontResource, MpImageKey, MpImageSource, MpRendererImageHandle,
+    MpRendererImageProducer, ResourceRegistry,
+};
 use makepad_widgets::dvec2;
 
 pub(super) fn ensure_background_image_resource(
@@ -34,11 +37,12 @@ pub(super) fn background_image_key(
     )))
 }
 
-pub(super) fn materialize_background_image_resource(bg: &havi_types::BackgroundImage) -> MpImageResource {
-    MpImageResource {
-        size: dvec2(bg.width as f64, bg.height as f64),
-        rgba8: Arc::from(bg.pixels.as_slice()),
-    }
+pub(super) fn materialize_background_image_resource(bg: &havi_types::BackgroundImage) -> MpImageSource {
+    MpImageSource::decoded_rgba8(
+        dvec2(bg.width as f64, bg.height as f64),
+        Arc::from(bg.pixels.as_slice()),
+        0,
+    )
 }
 
 pub(super) fn ensure_image_resource_for_fragment(
@@ -54,7 +58,7 @@ pub(super) fn ensure_image_resource_for_fragment(
 
 pub(super) fn image_key_for_fragment(image: &ImageFragment) -> MpImageKey {
     if let Some(image_key) = image.image_key {
-        return MpImageKey(image_key);
+        return MpImageKey(image_key.packed());
     }
     MpImageKey(hash_value(&(
         image.frame_width,
@@ -65,11 +69,34 @@ pub(super) fn image_key_for_fragment(image: &ImageFragment) -> MpImageKey {
     )))
 }
 
-pub(super) fn materialize_image_resource(image: &ImageFragment) -> MpImageResource {
+pub(super) fn materialize_image_resource(image: &ImageFragment) -> MpImageSource {
+    let size = dvec2(image.frame_width as f64, image.frame_height as f64);
     let bytes = &image.image_data[image.frame_byte_range.clone()];
-    MpImageResource {
-        size: dvec2(image.frame_width as f64, image.frame_height as f64),
-        rgba8: Arc::from(bytes),
+    if bytes.is_empty() {
+        if let Some(image_key) = image.image_key {
+            let producer = match image.source_kind {
+                ImageSourceKind::Raster => {
+                    MpRendererImageProducer::PaintExternalImage {
+                        handle: renderer_image_handle(image_key),
+                    }
+                }
+                ImageSourceKind::Canvas => MpRendererImageProducer::CanvasImage {
+                    handle: renderer_image_handle(image_key),
+                },
+                ImageSourceKind::Video => MpRendererImageProducer::VideoBinding {
+                    handle: renderer_image_handle(image_key),
+                },
+            };
+            return MpImageSource::renderer_backed(size, producer, 0);
+        }
+    }
+    MpImageSource::decoded_rgba8(size, Arc::from(bytes), 0)
+}
+
+fn renderer_image_handle(image_key: FragmentImageKey) -> MpRendererImageHandle {
+    MpRendererImageHandle {
+        namespace: image_key.namespace,
+        image: image_key.image,
     }
 }
 

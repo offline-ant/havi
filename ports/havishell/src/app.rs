@@ -1102,10 +1102,15 @@ impl App {
         let shared = self.current_render_fragments();
         let scroll = self.current_render_scroll_state();
         let selection = layout_api::shared_document_selection_for(tab.webview_id);
-        let images = self.servo.as_ref().unwrap().image_store();
-        self.ui
-            .servo_web_view(cx, ids!(web_view))
-            .set_shared_layout_fragments(cx, tab.webview_id, shared, scroll, selection, images);
+        let image_sources = self.servo.as_ref().unwrap().image_source_store();
+        self.ui.servo_web_view(cx, ids!(web_view)).set_shared_layout_fragments(
+            cx,
+            tab.webview_id,
+            shared,
+            scroll,
+            selection,
+            image_sources,
+        );
         self.ui.servo_web_view(cx, ids!(web_view)).redraw(cx);
     }
 

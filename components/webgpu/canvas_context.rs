@@ -391,7 +391,9 @@ impl PresentationStagingBuffer {
 
 /// The embedder process-side representation of what is the `GPUCanvasContext` in script.
 pub struct ContextData {
-    /// The [`ImageKey`] of the render image associated with this context.
+    /// The [`ImageKey`] of the paint-owned presentation image associated with
+    /// this context. Browser-scene retains only the stable key; the current
+    /// WebGPU presentation still enters through the paint external-image bridge.
     image_key: Option<ImageKey>,
     /// The current size of this context.
     size: DeviceIntSize,

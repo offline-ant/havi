@@ -439,15 +439,58 @@ pub trait ExternalImageProvider {
     fn unlock(&mut self, id: u64);
 }
 
-/// Type of external image handler.
-#[derive(Clone, Copy)]
-pub enum ExternalImageHandlerType {
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExternalImageProducerType {
     Media,
     WebGpu,
+    Paint,
 }
 
-/// Registry of external images shared among all external image consumers
-/// (Media, WebGPU).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExternalImageBackingType {
+    NativeTexture,
+    Buffer,
+}
+
+/// Paint external-image registration metadata.
+///
+/// This stays scoped to paint-owned producers. It is not the retained browser
+/// renderer resource model.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ExternalImageHandlerType {
+    pub producer: ExternalImageProducerType,
+    pub backing: ExternalImageBackingType,
+}
+
+impl ExternalImageHandlerType {
+    pub const MEDIA_NATIVE_TEXTURE: Self = Self {
+        producer: ExternalImageProducerType::Media,
+        backing: ExternalImageBackingType::NativeTexture,
+    };
+    pub const MEDIA_BUFFER: Self = Self {
+        producer: ExternalImageProducerType::Media,
+        backing: ExternalImageBackingType::Buffer,
+    };
+    pub const WEBGPU_NATIVE_TEXTURE: Self = Self {
+        producer: ExternalImageProducerType::WebGpu,
+        backing: ExternalImageBackingType::NativeTexture,
+    };
+    pub const WEBGPU_BUFFER: Self = Self {
+        producer: ExternalImageProducerType::WebGpu,
+        backing: ExternalImageBackingType::Buffer,
+    };
+    pub const PAINT_NATIVE_TEXTURE: Self = Self {
+        producer: ExternalImageProducerType::Paint,
+        backing: ExternalImageBackingType::NativeTexture,
+    };
+    pub const PAINT_BUFFER: Self = Self {
+        producer: ExternalImageProducerType::Paint,
+        backing: ExternalImageBackingType::Buffer,
+    };
+}
+
+/// Registry of external images shared among all paint-owned external image
+/// consumers.
 /// It ensures that external image identifiers are unique.
 #[derive(Default)]
 struct ExternalImageIdRegistryInner {
@@ -480,10 +523,7 @@ impl ExternalImageIdRegistry {
 
 /// External image handler implementation.
 pub struct ExternalImageHandlers {
-    /// Media player handler.
-    media_handler: Option<Box<dyn ExternalImageProvider>>,
-    /// WebGPU handler.
-    webgpu_handler: Option<Box<dyn ExternalImageProvider>>,
+    handlers: HashMap<ExternalImageProducerType, Box<dyn ExternalImageProvider>>,
     /// An [`ExternalImageIdRegistry`] responsible for creating new [`ExternalImageId`]s.
     /// This is shared with the WebGPU and hardware-accelerated media threads and
     /// all other instances of [`ExternalImageHandlers`] in the process.
@@ -493,8 +533,7 @@ pub struct ExternalImageHandlers {
 impl ExternalImageHandlers {
     pub fn new(id_manager: ExternalImageIdRegistry) -> Self {
         Self {
-            media_handler: Default::default(),
-            webgpu_handler: Default::default(),
+            handlers: HashMap::new(),
             id_manager,
         }
     }
@@ -508,10 +547,7 @@ impl ExternalImageHandlers {
         handler: Box<dyn ExternalImageProvider>,
         handler_type: ExternalImageHandlerType,
     ) {
-        match handler_type {
-            ExternalImageHandlerType::Media => self.media_handler = Some(handler),
-            ExternalImageHandlerType::WebGpu => self.webgpu_handler = Some(handler),
-        }
+        self.handlers.insert(handler_type.producer, handler);
     }
 }
 
@@ -528,25 +564,23 @@ impl ExternalImageHandler for ExternalImageHandlers {
             .id_manager()
             .get(&key)
             .expect("Tried to get unknown external image");
-        match handler_type {
-            ExternalImageHandlerType::Media => {
-                let (source, size) = self.media_handler.as_mut().unwrap().lock(key.0);
-                let texture_id = match source {
-                    ExternalImageSource::NativeTexture(b) => b,
-                    _ => panic!("Wrong type"),
-                };
-                ExternalImage {
-                    uv: TexelRect::new(0.0, size.height as f32, size.width as f32, 0.0),
-                    source: ExternalImageSource::NativeTexture(texture_id),
+        let (source, size) = self
+            .handlers
+            .get_mut(&handler_type.producer)
+            .expect("Tried to lock external image without registered producer handler")
+            .lock(key.0);
+        let source = match handler_type.backing {
+            ExternalImageBackingType::NativeTexture => match source {
+                ExternalImageSource::NativeTexture(texture_id) => {
+                    ExternalImageSource::NativeTexture(texture_id)
                 }
+                _ => panic!("external image registered as native texture returned buffer data"),
             },
-            ExternalImageHandlerType::WebGpu => {
-                let (source, size) = self.webgpu_handler.as_mut().unwrap().lock(key.0);
-                ExternalImage {
-                    uv: TexelRect::new(0.0, size.height as f32, size.width as f32, 0.0),
-                    source,
-                }
-            },
+            ExternalImageBackingType::Buffer => source,
+        };
+        ExternalImage {
+            uv: TexelRect::new(0.0, size.height as f32, size.width as f32, 0.0),
+            source,
         }
     }
 
@@ -556,12 +590,10 @@ impl ExternalImageHandler for ExternalImageHandlers {
             .id_manager()
             .get(&key)
             .expect("Tried to get unknown external image");
-        match handler_type {
-            ExternalImageHandlerType::Media => self.media_handler.as_mut().unwrap().unlock(key.0),
-            ExternalImageHandlerType::WebGpu => {
-                self.webgpu_handler.as_mut().unwrap().unlock(key.0)
-            },
-        };
+        self.handlers
+            .get_mut(&handler_type.producer)
+            .expect("Tried to unlock external image without registered producer handler")
+            .unlock(key.0);
     }
 }
 
@@ -679,78 +711,92 @@ impl PinchZoomInfos {
 }
 
 // ---------------------------------------------------------------------------
-// Shared image store — bridges Paint-layer image updates to the render layer.
+// Shared image source store — bridges Paint-layer image updates into the
+// retained renderer resource model.
 // ---------------------------------------------------------------------------
 
-/// An entry in the shared image store.
 #[derive(Clone, Debug)]
-struct ImageStoreEntry {
-    /// RGBA pixel data (all animation frames).
+struct SharedImageSourceEntry {
     data: Arc<Vec<u8>>,
     width: u32,
     height: u32,
-    /// Byte offset of the active frame within `data`.
     offset: usize,
+    revision: u64,
 }
 
-/// Thread-safe image store shared between the Paint thread and the
-/// Makepad render layer. Paint writes entries via `UpdateImages` messages;
-/// the widget reads them during `draw_walk` to create/update textures.
+/// Thread-safe source store shared between Paint and the Makepad renderer path.
+///
+/// This stores stable image-source bytes keyed by Servo image key. The render
+/// path snapshots these records and syncs them into the renderer-owned browser
+/// resource registry. It is not an image-override side channel.
 #[derive(Clone, Default)]
-pub struct SharedImageStore(Arc<RwLock<SharedImageStoreInner>>);
+pub struct SharedImageSourceStore(Arc<RwLock<SharedImageSourceStoreInner>>);
 
 #[derive(Default)]
-struct SharedImageStoreInner {
-    images: HashMap<ImageKey, ImageStoreEntry>,
+struct SharedImageSourceStoreInner {
+    images: HashMap<ImageKey, SharedImageSourceEntry>,
 }
 
-impl SharedImageStore {
+impl SharedImageSourceStore {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Insert or replace a full image.
     pub fn add_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
-        self.0.write().images.insert(key, ImageStoreEntry {
-            data: Arc::new(data), width, height, offset: 0,
+        self.0.write().images.insert(key, SharedImageSourceEntry {
+            data: Arc::new(data),
+            width,
+            height,
+            offset: 0,
+            revision: 1,
         });
     }
 
-    /// Replace pixel data for an existing image.
     pub fn update_image(&self, key: ImageKey, width: u32, height: u32, data: Vec<u8>) {
         let data = Arc::new(data);
         let mut inner = self.0.write();
-        let entry = inner.images.entry(key).or_insert_with(|| ImageStoreEntry {
-            data: data.clone(), width, height, offset: 0,
+        let entry = inner.images.entry(key).or_insert_with(|| SharedImageSourceEntry {
+            data: data.clone(),
+            width,
+            height,
+            offset: 0,
+            revision: 0,
         });
         entry.data = data;
         entry.width = width;
         entry.height = height;
         entry.offset = 0;
+        entry.revision = entry.revision.wrapping_add(1).max(1);
     }
 
-    /// Update only the frame offset (for animation frame changes).
     pub fn update_frame_offset(&self, key: ImageKey, offset: usize) {
         if let Some(entry) = self.0.write().images.get_mut(&key) {
             entry.offset = offset;
+            entry.revision = entry.revision.wrapping_add(1).max(1);
         }
     }
 
-    /// Remove an image.
     pub fn delete_image(&self, key: ImageKey) {
         self.0.write().images.remove(&key);
     }
 
-    /// Build an image override map for the render layer.
-    pub fn image_overrides(&self) -> havi_types::ImageOverrides {
+    pub fn snapshot(&self) -> havi_types::SharedImageSourceMap {
         let inner = self.0.read();
-        inner.images.iter().map(|(k, v)| {
-            ((k.0.0, k.1), havi_types::ImageOverride {
-                data: v.data.clone(),
-                offset: v.offset,
-                width: v.width,
-                height: v.height,
+        inner
+            .images
+            .iter()
+            .map(|(key, entry)| {
+                (
+                    havi_types::FragmentImageKey::from((key.0.0, key.1)),
+                    havi_types::SharedImageSource {
+                        data: entry.data.clone(),
+                        offset: entry.offset,
+                        width: entry.width,
+                        height: entry.height,
+                        revision: entry.revision,
+                    },
+                )
             })
-        }).collect()
+            .collect()
     }
 }

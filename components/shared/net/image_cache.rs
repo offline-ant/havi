@@ -25,9 +25,9 @@ use crate::request::CorsSettings;
 
 pub type VectorImageId = PendingImageId;
 
-// Represents either a raster image for which the pixel data is available
-// or a vector image for which only the natural dimensions are available
-// and thus requires a further rasterization step to render.
+// Represents either a decode-backed raster image with CPU-side bytes available
+// or a vector image for which only the natural dimensions are available and
+// thus requires a further rasterization step to render.
 #[derive(Clone, Debug, MallocSizeOf)]
 pub enum Image {
     Raster(#[conditional_malloc_size_of] Arc<RasterImage>),

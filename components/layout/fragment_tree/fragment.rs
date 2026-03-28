@@ -84,11 +84,19 @@ pub struct TextFragment {
     pub(crate) offsets: Option<Box<TextRunOffsets>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq)]
+pub enum ImageFragmentSourceKind {
+    Raster,
+    Canvas,
+    Video,
+}
+
 #[derive(MallocSizeOf)]
 pub struct ImageFragment {
     pub base: BaseFragment,
     pub clip: PhysicalRect<Au>,
     pub image_key: Option<ImageKey>,
+    pub source_kind: ImageFragmentSourceKind,
     pub showing_broken_image_icon: bool,
     /// Raster image pixel data, stored for rendering without WebRender.
     #[conditional_malloc_size_of]

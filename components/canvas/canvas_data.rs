@@ -24,6 +24,7 @@ pub(crate) enum Filter {
 pub(crate) struct CanvasData<DrawTarget: GenericDrawTarget> {
     draw_target: DrawTarget,
     paint_api: CrossProcessPaintApi,
+    /// Stable paint-owned image key published into the retained renderer path.
     image_key: Option<ImageKey>,
 }
 

@@ -297,10 +297,10 @@ pub struct ServoWebView {
     #[rust]
     shared_selection: Option<layout_api::SharedDocumentSelection>,
 
-    /// Shared image store from Paint. Updated asynchronously with image data
-    /// from the network layer (animated GIF frames, canvas updates, etc.).
+    /// Shared image source store from Paint. Updated asynchronously with image
+    /// data from the network layer and paint-owned producers.
     #[rust]
-    image_store: Option<paint_api::SharedImageStore>,
+    image_source_store: Option<paint_api::SharedImageSourceStore>,
 
     // --- Scroll indicator overlay ---
     #[live]
@@ -488,10 +488,10 @@ impl Widget for ServoWebView {
                 .map(|(&id, &(x, y))| (id, dvec2(x, y)))
                 .collect();
 
-            let image_overrides = self
-                .image_store
+            let image_sources = self
+                .image_source_store
                 .as_ref()
-                .map(|s| s.image_overrides())
+                .map(|s| s.snapshot())
                 .unwrap_or_default();
 
             let selection_highlight = self.shared_selection.as_ref().map(|ss| {
@@ -514,7 +514,7 @@ impl Widget for ServoWebView {
                 }
             });
 
-            let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_overrides.is_empty() {
+            let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_sources.is_empty() {
                 Some(BrowserSurfaceCacheKey {
                     fragment_ptr: frag_ptr,
                     viewport_width_bits: rect.size.x.to_bits(),
@@ -571,7 +571,7 @@ impl Widget for ServoWebView {
                     &cached_fragments,
                     &render_scroll,
                     selection_highlight.as_ref(),
-                    &image_overrides,
+                    &image_sources,
                 );
                 self.browser_surface_cache.cached_key = reusable_surface_key;
             }
@@ -590,7 +590,7 @@ impl Widget for ServoWebView {
                         scroll_state: &render_scroll,
                         selection: selection_highlight.as_ref(),
                         frame_draw_lists: &mut self.frame_draw_lists.0,
-                        image_overrides: &image_overrides,
+                        image_sources: &image_sources,
                     },
                 );
             }
@@ -617,7 +617,7 @@ impl ServoWebView {
         cached_fragments: &havi_render::CachedFragmentSource,
         render_scroll: &havi_render::ScrollState,
         selection_highlight: Option<&havi_render::SelectionHighlight>,
-        image_overrides: &havi_types::ImageOverrides,
+        image_sources: &havi_types::SharedImageSourceMap,
     ) {
         let dpi = cx.current_dpi_factor();
         let draw_content_bg = &mut self.draw_content_bg;
@@ -641,7 +641,7 @@ impl ServoWebView {
                 scroll_state: render_scroll,
                 selection: selection_highlight,
                 frame_draw_lists,
-                image_overrides,
+                image_sources,
             },
         );
         cx.end_pass_sized_turtle();
@@ -704,14 +704,14 @@ impl ServoWebViewRef {
         shared: layout_api::SharedLayoutFragmentTree,
         scroll_state: layout_api::SharedScrollState,
         selection: layout_api::SharedDocumentSelection,
-        image_store: paint_api::SharedImageStore,
+        image_sources: paint_api::SharedImageSourceStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_webview_id = Some(webview_id);
             inner.shared_layout_fragments = Some(shared);
             inner.shared_scroll_state = Some(scroll_state);
             inner.shared_selection = Some(selection);
-            inner.image_store = Some(image_store);
+            inner.image_source_store = Some(image_sources);
             // NOTE: Do NOT clear frame_draw_lists. Makepad's DrawPass pool does
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.

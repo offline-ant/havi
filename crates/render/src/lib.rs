@@ -31,12 +31,12 @@ pub(crate) mod color {
     }
 }
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use base::id::WebViewId;
 use havi_types::fragment_tree as published;
-use makepad_browser_scene::MpBrowserRenderer;
+use makepad_browser_scene::{MpBrowserRenderer, MpImageKey, MpImageSource};
 use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 
@@ -99,12 +99,14 @@ struct BrowserDocumentCacheEntry {
 pub struct FrameDrawListState {
     pub(crate) browser_renderer: Option<MpBrowserRenderer>,
     pub(crate) browser_document_cache: Option<BrowserDocumentCacheEntry>,
+    pub(crate) shared_image_source_keys: HashSet<MpImageKey>,
     pub counters: RenderPathCounters,
 }
 
 impl FrameDrawListState {
     pub fn clear(&mut self) {
         self.browser_document_cache = None;
+        self.shared_image_source_keys.clear();
     }
 }
 
@@ -196,6 +198,36 @@ fn log_browser_scene_stats(stats: &makepad_browser_scene::MpRendererStats) {
     );
 }
 
+fn sync_shared_image_sources(
+    renderer: &mut MpBrowserRenderer,
+    tracked_keys: &mut HashSet<MpImageKey>,
+    image_sources: &havi_types::SharedImageSourceMap,
+) {
+    let next_keys: HashSet<_> = image_sources
+        .keys()
+        .copied()
+        .map(|key| MpImageKey(key.packed()))
+        .collect();
+
+    let registry = renderer.resource_registry_mut();
+    for removed_key in tracked_keys.drain().filter(|key| !next_keys.contains(key)) {
+        registry.delete_image(removed_key);
+    }
+    for (key, image_source) in image_sources {
+        let packed_key = MpImageKey(key.packed());
+        let bytes = &image_source.data[image_source.offset..];
+        registry.upsert_image(
+            packed_key,
+            MpImageSource::decoded_rgba8(
+                dvec2(image_source.width as f64, image_source.height as f64),
+                std::sync::Arc::from(bytes),
+                image_source.revision,
+            ),
+        );
+    }
+    *tracked_keys = next_keys;
+}
+
 pub fn browser_scene_script_mod(vm: &mut ScriptVm) -> ScriptValue {
     makepad_browser_scene::script_mod(vm)
 }
@@ -220,7 +252,7 @@ pub struct RenderFragmentsClippedParams<'a> {
     pub scroll_state: &'a ScrollState,
     pub selection: Option<&'a SelectionHighlight>,
     pub frame_draw_lists: &'a mut FrameDrawListState,
-    pub image_overrides: &'a havi_types::ImageOverrides,
+    pub image_sources: &'a havi_types::SharedImageSourceMap,
 }
 
 pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedParams<'_>) {
@@ -232,7 +264,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         scroll_state,
         selection,
         frame_draw_lists,
-        image_overrides: _image_overrides,
+        image_sources,
     } = params;
 
     frame_draw_lists.counters.widget_presentation_count += 1;
@@ -253,6 +285,12 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     if frame_draw_lists.browser_renderer.is_none() {
         frame_draw_lists.browser_renderer = Some(MpBrowserRenderer::new(cx.cx));
     }
+
+    sync_shared_image_sources(
+        frame_draw_lists.browser_renderer.as_mut().unwrap(),
+        &mut frame_draw_lists.shared_image_source_keys,
+        image_sources,
+    );
 
     let renderer_resource_generation = frame_draw_lists
         .browser_renderer
@@ -357,7 +395,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         frame_draw_lists.counters.scene_rebuild_count += 1;
         let renderer = frame_draw_lists.browser_renderer.as_mut().unwrap();
         let cache = frame_draw_lists.browser_document_cache.as_mut().unwrap();
-        match renderer.lower_retained_document(&cache.document, document_rect) {
+        match renderer.lower_retained_document_with_cx(cx.cx, &cache.document, document_rect) {
             Ok(mut retained_scene) => {
                 renderer.patch_retained_scene_host_rect(&mut retained_scene, document_rect);
                 cache.structural_key = RetainedBrowserSceneStructuralKey {
@@ -432,7 +470,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         document,
         scroll_nodes,
     } = browser_document;
-    match renderer.lower_retained_document(&document, document_rect) {
+    match renderer.lower_retained_document_with_cx(cx.cx, &document, document_rect) {
         Ok(mut retained_scene) => {
             renderer.patch_retained_scene_host_rect(&mut retained_scene, document_rect);
             frame_draw_lists.counters.scene_submit_count += 1;

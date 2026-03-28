@@ -140,6 +140,7 @@ impl GPUCanvasContext {
 
 // Abstract ops from spec
 impl GPUCanvasContext {
+    /// Publish the stable paint-owned image key for this WebGPU canvas.
     pub(crate) fn set_image_key(&self, image_key: ImageKey) {
         if let Err(error) = self.droppable.channel.0.send(WebGPURequest::SetImageKey {
             context_id: self.context_id(),

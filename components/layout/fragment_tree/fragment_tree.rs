@@ -3,7 +3,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use app_units::Au;
@@ -719,7 +718,20 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
     };
     published::ImageFragment {
         base: convert_base(&fragment.base),
-        image_key: fragment.image_key.as_ref().map(hash_value),
+        image_key: fragment
+            .image_key
+            .map(|key| published::FragmentImageKey::from((key.0.0, key.1))),
+        source_kind: match fragment.source_kind {
+            crate::fragment_tree::ImageFragmentSourceKind::Raster => {
+                published::ImageSourceKind::Raster
+            }
+            crate::fragment_tree::ImageFragmentSourceKind::Canvas => {
+                published::ImageSourceKind::Canvas
+            }
+            crate::fragment_tree::ImageFragmentSourceKind::Video => {
+                published::ImageSourceKind::Video
+            }
+        },
         frame_width,
         frame_height,
         image_data,
@@ -947,12 +959,6 @@ fn fragment_key<T>(fragment: &crate::cell::ArcRefCell<T>) -> usize {
 
 fn convert_collapsed_margin(margin: super::CollapsedMargin) -> published::CollapsedMargin {
     published::CollapsedMargin::new(margin.solve())
-}
-
-fn hash_value<T: Hash>(value: &T) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 fn remap_svg_resource_node(

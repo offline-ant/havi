@@ -108,10 +108,36 @@ pub struct TextFragment {
     pub character_range_start: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct FragmentImageKey {
+    pub namespace: u32,
+    pub image: u32,
+}
+
+impl FragmentImageKey {
+    pub fn packed(self) -> u64 {
+        ((self.namespace as u64) << 32) | self.image as u64
+    }
+}
+
+impl From<(u32, u32)> for FragmentImageKey {
+    fn from((namespace, image): (u32, u32)) -> Self {
+        Self { namespace, image }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImageSourceKind {
+    Raster,
+    Canvas,
+    Video,
+}
+
 #[derive(Clone, Debug)]
 pub struct ImageFragment {
     pub base: BaseFragment,
-    pub image_key: Option<u64>,
+    pub image_key: Option<FragmentImageKey>,
+    pub source_kind: ImageSourceKind,
     pub frame_width: u32,
     pub frame_height: u32,
     pub image_data: Arc<Vec<u8>>,
@@ -119,14 +145,15 @@ pub struct ImageFragment {
 }
 
 #[derive(Clone, Debug)]
-pub struct ImageOverride {
+pub struct SharedImageSource {
     pub data: Arc<Vec<u8>>,
     pub offset: usize,
     pub width: u32,
     pub height: u32,
+    pub revision: u64,
 }
 
-pub type ImageOverrides = std::collections::HashMap<(u32, u32), ImageOverride>;
+pub type SharedImageSourceMap = std::collections::HashMap<FragmentImageKey, SharedImageSource>;
 
 #[derive(Clone, Debug)]
 pub struct IFrameFragment {

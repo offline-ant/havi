@@ -497,7 +497,7 @@ impl WGPU {
                     } => {
                         let id = self
                             .external_image_id_registry
-                            .next_id(ExternalImageHandlerType::WebGpu);
+                            .next_id(ExternalImageHandlerType::WEBGPU_BUFFER);
                         let context_id = WebGPUContextId(id.0);
 
                         if let Err(error) = sender.send(context_id) {
