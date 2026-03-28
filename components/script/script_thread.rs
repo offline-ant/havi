@@ -2377,12 +2377,6 @@ impl ScriptThread {
                     window.pending_image_notification(pending_image_response, cx);
                 }
             },
-            ImageCacheResponseMessage::VectorImageRasterizationComplete(response) => {
-                let window = self.documents.borrow().find_window(response.pipeline_id);
-                if let Some(ref window) = window {
-                    window.handle_image_rasterization_complete_notification(response);
-                }
-            },
         };
     }
 

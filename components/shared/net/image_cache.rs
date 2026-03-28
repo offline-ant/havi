@@ -14,7 +14,6 @@ use profile_traits::mem::Report;
 use serde::{Deserialize, Serialize};
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use webrender_api::ImageKey;
-use webrender_api::units::DeviceIntSize;
 
 use crate::FetchResponseMsg;
 use crate::request::CorsSettings;
@@ -26,8 +25,8 @@ use crate::request::CorsSettings;
 pub type VectorImageId = PendingImageId;
 
 // Represents either a decode-backed raster image with CPU-side bytes available
-// or a vector image for which only the natural dimensions are available and
-// thus requires a further rasterization step to render.
+// or a vector image for which only its natural dimensions and original SVG bytes
+// are cached. Vector images are rasterized later by the browser-scene renderer.
 #[derive(Clone, Debug, MallocSizeOf)]
 pub enum Image {
     Raster(#[conditional_malloc_size_of] Arc<RasterImage>),
@@ -37,7 +36,6 @@ pub enum Image {
 #[derive(Clone, Debug, Deserialize, MallocSizeOf, Serialize)]
 pub struct VectorImage {
     pub id: VectorImageId,
-    pub svg_id: Option<String>,
     pub metadata: ImageMetadata,
     pub cors_status: CorsStatus,
 }
@@ -45,7 +43,7 @@ pub struct VectorImage {
 impl Image {
     pub fn metadata(&self) -> ImageMetadata {
         match self {
-            Image::Vector(image, ..) => image.metadata,
+            Image::Vector(image) => image.metadata,
             Image::Raster(image) => image.metadata,
         }
     }
@@ -133,17 +131,9 @@ pub struct PendingImageResponse {
     pub id: PendingImageId,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct RasterizationCompleteResponse {
-    pub pipeline_id: PipelineId,
-    pub image_id: PendingImageId,
-    pub requested_size: DeviceIntSize,
-}
-
 #[derive(Clone, Debug)]
 pub enum ImageCacheResponseMessage {
     NotifyPendingImageLoadStatus(PendingImageResponse),
-    VectorImageRasterizationComplete(RasterizationCompleteResponse),
 }
 
 // ======================================================================
@@ -196,40 +186,6 @@ pub trait ImageCache: Sync + Send {
 
     /// Returns the original SVG bytes for a cached vector image.
     fn get_vector_image_bytes(&self, image_id: VectorImageId) -> Option<Arc<Vec<u8>>>;
-
-    /// Returns `Some` if the given `image_id` has already been rasterized at the given `size`.
-    /// Otherwise, triggers a new job to perform the rasterization. If a notification
-    /// is needed after rasterization is completed, the `add_rasterization_complete_listener`
-    /// API below can be used to add a listener.
-    fn rasterize_vector_image(
-        &self,
-        image_id: VectorImageId,
-        size: DeviceIntSize,
-        svg_id: Option<String>,
-    ) -> Option<RasterImage>;
-
-    /// Synchronously rasterize a vector image at the given size, blocking the calling thread.
-    /// Returns the rasterized image or `None` if the vector image data is not available.
-    fn rasterize_vector_image_sync(
-        &self,
-        image_id: VectorImageId,
-        size: DeviceIntSize,
-    ) -> Option<RasterImage>;
-
-    /// Adds a new listener to be notified once the given `image_id` has been rasterized at
-    /// the given `size`. The listener will receive a `VectorImageRasterizationComplete`
-    /// message on the given `sender`, even if the listener is called after rasterization
-    /// at has already completed.
-    fn add_rasterization_complete_listener(
-        &self,
-        pipeline_id: PipelineId,
-        image_id: VectorImageId,
-        size: DeviceIntSize,
-        callback: ImageCacheResponseCallback,
-    );
-
-    /// Removes the rasterized image from the image_cache, identified by the id of the SVG
-    fn evict_rasterized_image(&self, svg_id: &str);
 
     /// Removes the completed image from the image_cache, identified by url, origin, and cors
     fn evict_completed_image(

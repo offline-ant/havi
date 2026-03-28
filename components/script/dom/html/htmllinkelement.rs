@@ -10,6 +10,7 @@ use base::generic_channel::GenericSharedMemory;
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
+use net::image_cache::rasterize_svg_bytes_sync;
 use net_traits::image_cache::{
     Image, ImageCache, ImageCacheResponseCallback, ImageCacheResult, ImageLoadListener,
     ImageOrMetadataAvailable, ImageResponse, PendingImageId,
@@ -849,12 +850,15 @@ impl HTMLLinkElement {
         match image {
             Image::Raster(raster_image) => send_rasterized_favicon_to_embedder(&raster_image),
             Image::Vector(vector_image) => {
+                let Some(svg_bytes) = window.image_cache().get_vector_image_bytes(vector_image.id)
+                else {
+                    return;
+                };
+
                 // This size is completely arbitrary.
                 let size = DeviceIntSize::new(250, 250);
-
-                if let Some(raster_image) =
-                    window.image_cache().rasterize_vector_image_sync(vector_image.id, size)
-                {
+                if let Some(mut raster_image) = rasterize_svg_bytes_sync(&svg_bytes, size) {
+                    raster_image.cors_status = vector_image.cors_status;
                     send_rasterized_favicon_to_embedder(&raster_image);
                 }
             },

@@ -924,10 +924,7 @@ impl Notification {
             let resource_type = resource_type.clone();
             task_source.queue(task!(handle_response: move || {
                 let this = trusted_this.root();
-                let ImageCacheResponseMessage::NotifyPendingImageLoadStatus(status) = response else {
-                    warn!("Received unexpected message from image cache: {response:?}");
-                    return;
-                };
+                let ImageCacheResponseMessage::NotifyPendingImageLoadStatus(status) = response;
                 this.handle_image_cache_response(request_id, status.response, resource_type);
             }));
         });

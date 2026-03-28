@@ -132,9 +132,6 @@ impl MixedMessage {
                 ImageCacheResponseMessage::NotifyPendingImageLoadStatus(response) => {
                     Some(response.pipeline_id)
                 },
-                ImageCacheResponseMessage::VectorImageRasterizationComplete(response) => {
-                    Some(response.pipeline_id)
-                },
             },
             MixedMessage::FromDevtools(_) | MixedMessage::TimerFired => None,
             #[cfg(feature = "webgpu")]

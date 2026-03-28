@@ -67,7 +67,7 @@ use malloc_size_of::MallocSizeOf;
 
 use net_traits::image_cache::{
     ImageCache, ImageCacheResponseCallback, ImageCacheResponseMessage, ImageLoadListener,
-    ImageResponse, PendingImageId, PendingImageResponse, RasterizationCompleteResponse,
+    ImageResponse, PendingImageId, PendingImageResponse,
 };
 use net_traits::request::Referrer;
 use net_traits::{ResourceFetchTiming, ResourceThreads};
@@ -100,7 +100,7 @@ use style_traits::CSSPixel;
 use stylo_atoms::Atom;
 
 use webrender_api::ExternalScrollId;
-use webrender_api::units::{DeviceIntSize, DevicePixel, LayoutPixel, LayoutPoint};
+use webrender_api::units::{DevicePixel, LayoutPixel, LayoutPoint};
 
 use super::bindings::codegen::Bindings::MessagePortBinding::StructuredSerializeOptions;
 use super::bindings::trace::HashMapTracedValues;
@@ -265,8 +265,6 @@ impl LayoutBlocker {
 #[derive(Clone, Copy, Debug, Default, JSTraceable, MallocSizeOf, PartialEq)]
 pub(crate) struct OngoingNavigation(u32);
 
-type PendingImageRasterizationKey = (PendingImageId, DeviceIntSize);
-
 /// Ancillary data of pending image request that was initiated by layout during a reflow.
 /// This data is used to faciliate invalidating layout when the image data becomes available
 /// at some point in the future.
@@ -402,13 +400,6 @@ pub(crate) struct Window {
     /// available at some point in the future.
     pending_layout_images: DomRefCell<
         HashMapTracedValues<PendingImageId, Vec<PendingLayoutImageAncillaryData>, FxBuildHasher>,
-    >,
-
-    /// Vector images for which layout has intiated rasterization at a specific size
-    /// and whose results are not yet available. They are stored in the [`ScriptThread`]
-    /// so that the element can be marked dirty once the rasterization is completed.
-    pending_images_for_rasterization: DomRefCell<
-        HashMapTracedValues<PendingImageRasterizationKey, Vec<Dom<Node>>, FxBuildHasher>,
     >,
 
     /// Directory to store unminified css for this window if unminify-css
@@ -743,22 +734,6 @@ impl Window {
                 nodes.remove();
             },
         }
-    }
-
-    pub(crate) fn handle_image_rasterization_complete_notification(
-        &self,
-        response: RasterizationCompleteResponse,
-    ) {
-        let mut images = self.pending_images_for_rasterization.borrow_mut();
-        let nodes = images.entry((response.image_id, response.requested_size));
-        let nodes = match nodes {
-            Entry::Occupied(nodes) => nodes,
-            Entry::Vacant(_) => return,
-        };
-        for node in nodes.get() {
-            node.dirty(NodeDamage::Other);
-        }
-        nodes.remove();
     }
 
     pub(crate) fn pending_image_notification(
@@ -2898,9 +2873,7 @@ impl Window {
             return;
         }
 
-        if !self.pending_layout_images.borrow().is_empty() ||
-            !self.pending_images_for_rasterization.borrow().is_empty()
-        {
+        if !self.pending_layout_images.borrow().is_empty() {
             return;
         }
 
@@ -4085,7 +4058,6 @@ impl Window {
             webxr_registry,
             pending_image_callbacks: Default::default(),
             pending_layout_images: Default::default(),
-            pending_images_for_rasterization: Default::default(),
             unminified_css_dir: Default::default(),
             local_script_source,
             test_worklet: Default::default(),
