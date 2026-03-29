@@ -44,14 +44,12 @@ NETWORK_VK=$("$HPPR" key pubkey "$NETWORK_KEY")
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" network put-group "//$TEST_GROUP" \
     --upstream "$REMOTE_HOME" \
     --network-key "$NETWORK_VK" \
-    --ttl 86400 \
     --upstream-vkey "$REMOTE_REPO_VKEY" \
     --signing-key "$NETWORK_SK" \
     --signer 'ring1:ring0#init' >/dev/null
 
 # App record: //<group>/network/app/<app>
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" network put-app "//$TEST_GROUP/$TEST_APP" \
-    --ttl 3600 \
     --content-authority "$REMOTE_REPO_VKEY" \
     --signing-key "$NETWORK_SK" \
     --signer 'ring1:ring0#init' >/dev/null

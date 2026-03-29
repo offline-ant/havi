@@ -25,14 +25,16 @@ Without `via`, HAVI resolves route config from the home repo.
 
 For `hppr://group/app/path`, HAVI resolves route config from the home repo.
 If no local route exists and `group` does not start with `~`, HAVI resolves the
-public network in two steps:
+public network:
 
-1. `//u/network/group/<group>`
-2. `//<group>/network/app/<app>`
+- group `u`: `//u/network/app/<app>`
+- other public groups:
+  1. `//u/network/group/<group>`
+  2. `//<group>/network/app/<app>`
 
-Group `u` follows the same two-step path through `//u/network/group/u`.
-Local overrides at `//repo/network/...` take priority over cached and remote
-public-network records.
+For non-`u` groups, `Content-Authority` may fall back from the group app record
+to `//u/network/app/<app>`.
+That fallback applies only to `Content-Authority`, never to `Upstream`.
 If public-network resolution fails for a public name, navigation fails.
 HAVI does not silently fall back to the home repo for that case.
 

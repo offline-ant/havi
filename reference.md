@@ -71,8 +71,6 @@ Current HAVI behavior:
 
 - public-network lookup is used for the current navigation only
 - HAVI does not auto-install a local route packet from public-network discovery
-- local overrides at `//repo/network/...` take priority over cached and remote
-  public-network records
 - routed resolution decisions are printed to stderr with the selected source,
   endpoint, and public-network details
 - failed public-network resolution for a public name is a navigation failure,

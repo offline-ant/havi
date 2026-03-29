@@ -74,6 +74,36 @@ async fn inspect_route_content_pointer_auth_join(
         route_json["error"] = serde_json::json!("admin credentials unavailable");
     }
 
+    let public_network_json = match hppr_client::lookup_network_if_public_async(group, app).await {
+        Ok(Some(lookup)) => serde_json::json!({
+            "available": true,
+            "endpoint": lookup.endpoint.to_string(),
+            "upstreamVerificationKey": lookup.upstream_verification_key,
+            "contentAuthority": lookup.content_authority,
+            "rootSigner": lookup.root_signer,
+            "groupNetworkKey": lookup.group_record.as_ref().map(|r| r.network_key.clone()),
+            "error": serde_json::Value::Null,
+        }),
+        Ok(None) => serde_json::json!({
+            "available": false,
+            "endpoint": serde_json::Value::Null,
+            "upstreamVerificationKey": serde_json::Value::Null,
+            "contentAuthority": serde_json::Value::Null,
+            "rootSigner": serde_json::Value::Null,
+            "groupNetworkKey": serde_json::Value::Null,
+            "error": "not public name",
+        }),
+        Err(e) => serde_json::json!({
+            "available": false,
+            "endpoint": serde_json::Value::Null,
+            "upstreamVerificationKey": serde_json::Value::Null,
+            "contentAuthority": serde_json::Value::Null,
+            "rootSigner": serde_json::Value::Null,
+            "groupNetworkKey": serde_json::Value::Null,
+            "error": e.to_string(),
+        }),
+    };
+
     let route_anyone = Arc::new(HpprdClientAsync::new_with_signer(
         route_endpoint.clone(),
         hppr_client::Signer::anyone(),
@@ -228,6 +258,7 @@ async fn inspect_route_content_pointer_auth_join(
 
     serde_json::json!({
         "route": route_json,
+        "publicNetwork": public_network_json,
         "deploy": content_pointer_json,
         "auth": {
             "routeKeyPresent": route_key_present,

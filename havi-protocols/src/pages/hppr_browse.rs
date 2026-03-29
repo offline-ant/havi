@@ -13,14 +13,14 @@
 
 use std::sync::Arc;
 
-use hppr_client::parse_via;
 use percent_encoding::utf8_percent_encode;
 
 use crate::PageResponse;
 use crate::client::HpprdClientAsync;
 use crate::credentials::CredentialStoreHandle;
+use crate::resolve::resolve_listing;
 use crate::url::{HAVIAddress, via_url};
-use crate::util::{PATH_SEGMENT_ENCODE_SET, html_escape, resolve_route_endpoint};
+use crate::util::{PATH_SEGMENT_ENCODE_SET, html_escape};
 
 
 
@@ -43,51 +43,24 @@ pub async fn handle_request(
         location.push('/');
     }
 
-    let urc = HAVIAddress::build_urc_string(&parts.group, &parts.app, &location);
-
-    let _endpoint = if let Some(ep) = address.endpoint_string() {
-        match parse_via(&ep) {
-            Ok(v) => v,
-            Err(e) => {
-                return PageResponse::error("Browse Error", &format!("Invalid endpoint: {}", e), None);
-            },
-        }
-    } else {
-        match resolve_route_endpoint(&parts.group, &parts.app, client, credential_store).await {
-            Ok((ep, _, _, _)) => ep,
-            Err(e) => {
-                return PageResponse::error("Browse Error", &e, None);
-            }
-        }
-    };
-
-    let endpoint_str = address.endpoint_string();
-
-    handle_list(
-        client,
-        &urc,
-        &parts.group,
-        &parts.app,
-        &location,
-        endpoint_str.as_deref(),
-    )
-    .await
-}
-
-/// Handle LIST request and render directory listing.
-async fn handle_list(
-    client: &Arc<HpprdClientAsync>,
-    urc: &str,
-    group: &str,
-    app: &str,
-    location: &str,
-    endpoint_str: Option<&str>,
-) -> PageResponse {
-    match client.list(urc).await {
-        Ok(children) => {
-            let html = render_browse_html(group, app, location, &children, endpoint_str);
+    match resolve_listing(url, client, credential_store).await {
+        Ok(listing) => {
+            let endpoint_str = if let Some(ep) = address.endpoint_string() {
+                Some(ep)
+            } else if listing.is_repo {
+                None
+            } else {
+                Some(listing.endpoint.to_string())
+            };
+            let html = render_browse_html(
+                &parts.group,
+                &parts.app,
+                &location,
+                &listing.children,
+                endpoint_str.as_deref(),
+            );
             PageResponse::html(html)
-        },
+        }
         Err(e) => PageResponse::error("Browse Error", &e, None),
     }
 }

@@ -44,22 +44,24 @@ this order:
    (`//repo/admin/route/<group>/<app>/|/...`)
 2. if no local route exists and `group` does not start with `~`, resolve the
    public network:
-   - local override at `//repo/network/...`
-   - fresh cached network record in home repo
-   - remote public-network query
-3. public group record at `//u/network/group/<group>`
-4. delegated app record at `//<group>/network/app/<app>`
-5. remote app content pointer
+   - group `u`: `//u/network/app/<app>`
+   - other public groups:
+     1. `//u/network/group/<group>`
+     2. `//<group>/network/app/<app>`
+3. remote app content pointer
    (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-6. target from `Content-Root` + requested location
+4. target from `Content-Root` + requested location
 
 Public-network rules:
 
-- group `u` follows the same two-step path through `//u/network/group/u`
-- app `Upstream` inherits from the group record when omitted
-- `Content-Authority` falls back to `//u/network/app/<app>` when the group
-  app record omits it or is `NOT_FOUND`; only `Content-Authority` is inherited
+- for group `u`, `//u/network/app/<app>` supplies endpoint, optional repo pin,
+  and optional `Content-Authority`
+- for non-`u` groups, app `Upstream` inherits from the group record when
+  omitted
+- for non-`u` groups, `Content-Authority` falls back to `//u/network/app/<app>`
+  when the group app record omits it; only `Content-Authority` is inherited
   from public app defaults, never `Upstream`
+- missing `//<group>/network/app/<app>` is a discovery failure
 - when public-network resolution produces an effective `Content-Authority`, the
   browser MUST require exact equality with the deploy pointer
   `Content-Authority`
