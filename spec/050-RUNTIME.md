@@ -61,3 +61,18 @@ Required runtime behavior:
   coverage is partial
 - external SVG image resources remain implementation-defined and may use a
   separate backend from inline SVG
+
+Current HAVI Phase 1 browser-visible SVG DOM state:
+
+- the basic/current SVG DOM interface graph is structurally in place for the
+  current subset, including the `SVGGradientElement` and
+  `SVGTextContentElement` / `SVGTextPositioningElement` chains
+- constructor coverage exists for `g`, `pattern`, `filter`, `marker`, and
+  `textPath`
+- the first wrapper-backed SVG value-object family now exists with required
+  `[SameObject]` caching on the Phase 1 surfaces in scope
+- SVG factory and query APIs that would otherwise collide with legacy SVG alias
+  names use `DOMPoint`, `DOMRect`, and `DOMMatrix` bridge objects instead
+- geometry/text query semantics and long-tail list mutation semantics remain
+  partial in this phase; placeholder-backed methods and explicit
+  `NotSupported` behavior are acceptable until later SVG phases complete

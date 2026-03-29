@@ -1,0 +1,26 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+[Exposed=Window]
+interface SVGLength {
+  const unsigned short SVG_LENGTHTYPE_UNKNOWN = 0;
+  const unsigned short SVG_LENGTHTYPE_NUMBER = 1;
+  const unsigned short SVG_LENGTHTYPE_PERCENTAGE = 2;
+  const unsigned short SVG_LENGTHTYPE_EMS = 3;
+  const unsigned short SVG_LENGTHTYPE_EXS = 4;
+  const unsigned short SVG_LENGTHTYPE_PX = 5;
+  const unsigned short SVG_LENGTHTYPE_CM = 6;
+  const unsigned short SVG_LENGTHTYPE_MM = 7;
+  const unsigned short SVG_LENGTHTYPE_IN = 8;
+  const unsigned short SVG_LENGTHTYPE_PT = 9;
+  const unsigned short SVG_LENGTHTYPE_PC = 10;
+
+  readonly attribute unsigned short unitType;
+  [SetterThrows] attribute float value;
+  [SetterThrows] attribute float valueInSpecifiedUnits;
+  [SetterThrows] attribute DOMString valueAsString;
+
+  [Throws] undefined newValueSpecifiedUnits(unsigned short unitType, float valueInSpecifiedUnits);
+  [Throws] undefined convertToSpecifiedUnits(unsigned short unitType);
+};

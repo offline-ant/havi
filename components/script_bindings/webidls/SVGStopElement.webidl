@@ -4,4 +4,5 @@
 
 [Exposed=Window]
 interface SVGStopElement : SVGElement {
+  [SameObject] readonly attribute SVGAnimatedNumber offset;
 };

@@ -5,12 +5,11 @@
 // https://svgwg.org/svg2-draft/embedded.html#InterfaceSVGImageElement
 [Exposed=Window]
 interface SVGImageElement : SVGGraphicsElement {
-  //[SameObject] readonly attribute SVGAnimatedLength x;
-  //[SameObject] readonly attribute SVGAnimatedLength y;
-  //[SameObject] readonly attribute SVGAnimatedLength width;
-  //[SameObject] readonly attribute SVGAnimatedLength height;
-  //[SameObject] readonly attribute SVGAnimatedPreserveAspectRatio preserveAspectRatio;
-  //attribute DOMString? crossOrigin;
+  [SameObject] readonly attribute SVGAnimatedLength x;
+  [SameObject] readonly attribute SVGAnimatedLength y;
+  [SameObject] readonly attribute SVGAnimatedLength width;
+  [SameObject] readonly attribute SVGAnimatedLength height;
+  [SameObject] readonly attribute SVGAnimatedPreserveAspectRatio preserveAspectRatio;
 };
 
-//SVGImageElement includes SVGURIReference;
+SVGImageElement includes SVGURIReference;

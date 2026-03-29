@@ -3,5 +3,5 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 [Exposed=Window]
-interface SVGTSpanElement : SVGGraphicsElement {
+interface SVGTSpanElement : SVGTextPositioningElement {
 };

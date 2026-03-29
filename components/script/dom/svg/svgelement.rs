@@ -12,6 +12,7 @@ use crate::dom::attr::Attr;
 use crate::dom::bindings::codegen::Bindings::HTMLOrSVGElementBinding::FocusOptions;
 use crate::dom::bindings::codegen::Bindings::SVGElementBinding::SVGElementMethods;
 use crate::dom::bindings::inheritance::Castable;
+use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{Dom, DomRoot, MutNullableDom};
 use crate::dom::css::cssstyledeclaration::{
     CSSModificationAccess, CSSStyleDeclaration, CSSStyleOwner,
@@ -21,6 +22,7 @@ use crate::dom::element::{AttributeMutation, Element};
 use js::context::JSContext;
 
 use crate::dom::node::{ChildrenMutation, Node, NodeDamage, NodeTraits, ShadowIncluding};
+use crate::dom::svg::svganimatedvalueobjects::SVGAnimatedString;
 use crate::dom::virtualmethods::VirtualMethods;
 use crate::script_runtime::CanGc;
 
@@ -28,6 +30,7 @@ use crate::script_runtime::CanGc;
 pub(crate) struct SVGElement {
     element: Element,
     style_decl: MutNullableDom<CSSStyleDeclaration>,
+    class_name: MutNullableDom<SVGAnimatedString>,
 }
 
 impl SVGElement {
@@ -48,6 +51,7 @@ impl SVGElement {
         SVGElement {
             element: Element::new_inherited_with_state(state, tag_name, ns!(svg), prefix, document),
             style_decl: Default::default(),
+            class_name: Default::default(),
         }
     }
 
@@ -150,6 +154,24 @@ impl VirtualMethods for SVGElement {
 }
 
 impl SVGElementMethods<crate::DomTypeHolder> for SVGElement {
+    fn ClassName(&self) -> DomRoot<SVGAnimatedString> {
+        self.class_name.or_init(|| {
+            SVGAnimatedString::new(&self.global(), self, local_name!("class"), CanGc::note())
+        })
+    }
+
+    fn GetOwnerSVGElement(&self) -> Option<DomRoot<crate::dom::svg::svgsvgelement::SVGSVGElement>> {
+        self.upcast::<Node>().ancestors().find_map(|ancestor| {
+            ancestor
+                .downcast::<crate::dom::svg::svgsvgelement::SVGSVGElement>()
+                .map(DomRoot::from_ref)
+        })
+    }
+
+    fn GetViewportElement(&self) -> Option<DomRoot<SVGElement>> {
+        self.GetOwnerSVGElement().map(DomRoot::upcast)
+    }
+
     /// <https://html.spec.whatwg.org/multipage/#the-style-attribute>
     fn Style(&self) -> DomRoot<CSSStyleDeclaration> {
         self.style_decl.or_init(|| {

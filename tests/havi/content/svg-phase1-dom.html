@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 1 DOM coverage</title>
+  <style>
+    body {
+      font-family: monospace;
+      margin: 16px;
+      line-height: 1.4;
+    }
+
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results {
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 12px;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function assertInterface(name) {
+      return assert(typeof window[name] === 'function', name + ' global exists');
+    }
+
+    function assertInstance(value, interfaceName, name) {
+      const ctor = window[interfaceName];
+      if (typeof ctor !== 'function') {
+        log('FAIL: ' + name + ' (' + interfaceName + ' global missing)');
+        return false;
+      }
+      return assert(value instanceof ctor, name);
+    }
+
+    function assertPrototypeParent(childName, parentName) {
+      const child = window[childName];
+      const parent = window[parentName];
+      if (typeof child !== 'function' || typeof parent !== 'function') {
+        log('FAIL: ' + childName + ' prototype parent is ' + parentName + ' (global missing)');
+        return false;
+      }
+      return assert(
+        Object.getPrototypeOf(child.prototype) === parent.prototype,
+        childName + ' prototype parent is ' + parentName
+      );
+    }
+
+    function assertSameObject(owner, propertyName, name) {
+      return assert(owner[propertyName] === owner[propertyName], name);
+    }
+
+    function buildDetachedTree() {
+      const root = document.createElementNS(SVG_NS, 'svg');
+      root.setAttribute('viewBox', '0 0 100 100');
+      root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+      const defs = document.createElementNS(SVG_NS, 'defs');
+      const linearGradient = document.createElementNS(SVG_NS, 'linearGradient');
+      linearGradient.setAttribute('gradientUnits', 'userSpaceOnUse');
+      linearGradient.setAttribute('gradientTransform', 'translate(1 2)');
+      linearGradient.setAttribute('spreadMethod', 'repeat');
+      linearGradient.setAttribute('href', '#shapePath');
+
+      const radialGradient = document.createElementNS(SVG_NS, 'radialGradient');
+      radialGradient.setAttribute('gradientUnits', 'objectBoundingBox');
+
+      const pattern = document.createElementNS(SVG_NS, 'pattern');
+      const filter = document.createElementNS(SVG_NS, 'filter');
+      const marker = document.createElementNS(SVG_NS, 'marker');
+      const shapePath = document.createElementNS(SVG_NS, 'path');
+      shapePath.setAttribute('id', 'shapePath');
+      shapePath.setAttribute('d', 'M0,0 L100,100');
+
+      defs.append(linearGradient, radialGradient, pattern, filter, marker, shapePath);
+
+      const group = document.createElementNS(SVG_NS, 'g');
+      group.setAttribute('transform', 'translate(5 6)');
+
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.setAttribute('x', '1 2');
+      text.setAttribute('y', '3 4');
+      text.setAttribute('dx', '5');
+      text.setAttribute('dy', '6');
+      text.setAttribute('rotate', '7');
+      text.setAttribute('textLength', '12');
+
+      const tspan = document.createElementNS(SVG_NS, 'tspan');
+      const textPath = document.createElementNS(SVG_NS, 'textPath');
+      textPath.setAttribute('href', '#shapePath');
+      text.append(tspan, textPath);
+
+      root.append(defs, group, text);
+
+      return { root, defs, linearGradient, radialGradient, pattern, filter, marker, shapePath, group, text, tspan, textPath };
+    }
+
+    function parseSvgMarkup() {
+      const source = [
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">',
+        '  <defs>',
+        '    <linearGradient id="linearGradient"></linearGradient>',
+        '    <radialGradient id="radialGradient"></radialGradient>',
+        '    <pattern id="pattern"></pattern>',
+        '    <filter id="filter"></filter>',
+        '    <marker id="marker"></marker>',
+        '    <path id="shapePath" d="M0,0 L100,100"></path>',
+        '  </defs>',
+        '  <g id="group"></g>',
+        '  <text id="text">',
+        '    <tspan id="tspan"></tspan>',
+        '    <textPath id="textPath" href="#shapePath"></textPath>',
+        '  </text>',
+        '</svg>'
+      ].join('');
+
+      const parsed = new DOMParser().parseFromString(source, 'image/svg+xml');
+      return {
+        root: parsed.documentElement,
+        linearGradient: parsed.getElementById('linearGradient'),
+        radialGradient: parsed.getElementById('radialGradient'),
+        pattern: parsed.getElementById('pattern'),
+        filter: parsed.getElementById('filter'),
+        marker: parsed.getElementById('marker'),
+        group: parsed.getElementById('group'),
+        text: parsed.getElementById('text'),
+        tspan: parsed.getElementById('tspan'),
+        textPath: parsed.getElementById('textPath')
+      };
+    }
+
+    async function suite_svg_phase1_dom() {
+      const detached = buildDetachedTree();
+      const parsed = parseSvgMarkup();
+
+      assertInterface('SVGGElement');
+      assertInterface('SVGGradientElement');
+      assertInterface('SVGTextContentElement');
+      assertInterface('SVGTextPositioningElement');
+      assertInterface('SVGPatternElement');
+      assertInterface('SVGFilterElement');
+      assertInterface('SVGMarkerElement');
+      assertInterface('SVGTextPathElement');
+
+      assertInstance(document.createElementNS(SVG_NS, 'g'), 'SVGGElement', 'createElementNS(g) -> SVGGElement');
+      assertInstance(document.createElementNS(SVG_NS, 'pattern'), 'SVGPatternElement', 'createElementNS(pattern) -> SVGPatternElement');
+      assertInstance(document.createElementNS(SVG_NS, 'filter'), 'SVGFilterElement', 'createElementNS(filter) -> SVGFilterElement');
+      assertInstance(document.createElementNS(SVG_NS, 'marker'), 'SVGMarkerElement', 'createElementNS(marker) -> SVGMarkerElement');
+      assertInstance(document.createElementNS(SVG_NS, 'textPath'), 'SVGTextPathElement', 'createElementNS(textPath) -> SVGTextPathElement');
+
+      assertInstance(parsed.group, 'SVGGElement', 'parsed <g> -> SVGGElement');
+      assertInstance(parsed.pattern, 'SVGPatternElement', 'parsed <pattern> -> SVGPatternElement');
+      assertInstance(parsed.filter, 'SVGFilterElement', 'parsed <filter> -> SVGFilterElement');
+      assertInstance(parsed.marker, 'SVGMarkerElement', 'parsed <marker> -> SVGMarkerElement');
+      assertInstance(parsed.textPath, 'SVGTextPathElement', 'parsed <textPath> -> SVGTextPathElement');
+
+      assertInstance(detached.group, 'SVGGraphicsElement', '<g> inherits SVGGraphicsElement');
+      assertInstance(detached.text, 'SVGTextPositioningElement', '<text> inherits SVGTextPositioningElement');
+      assertInstance(detached.tspan, 'SVGTextPositioningElement', '<tspan> inherits SVGTextPositioningElement');
+      assertInstance(detached.textPath, 'SVGTextContentElement', '<textPath> inherits SVGTextContentElement');
+      assertInstance(detached.linearGradient, 'SVGGradientElement', '<linearGradient> inherits SVGGradientElement');
+      assertInstance(detached.radialGradient, 'SVGGradientElement', '<radialGradient> inherits SVGGradientElement');
+
+      assertPrototypeParent('SVGGElement', 'SVGGraphicsElement');
+      assertPrototypeParent('SVGTextElement', 'SVGTextPositioningElement');
+      assertPrototypeParent('SVGTSpanElement', 'SVGTextPositioningElement');
+      assertPrototypeParent('SVGTextPathElement', 'SVGTextContentElement');
+      assertPrototypeParent('SVGLinearGradientElement', 'SVGGradientElement');
+      assertPrototypeParent('SVGRadialGradientElement', 'SVGGradientElement');
+
+      assertInstance(detached.root.x, 'SVGAnimatedLength', 'svg.x exposes SVGAnimatedLength');
+      assertInstance(detached.root.viewBox, 'SVGAnimatedRect', 'svg.viewBox exposes SVGAnimatedRect');
+      assertInstance(detached.root.preserveAspectRatio, 'SVGAnimatedPreserveAspectRatio', 'svg.preserveAspectRatio exposes SVGAnimatedPreserveAspectRatio');
+      assertInstance(detached.group.transform, 'SVGAnimatedTransformList', 'g.transform exposes SVGAnimatedTransformList');
+      assertInstance(detached.text.x, 'SVGAnimatedLengthList', 'text.x exposes SVGAnimatedLengthList');
+      assertInstance(detached.text.rotate, 'SVGAnimatedNumberList', 'text.rotate exposes SVGAnimatedNumberList');
+      assertInstance(detached.linearGradient.href, 'SVGAnimatedString', 'gradient.href exposes SVGAnimatedString');
+      assertInstance(detached.linearGradient.gradientTransform, 'SVGAnimatedTransformList', 'gradientTransform exposes SVGAnimatedTransformList');
+
+      assertSameObject(detached.root, 'x', 'svg.x is [SameObject]');
+      assertSameObject(detached.root.x, 'baseVal', 'svg.x.baseVal is [SameObject]');
+      assertSameObject(detached.root, 'viewBox', 'svg.viewBox is [SameObject]');
+      assertSameObject(detached.root.viewBox, 'baseVal', 'svg.viewBox.baseVal is [SameObject]');
+      assertSameObject(detached.root, 'preserveAspectRatio', 'svg.preserveAspectRatio is [SameObject]');
+      assertSameObject(detached.root.preserveAspectRatio, 'baseVal', 'svg.preserveAspectRatio.baseVal is [SameObject]');
+      assertSameObject(detached.root, 'currentTranslate', 'svg.currentTranslate is [SameObject]');
+      assertSameObject(detached.group, 'transform', 'g.transform is [SameObject]');
+      assertSameObject(detached.group.transform, 'baseVal', 'g.transform.baseVal is [SameObject]');
+      assertSameObject(detached.text, 'x', 'text.x is [SameObject]');
+      assertSameObject(detached.text.x, 'baseVal', 'text.x.baseVal is [SameObject]');
+      assertSameObject(detached.text, 'rotate', 'text.rotate is [SameObject]');
+      assertSameObject(detached.text.rotate, 'baseVal', 'text.rotate.baseVal is [SameObject]');
+      assertSameObject(detached.linearGradient, 'gradientTransform', 'gradient.gradientTransform is [SameObject]');
+      assertSameObject(detached.linearGradient.gradientTransform, 'baseVal', 'gradient.gradientTransform.baseVal is [SameObject]');
+
+      assertInstance(detached.root.currentTranslate, 'DOMPoint', 'svg.currentTranslate uses DOMPoint bridge');
+      assertInstance(detached.root.createSVGPoint(), 'DOMPoint', 'createSVGPoint() uses DOMPoint bridge');
+      assertInstance(detached.root.createSVGRect(), 'DOMRect', 'createSVGRect() uses DOMRect bridge');
+      assertInstance(detached.root.createSVGMatrix(), 'DOMMatrix', 'createSVGMatrix() uses DOMMatrix bridge');
+      assertInstance(detached.group.getBBox(), 'DOMRect', 'getBBox() uses DOMRect bridge');
+      assertInstance(detached.group.getCTM(), 'DOMMatrix', 'getCTM() uses DOMMatrix bridge');
+      assertInstance(detached.group.getScreenCTM(), 'DOMMatrix', 'getScreenCTM() uses DOMMatrix bridge');
+      assertInstance(detached.text.getStartPositionOfChar(0), 'DOMPoint', 'getStartPositionOfChar() uses DOMPoint bridge');
+      assertInstance(detached.text.getExtentOfChar(0), 'DOMRect', 'getExtentOfChar() uses DOMRect bridge');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase1_dom, 'svg-phase1-dom');
+      window.testResults = summary;
+
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

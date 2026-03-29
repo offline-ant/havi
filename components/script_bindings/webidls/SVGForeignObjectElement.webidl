@@ -4,4 +4,8 @@
 
 [Exposed=Window]
 interface SVGForeignObjectElement : SVGGraphicsElement {
+  [SameObject] readonly attribute SVGAnimatedLength x;
+  [SameObject] readonly attribute SVGAnimatedLength y;
+  [SameObject] readonly attribute SVGAnimatedLength width;
+  [SameObject] readonly attribute SVGAnimatedLength height;
 };

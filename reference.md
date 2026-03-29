@@ -222,13 +222,35 @@ Current first-cut coverage:
 - query behavior: shape hit testing now uses SVG path geometry and SVG text run
   bounds rather than only axis-aligned fragment bounds
 
+Current Phase 1 SVG DOM coverage:
+
+- the basic/current SVG DOM spine is structurally in place for the current
+  feature set, including `SVGGradientElement`, `SVGTextContentElement`,
+  `SVGTextPositioningElement`, `SVGURIReference`, and `SVGFitToViewBox`
+- constructor coverage now exists for `g`, `pattern`, `filter`, `marker`, and
+  `textPath`; those elements no longer fall back to generic `SVGElement`
+- Phase 1 value-object scaffolding now exposes wrapper-backed
+  `SVGAnimatedString`, `SVGAnimatedLength`, `SVGAnimatedLengthList`,
+  `SVGAnimatedNumber`, `SVGAnimatedNumberList`, `SVGAnimatedEnumeration`,
+  `SVGAnimatedTransformList`, `SVGAnimatedPreserveAspectRatio`, and
+  `SVGAnimatedRect`, plus the paired public value objects used by the current
+  DOM surface
+- SVG factory and query surfaces that conflict with legacy aliases now use the
+  existing bridge objects: `DOMPoint`, `DOMRect`, and `DOMMatrix`
+
 Still deferred:
 
 - full filters and masks
 - markers and patterns beyond publication
 - browser-grade SVG text shaping, `textLength`, and `textPath`
 - full `foreignObject` HTML formatting-context embedding
-- full DOM API parity
+- Phase 2 shared typed SVG attribute/value plumbing across DOM extraction,
+  layout, invalidation, and queries
+- long-tail value-object mutation semantics; many list mutations remain
+  explicit `NotSupported`
+- full SVG geometry/text query semantics; several current query methods remain
+  placeholder-backed
+- full DOM API parity beyond the Phase 1 spine
 
 ## Diagnostics
 

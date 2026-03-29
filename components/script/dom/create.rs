@@ -90,11 +90,15 @@ use crate::dom::svg::svgclippathelement::SVGClipPathElement;
 use crate::dom::svg::svgdefselement::SVGDefsElement;
 use crate::dom::svg::svgelement::SVGElement;
 use crate::dom::svg::svgellipseelement::SVGEllipseElement;
+use crate::dom::svg::svgfilterelement::SVGFilterElement;
 use crate::dom::svg::svgforeignobjectelement::SVGForeignObjectElement;
+use crate::dom::svg::svggelement::SVGGElement;
 use crate::dom::svg::svgimageelement::SVGImageElement;
 use crate::dom::svg::svglineelement::SVGLineElement;
 use crate::dom::svg::svglineargradientelement::SVGLinearGradientElement;
+use crate::dom::svg::svgmarkerelement::SVGMarkerElement;
 use crate::dom::svg::svgmaskelement::SVGMaskElement;
+use crate::dom::svg::svgpatternelement::SVGPatternElement;
 use crate::dom::svg::svgpathelement::SVGPathElement;
 use crate::dom::svg::svgpolygonelement::SVGPolygonElement;
 use crate::dom::svg::svgpolylineelement::SVGPolylineElement;
@@ -103,6 +107,7 @@ use crate::dom::svg::svgradialgradientelement::SVGRadialGradientElement;
 use crate::dom::svg::svgstopelement::SVGStopElement;
 use crate::dom::svg::svgsvgelement::SVGSVGElement;
 use crate::dom::svg::svgtextelement::SVGTextElement;
+use crate::dom::svg::svgtextpathelement::SVGTextPathElement;
 use crate::dom::svg::svgtspanelement::SVGTSpanElement;
 use crate::dom::svg::svguseelement::SVGUseElement;
 use crate::realms::{InRealm, enter_realm};
@@ -133,12 +138,16 @@ fn create_svg_element(
         local_name!("clipPath") => make!(SVGClipPathElement),
         local_name!("defs") => make!(SVGDefsElement),
         local_name!("ellipse") => make!(SVGEllipseElement),
+        local_name!("filter") => make!(SVGFilterElement),
         local_name!("foreignObject") => make!(SVGForeignObjectElement),
+        local_name!("g") => make!(SVGGElement),
         local_name!("image") => make!(SVGImageElement),
         local_name!("line") => make!(SVGLineElement),
         local_name!("linearGradient") => make!(SVGLinearGradientElement),
+        local_name!("marker") => make!(SVGMarkerElement),
         local_name!("mask") => make!(SVGMaskElement),
         local_name!("path") => make!(SVGPathElement),
+        local_name!("pattern") => make!(SVGPatternElement),
         local_name!("polygon") => make!(SVGPolygonElement),
         local_name!("polyline") => make!(SVGPolylineElement),
         local_name!("radialGradient") => make!(SVGRadialGradientElement),
@@ -146,6 +155,7 @@ fn create_svg_element(
         local_name!("stop") => make!(SVGStopElement),
         local_name!("svg") => make!(SVGSVGElement),
         local_name!("text") => make!(SVGTextElement),
+        local_name!("textPath") => make!(SVGTextPathElement),
         local_name!("tspan") => make!(SVGTSpanElement),
         local_name!("use") => make!(SVGUseElement),
         _ => make!(SVGElement),

@@ -5,20 +5,11 @@
 // https://svgwg.org/svg2-draft/types.html#InterfaceSVGElement
 [Exposed=Window]
 interface SVGElement : Element {
-
-  //[SameObject] readonly attribute SVGAnimatedString className;
-
-  //[SameObject] readonly attribute DOMStringMap dataset;
-
-  //readonly attribute SVGSVGElement? ownerSVGElement;
-  //readonly attribute SVGElement? viewportElement;
-
-  //attribute long tabIndex;
-  //void focus();
-  //void blur();
+  [SameObject] readonly attribute SVGAnimatedString className;
+  readonly attribute SVGSVGElement? ownerSVGElement;
+  readonly attribute SVGElement? viewportElement;
 };
 
 SVGElement includes GlobalEventHandlers;
-//SVGElement includes SVGElementInstance;
 SVGElement includes ElementCSSInlineStyle;
 SVGElement includes HTMLOrSVGElement;

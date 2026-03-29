@@ -7,6 +7,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name};
 use js::context::JSContext;
 use js::rust::HandleObject;
+use stylo_atoms::Atom;
 use style::attr::AttrValue;
 use style::parser::ParserContext;
 use style::stylesheets::Origin;
@@ -14,19 +15,37 @@ use style::values::specified::Length;
 use style_traits::ParsingMode;
 
 use crate::dom::attr::Attr;
+use crate::dom::bindings::codegen::Bindings::DOMMatrixBinding::DOMMatrix2DInit;
+use crate::dom::bindings::codegen::Bindings::SVGSVGElementBinding::SVGSVGElementMethods;
+use crate::dom::bindings::codegen::Bindings::SVGTransformBinding::SVGTransformMethods;
 use crate::dom::bindings::inheritance::Castable;
-use crate::dom::bindings::root::DomRoot;
+use crate::dom::bindings::reflector::DomGlobal;
+use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::document::Document;
-use crate::dom::element::AttributeMutation;
+use crate::dom::dommatrix::DOMMatrix;
+use crate::dom::dompoint::DOMPoint;
+use crate::dom::domrect::DOMRect;
+use crate::dom::element::{AttributeMutation, Element};
 use crate::dom::node::{ChildrenMutation, Node, NodeDamage, NodeTraits, UnbindContext};
+use crate::dom::svg::svganimatedvalueobjects::{
+    SVGAnimatedLength, SVGAnimatedPreserveAspectRatio, SVGAnimatedRect,
+};
 use crate::dom::svg::svggraphicselement::SVGGraphicsElement;
+use crate::dom::svg::svgvalueobjects::{SVGLength, SVGNumber, SVGTransform};
 use crate::dom::virtualmethods::VirtualMethods;
 use crate::script_runtime::CanGc;
 
 #[dom_struct]
 pub(crate) struct SVGSVGElement {
     svggraphicselement: SVGGraphicsElement,
+    x: MutNullableDom<SVGAnimatedLength>,
+    y: MutNullableDom<SVGAnimatedLength>,
+    width: MutNullableDom<SVGAnimatedLength>,
+    height: MutNullableDom<SVGAnimatedLength>,
+    view_box: MutNullableDom<SVGAnimatedRect>,
+    preserve_aspect_ratio: MutNullableDom<SVGAnimatedPreserveAspectRatio>,
+    current_translate: MutNullableDom<DOMPoint>,
 }
 
 impl SVGSVGElement {
@@ -37,6 +56,13 @@ impl SVGSVGElement {
     ) -> SVGSVGElement {
         SVGSVGElement {
             svggraphicselement: SVGGraphicsElement::new_inherited(local_name, prefix, document),
+            x: Default::default(),
+            y: Default::default(),
+            width: Default::default(),
+            height: Default::default(),
+            view_box: Default::default(),
+            preserve_aspect_ratio: Default::default(),
+            current_translate: Default::default(),
         }
     }
 
@@ -97,7 +123,7 @@ impl VirtualMethods for SVGSVGElement {
                     None,
                     ParsingMode::ALLOW_UNITLESS_LENGTH,
                     doc.quirks_mode(),
-                    /* namespaces = */ Default::default(),
+                    Default::default(),
                     None,
                     None,
                 );
@@ -107,7 +133,7 @@ impl VirtualMethods for SVGSVGElement {
                     style::values::specified::AllowQuirks::Always,
                 );
                 AttrValue::Length(value.to_string(), val.ok())
-            },
+            }
             _ => self
                 .super_type()
                 .unwrap()
@@ -127,5 +153,74 @@ impl VirtualMethods for SVGSVGElement {
             s.unbind_from_tree(context, can_gc);
         }
         self.invalidate_svg_subtree();
+    }
+}
+
+impl SVGSVGElementMethods<crate::DomTypeHolder> for SVGSVGElement {
+    fn X(&self) -> DomRoot<SVGAnimatedLength> {
+        self.x.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("x"), CanGc::note()))
+    }
+
+    fn Y(&self) -> DomRoot<SVGAnimatedLength> {
+        self.y.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("y"), CanGc::note()))
+    }
+
+    fn Width(&self) -> DomRoot<SVGAnimatedLength> {
+        self.width.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("width"), CanGc::note()))
+    }
+
+    fn Height(&self) -> DomRoot<SVGAnimatedLength> {
+        self.height.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("height"), CanGc::note()))
+    }
+
+    fn ViewBox(&self) -> DomRoot<SVGAnimatedRect> {
+        self.view_box.or_init(|| SVGAnimatedRect::new(&self.global(), self.upcast(), local_name!("viewBox"), CanGc::note()))
+    }
+
+    fn PreserveAspectRatio(&self) -> DomRoot<SVGAnimatedPreserveAspectRatio> {
+        self.preserve_aspect_ratio.or_init(|| SVGAnimatedPreserveAspectRatio::new(&self.global(), self.upcast(), local_name!("preserveAspectRatio"), CanGc::note()))
+    }
+
+    fn CurrentTranslate(&self) -> DomRoot<DOMPoint> {
+        self.current_translate.or_init(|| DOMPoint::new(&self.global(), 0.0, 0.0, 0.0, 1.0, CanGc::note()))
+    }
+
+    fn CreateSVGNumber(&self) -> DomRoot<SVGNumber> {
+        SVGNumber::new_detached(&self.global(), 0.0, CanGc::note())
+    }
+
+    fn CreateSVGLength(&self) -> DomRoot<SVGLength> {
+        SVGLength::new_detached(&self.global(), Default::default(), CanGc::note())
+    }
+
+    fn CreateSVGPoint(&self) -> DomRoot<DOMPoint> {
+        DOMPoint::new(&self.global(), 0.0, 0.0, 0.0, 1.0, CanGc::note())
+    }
+
+    fn CreateSVGMatrix(&self) -> DomRoot<DOMMatrix> {
+        DOMMatrix::new(
+            &self.global(),
+            true,
+            euclid::default::Transform3D::identity(),
+            CanGc::note(),
+        )
+    }
+
+    fn CreateSVGRect(&self) -> DomRoot<DOMRect> {
+        DOMRect::new(&self.global(), 0.0, 0.0, 0.0, 0.0, CanGc::note())
+    }
+
+    fn CreateSVGTransform(&self) -> DomRoot<SVGTransform> {
+        SVGTransform::new_detached(&self.global(), Default::default(), CanGc::note())
+    }
+
+    fn CreateSVGTransformFromMatrix(&self, matrix: &DOMMatrix2DInit) -> DomRoot<SVGTransform> {
+        let transform = self.CreateSVGTransform();
+        let _ = transform.SetMatrix(matrix);
+        transform
+    }
+
+    fn GetElementById(&self, element_id: DOMString) -> Option<DomRoot<Element>> {
+        self.owner_document().get_element_by_id(&Atom::from(element_id))
     }
 }

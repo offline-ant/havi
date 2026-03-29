@@ -4,4 +4,8 @@
 
 [Exposed=Window]
 interface SVGLineElement : SVGGeometryElement {
+  [SameObject] readonly attribute SVGAnimatedLength x1;
+  [SameObject] readonly attribute SVGAnimatedLength y1;
+  [SameObject] readonly attribute SVGAnimatedLength x2;
+  [SameObject] readonly attribute SVGAnimatedLength y2;
 };

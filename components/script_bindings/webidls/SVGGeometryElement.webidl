@@ -4,4 +4,10 @@
 
 [Exposed=Window, Abstract]
 interface SVGGeometryElement : SVGGraphicsElement {
+  [SameObject] readonly attribute SVGAnimatedNumber pathLength;
+
+  boolean isPointInFill(optional DOMPointInit point = {});
+  boolean isPointInStroke(optional DOMPointInit point = {});
+  float getTotalLength();
+  DOMPoint getPointAtLength(float distance);
 };

@@ -3,5 +3,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 [Exposed=Window]
-interface SVGRadialGradientElement : SVGElement {
+interface SVGRadialGradientElement : SVGGradientElement {
+  [SameObject] readonly attribute SVGAnimatedLength cx;
+  [SameObject] readonly attribute SVGAnimatedLength cy;
+  [SameObject] readonly attribute SVGAnimatedLength r;
+  [SameObject] readonly attribute SVGAnimatedLength fx;
+  [SameObject] readonly attribute SVGAnimatedLength fy;
+  [SameObject] readonly attribute SVGAnimatedLength fr;
 };

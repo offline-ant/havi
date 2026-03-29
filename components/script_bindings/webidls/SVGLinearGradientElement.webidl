@@ -3,5 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 [Exposed=Window]
-interface SVGLinearGradientElement : SVGElement {
+interface SVGLinearGradientElement : SVGGradientElement {
+  [SameObject] readonly attribute SVGAnimatedLength x1;
+  [SameObject] readonly attribute SVGAnimatedLength y1;
+  [SameObject] readonly attribute SVGAnimatedLength x2;
+  [SameObject] readonly attribute SVGAnimatedLength y2;
 };

@@ -406,8 +406,24 @@ pub(crate) mod stream;
 pub(crate) use self::stream::*;
 pub(crate) mod submitevent;
 pub(crate) mod subtlecrypto;
+pub(crate) mod svganimatedenumeration;
+pub(crate) mod svganimatedlength;
+pub(crate) mod svganimatedlengthlist;
+pub(crate) mod svganimatednumber;
+pub(crate) mod svganimatednumberlist;
+pub(crate) mod svganimatedpreserveaspectratio;
+pub(crate) mod svganimatedrect;
+pub(crate) mod svganimatedstring;
+pub(crate) mod svganimatedtransformlist;
 pub(crate) mod svg;
 pub(crate) use self::svg::*;
+pub(crate) mod svglength;
+pub(crate) mod svglengthlist;
+pub(crate) mod svgnumber;
+pub(crate) mod svgnumberlist;
+pub(crate) mod svgpreserveaspectratio;
+pub(crate) mod svgtransform;
+pub(crate) mod svgtransformlist;
 #[cfg(feature = "testbinding")]
 mod testing;
 #[cfg(feature = "testbinding")]

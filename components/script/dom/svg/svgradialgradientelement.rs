@@ -3,43 +3,53 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use html5ever::{LocalName, Prefix};
+use html5ever::{LocalName, Prefix, local_name};
 use js::rust::HandleObject;
 
-use crate::dom::bindings::root::DomRoot;
+use crate::dom::bindings::codegen::Bindings::SVGRadialGradientElementBinding::SVGRadialGradientElementMethods;
+use crate::dom::bindings::inheritance::Castable;
+use crate::dom::bindings::reflector::DomGlobal;
+use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::document::Document;
 use crate::dom::node::Node;
-use crate::dom::svg::svgelement::SVGElement;
+use crate::dom::svg::svganimatedvalueobjects::SVGAnimatedLength;
+use crate::dom::svg::svggradientelement::SVGGradientElement;
 use crate::script_runtime::CanGc;
 
 #[dom_struct]
 pub(crate) struct SVGRadialGradientElement {
-    svgelement: SVGElement,
+    svggradientelement: SVGGradientElement,
+    cx: MutNullableDom<SVGAnimatedLength>,
+    cy: MutNullableDom<SVGAnimatedLength>,
+    r: MutNullableDom<SVGAnimatedLength>,
+    fx: MutNullableDom<SVGAnimatedLength>,
+    fy: MutNullableDom<SVGAnimatedLength>,
+    fr: MutNullableDom<SVGAnimatedLength>,
 }
 
 impl SVGRadialGradientElement {
-    fn new_inherited(
-        local_name: LocalName,
-        prefix: Option<Prefix>,
-        document: &Document,
-    ) -> SVGRadialGradientElement {
-        SVGRadialGradientElement {
-            svgelement: SVGElement::new_inherited(local_name, prefix, document),
+    fn new_inherited(local_name: LocalName, prefix: Option<Prefix>, document: &Document) -> Self {
+        Self {
+            svggradientelement: SVGGradientElement::new_inherited(local_name, prefix, document),
+            cx: Default::default(),
+            cy: Default::default(),
+            r: Default::default(),
+            fx: Default::default(),
+            fy: Default::default(),
+            fr: Default::default(),
         }
     }
 
-    pub(crate) fn new(
-        local_name: LocalName,
-        prefix: Option<Prefix>,
-        document: &Document,
-        proto: Option<HandleObject>,
-        can_gc: CanGc,
-    ) -> DomRoot<SVGRadialGradientElement> {
-        Node::reflect_node_with_proto(
-            Box::new(SVGRadialGradientElement::new_inherited(local_name, prefix, document)),
-            document,
-            proto,
-            can_gc,
-        )
+    pub(crate) fn new(local_name: LocalName, prefix: Option<Prefix>, document: &Document, proto: Option<HandleObject>, can_gc: CanGc) -> DomRoot<Self> {
+        Node::reflect_node_with_proto(Box::new(Self::new_inherited(local_name, prefix, document)), document, proto, can_gc)
     }
+}
+
+impl SVGRadialGradientElementMethods<crate::DomTypeHolder> for SVGRadialGradientElement {
+    fn Cx(&self) -> DomRoot<SVGAnimatedLength> { self.cx.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("cx"), CanGc::note())) }
+    fn Cy(&self) -> DomRoot<SVGAnimatedLength> { self.cy.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("cy"), CanGc::note())) }
+    fn R(&self) -> DomRoot<SVGAnimatedLength> { self.r.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("r"), CanGc::note())) }
+    fn Fx(&self) -> DomRoot<SVGAnimatedLength> { self.fx.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("fx"), CanGc::note())) }
+    fn Fy(&self) -> DomRoot<SVGAnimatedLength> { self.fy.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("fy"), CanGc::note())) }
+    fn Fr(&self) -> DomRoot<SVGAnimatedLength> { self.fr.or_init(|| SVGAnimatedLength::new(&self.global(), self.upcast(), local_name!("fr"), CanGc::note())) }
 }

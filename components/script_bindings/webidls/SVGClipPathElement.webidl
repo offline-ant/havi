@@ -3,5 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 [Exposed=Window]
-interface SVGClipPathElement : SVGGraphicsElement {
+interface SVGClipPathElement : SVGElement {
+  [SameObject] readonly attribute SVGAnimatedEnumeration clipPathUnits;
+  [SameObject] readonly attribute SVGAnimatedTransformList transform;
 };

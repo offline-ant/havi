@@ -5,41 +5,22 @@
 // https://svgwg.org/svg2-draft/struct.html#InterfaceSVGSVGElement
 [Exposed=Window]
 interface SVGSVGElement : SVGGraphicsElement {
+  [SameObject] readonly attribute SVGAnimatedLength x;
+  [SameObject] readonly attribute SVGAnimatedLength y;
+  [SameObject] readonly attribute SVGAnimatedLength width;
+  [SameObject] readonly attribute SVGAnimatedLength height;
 
-  //[SameObject] readonly attribute SVGAnimatedLength x;
-  //[SameObject] readonly attribute SVGAnimatedLength y;
-  //[SameObject] readonly attribute SVGAnimatedLength width;
-  //[SameObject] readonly attribute SVGAnimatedLength height;
+  [SameObject] readonly attribute DOMPoint currentTranslate;
 
-  //attribute float currentScale;
-  //[SameObject] readonly attribute DOMPointReadOnly currentTranslate;
+  SVGNumber createSVGNumber();
+  SVGLength createSVGLength();
+  DOMPoint createSVGPoint();
+  DOMMatrix createSVGMatrix();
+  DOMRect createSVGRect();
+  SVGTransform createSVGTransform();
+  SVGTransform createSVGTransformFromMatrix(optional DOMMatrix2DInit matrix = {});
 
-  //NodeList getIntersectionList(DOMRectReadOnly rect, SVGElement? referenceElement);
-  //NodeList getEnclosureList(DOMRectReadOnly rect, SVGElement? referenceElement);
-  //boolean checkIntersection(SVGElement element, DOMRectReadOnly rect);
-  //boolean checkEnclosure(SVGElement element, DOMRectReadOnly rect);
-
-  //void deselectAll();
-
-  //SVGNumber createSVGNumber();
-  //SVGLength createSVGLength();
-  //SVGAngle createSVGAngle();
-  //DOMPoint createSVGPoint();
-  //DOMMatrix createSVGMatrix();
-  //DOMRect createSVGRect();
-  //SVGTransform createSVGTransform();
-  //SVGTransform createSVGTransformFromMatrix(DOMMatrixReadOnly matrix);
-
-  //Element getElementById(DOMString elementId);
-
-  // Deprecated methods that have no effect when called,
-  // but which are kept for compatibility reasons.
-  //unsigned long suspendRedraw(unsigned long maxWaitMilliseconds);
-  //void unsuspendRedraw(unsigned long suspendHandleID);
-  //void unsuspendRedrawAll();
-  //void forceRedraw();
+  Element? getElementById(DOMString elementId);
 };
 
-//SVGSVGElement includes SVGFitToViewBox;
-//SVGSVGElement includes SVGZoomAndPan;
-//SVGSVGElement includes WindowEventHandlers;
+SVGSVGElement includes SVGFitToViewBox;
