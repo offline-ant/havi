@@ -9,17 +9,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use base::generic_channel::{GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use constellation_traits::{EmbedderToConstellationMessage, ScrollStateUpdate, WindowSizeType};
+use constellation_traits::{EmbedderToConstellationMessage, WindowSizeType};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
 use embedder_traits::{
     InputEventAndId, InputEventId, InputEventResult, ScreenshotCaptureError,
-    Scroll, ShutdownState, ViewportDetails, WebViewPoint, WebViewRect,
+    ShutdownState, ViewportDetails, WebViewRect,
 };
-use euclid::{Scale, Size2D};
+use euclid::{Point2D, Scale, Size2D};
 use image::RgbaImage;
 use ipc_channel::ipc;
-use log::{debug, warn};
+use log::debug;
 use smallvec::SmallVec;
 use paint_api::{ExternalImageIdRegistry, PaintMessage, WebViewTrait};
 use profile_traits::mem::{
@@ -34,7 +34,7 @@ use style_traits::CSSPixel;
 use webgpu::canvas_context::WebGpuExternalImageMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use webrender_api::units::{DevicePixel, DevicePoint, LayoutVector2D};
-use webrender_api::{ExternalScrollId, FontInstanceKey, FontKey, ImageKey};
+use webrender_api::{FontInstanceKey, FontKey, ImageKey};
 
 use crate::InitialPaintState;
 use crate::screenshot::ScreenshotTaker;
@@ -111,10 +111,6 @@ pub struct Paint {
     /// Keyed by `InputEventId` so we can match the response to the original event.
     pending_wheel_events: RefCell<PendingWheelEvents>,
 
-    /// Root scroll offset per webview. Updated when wheel events are processed
-    /// and sent to layout via `SetScrollStates`.
-    root_scroll_offsets: RefCell<HashMap<WebViewId, LayoutVector2D>>,
-
     /// Mapping of webview to its root pipeline, updated via `SetFrameTreeForWebView`.
     webview_pipelines: RefCell<HashMap<WebViewId, PipelineId>>,
 
@@ -125,10 +121,16 @@ pub struct Paint {
     pub(crate) image_source_store: paint_api::SharedImageSourceStore,
 }
 
-/// Tracks pending wheel events by InputEventId. The default scroll action
-/// is handled by the script thread; this set is only used to recognize
-/// wheel events in `notify_input_event_handled`.
-type PendingWheelEvents = FxHashSet<InputEventId>;
+#[derive(Clone, Copy)]
+struct PendingWheelEvent {
+    webview_id: WebViewId,
+    point: Point2D<f32, CSSPixel>,
+    delta: LayoutVector2D,
+}
+
+/// Tracks pending wheel events by InputEventId so paint can apply embedder-side
+/// default scrolling after DOM dispatch completes.
+type PendingWheelEvents = FxHashMap<InputEventId, PendingWheelEvent>;
 
 impl Paint {
     pub fn new(state: InitialPaintState) -> Rc<RefCell<Self>> {
@@ -165,7 +167,6 @@ impl Paint {
             #[cfg(feature = "webgpu")]
             webgpu_image_map: Default::default(),
             pending_wheel_events: Default::default(),
-            root_scroll_offsets: Default::default(),
             webview_pipelines: Default::default(),
             touch_handler: RefCell::new(TouchHandler::new()),
             image_source_store: paint_api::SharedImageSourceStore::new(),
@@ -244,7 +245,7 @@ impl Paint {
             PaintMessage::SetThrottled(..) => {},
             PaintMessage::PipelineExited(..) => {},
             PaintMessage::ScrollViewportByDelta(webview_id, delta) => {
-                self.apply_scroll_delta(webview_id, delta);
+                self.notify_scroll_default_action(webview_id, None, delta);
             },
             PaintMessage::UpdateEpoch { .. } => {},
             PaintMessage::GenerateFrame(painter_ids) => {
@@ -317,7 +318,6 @@ impl Paint {
         self.webviews.borrow_mut().remove(&webview_id);
         self.page_zooms.borrow_mut().remove(&webview_id);
         self.hidpi_scale_factors.borrow_mut().remove(&webview_id);
-        self.root_scroll_offsets.borrow_mut().remove(&webview_id);
         self.webview_pipelines.borrow_mut().remove(&webview_id);
         self.screenshot_taker.fail_webview(webview_id);
         // TODO(havi-render): Clean up webview state.
@@ -473,29 +473,38 @@ impl Paint {
         self.pending_frame_notifications.borrow_mut().drain().collect()
     }
 
-    pub fn notify_input_event(&self, _webview_id: WebViewId, event: InputEventAndId) {
-        if let embedder_traits::InputEvent::Wheel(_) = event.event {
-            self.pending_wheel_events.borrow_mut().insert(event.id);
+    pub fn notify_input_event(&self, webview_id: WebViewId, event: InputEventAndId) {
+        if let embedder_traits::InputEvent::Wheel(wheel_event) = event.event {
+            let dpp = self.device_pixels_per_page_pixel(webview_id);
+            let point = match wheel_event.point {
+                embedder_traits::WebViewPoint::Device(point) => point / dpp,
+                embedder_traits::WebViewPoint::Page(point) => point,
+            };
+            let line_height: f32 = 16.0;
+            let page_height: f32 = 800.0;
+            let delta = match wheel_event.delta.mode {
+                embedder_traits::WheelMode::DeltaPixel => LayoutVector2D::new(
+                    -wheel_event.delta.x as f32 / dpp.get(),
+                    -wheel_event.delta.y as f32 / dpp.get(),
+                ),
+                embedder_traits::WheelMode::DeltaLine => LayoutVector2D::new(
+                    -wheel_event.delta.x as f32 * line_height,
+                    -wheel_event.delta.y as f32 * line_height,
+                ),
+                embedder_traits::WheelMode::DeltaPage => LayoutVector2D::new(
+                    -wheel_event.delta.x as f32 * page_height,
+                    -wheel_event.delta.y as f32 * page_height,
+                ),
+            };
+            self.pending_wheel_events.borrow_mut().insert(
+                event.id,
+                PendingWheelEvent {
+                    webview_id,
+                    point,
+                    delta,
+                },
+            );
         }
-    }
-
-    pub fn notify_scroll_event(
-        &self,
-        webview_id: WebViewId,
-        scroll: Scroll,
-        _point: WebViewPoint,
-    ) {
-        let dpp = self.device_pixels_per_page_pixel(webview_id);
-        let layout_delta = match scroll {
-            Scroll::Delta(delta) => {
-                let device_delta = delta.as_device_vector(dpp);
-                // Convert device pixels to layout (CSS) pixels.
-                LayoutVector2D::new(device_delta.x / dpp.get(), device_delta.y / dpp.get())
-            },
-            // Start/End require content size which we don't track yet.
-            Scroll::Start | Scroll::End => return,
-        };
-        self.apply_scroll_delta(webview_id, layout_delta);
     }
 
     pub fn pinch_zoom(
@@ -542,46 +551,32 @@ impl Paint {
 
     pub fn notify_input_event_handled(
         &self,
-        _webview_id: WebViewId,
+        webview_id: WebViewId,
         input_event_id: InputEventId,
-        _result: InputEventResult,
+        result: InputEventResult,
     ) {
-        // Remove pending wheel event if any. The default scroll action for
-        // wheel events is now handled inline by the script thread (see
-        // do_wheel_scroll in document_event_handler.rs), so paint only needs
-        // to clean up the pending entry.
-        self.pending_wheel_events.borrow_mut().remove(&input_event_id);
-    }
-
-    /// Apply a scroll delta to the root scroll node of the given webview and
-    /// send the updated offset to layout via `SetScrollStates`.
-    fn apply_scroll_delta(&self, webview_id: WebViewId, delta: LayoutVector2D) {
-        let Some(&pipeline_id) = self.webview_pipelines.borrow().get(&webview_id) else {
-            warn!("apply_scroll_delta: no pipeline for webview {:?}", webview_id);
+        let pending = self.pending_wheel_events.borrow_mut().remove(&input_event_id);
+        let Some(pending) = pending else {
             return;
         };
+        if result.contains(InputEventResult::DefaultPrevented) {
+            return;
+        }
+        if pending.webview_id != webview_id {
+            return;
+        }
+        self.notify_scroll_default_action(webview_id, Some(pending.point), pending.delta);
+    }
 
-        let mut offsets = self.root_scroll_offsets.borrow_mut();
-        let offset = offsets.entry(webview_id).or_insert_with(LayoutVector2D::zero);
-
-        // Apply delta. Clamp to >= 0 (layout will clamp the upper bound when
-        // it knows content size). Negative offset is meaningless.
-        offset.x = (offset.x + delta.x).max(0.0);
-        offset.y = (offset.y + delta.y).max(0.0);
-
-        let root_scroll_id = ExternalScrollId(0, pipeline_id.into());
-        let mut scroll_offsets = FxHashMap::default();
-        scroll_offsets.insert(root_scroll_id, *offset);
-
-        let _ = self.embedder_to_constellation_sender.send(
-            EmbedderToConstellationMessage::SetScrollStates(
-                pipeline_id,
-                ScrollStateUpdate {
-                    scrolled_node: root_scroll_id,
-                    offsets: scroll_offsets,
-                },
-            ),
-        );
+    pub(crate) fn notify_scroll_default_action(
+        &self,
+        webview_id: WebViewId,
+        point: Option<Point2D<f32, CSSPixel>>,
+        delta: LayoutVector2D,
+    ) {
+        if let Some(webview) = self.webviews.borrow().get(&webview_id) {
+            webview.notify_scroll_default_action(point, delta);
+        }
     }
 
     fn handle_generate_image_key(

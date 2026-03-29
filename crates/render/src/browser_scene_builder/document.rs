@@ -3,6 +3,7 @@ use makepad_browser_scene::{
     MpDocument, MpScene, MpScrollFrame, MpSpatialKind, MpSpatialNode, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
+use webrender_api::{ExternalScrollId, PipelineId};
 
 use super::geometry::physical_rect_to_rect;
 use super::traversal::build_paint_list;
@@ -15,6 +16,7 @@ pub(crate) fn try_build_browser_document(
     generation: &published::FragmentArenaGeneration,
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
+    root_pipeline_id: PipelineId,
     registry: &mut ResourceRegistry,
     previous_document: Option<&MpDocument>,
 ) -> Result<BuiltBrowserDocument, String> {
@@ -23,6 +25,7 @@ pub(crate) fn try_build_browser_document(
         generation,
         scroll_state,
         viewport_size,
+        root_pipeline_id,
         registry,
         &mut DirectBuilderIds::default(),
         previous_document,
@@ -34,6 +37,7 @@ pub(super) fn build_browser_document(
     generation: &published::FragmentArenaGeneration,
     scroll_state: &crate::ScrollState,
     viewport_size: DVec2,
+    root_pipeline_id: PipelineId,
     registry: &mut ResourceRegistry,
     ids: &mut DirectBuilderIds,
     previous_document: Option<&MpDocument>,
@@ -48,7 +52,7 @@ pub(super) fn build_browser_document(
 
     // Create root scroll frame — same mechanism as per-element scroll frames.
     // Key 0 matches ExternalScrollId(0, pipeline).0 used by layout for root scroll.
-    let root_scroll_node_id: usize = 0;
+    let root_scroll_node_id = ExternalScrollId(0, root_pipeline_id);
     let content_size = physical_rect_to_rect(generation.scrollable_overflow).size;
     let root_scroll_offset = scroll_state
         .get(&root_scroll_node_id)
@@ -84,6 +88,7 @@ pub(super) fn build_browser_document(
         &mut state,
         ids,
         BuildContext {
+            pipeline_id: root_pipeline_id,
             spatial_id: root_scroll_spatial_id,
             clip_chain_id: root_clip_chain_id,
             effect_id: None,

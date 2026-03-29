@@ -227,9 +227,9 @@ impl App {
 
                     // ----- Scroll / wheel events -----
                     ServoWebViewAction::Scroll { abs, scroll } => {
-                        // Send all wheel events to Servo. Servo's script thread
-                        // handles DOM events and default scroll actions (including
-                        // nested scroll containers) via perform_a_scroll.
+                        // Send all wheel events to Servo for DOM dispatch. If the
+                        // event is not prevented, paint routes the default action
+                        // back into BrowserScrollController after script handling.
                         let pt = self.point_to_device(cx, *abs);
                         let delta = servo::WheelDelta {
                             x: scroll.x * self.dpi_factor,

@@ -6,6 +6,7 @@ use makepad_browser_scene::{
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use style::values::computed::ClipRectOrAuto;
+use webrender_api::ExternalScrollId;
 
 use super::effects::lower_box_effect_node;
 use super::geometry::{map_box_rect_to_spatial_space, physical_rect_to_rect};
@@ -146,7 +147,7 @@ pub(super) fn build_box_fragment(
         );
     }
 
-    if let Some(scroll_offset) = scroll_offset_for_box(bf, scroll_state) {
+    if let Some(scroll_offset) = scroll_offset_for_box(bf, scroll_state, build_cx.pipeline_id) {
         child_cx.spatial_id = scene.push_spatial_node(MpSpatialNode {
             parent: Some(box_cx.spatial_id),
             kind: MpSpatialKind::ScrollFrame(MpScrollFrame {
@@ -166,7 +167,10 @@ pub(super) fn build_box_fragment(
             }),
         });
         if let Some(node_id) = bf.base.tag.map(|tag| tag.node.0) {
-            scroll_nodes.spatial_nodes.insert(node_id, child_cx.spatial_id);
+            scroll_nodes.spatial_nodes.insert(
+                ExternalScrollId(node_id as u64, build_cx.pipeline_id),
+                child_cx.spatial_id,
+            );
         }
         uses_box_local_basis = true;
     }
@@ -194,6 +198,7 @@ pub(super) fn build_box_fragment(
 fn scroll_offset_for_box(
     bf: &published::BoxFragment,
     scroll_state: &crate::ScrollState,
+    pipeline_id: webrender_api::PipelineId,
 ) -> Option<DVec2> {
     if !needs_overflow_clip(bf) {
         return None;
@@ -201,7 +206,7 @@ fn scroll_offset_for_box(
     Some(
         bf.base
             .tag
-            .and_then(|tag| scroll_state.get(&tag.node.0).copied())
+            .and_then(|tag| scroll_state.get(&ExternalScrollId(tag.node.0 as u64, pipeline_id)).copied())
             .unwrap_or_else(|| dvec2(0.0, 0.0)),
     )
 }

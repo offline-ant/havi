@@ -52,6 +52,9 @@ image = { workspace = true }
 libc = "0.2"
 webrender_api = { workspace = true }
 media = { path = "../../components/media/media-thread" }
+rustc-hash = { workspace = true }
+app_units = { workspace = true }
+stylo = { workspace = true }
 
 [build-dependencies]
 cc = "1"

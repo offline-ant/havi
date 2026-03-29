@@ -3044,6 +3044,7 @@ dependencies = [
  "stylo",
  "stylo_traits",
  "ttf-parser 0.24.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "webrender_api",
 ]
 
 [[package]]
@@ -3065,6 +3066,7 @@ name = "havishell"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app_units",
  "arboard",
  "base",
  "cc",
@@ -3087,7 +3089,9 @@ dependencies = [
  "media",
  "paint_api",
  "pylon",
+ "rustc-hash 2.1.1",
  "serde_json",
+ "stylo",
  "tokio",
  "url",
  "webrender_api",

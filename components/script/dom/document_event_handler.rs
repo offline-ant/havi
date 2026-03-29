@@ -47,7 +47,6 @@ use script_traits::ConstellationInputEvent;
 use servo_config::pref;
 use style_traits::CSSPixel;
 use webrender_api::ExternalScrollId;
-use webrender_api::units::LayoutVector2D;
 
 use crate::dom::bindings::cell::DomRefCell;
 use crate::dom::bindings::inheritance::{ElementTypeId, HTMLElementTypeId, NodeTypeId};
@@ -1526,69 +1525,7 @@ impl DocumentEventHandler {
         dom_event.fire(node.upcast(), can_gc);
 
         let result: InputEventResult = dom_event.flags().into();
-
-        // Default scroll action for wheel events (unless script called preventDefault).
-        if !result.contains(InputEventResult::DefaultPrevented) {
-            self.do_wheel_scroll(&el, &event);
-        }
-
         result
-    }
-
-    /// Default scroll action for wheel events: find the nearest scrollable
-    /// ancestor of the target element and scroll it.
-    fn do_wheel_scroll(&self, target: &Element, event: &EmbedderWheelEvent) {
-        use embedder_traits::WheelMode;
-
-        let line_height: f32 = 16.0; // CSS px
-        let page_height: f32 = 800.0; // CSS px fallback
-
-        // Convert wheel delta to CSS px scroll delta.
-        // Wheel delta sign: positive = reveal content above (scroll up),
-        // so negate to get offset change (positive = scroll down).
-        let dpr = self.window.device_pixel_ratio().get();
-        let (dx, dy) = match event.delta.mode {
-            WheelMode::DeltaPixel => (
-                -event.delta.x as f32 / dpr,
-                -event.delta.y as f32 / dpr,
-            ),
-            WheelMode::DeltaLine => (
-                -event.delta.x as f32 * line_height,
-                -event.delta.y as f32 * line_height,
-            ),
-            WheelMode::DeltaPage => (
-                -event.delta.x as f32 * page_height,
-                -event.delta.y as f32 * page_height,
-            ),
-        };
-
-        let document = self.window.Document();
-
-        // Find the nearest scrollable container from the target element upward.
-        let mut scrolling_box = target
-            .scrolling_box(ScrollContainerQueryFlags::Inclusive)
-            .unwrap_or_else(|| {
-                document.viewport_scrolling_box(ScrollContainerQueryFlags::Inclusive)
-            });
-
-        // Walk up until we find a container that can actually scroll in the
-        // direction of the delta.
-        loop {
-            let can_scroll_x = dx.abs() > 0.001 && scrolling_box.can_keyboard_scroll_in_axis(ScrollingBoxAxis::X);
-            let can_scroll_y = dy.abs() > 0.001 && scrolling_box.can_keyboard_scroll_in_axis(ScrollingBoxAxis::Y);
-            if can_scroll_x || can_scroll_y || scrolling_box.is_viewport() {
-                break;
-            }
-            scrolling_box = scrolling_box.parent().unwrap_or_else(|| {
-                document.viewport_scrolling_box(ScrollContainerQueryFlags::Inclusive)
-            });
-        }
-
-        let current = scrolling_box.scroll_position();
-        scrolling_box.scroll_to(
-            LayoutVector2D::new(current.x + dx, current.y + dy),
-            ScrollBehavior::Auto,
-        );
     }
 
     #[cfg(feature = "gamepad")]

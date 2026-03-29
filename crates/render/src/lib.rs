@@ -39,6 +39,7 @@ use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpBrowserRenderer, MpImageKey, MpImageSource};
 use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
+use webrender_api::{ExternalScrollId, PipelineId};
 
 pub use fragment_source::CachedFragmentSource;
 pub use shaders::{
@@ -51,7 +52,7 @@ pub struct SelectionHighlight {
     pub rects: Vec<Rect>,
 }
 
-pub type ScrollState = HashMap<usize, DVec2>;
+pub type ScrollState = HashMap<ExternalScrollId, DVec2>;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderPathCounters {
@@ -115,7 +116,7 @@ fn hash_scroll_state(scroll_state: &ScrollState) -> u64 {
     use std::hash::{Hash, Hasher};
 
     let mut entries: Vec<_> = scroll_state.iter().collect();
-    entries.sort_by_key(|(id, _)| *id);
+    entries.sort_by_key(|(id, _)| (id.1.0, id.1.1, id.0));
     let mut hasher = DefaultHasher::new();
     for (id, offset) in entries {
         id.hash(&mut hasher);
@@ -246,6 +247,7 @@ fn paint_selection_overlay(cx: &mut Cx2d, draw_bg: &mut DrawColor, selection: Op
 
 pub struct RenderFragmentsClippedParams<'a> {
     pub webview_id: WebViewId,
+    pub root_pipeline_id: PipelineId,
     pub cached_fragments: &'a CachedFragmentSource,
     pub host_rect: Rect,
     pub draw_bg: &'a mut DrawColor,
@@ -258,6 +260,7 @@ pub struct RenderFragmentsClippedParams<'a> {
 pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedParams<'_>) {
     let RenderFragmentsClippedParams {
         webview_id,
+        root_pipeline_id,
         cached_fragments: _cached_fragments,
         host_rect,
         draw_bg,
@@ -447,6 +450,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         fragments.as_ref(),
         scroll_state,
         viewport_size,
+        root_pipeline_id,
         frame_draw_lists
             .browser_renderer
             .as_mut()

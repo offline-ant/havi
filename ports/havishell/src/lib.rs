@@ -1,5 +1,6 @@
 pub use makepad_widgets;
 pub mod app;
+pub mod browser_scroll;
 pub mod input;
 pub mod protocols;
 pub mod pylon_host;

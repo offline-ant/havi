@@ -14,11 +14,13 @@ use makepad_browser_scene::{
     MpSceneId,
 };
 use makepad_widgets::DVec2;
+use webrender_api::{ExternalScrollId, PipelineId};
 
 pub(crate) use document::try_build_browser_document;
 
 #[derive(Clone, Copy)]
 pub(super) struct BuildContext {
+    pub pipeline_id: PipelineId,
     pub spatial_id: makepad_browser_scene::MpSpatialId,
     pub clip_chain_id: makepad_browser_scene::MpClipChainId,
     pub effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -52,7 +54,7 @@ pub(super) struct BuildState {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BrowserDocumentScrollNodes {
-    pub spatial_nodes: HashMap<usize, makepad_browser_scene::MpSpatialId>,
+    pub spatial_nodes: HashMap<ExternalScrollId, makepad_browser_scene::MpSpatialId>,
     pub child_documents: HashMap<MpPipelineId, BrowserDocumentScrollNodes>,
 }
 

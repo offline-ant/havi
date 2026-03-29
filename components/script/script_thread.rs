@@ -3254,6 +3254,7 @@ impl ScriptThread {
 
         layout_api::remove_shared_layout_fragment_tree_for_pipeline(pipeline_id);
         layout_api::remove_shared_scroll_state_for_pipeline(pipeline_id);
+        layout_api::remove_shared_committed_scroll_offsets_for_pipeline(pipeline_id);
 
         self.devtools_state.notify_pipeline_exited(pipeline_id);
 

@@ -97,6 +97,12 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         update: Arc<Mutex<Option<servo::accesskit::TreeUpdate>>>,
     },
+    /// Default browser scrolling should run in the embedder.
+    DefaultScrollAction {
+        webview_id: WebViewId,
+        point: Option<DVec2>,
+        delta: DVec2,
+    },
     /// Camera request from script.
     CameraRequest(Arc<Mutex<Option<CameraRequest>>>),
     /// Shadow mode transition completed for a tab.
@@ -181,6 +187,16 @@ impl std::fmt::Debug for MakepadServoAction {
             Self::AccessibilityUpdate { webview_id, .. } => f
                 .debug_struct("AccessibilityUpdate")
                 .field("webview_id", webview_id)
+                .finish(),
+            Self::DefaultScrollAction {
+                webview_id,
+                point,
+                delta,
+            } => f
+                .debug_struct("DefaultScrollAction")
+                .field("webview_id", webview_id)
+                .field("point", point)
+                .field("delta", delta)
                 .finish(),
             Self::CameraRequest(_) => write!(f, "CameraRequest"),
             Self::ShadowModeSet {
@@ -411,6 +427,20 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         Cx::post_action(MakepadServoAction::WebViewClosed {
             webview_id: webview.id(),
         });
+    }
+
+    fn notify_scroll_default_action(
+        &self,
+        webview: servo::WebView,
+        point: Option<euclid::Point2D<f32, servo::CSSPixel>>,
+        delta: webrender_api::units::LayoutVector2D,
+    ) {
+        Cx::post_action(MakepadServoAction::DefaultScrollAction {
+            webview_id: webview.id(),
+            point: point.map(|point| dvec2(point.x as f64, point.y as f64)),
+            delta: dvec2(delta.x as f64, delta.y as f64),
+        });
+        SignalToUI::set_ui_signal();
     }
 
     fn notify_accessibility_tree_update(

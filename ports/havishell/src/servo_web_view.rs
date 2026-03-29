@@ -1,3 +1,4 @@
+use crate::browser_scroll::{BrowserScrollCommit, BrowserScrollController};
 use makepad_widgets::draw_list_2d::{DrawList2d, DrawListExt};
 use makepad_widgets::*;
 use std::collections::hash_map::DefaultHasher;
@@ -104,7 +105,7 @@ static BROWSER_SURFACE_CACHE_STATS_ENABLED: LazyLock<bool> = LazyLock::new(|| {
 
 fn hash_browser_scroll_state(scroll_state: &havi_render::ScrollState) -> u64 {
     let mut entries: Vec<_> = scroll_state.iter().collect();
-    entries.sort_by_key(|(id, _)| *id);
+    entries.sort_by_key(|(id, _)| (id.1.0, id.1.1, id.0));
     let mut hasher = DefaultHasher::new();
     for (id, offset) in entries {
         id.hash(&mut hasher);
@@ -288,10 +289,12 @@ pub struct ServoWebView {
     #[rust]
     cached_fragment_source: Option<havi_render::CachedFragmentSource>,
 
-    /// Shared scroll state from layout. When set, scroll offset and content
-    /// height are read from here instead of local estimates.
+    /// Shared shell scroll snapshot from layout. Used only for DOM-visible
+    /// state bootstrap and shell UI diagnostics.
     #[rust]
-    shared_scroll_state: Option<layout_api::SharedScrollState>,
+    shell_scroll_state: Option<layout_api::SharedScrollState>,
+    #[rust]
+    browser_scroll_controller: BrowserScrollController,
 
     /// Shared document selection rects from script thread.
     #[rust]
@@ -476,17 +479,13 @@ impl Widget for ServoWebView {
             // The visual content is drawn with draw_abs, so it does not depend
             // on the inner turtle remaining open after the hit-test area is
             // established.
-            let scroll_state = self
-                .shared_scroll_state
-                .as_ref()
-                .map(|s| s.get())
-                .unwrap_or_default();
-
-            let render_scroll: havi_render::ScrollState = scroll_state
-                .element_offsets
-                .iter()
-                .map(|(&id, &(x, y))| (id, dvec2(x, y)))
-                .collect();
+            self.browser_scroll_controller.sync_from_layout(
+                self.shared_layout_fragments
+                    .as_ref()
+                    .expect("shared layout fragments"),
+                self.shell_scroll_state.as_ref(),
+            );
+            let render_scroll = self.browser_scroll_controller.render_scroll_state();
 
             let image_sources = self
                 .image_source_store
@@ -528,6 +527,11 @@ impl Widget for ServoWebView {
             };
 
             let webview_id = self.shared_webview_id.expect("shared webview id");
+            let Some(root_pipeline_id) = self.browser_scroll_controller.root_pipeline_id() else {
+                self.capture_surface_requested = false;
+                self.draw_scroll_overlay(cx, &rect);
+                return DrawStep::done();
+            };
             let cached_fragments = havi_render::CachedFragmentSource::new(frag_ptr);
 
             let capture_requested = self.capture_surface_requested;
@@ -554,6 +558,7 @@ impl Widget for ServoWebView {
                     cx,
                     rect,
                     webview_id,
+                    root_pipeline_id,
                     &cached_fragments,
                     &render_scroll,
                     selection_highlight.as_ref(),
@@ -570,6 +575,7 @@ impl Widget for ServoWebView {
                     cx,
                     havi_render::RenderFragmentsClippedParams {
                         webview_id,
+                        root_pipeline_id,
                         cached_fragments: &cached_fragments,
                         host_rect: rect,
                         draw_bg: &mut self.draw_content_bg,
@@ -600,6 +606,7 @@ impl ServoWebView {
         cx: &mut Cx2d,
         rect: Rect,
         webview_id: base::id::WebViewId,
+        root_pipeline_id: webrender_api::PipelineId,
         cached_fragments: &havi_render::CachedFragmentSource,
         render_scroll: &havi_render::ScrollState,
         selection_highlight: Option<&havi_render::SelectionHighlight>,
@@ -618,6 +625,7 @@ impl ServoWebView {
             cx,
             havi_render::RenderFragmentsClippedParams {
                 webview_id,
+                root_pipeline_id,
                 cached_fragments,
                 host_rect: Rect {
                     pos: dvec2(0.0, 0.0),
@@ -637,7 +645,7 @@ impl ServoWebView {
 
     fn draw_scroll_overlay(&mut self, cx: &mut Cx2d, rect: &Rect) {
         let scroll_state = self
-            .shared_scroll_state
+            .shell_scroll_state
             .as_ref()
             .map(|s| s.get())
             .unwrap_or_default();
@@ -681,12 +689,12 @@ impl ServoWebView {
 // ---------------------------------------------------------------------------
 
 impl ServoWebViewRef {
-    /// Set the shared fragment tree, scroll state, and image store for direct
-    /// Makepad rendering.
-    pub fn set_shared_layout_fragments(
+    /// Set the shared browser state for direct Makepad rendering.
+    pub fn set_shared_browser_state(
         &self,
         cx: &mut Cx,
         webview_id: base::id::WebViewId,
+        root_pipeline_id: Option<webrender_api::PipelineId>,
         shared: layout_api::SharedLayoutFragmentTree,
         scroll_state: layout_api::SharedScrollState,
         selection: layout_api::SharedDocumentSelection,
@@ -694,8 +702,9 @@ impl ServoWebViewRef {
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_webview_id = Some(webview_id);
+            inner.browser_scroll_controller.attach_webview(webview_id, root_pipeline_id);
             inner.shared_layout_fragments = Some(shared);
-            inner.shared_scroll_state = Some(scroll_state);
+            inner.shell_scroll_state = Some(scroll_state);
             inner.shared_selection = Some(selection);
             inner.image_source_store = Some(image_sources);
             // NOTE: Do NOT clear frame_draw_lists. Makepad's DrawPass pool does
@@ -707,6 +716,30 @@ impl ServoWebViewRef {
             // when the rendered content key actually changes.
             inner.redraw(cx);
         }
+    }
+
+    pub fn apply_default_scroll_action(
+        &self,
+        cx: &mut Cx,
+        point: Option<DVec2>,
+        delta: DVec2,
+    ) -> Option<BrowserScrollCommit> {
+        let Some(mut inner) = self.borrow_mut() else {
+            return None;
+        };
+        let shared_fragments = inner.shared_layout_fragments.clone()?;
+        let shell_scroll_state = inner.shell_scroll_state.clone();
+        inner
+            .browser_scroll_controller
+            .sync_from_layout(&shared_fragments, shell_scroll_state.as_ref());
+        let commit = match point {
+            Some(point) => inner
+                .browser_scroll_controller
+                .apply_scroll_delta_at_point(point, delta)?,
+            None => inner.browser_scroll_controller.apply_root_scroll_delta(delta)?,
+        };
+        inner.redraw(cx);
+        Some(commit)
     }
 
     pub fn prepare_capture_source(&self, cx: &mut Cx) -> Result<CaptureSource, String> {

@@ -672,22 +672,8 @@ impl Layout for LayoutThread {
             }
         }
 
-        // Update shared scroll state for the embedding layer.
-        let offsets = self.scroll_offsets.borrow();
-        if let Some(&offset) = offsets.get(&root_scroll_id) {
-            let viewport_size = self.stylist.device().au_viewport_size();
-            let viewport_h = viewport_size.height.to_f64_px();
-            let content_h = self.content_height();
-            let element_offsets = self.build_element_offsets_from(&offsets, root_scroll_id);
-            let shared = layout_api::ScrollStateData {
-                scroll_y: offset.y as f64,
-                content_height: content_h,
-                viewport_height: viewport_h,
-                element_offsets,
-            };
-            self.shared_scroll_state.set(shared.clone());
-            self.shared_scroll_state_by_pipeline.set(shared);
-        }
+        self.publish_shared_committed_scroll_offsets();
+        self.publish_shared_scroll_state();
     }
 
     fn scroll_offset(&self, id: ExternalScrollId) -> Option<LayoutVector2D> {
@@ -806,24 +792,6 @@ impl LayoutThread {
             .unwrap_or(0.0)
     }
 
-    /// Build element_offsets map from all non-root scroll offsets.
-    fn build_element_offsets(&self) -> FxHashMap<usize, (f64, f64)> {
-        let offsets = self.scroll_offsets.borrow();
-        let root_scroll_id = self.id.root_scroll_id();
-        self.build_element_offsets_from(&offsets, root_scroll_id)
-    }
-
-    fn build_element_offsets_from(
-        &self,
-        offsets: &FxHashMap<ExternalScrollId, LayoutVector2D>,
-        _root_scroll_id: ExternalScrollId,
-    ) -> FxHashMap<usize, (f64, f64)> {
-        offsets
-            .iter()
-            .map(|(id, v)| (id.0 as usize, (v.x as f64, v.y as f64)))
-            .collect()
-    }
-
     fn clamp_root_scroll_offset(&self, offset: LayoutVector2D) -> LayoutVector2D {
         let viewport_size = self.stylist.device().au_viewport_size();
         let viewport_h = viewport_size.height.to_f32_px();
@@ -839,15 +807,18 @@ impl LayoutThread {
         let viewport_size = self.stylist.device().au_viewport_size();
         let viewport_h = viewport_size.height.to_f64_px();
         let content_h = self.content_height();
-        let element_offsets = self.build_element_offsets_from(&offsets, root_scroll_id);
         let shared = layout_api::ScrollStateData {
             scroll_y,
             content_height: content_h,
             viewport_height: viewport_h,
-            element_offsets,
         };
         self.shared_scroll_state.set(shared.clone());
         self.shared_scroll_state_by_pipeline.set(shared);
+    }
+
+    fn publish_shared_committed_scroll_offsets(&self) {
+        layout_api::shared_committed_scroll_offsets_for_pipeline(self.id)
+            .set(self.scroll_offsets.borrow().clone());
     }
 
     fn new(config: LayoutConfig) -> LayoutThread {
@@ -1447,30 +1418,9 @@ impl LayoutThread {
         }
 
         self.scroll_offsets.borrow_mut().insert(external_scroll_id, clamped);
-
-        // Publish to shared state for the render crate.
+        self.publish_shared_committed_scroll_offsets();
         if external_scroll_id == root_scroll_id {
-            let viewport_size = self.stylist.device().au_viewport_size();
-            let viewport_h = viewport_size.height.to_f64_px();
-            let content_h = self.content_height();
-            // Rebuild full state including element offsets.
-            let element_offsets = self.build_element_offsets();
-            let shared = layout_api::ScrollStateData {
-                scroll_y: clamped.y as f64,
-                content_height: content_h,
-                viewport_height: viewport_h,
-                element_offsets,
-            };
-            self.shared_scroll_state.set(shared.clone());
-            self.shared_scroll_state_by_pipeline.set(shared);
-        } else {
-            // Non-root: update just this element's offset.
-            // The ExternalScrollId inner value is the OpaqueNode id for FragmentBody.
-            let node_id = external_scroll_id.0 as usize;
-            self.shared_scroll_state
-                .set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
-            self.shared_scroll_state_by_pipeline
-                .set_element_offset(node_id, clamped.x as f64, clamped.y as f64);
+            self.publish_shared_scroll_state();
         }
 
         true

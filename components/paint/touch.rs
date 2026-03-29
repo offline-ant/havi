@@ -3,15 +3,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 //! Touch-to-scroll conversion. Converts touch start/move/end sequences into
-//! scroll events that flow through Servo's normal scroll path (same as mouse
-//! wheel). No Makepad-side scroll state is maintained — all scroll state lives
-//! in Servo's layout.
+//! browser scroll deltas routed back to the embedder's BrowserScrollController.
+//! TouchHandler recognizes gestures only. It does not own browser scroll state.
 
 use std::collections::HashMap;
 
 use base::id::WebViewId;
-use embedder_traits::{Scroll, TouchEvent, TouchEventType, WebViewPoint, WebViewVector};
-use webrender_api::units::DeviceVector2D;
+use embedder_traits::{TouchEvent, TouchEventType, WebViewPoint};
+use euclid::Point2D;
+use webrender_api::units::{DeviceVector2D, LayoutVector2D};
 
 use crate::paint::Paint;
 
@@ -37,9 +37,9 @@ impl TouchHandler {
         }
     }
 
-    /// Process a touch event. Returns a scroll event (delta + point) if this
-    /// touch should produce scrolling.
-    pub fn on_touch_event(&mut self, event: TouchEvent) -> Option<(Scroll, WebViewPoint)> {
+    /// Process a touch event. Returns a point + scroll delta when this touch
+    /// should produce browser scrolling.
+    pub fn on_touch_event(&mut self, event: TouchEvent) -> Option<(WebViewPoint, DeviceVector2D)> {
         let id = event.touch_id.0;
         match event.event_type {
             TouchEventType::Down => {
@@ -61,10 +61,10 @@ impl TouchHandler {
 
                 // Scroll delta is inverted: dragging down means content moves
                 // up, so the scroll offset decreases (negative delta).
-                let scroll = Scroll::Delta(WebViewVector::Device(DeviceVector2D::new(
-                    -delta.x, -delta.y,
-                )));
-                Some((scroll, event.point))
+                Some((
+                    event.point,
+                    DeviceVector2D::new(-delta.x, -delta.y),
+                ))
             },
             TouchEventType::Up | TouchEventType::Cancel => {
                 self.active.remove(&id);
@@ -92,10 +92,20 @@ fn point_delta(from: WebViewPoint, to: WebViewPoint) -> DeviceVector2D {
 }
 
 impl Paint {
-    /// Handle a touch event, converting it to scroll if appropriate.
+    /// Handle a touch event, converting it to browser scroll if appropriate.
     pub fn on_touch_event(&self, webview_id: WebViewId, event: TouchEvent) {
-        if let Some((scroll, point)) = self.touch_handler.borrow_mut().on_touch_event(event) {
-            self.notify_scroll_event(webview_id, scroll, point);
+        if let Some((point, delta)) = self.touch_handler.borrow_mut().on_touch_event(event) {
+            let dpp = self.device_pixels_per_page_pixel(webview_id);
+            let point = match point {
+                WebViewPoint::Device(point) => point / dpp,
+                WebViewPoint::Page(point) => point,
+            };
+            let delta = LayoutVector2D::new(delta.x / dpp.get(), delta.y / dpp.get());
+            self.notify_scroll_default_action(
+                webview_id,
+                Some(Point2D::new(point.x, point.y)),
+                delta,
+            );
         }
     }
 }

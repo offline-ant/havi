@@ -149,6 +149,26 @@ CPU tile expansion loops.
 
 ## Runtime model
 
+## Scroll ownership
+
+Browser scroll now has one structural definition, one sampled runtime state,
+and one commit path.
+
+- `paint_api::scroll_tree::ScrollTree` is the structural scroll graph.
+  It carries immutable scroll-node structure only: ids, parent chains,
+  content rects, clip rects, sensitivities, and sticky metadata.
+- `BrowserScrollController` in
+  `havi/ports/havishell/src/browser_scroll.rs` owns sampled scroll offsets.
+  It performs hit testing, ancestor handoff, and clamping for default browser
+  scrolling.
+- `SharedScrollState` is not render truth. HAVI uses it only as a minimal shell
+  snapshot for the scroll indicator and as a one-time bootstrap fallback for the
+  root committed scroll offset.
+- The renderer consumes sampled offsets through
+  `BrowserScrollController::render_scroll_state()` and applies them through the
+  retained `BrowserDocumentScrollNodes` mapping.
+- Committed offsets flow back to layout/script through `SetScrollStates`.
+
 ## Semantic document
 
 `MpDocument` stays the retained browser unit:
@@ -292,8 +312,9 @@ generic browser-scene texture ownership.
 
 ## 1. Havishell gathers widget state
 
-`ServoWebView::draw_walk()` computes the widget rect, scroll state, and
-selection overlays, then calls:
+`ServoWebView::draw_walk()` computes the widget rect, syncs the structural
+scroll graph into `BrowserScrollController`, samples browser scroll state, and
+builds selection overlays, then calls:
 
 - `havi_render::render_fragments_clipped()`
 

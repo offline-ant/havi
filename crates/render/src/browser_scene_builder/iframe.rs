@@ -76,6 +76,7 @@ pub(super) fn build_iframe_fragment(
         child_generation.as_ref(),
         scroll_state,
         content_bounds.size,
+        iframe.pipeline_id.into(),
         registry,
         ids,
         previous_document.and_then(|document| document.child_document(pipeline_id)),

@@ -19,10 +19,12 @@ use embedder_traits::{
     TraversalId, WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
 };
 use dpi::PhysicalSize;
+use euclid::Point2D;
+use style_traits::CSSPixel;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use tokio::sync::oneshot::Sender;
 use servo_url::BrowserUrl;
-use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, LayoutVector2D};
 
 use crate::proxies::ConstellationProxy;
 use crate::responders::{IpcResponder, OneshotSender, ServoErrorSender};
@@ -937,6 +939,14 @@ pub trait WebViewDelegate {
     /// by Servo. This allows post-procesing of input events, such as chaining up unhandled events
     /// to parent UI elements.
     fn notify_input_event_handled(&self, _webview: WebView, _: InputEventId, _: InputEventResult) {}
+    /// Servo determined that a scroll default action should run in the embedder.
+    fn notify_scroll_default_action(
+        &self,
+        _webview: WebView,
+        _point: Option<Point2D<f32, CSSPixel>>,
+        _delta: LayoutVector2D,
+    ) {
+    }
     /// A pipeline in the webview panicked. First string is the reason, second one is the backtrace.
     fn notify_crashed(&self, _webview: WebView, _reason: String, _backtrace: Option<String>) {}
     /// Notifies the embedder about media session events

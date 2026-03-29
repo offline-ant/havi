@@ -14,16 +14,18 @@ use dpi::PhysicalSize;
 use embedder_traits::{
     ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
     InputEvent, InputEventAndId, InputEventId, JSValue, JavaScriptEvaluationError, LoadStatus,
-    MediaSessionActionType, NewWebViewDetails, ScreenGeometry, ScreenshotCaptureError, Scroll,
-    Theme, TraversalId, ViewportDetails, WebViewPoint, WebViewRect,
+    MediaSessionActionType, NewWebViewDetails, ScreenGeometry, ScreenshotCaptureError, Theme,
+    TraversalId, ViewportDetails, WebViewRect,
 };
-use euclid::{Scale, Size2D};
+use euclid::{Point2D, Scale, Size2D};
 use image::RgbaImage;
 use paint_api::WebViewTrait;
 use servo_geometry::DeviceIndependentPixel;
 use servo_url::BrowserUrl;
 use style_traits::CSSPixel;
-use webrender_api::units::{DeviceIntRect, DevicePixel, DevicePoint, DeviceSize};
+use webrender_api::units::{
+    DeviceIntRect, DevicePixel, DevicePoint, DeviceSize, LayoutVector2D,
+};
 
 use crate::clipboard_delegate::{ClipboardDelegate, DefaultClipboardDelegate};
 #[cfg(feature = "gamepad")]
@@ -459,21 +461,12 @@ impl WebView {
         traversal_id
     }
 
-    /// Ask the [`WebView`] to scroll web content. Note that positive scroll offsets reveal more
-    /// content on the bottom and right of the page.
-    pub fn notify_scroll_event(&self, scroll: Scroll, point: WebViewPoint) {
-        self.inner()
-            .servo
-            .paint()
-            .notify_scroll_event(self.id(), scroll, point);
-    }
-
     pub fn notify_input_event(&self, event: InputEvent) -> InputEventId {
         let event: InputEventAndId = event.into();
         let event_id = event.id;
 
-        // Notify paint so it can track pending wheel events for default
-        // scroll handling in notify_input_event_handled.
+        // Notify paint so it can track pending wheel events for embedder-side
+        // default scroll handling after DOM dispatch completes.
         self.inner()
             .servo
             .paint()
@@ -488,6 +481,22 @@ impl WebView {
         );
 
         event_id
+    }
+
+    pub fn set_scroll_states(
+        &self,
+        scrolled_node: webrender_api::ExternalScrollId,
+        offsets: rustc_hash::FxHashMap<webrender_api::ExternalScrollId, LayoutVector2D>,
+    ) {
+        self.inner().servo.constellation_proxy().send(
+            EmbedderToConstellationMessage::SetScrollStates(
+                scrolled_node.1.into(),
+                constellation_traits::ScrollStateUpdate {
+                    scrolled_node,
+                    offsets,
+                },
+            ),
+        );
     }
 
     pub fn notify_media_session_action_event(&self, event: MediaSessionActionType) {
@@ -717,6 +726,18 @@ impl WebViewTrait for ServoRendererWebView {
     fn set_animating(&self, new_value: bool) {
         if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
             webview.set_animating(new_value);
+        }
+    }
+
+    fn notify_scroll_default_action(
+        &self,
+        point: Option<Point2D<f32, style_traits::CSSPixel>>,
+        delta: LayoutVector2D,
+    ) {
+        if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
+            webview
+                .delegate()
+                .notify_scroll_default_action(webview, point, delta);
         }
     }
 }

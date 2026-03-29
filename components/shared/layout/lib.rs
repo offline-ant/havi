@@ -98,9 +98,9 @@ impl SharedLayoutFragmentTree {
     }
 }
 
-/// Thread-safe container for sharing scroll state between layout and the embedding.
-/// Layout writes scroll offsets here after `set_scroll_offsets_from_renderer`;
-/// the embedding reads them for rendering offset and scroll indicator.
+/// Thread-safe container for sharing diagnostic root scroll state between layout and the embedding.
+/// Layout writes root scroll position and extents here after scroll commits;
+/// the embedding reads them for shell UI such as the scroll indicator.
 #[derive(Clone, Default)]
 pub struct SharedScrollState(Arc<RwLock<ScrollStateData>>);
 
@@ -113,9 +113,6 @@ pub struct ScrollStateData {
     pub content_height: f64,
     /// Viewport height in CSS pixels.
     pub viewport_height: f64,
-    /// Per-element scroll offsets, keyed by OpaqueNode id.
-    /// Layout writes these; the render crate reads them.
-    pub element_offsets: FxHashMap<usize, (f64, f64)>,
 }
 
 impl SharedScrollState {
@@ -126,10 +123,21 @@ impl SharedScrollState {
     pub fn get(&self) -> ScrollStateData {
         self.0.read().clone()
     }
+}
 
-    /// Update a single element's scroll offset without replacing the entire state.
-    pub fn set_element_offset(&self, node_id: usize, x: f64, y: f64) {
-        self.0.write().element_offsets.insert(node_id, (x, y));
+/// Thread-safe container for committed per-node scroll offsets keyed by ExternalScrollId.
+/// Layout updates this from committed scroll state. The embedder uses it only to
+/// bootstrap or rebase browser scroll sampling, never as the live render authority.
+#[derive(Clone, Default)]
+pub struct SharedCommittedScrollOffsets(Arc<RwLock<FxHashMap<ExternalScrollId, LayoutVector2D>>>);
+
+impl SharedCommittedScrollOffsets {
+    pub fn set(&self, offsets: FxHashMap<ExternalScrollId, LayoutVector2D>) {
+        *self.0.write() = offsets;
+    }
+
+    pub fn get(&self) -> FxHashMap<ExternalScrollId, LayoutVector2D> {
+        self.0.read().clone()
     }
 }
 
@@ -188,6 +196,11 @@ static PIPELINE_SCROLL_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<PipelineId, SharedScrollState>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
 
+/// Global registry of committed scroll offsets, keyed by PipelineId.
+static PIPELINE_COMMITTED_SCROLL_OFFSETS_REGISTRY: std::sync::LazyLock<
+    std::sync::Mutex<FxHashMap<PipelineId, SharedCommittedScrollOffsets>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(FxHashMap::default()));
+
 /// Global registry of document selection states, keyed by WebViewId.
 static SELECTION_REGISTRY: std::sync::LazyLock<
     std::sync::Mutex<FxHashMap<WebViewId, SharedDocumentSelection>>,
@@ -233,6 +246,16 @@ pub fn shared_scroll_state_for_pipeline(id: PipelineId) -> SharedScrollState {
         .clone()
 }
 
+/// Get or create committed scroll offsets for a given PipelineId.
+pub fn shared_committed_scroll_offsets_for_pipeline(id: PipelineId) -> SharedCommittedScrollOffsets {
+    PIPELINE_COMMITTED_SCROLL_OFFSETS_REGISTRY
+        .lock()
+        .unwrap()
+        .entry(id)
+        .or_default()
+        .clone()
+}
+
 /// Get or create a SharedDocumentSelection for a given WebViewId.
 pub fn shared_document_selection_for(id: WebViewId) -> SharedDocumentSelection {
     SELECTION_REGISTRY
@@ -261,6 +284,14 @@ pub fn remove_shared_scroll_state(id: WebViewId) {
 /// Remove a SharedScrollState when a pipeline is destroyed.
 pub fn remove_shared_scroll_state_for_pipeline(id: PipelineId) {
     PIPELINE_SCROLL_REGISTRY.lock().unwrap().remove(&id);
+}
+
+/// Remove committed scroll offsets when a pipeline is destroyed.
+pub fn remove_shared_committed_scroll_offsets_for_pipeline(id: PipelineId) {
+    PIPELINE_COMMITTED_SCROLL_OFFSETS_REGISTRY
+        .lock()
+        .unwrap()
+        .remove(&id);
 }
 
 pub trait GenericLayoutDataTrait: Any + MallocSizeOfTrait {

@@ -1108,22 +1108,23 @@ impl App {
         layout_api::shared_layout_fragment_tree_for(tab.webview_id)
     }
 
-    pub(super) fn current_render_scroll_state(&self) -> layout_api::SharedScrollState {
+    pub(super) fn current_shell_scroll_state(&self) -> layout_api::SharedScrollState {
         let tab = &self.tabs[self.active_tab_idx];
         layout_api::shared_scroll_state_for(tab.webview_id)
     }
 
-    pub(super) fn attach_active_render_state(&self, cx: &mut Cx) {
+    pub(super) fn attach_active_browser_state(&self, cx: &mut Cx) {
         let Some(tab) = self.tabs.get(self.active_tab_idx) else {
             return;
         };
         let shared = self.current_render_fragments();
-        let scroll = self.current_render_scroll_state();
+        let scroll = self.current_shell_scroll_state();
         let selection = layout_api::shared_document_selection_for(tab.webview_id);
         let image_sources = self.servo.as_ref().unwrap().image_source_store();
-        self.ui.servo_web_view(cx, ids!(web_view)).set_shared_layout_fragments(
+        self.ui.servo_web_view(cx, ids!(web_view)).set_shared_browser_state(
             cx,
             tab.webview_id,
+            tab.root_pipeline_id,
             shared,
             scroll,
             selection,

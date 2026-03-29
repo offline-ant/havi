@@ -22,3 +22,4 @@ euclid = "0.22"
 style_traits = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", package = "stylo_traits" }
 layout_api = { path = "../../components/shared/layout" }
 base = { path = "../../components/shared/base" }
+webrender_api = { workspace = true }

@@ -626,7 +626,7 @@ impl MatchEvent for App {
                         self.tabs[idx].root_pipeline_id = Some(pipeline_id);
                         if idx == self.active_tab_idx {
                             self.active_root_pipeline_id = Some(pipeline_id);
-                            self.attach_active_render_state(cx);
+                            self.attach_active_browser_state(cx);
                             self.request_active_page_redraw(cx);
                             self.maybe_start_screenshot_capture(cx);
                         }
@@ -642,6 +642,53 @@ impl MatchEvent for App {
                     {
                         let makepad_cursor = servo_cursor_to_makepad(cursor);
                         cx.set_cursor(makepad_cursor);
+                    }
+                },
+                Some(MakepadServoAction::DefaultScrollAction {
+                    webview_id,
+                    point,
+                    delta,
+                }) => {
+                    let webview_id = *webview_id;
+                    if self
+                        .tabs
+                        .get(self.active_tab_idx)
+                        .map_or(false, |t| t.webview_id == webview_id)
+                    {
+                        let webview = self.ui.servo_web_view(cx, ids!(web_view));
+                        let commit = match point {
+                            Some(point) => webview.apply_default_scroll_action(cx, Some(*point), *delta),
+                            None => webview.apply_default_scroll_action(cx, None, *delta),
+                        };
+                        if let Some(commit) = commit {
+                            let mut offsets_by_pipeline = rustc_hash::FxHashMap::<
+                                webrender_api::PipelineId,
+                                rustc_hash::FxHashMap<
+                                    webrender_api::ExternalScrollId,
+                                    webrender_api::units::LayoutVector2D,
+                                >,
+                            >::default();
+                            for (&scroll_id, &offset) in &commit.offsets {
+                                offsets_by_pipeline
+                                    .entry(scroll_id.1)
+                                    .or_default()
+                                    .insert(scroll_id, offset);
+                            }
+                            if let Some(idx) = self.tab_index_for_webview(webview_id) {
+                                for (pipeline_id, offsets) in offsets_by_pipeline {
+                                    let scrolled_node = if pipeline_id == commit.scrolled_node.1 {
+                                        commit.scrolled_node
+                                    } else {
+                                        webrender_api::ExternalScrollId(0, pipeline_id)
+                                    };
+                                    self.tabs[idx]
+                                        .webview
+                                        .set_scroll_states(scrolled_node, offsets);
+                                }
+                            }
+                            webview.show_scroll_indicator(cx);
+                            self.request_active_page_redraw(cx);
+                        }
                     }
                 },
                 Some(MakepadServoAction::WebViewClosed { webview_id }) => {
@@ -750,7 +797,7 @@ impl MatchEvent for App {
                             self.tabs[idx].webview.load(parsed);
                             self.tabs[idx].url = parsed_url.clone();
                             if idx == self.active_tab_idx {
-                                self.attach_active_render_state(cx);
+                                self.attach_active_browser_state(cx);
                                 self.focus_active_webview(cx);
                                 self.set_url_input_sanitized(cx, &parsed_url);
                                 self.request_active_page_redraw(cx);

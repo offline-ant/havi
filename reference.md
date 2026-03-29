@@ -169,6 +169,10 @@ Current behavior:
 - browser text uses an explicit prepare phase before draw; the compositor owns one global glyph residency cache and explicit per-page GPU textures for browser text
 - prepared browser text batches are per-draw snapshots only; they are invalid after any glyph-cache generation or page-generation change
 - layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`
+- `paint_api::scroll_tree::ScrollTree` is the immutable structural scroll graph for browser content
+- `BrowserScrollController` in havishell owns sampled scroll offsets, hit testing, ancestor handoff, and clamping for default scrolling
+- `SharedScrollState` is only a shell snapshot for diagnostics/indicator UI and controller bootstrap; it is not the live render scroll authority
+- committed offsets flow back to layout/script through `SetScrollStates`
 - unchanged fragment trees with unchanged scroll state reuse the last retained browser document
 - `HAVI_BROWSER_SURFACE_CACHE=0` disables the browser-owned retained output-surface cache; by default HAVI promotes stable page content into an offscreen texture and reuses it on unchanged frames
 

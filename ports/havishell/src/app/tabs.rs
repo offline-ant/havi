@@ -309,7 +309,7 @@ impl App {
         };
 
         self.activate_tab_webview(self.active_tab_idx);
-        self.attach_active_render_state(cx);
+        self.attach_active_browser_state(cx);
         self.focus_active_webview(cx);
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
@@ -333,7 +333,7 @@ impl App {
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
-        self.attach_active_render_state(cx);
+        self.attach_active_browser_state(cx);
         self.focus_active_webview(cx);
         self.ime_visible = false;
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -383,7 +383,7 @@ impl App {
             cx.hide_clipboard_actions();
             cx.hide_selection_handles();
         }
-        self.attach_active_render_state(cx);
+        self.attach_active_browser_state(cx);
         self.focus_active_webview(cx);
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
@@ -408,7 +408,7 @@ impl App {
             cx.hide_clipboard_actions();
             cx.hide_selection_handles();
         }
-        self.attach_active_render_state(cx);
+        self.attach_active_browser_state(cx);
         self.focus_active_webview(cx);
         let url = self.tabs[idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
