@@ -55,7 +55,7 @@ impl PylonStatus {
             .to_string();
 
         // Non-service top-level keys.
-        const SKIP: &[&str] = &["mode", "mounts", "user"];
+        const SKIP: &[&str] = &["mode", "mounts", "user", "lokid", "unlokid"];
 
         let mut services = Vec::new();
         if let Some(obj) = data.as_object() {
@@ -116,6 +116,9 @@ impl PylonStatus {
         pid: Option<u32>,
         port: Option<u16>,
     ) {
+        if matches!(service, "lokid" | "unlokid") {
+            return;
+        }
         if let Some(svc) = self.services.iter_mut().find(|s| s.name == service) {
             svc.state = new_state.to_string();
             svc.pid = pid;
@@ -150,7 +153,7 @@ fn compute_health(services: &[PylonServiceInfo]) -> PylonHealth {
 const DOT_GREEN: [f32; 4] = [0.267, 0.733, 0.267, 1.0]; // #44bb44
 const DOT_ORANGE: [f32; 4] = [0.867, 0.533, 0.0, 1.0]; // #dd8800
 const DOT_RED: [f32; 4] = [0.867, 0.2, 0.2, 1.0]; // #dd3333
-const MENU_WIDTH: f64 = 200.0;
+const MENU_WIDTH: f64 = 220.0;
 
 fn indicator_for_health(health: PylonHealth) -> ([f32; 4], PylonIndicatorShape) {
     match health {
@@ -235,61 +238,17 @@ impl App {
             .label(cx, ids!(pylon_menu_services))
             .set_text(cx, &svc_text);
 
-        // Determine which action buttons to show.
-        let hpprd_running = self
-            .pylon_status
-            .services
-            .iter()
-            .any(|s| s.name == "hpprd" && (s.state == "running" || s.state == "external"));
-        let nfs_running = self
-            .pylon_status
-            .services
-            .iter()
-            .any(|s| s.name == "hppr-nfs" && s.state == "running");
-        let has_mount = !self.pylon_status.mounts.is_empty();
-        let is_local = self.pylon_status.mode == "local";
-
-        // hpprd start/stop only in local mode
-        self.ui
-            .button(cx, ids!(pylon_hpprd_start_btn))
-            .set_visible(cx, is_local && !hpprd_running);
-        self.ui
-            .button(cx, ids!(pylon_hpprd_stop_btn))
-            .set_visible(cx, is_local && hpprd_running);
-
-        self.ui
-            .button(cx, ids!(pylon_nfs_start_btn))
-            .set_visible(cx, !nfs_running);
-        self.ui
-            .button(cx, ids!(pylon_nfs_stop_btn))
-            .set_visible(cx, nfs_running);
-
-        self.ui
-            .button(cx, ids!(pylon_mount_btn))
-            .set_visible(cx, !has_mount);
-        self.ui
-            .button(cx, ids!(pylon_unmount_btn))
-            .set_visible(cx, has_mount);
-
-        // Position the menu below the pylon_dot, right-aligned.
+        // Position the menu below the pylon_dot.
         let dot_rect = self.ui.view(cx, ids!(pylon_dot)).area().rect(cx);
         let content_rect = self.ui.view(cx, ids!(content_area)).area().rect(cx);
 
-        let content_right = content_rect.pos.x + content_rect.size.x;
-        let mut menu_x = (content_right - MENU_WIDTH - 4.0).max(content_rect.pos.x);
+        let max_x = (content_rect.pos.x + content_rect.size.x - MENU_WIDTH).max(content_rect.pos.x);
+        let menu_x = dot_rect.pos.x.clamp(content_rect.pos.x, max_x);
         let menu_y = if self.menu_at_bottom {
             dot_rect.pos.y - 10.0
         } else {
             dot_rect.pos.y + dot_rect.size.y + 4.0
         };
-
-        // Fallback if dot_rect is available, prefer aligning to the dot's right edge.
-        if dot_rect.size.x > 0.0 {
-            let right_aligned = dot_rect.pos.x + dot_rect.size.x - MENU_WIDTH;
-            if right_aligned >= content_rect.pos.x {
-                menu_x = right_aligned;
-            }
-        }
 
         let menu = self.ui.view(cx, ids!(pylon_menu));
         menu.set_visible(cx, true);
@@ -315,19 +274,6 @@ impl App {
         }
     }
 
-    /// Run a pylon command (start/stop/mount/unmount). Updates status after.
-    pub(super) fn pylon_command(
-        &mut self,
-        cx: &mut Cx,
-        cmd: &str,
-        service: Option<&str>,
-        args: Option<&serde_json::Map<String, serde_json::Value>>,
-    ) {
-        if let Some(ref mut client) = self.pylon_command_client {
-            let _ = client.command(cmd, service, args);
-        }
-        self.refresh_pylon_status(cx);
-    }
 }
 
 #[cfg(test)]

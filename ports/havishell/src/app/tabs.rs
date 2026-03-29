@@ -1,16 +1,16 @@
 use euclid::Scale;
-use makepad_widgets::turtle::RowAlign;
 use makepad_widgets::*;
 use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use webrender_api::PipelineId;
 use std::rc::Rc;
 
-use super::{App, HaviWebViewDelegate, shadow_button_text, watch_button_text};
+use super::{
+    dock_button_text, shadow_button_text, watch_button_text, App, HaviWebViewDelegate,
+};
 
 const TAB_MIN_WIDTH: f64 = 120.0;
 const TAB_MAX_WIDTH: f64 = 220.0;
 const TAB_SCROLL_STEP: f64 = 180.0;
-const TOOLBAR_WRAP_THRESHOLD: f64 = 860.0;
 
 /// Default start page URL.
 pub(super) const HOME_URL: &str = "hppr://u/web/index.html";
@@ -71,6 +71,9 @@ impl App {
         self.ui
             .button(cx, ids!(shadow_btn))
             .set_text(cx, shadow_button_text(self.active_shadow_enabled()));
+        self.ui
+            .button(cx, ids!(dock_btn))
+            .set_text(cx, dock_button_text(self.menu_at_bottom));
     }
 
     /// Synchronize the tab bar UI: rebuild children from tab state.
@@ -138,19 +141,6 @@ impl App {
             .view(cx, ids!(tab_bar))
             .set_scroll_pos(cx, dvec2(self.tab_scroll_x, 0.0));
 
-        if let Some(mut toolbar) = self.ui.view(cx, ids!(toolbar)).borrow_mut() {
-            toolbar.layout.flow = if wrap_width < TOOLBAR_WRAP_THRESHOLD {
-                Flow::Right {
-                    row_align: RowAlign::Top,
-                    wrap: true,
-                }
-            } else {
-                Flow::Right {
-                    row_align: RowAlign::Top,
-                    wrap: false,
-                }
-            };
-        }
 
         let mut new_children: Vec<(LiveId, WidgetRef)> = Vec::new();
 

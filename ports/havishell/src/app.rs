@@ -28,6 +28,7 @@ mod context_menu;
 mod delegate;
 mod input_handling;
 mod navigation;
+mod overflow_menu;
 mod pylon_menu;
 mod runtime;
 mod screenshot;
@@ -48,6 +49,7 @@ script_mod! {
     use mod.widgets.HaviTabBar
     use mod.widgets.HaviToolbar
     use mod.widgets.HaviContextMenu
+    use mod.widgets.HaviOverflowMenu
     use mod.widgets.HaviPylonMenu
     use mod.widgets.HaviSplash
 
@@ -71,14 +73,26 @@ fn settings_to_wire(settings: havi_protocols::watch::WatchSettings) -> String {
 
 fn watch_button_text(scope: havi_protocols::watch::WatchScope) -> &'static str {
     match scope {
-        havi_protocols::watch::WatchScope::None => "👁️",
-        havi_protocols::watch::WatchScope::Page => "🔔",
-        havi_protocols::watch::WatchScope::App => "⚡",
+        havi_protocols::watch::WatchScope::None => "Watch: Off",
+        havi_protocols::watch::WatchScope::Page => "Watch: Page",
+        havi_protocols::watch::WatchScope::App => "Watch: App",
     }
 }
 
 fn shadow_button_text(enabled: bool) -> &'static str {
-    if enabled { "S:On" } else { "S:Off" }
+    if enabled {
+        "Shadow: On"
+    } else {
+        "Shadow: Off"
+    }
+}
+
+fn dock_button_text(menu_at_bottom: bool) -> &'static str {
+    if menu_at_bottom {
+        "Move controls to top"
+    } else {
+        "Move controls to bottom"
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -876,8 +890,12 @@ pub struct App {
     #[rust]
     pylon_menu_open: bool,
 
-    /// Second pylon TCP connection for sending commands (start/stop/mount).
-    /// The first connection is consumed by `subscribe()` for event streaming.
+    /// Whether the advanced overflow menu is open.
+    #[rust]
+    overflow_menu_open: bool,
+
+    /// Dedicated pylon TCP connection used for shell status refresh.
+    /// The event stream connection is consumed by `subscribe()`.
     #[rust]
     pylon_command_client: Option<havi_protocols::pylon::PylonClient>,
 

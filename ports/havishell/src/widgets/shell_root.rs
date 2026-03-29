@@ -151,179 +151,10 @@ script_mod! {
         draw_bg.color: #xf5f5f5
         show_bg: true
 
-        back_btn := Button{ text: "◀" }
-        forward_btn := Button{ text: "▶" }
-        reload_btn := Button{ text: "🔄" }
-
-        nav_control := View{
-            width: Fill height: Fit
-            flow: Right
-            spacing: 4
-            show_child_controls: false
-            on_control: {
-                get: |arg| self.url_input.text()
-                set: |arg| {
-                    self.url_input.set_text(arg)
-                    self.url_input.text()
-                }
-                focus: |arg| {
-                    self.url_input.focus()
-                    ""
-                }
-                go: |arg| {
-                    if arg != "" {
-                        self.url_input.set_text(arg)
-                    }
-                    self.go_btn.on_click()
-                    self.url_input.text()
-                }
-                edit: |arg| {
-                    if arg != "" {
-                        self.url_input.set_text(arg)
-                    }
-                    self.edit_btn.on_click()
-                    self.url_input.text()
-                }
-            }
-
-            url_input := TextInput{
-                width: Fill height: Fit
-                empty_text: "Enter URC..."
-                draw_text +: {
-                    color: #x111111
-                    color_hover: uniform(#x111111)
-                    color_focus: uniform(#x111111)
-                    color_empty: uniform(#x777777)
-                    color_empty_hover: uniform(#x777777)
-                    color_empty_focus: uniform(#x555555)
-                }
-                draw_bg +: {
-                    color: #xffffff
-                    color_hover: uniform(#xffffff)
-                    color_focus: uniform(#xffffff)
-                    border_color: uniform(#xcccccc)
-                    border_color_hover: uniform(#xbbbbbb)
-                    border_color_focus: uniform(#xaaaaaa)
-                }
-            }
-
-            go_btn := Button{ text: "🚀" }
-            edit_btn := Button{ text: "✏️" }
-        }
-        watch_control := View{
-            width: Fit height: Fit
-            show_child_controls: false
-            on_control: {
-                get: |arg| {
-                    let text = self.watch_btn.text()
-                    if text == "🔔" {
-                        "page"
-                    }
-                    else if text == "⚡" {
-                        "app"
-                    }
-                    else {
-                        "none"
-                    }
-                }
-                next: |arg| {
-                    self.watch_btn.on_click()
-                    ""
-                }
-                set: |arg| {
-                    let text = self.watch_btn.text()
-                    if arg == "page" || arg == "notify" || arg == "auto" {
-                        if text == "👁️" { self.watch_btn.on_click() }
-                        else if text == "⚡" {
-                            self.watch_btn.on_click()
-                            self.watch_btn.on_click()
-                        }
-                    }
-                    else if arg == "app" || arg == "tree" || arg == "dev" {
-                        if text == "👁️" {
-                            self.watch_btn.on_click()
-                            self.watch_btn.on_click()
-                        }
-                        else if text == "🔔" { self.watch_btn.on_click() }
-                    }
-                    else if arg == "none" || arg == "off" {
-                        if text == "🔔" {
-                            self.watch_btn.on_click()
-                            self.watch_btn.on_click()
-                        }
-                        else if text == "⚡" { self.watch_btn.on_click() }
-                    }
-                    arg
-                }
-            }
-
-            watch_btn := Button{ text: "👁️" }
-        }
-        shadow_control := View{
-            width: Fit height: Fit
-            show_child_controls: false
-            on_control: {
-                get: |arg| {
-                    if self.shadow_btn.text() == "S:On" { "on" } else { "off" }
-                }
-                enter: |arg| {
-                    if self.shadow_btn.text() != "S:On" { self.shadow_btn.on_click() }
-                    "on"
-                }
-                exit: |arg| {
-                    if self.shadow_btn.text() == "S:On" { self.shadow_btn.on_click() }
-                    "off"
-                }
-                set: |arg| {
-                    if (arg == "on" || arg == "enter") && self.shadow_btn.text() != "S:On" {
-                        self.shadow_btn.on_click()
-                    }
-                    else if (arg == "off" || arg == "exit") && self.shadow_btn.text() == "S:On" {
-                        self.shadow_btn.on_click()
-                    }
-                    arg
-                }
-            }
-
-            shadow_btn := Button{ text: "S:Off" }
-        }
-        share_btn := Button{ text: "🔗" }
-        home_btn := Button{ text: "🏠" }
-        dock_control := View{
-            width: Fit height: Fit
-            show_child_controls: false
-            on_control: {
-                get: |arg| {
-                    if self.dock_btn.text() == "🔽" {
-                        "bottom"
-                    }
-                    else {
-                        "top"
-                    }
-                }
-                toggle: |arg| {
-                    self.dock_btn.on_click()
-                    ""
-                }
-                set: |arg| {
-                    let text = self.dock_btn.text()
-                    if arg == "bottom" && text != "🔽" {
-                        self.dock_btn.on_click()
-                    }
-                    else if arg == "top" && text != "🔼" {
-                        self.dock_btn.on_click()
-                    }
-                    arg
-                }
-            }
-
-            dock_btn := Button{ text: "↕️" }
-        }
-
         pylon_dot := View{
             cursor: MouseCursor.Hand
             width: 16 height: 16
-            margin: Inset{left: 4 right: 0 top: 0 bottom: 0}
+            margin: Inset{left: 0 right: 4 top: 0 bottom: 0}
             flow: Overlay
 
             pylon_dot_circle := View{
@@ -394,6 +225,80 @@ script_mod! {
                 }
             }
         }
+
+        back_btn := Button{ text: "◀" }
+        forward_btn := Button{ text: "▶" }
+
+        nav_control := View{
+            width: Fill height: Fit
+            flow: Right
+            spacing: 4
+            show_child_controls: false
+            on_control: {
+                get: |arg| self.url_input.text()
+                set: |arg| {
+                    self.url_input.set_text(arg)
+                    self.url_input.text()
+                }
+                focus: |arg| {
+                    self.url_input.focus()
+                    ""
+                }
+                go: |arg| {
+                    if arg != "" {
+                        self.url_input.set_text(arg)
+                    }
+                    self.nav_go_btn.on_click()
+                    self.url_input.text()
+                }
+                edit: |arg| {
+                    if arg != "" {
+                        self.url_input.set_text(arg)
+                    }
+                    self.nav_edit_btn.on_click()
+                    self.url_input.text()
+                }
+            }
+
+            url_input := TextInput{
+                width: Fill height: Fit
+                empty_text: "Enter URC..."
+                draw_text +: {
+                    color: #x111111
+                    color_hover: uniform(#x111111)
+                    color_focus: uniform(#x111111)
+                    color_empty: uniform(#x777777)
+                    color_empty_hover: uniform(#x777777)
+                    color_empty_focus: uniform(#x555555)
+                }
+                draw_bg +: {
+                    color: #xffffff
+                    color_hover: uniform(#xffffff)
+                    color_focus: uniform(#xffffff)
+                    border_color: uniform(#xcccccc)
+                    border_color_hover: uniform(#xbbbbbb)
+                    border_color_focus: uniform(#xaaaaaa)
+                }
+            }
+
+            nav_go_btn := Button{
+                text: ""
+                width: 0 height: 0
+                margin: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                draw_bg +: { pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) } }
+            }
+            nav_edit_btn := Button{
+                text: ""
+                width: 0 height: 0
+                margin: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
+                draw_bg +: { pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) } }
+            }
+        }
+
+        reload_btn := Button{ text: "🔄" }
+        overflow_btn := Button{ text: "⋯" }
     }
 
     mod.widgets.HaviContextMenu = View {
@@ -444,7 +349,7 @@ script_mod! {
     mod.widgets.HaviPylonMenu = View {
         visible: false
         abs_pos: vec2(-1000.0, -1000.0)
-        width: 200 height: Fit
+        width: 220 height: Fit
         flow: Down
         padding: Inset{left: 6 right: 6 top: 4 bottom: 4}
         spacing: 1
@@ -478,69 +383,9 @@ script_mod! {
             margin: Inset{left: 0 right: 0 top: 0 bottom: 2}
         }
 
-        pylon_hpprd_start_btn := Button{
-            visible: false
-            text: "Start hpprd"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_hpprd_stop_btn := Button{
-            visible: false
-            text: "Stop hpprd"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_nfs_start_btn := Button{
-            visible: false
-            text: "Start NFS"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_nfs_stop_btn := Button{
-            visible: false
-            text: "Stop NFS"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_mount_btn := Button{
-            visible: false
-            text: "Mount"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_unmount_btn := Button{
-            visible: false
-            text: "Unmount"
-            width: Fill height: 22
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        pylon_services_btn := Button{
-            text: "Services page"
-            width: Fill height: 22
+        pylon_manage_btn := Button{
+            text: "Manage services"
+            width: Fill height: 24
             padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
             margin: Inset{left: 0 right: 0 top: 2 bottom: 0}
             draw_text.color: #x111111
@@ -548,13 +393,216 @@ script_mod! {
             draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
                 pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
         }
-        pylon_shutdown_btn := Button{
-            text: "Shutdown"
-            width: Fill height: 22
+    }
+
+    mod.widgets.HaviOverflowMenu = View {
+        visible: false
+        abs_pos: vec2(-1000.0, -1000.0)
+        width: 220 height: Fit
+        flow: Down
+        padding: Inset{left: 6 right: 6 top: 4 bottom: 4}
+        spacing: 1
+        show_bg: true
+        draw_bg +: {
+            color: uniform(#xffffff)
+            border_color: uniform(#xcccccc)
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                sdf.fill(self.color)
+                sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                sdf.stroke(self.border_color, 1.0)
+                return sdf.result
+            }
+        }
+
+        share_btn := Button{
+            text: "Copy share link"
+            width: Fill height: 24
             padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #xcc3333
+            draw_text.color: #x111111
             draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xfce8e8)
+            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+        }
+        home_btn := Button{
+            text: "Open home"
+            width: Fill height: 24
+            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+            draw_text.color: #x111111
+            draw_text.text_style.font_size: 10.0
+            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+        }
+        edit_btn := Button{
+            text: "Edit page"
+            width: Fill height: 24
+            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+            draw_text.color: #x111111
+            draw_text.text_style.font_size: 10.0
+            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+        }
+        sep_primary := View{
+            width: Fill height: 7
+            flow: Overlay
+            sep_line := View{
+                width: Fill
+                height: 1
+                margin: Inset{left: 4 right: 4 top: 3 bottom: 3}
+                show_bg: true
+                draw_bg.color: #xe3e3e3
+            }
+        }
+        watch_control := View{
+            width: Fill height: Fit
+            show_child_controls: false
+            on_control: {
+                get: |arg| {
+                    let text = self.watch_btn.text()
+                    if text == "Watch: Page" {
+                        "page"
+                    }
+                    else if text == "Watch: App" {
+                        "app"
+                    }
+                    else {
+                        "none"
+                    }
+                }
+                next: |arg| {
+                    self.watch_btn.on_click()
+                    ""
+                }
+                set: |arg| {
+                    let text = self.watch_btn.text()
+                    if arg == "page" || arg == "notify" || arg == "auto" {
+                        if text == "Watch: Off" { self.watch_btn.on_click() }
+                        else if text == "Watch: App" {
+                            self.watch_btn.on_click()
+                            self.watch_btn.on_click()
+                        }
+                    }
+                    else if arg == "app" || arg == "tree" || arg == "dev" {
+                        if text == "Watch: Off" {
+                            self.watch_btn.on_click()
+                            self.watch_btn.on_click()
+                        }
+                        else if text == "Watch: Page" { self.watch_btn.on_click() }
+                    }
+                    else if arg == "none" || arg == "off" {
+                        if text == "Watch: Page" {
+                            self.watch_btn.on_click()
+                            self.watch_btn.on_click()
+                        }
+                        else if text == "Watch: App" { self.watch_btn.on_click() }
+                    }
+                    arg
+                }
+            }
+
+            watch_btn := Button{
+                text: "Watch: Off"
+                width: Fill height: 24
+                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+                draw_text.color: #x111111
+                draw_text.text_style.font_size: 10.0
+                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+            }
+        }
+        shadow_control := View{
+            width: Fill height: Fit
+            show_child_controls: false
+            on_control: {
+                get: |arg| {
+                    if self.shadow_btn.text() == "Shadow: On" { "on" } else { "off" }
+                }
+                enter: |arg| {
+                    if self.shadow_btn.text() != "Shadow: On" { self.shadow_btn.on_click() }
+                    "on"
+                }
+                exit: |arg| {
+                    if self.shadow_btn.text() == "Shadow: On" { self.shadow_btn.on_click() }
+                    "off"
+                }
+                set: |arg| {
+                    if (arg == "on" || arg == "enter") && self.shadow_btn.text() != "Shadow: On" {
+                        self.shadow_btn.on_click()
+                    }
+                    else if (arg == "off" || arg == "exit") && self.shadow_btn.text() == "Shadow: On" {
+                        self.shadow_btn.on_click()
+                    }
+                    arg
+                }
+            }
+
+            shadow_btn := Button{
+                text: "Shadow: Off"
+                width: Fill height: 24
+                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+                draw_text.color: #x111111
+                draw_text.text_style.font_size: 10.0
+                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+            }
+        }
+        dock_control := View{
+            width: Fill height: Fit
+            show_child_controls: false
+            on_control: {
+                get: |arg| {
+                    if self.dock_btn.text() == "Move controls to top" {
+                        "bottom"
+                    }
+                    else {
+                        "top"
+                    }
+                }
+                toggle: |arg| {
+                    self.dock_btn.on_click()
+                    ""
+                }
+                set: |arg| {
+                    let text = self.dock_btn.text()
+                    if arg == "bottom" && text != "Move controls to top" {
+                        self.dock_btn.on_click()
+                    }
+                    else if arg == "top" && text != "Move controls to bottom" {
+                        self.dock_btn.on_click()
+                    }
+                    arg
+                }
+            }
+
+            dock_btn := Button{
+                text: "Move controls to bottom"
+                width: Fill height: 24
+                padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+                draw_text.color: #x111111
+                draw_text.text_style.font_size: 10.0
+                draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
+                    pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
+            }
+        }
+        sep_secondary := View{
+            width: Fill height: 7
+            flow: Overlay
+            sep_line := View{
+                width: Fill
+                height: 1
+                margin: Inset{left: 4 right: 4 top: 3 bottom: 3}
+                show_bg: true
+                draw_bg.color: #xe3e3e3
+            }
+        }
+        overflow_services_btn := Button{
+            text: "Open services"
+            width: Fill height: 24
+            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
+            draw_text.color: #x111111
+            draw_text.text_style.font_size: 10.0
+            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
                 pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
         }
     }
@@ -609,6 +657,7 @@ script_mod! {
                         }
                         context_menu := mod.widgets.HaviContextMenu {}
                         pylon_menu := mod.widgets.HaviPylonMenu {}
+                        overflow_menu := mod.widgets.HaviOverflowMenu {}
                     }
                 }
                 splash_screen := mod.widgets.HaviSplash {}

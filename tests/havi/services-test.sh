@@ -21,6 +21,7 @@ output=$(printf '%s\n' \
     'document.getElementById("listenersList") !== null' \
     'document.getElementById("mountsList") !== null' \
     'document.getElementById("natInfo") !== null' \
+    'Array.from(document.querySelectorAll(".card p.muted")).map(x => x.textContent).join("\n")' \
     | "$debugtool" repl)
 
 results=$(echo "$output" | jq -r 'select(.event == "evalResult") | .value')
@@ -31,6 +32,7 @@ results=$(echo "$output" | jq -r 'select(.event == "evalResult") | .value')
 [[ "$(echo "$results" | sed -n '4p')" == "true" ]] || fail "listenersList missing"
 [[ "$(echo "$results" | sed -n '5p')" == "true" ]] || fail "mountsList missing"
 [[ "$(echo "$results" | sed -n '6p')" == "true" ]] || fail "natInfo missing"
+[[ "$(echo "$results" | sed -n '7p')" == *"Manage local services, networking, and mounts."* ]] || fail "services page copy mismatch"
 
 status_ok=$("$debugtool" --timeout 10 eval --await \
     'fetch("havi:///services/api?cmd=status").then(r => r.json()).then(j => !!j && typeof j === "object" && ((j.ok === true && !!j.data && typeof j.data === "object") || (j.ok === false && typeof j.error === "string")))' \
@@ -51,5 +53,10 @@ listen_cmd_ok=$("$debugtool" --timeout 10 eval --await \
     'fetch("havi:///services/api?cmd=listen").then(r => r.json()).then(j => j.ok === false && !String(j.error || "").includes("unknown command"))' \
     2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$listen_cmd_ok" == "true" ]] || fail "listen command not recognized"
+
+hidden_services_ok=$("$debugtool" --timeout 10 eval --await \
+    'new Promise(resolve => setTimeout(() => { const text = String(document.getElementById("servicesList")?.textContent || "").toLowerCase(); resolve(!text.includes("lokid") && !text.includes("unlokid")); }, 1000))' \
+    2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
+[[ "$hidden_services_ok" == "true" ]] || fail "hidden services still visible"
 
 log "PASS"

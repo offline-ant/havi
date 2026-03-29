@@ -315,15 +315,46 @@ impl MatchEvent for App {
         let mut nav_action: Option<NavCommand> = None;
 
         if self.ui.button(cx, ids!(back_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
+            if self.pylon_menu_open {
+                self.hide_pylon_menu(cx);
+            }
             nav_action = Some(NavCommand::Back);
         }
         if self.ui.button(cx, ids!(forward_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
+            if self.pylon_menu_open {
+                self.hide_pylon_menu(cx);
+            }
             nav_action = Some(NavCommand::Forward);
         }
         if self.ui.button(cx, ids!(reload_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
+            if self.pylon_menu_open {
+                self.hide_pylon_menu(cx);
+            }
             nav_action = Some(NavCommand::Reload);
         }
-        if self.ui.button(cx, ids!(go_btn)).clicked(actions) {
+        if self.ui.button(cx, ids!(overflow_btn)).clicked(actions) {
+            if self.pylon_menu_open {
+                self.hide_pylon_menu(cx);
+            }
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            } else {
+                self.show_overflow_menu(cx);
+            }
+        }
+        if self.ui.button(cx, ids!(nav_go_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
             let raw = self.ui.text_input(cx, ids!(url_input)).text();
             let sanitized = self.read_url_input_sanitized(cx);
             if sanitized != raw {
@@ -331,7 +362,12 @@ impl MatchEvent for App {
             }
             nav_action = Some(NavCommand::Navigate(sanitized));
         }
-        if self.ui.button(cx, ids!(edit_btn)).clicked(actions) {
+        if self.ui.button(cx, ids!(nav_edit_btn)).clicked(actions)
+            || self.ui.button(cx, ids!(edit_btn)).clicked(actions)
+        {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
             let raw = self.ui.text_input(cx, ids!(url_input)).text();
             let sanitized = self.read_url_input_sanitized(cx);
             if sanitized != raw {
@@ -352,11 +388,20 @@ impl MatchEvent for App {
                     .button(cx, ids!(watch_btn))
                     .set_text(cx, &watch_button_text(next_scope));
             }
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
         }
         if self.ui.button(cx, ids!(shadow_btn)).clicked(actions) {
             self.toggle_shadow_for_active_tab();
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
             let input_url = self.ui.text_input(cx, ids!(url_input)).text();
             let effective_url = self
                 .tabs
@@ -367,14 +412,31 @@ impl MatchEvent for App {
             cx.copy_to_clipboard(&share_url);
         }
         if self.ui.button(cx, ids!(home_btn)).clicked(actions) {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
             nav_action = Some(NavCommand::Navigate(HOME_URL.into()));
         }
         if self.ui.button(cx, ids!(dock_btn)).clicked(actions) {
             self.menu_at_bottom = !self.menu_at_bottom;
-            let text = if self.menu_at_bottom { "🔽" } else { "🔼" };
-            self.ui.button(cx, ids!(dock_btn)).set_text(cx, text);
+            self.ui
+                .button(cx, ids!(dock_btn))
+                .set_text(cx, dock_button_text(self.menu_at_bottom));
             self.apply_menu_dock(cx);
             self.request_spin_redraw(cx);
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
+        }
+        if self
+            .ui
+            .button(cx, ids!(overflow_services_btn))
+            .clicked(actions)
+        {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
+            nav_action = Some(NavCommand::Navigate("havi:///services".into()));
         }
         if let Some(changed) = self.ui.text_input(cx, ids!(url_input)).changed(actions) {
             let sanitized = Self::sanitize_url_bar_text(&changed);
@@ -438,10 +500,12 @@ impl MatchEvent for App {
             .finger_down(actions)
             .is_some()
         {
+            if self.overflow_menu_open {
+                self.hide_overflow_menu(cx);
+            }
             if self.pylon_menu_open {
                 self.hide_pylon_menu(cx);
             } else {
-                // Refresh status before showing.
                 self.refresh_pylon_status(cx);
                 self.show_pylon_menu(cx);
             }
@@ -450,62 +514,11 @@ impl MatchEvent for App {
         // --- Pylon menu buttons ---
         if self
             .ui
-            .button(cx, ids!(pylon_hpprd_start_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "start", Some("hpprd"), None);
-        }
-        if self
-            .ui
-            .button(cx, ids!(pylon_hpprd_stop_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "stop", Some("hpprd"), None);
-        }
-        if self
-            .ui
-            .button(cx, ids!(pylon_nfs_start_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "start", Some("hppr-nfs"), None);
-        }
-        if self
-            .ui
-            .button(cx, ids!(pylon_nfs_stop_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "stop", Some("hppr-nfs"), None);
-        }
-        if self.ui.button(cx, ids!(pylon_mount_btn)).clicked(actions) {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "mount", None, None);
-        }
-        if self.ui.button(cx, ids!(pylon_unmount_btn)).clicked(actions) {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "unmount", None, None);
-        }
-        if self
-            .ui
-            .button(cx, ids!(pylon_services_btn))
+            .button(cx, ids!(pylon_manage_btn))
             .clicked(actions)
         {
             self.hide_pylon_menu(cx);
             nav_action = Some(NavCommand::Navigate("havi:///services".into()));
-        }
-        if self
-            .ui
-            .button(cx, ids!(pylon_shutdown_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            self.pylon_command(cx, "shutdown", None, None);
-            self.pylon_status.health = pylon_menu::PylonHealth::Red;
-            self.pylon_command_client = None;
-            self.update_pylon_dot(cx);
         }
 
         // --- Tab bar events ---
@@ -702,17 +715,16 @@ impl MatchEvent for App {
                             need_watch_pool = true;
                         }
                         if let Some(idx) = tab_idx {
-                            if let Some(tab) = self.tabs.get_mut(idx) {
+                            let new_wire = if let Some(tab) = self.tabs.get_mut(idx) {
                                 tab.watch.set_settings(settings);
-                                if idx == self.active_tab_idx {
-                                    self.ui
-                                        .button(cx, ids!(watch_btn))
-                                        .set_text(cx, &watch_button_text(tab.watch.scope()));
-                                }
                                 settings_to_wire(tab.watch.settings())
                             } else {
                                 "none".to_string()
+                            };
+                            if idx == self.active_tab_idx {
+                                self.sync_toolbar_state(cx);
                             }
+                            new_wire
                         } else {
                             "none".to_string()
                         }

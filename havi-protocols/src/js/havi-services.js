@@ -77,7 +77,7 @@
     /** @param {any} status */
     function renderServices(status) {
         const names = Object.keys(status)
-            .filter(k => !['mode', 'user', 'mounts'].includes(k))
+            .filter(k => !['mode', 'user', 'mounts', 'lokid', 'unlokid'].includes(k))
             .sort();
 
         if (names.length === 0) {

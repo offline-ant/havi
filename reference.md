@@ -83,7 +83,10 @@ Current HAVI behavior:
 
 HAVI runs through pylon.
 
-HAVI exposes pylon controls through `havi:///services`.
+HAVI exposes pylon management through `havi:///services`.
+
+The shell pylon indicator is status-first. It opens a compact status panel and
+links to `havi:///services` for service management.
 
 ### Pylon indicator
 
@@ -101,6 +104,10 @@ These visuals are shell UI details, not protocol semantics.
 Current HAVI shell behavior:
 
 - the address bar is single-line and strips `\r`, `\n`, and `\t`
+- the main toolbar shows browser-first controls only: pylon status, back,
+  forward, URL input, reload, and an overflow button
+- advanced shell actions such as share, edit, watch, shadow, home, dock, and
+  services live in the overflow panel
 - `Ctrl+T` on Linux and Windows opens a new tab
 - `Command+T` on macOS opens a new tab
 - middle click on a tab closes it

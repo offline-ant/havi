@@ -540,22 +540,8 @@ impl Widget for ServoWebView {
                 reusable_surface_key = Some(surface_cache_key);
 
                 if self.browser_surface_cache.can_reuse(surface_cache_key) {
-                    if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
-                        eprintln!(
-                            "[havi][surface-cache] reuse fragment_ptr={} stable_repeat_count={}",
-                            frag_ptr,
-                            self.browser_surface_cache.stable_repeat_count,
-                        );
-                    }
                     draw_from_surface = true;
                 } else if self.browser_surface_cache.should_promote(surface_cache_key) {
-                    if *BROWSER_SURFACE_CACHE_STATS_ENABLED {
-                        eprintln!(
-                            "[havi][surface-cache] promote fragment_ptr={} stable_repeat_count={}",
-                            frag_ptr,
-                            self.browser_surface_cache.stable_repeat_count,
-                        );
-                    }
                     render_into_surface = true;
                     draw_from_surface = true;
                 }

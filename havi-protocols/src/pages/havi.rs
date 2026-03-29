@@ -729,7 +729,7 @@ fn render_services_page() -> String {
                 <div class="status-label">Connection</div>
             </div>
         </div>
-        <p class="muted">Manage hpprd, hppr-nat, lokid, unlokid, hppr-nfs, hppr-fuse.</p>
+        <p class="muted">Manage local services, networking, and mounts.</p>
         <div id="servicesList"><p class="empty">Loading...</p></div>
     </div>
 
@@ -749,12 +749,13 @@ fn render_services_page() -> String {
 
     <div class="card">
         <h2>Mounts</h2>
+        <p class="muted">Expose part of the HPPR tree as a local folder.</p>
         <div id="mountsList"><p class="empty">Loading...</p></div>
         <div class="inline-row">
-            <input type="text" id="mountpoint" placeholder="/mnt/hppr">
-            <input type="text" id="mountRoot" placeholder="// (optional root)">
-            <input type="text" id="mountSigner" placeholder="(optional signer)">
-            <label><input type="checkbox" id="mountRw"> rw</label>
+            <input type="text" id="mountpoint" placeholder="Local folder path">
+            <input type="text" id="mountRoot" placeholder="HPPR root to expose, e.g. //u/web/ (optional)">
+            <input type="text" id="mountSigner" placeholder="Signer filter (advanced)">
+            <label><input type="checkbox" id="mountRw"> Read-write (advanced)</label>
             <button onclick="createMount()">Mount</button>
         </div>
     </div>

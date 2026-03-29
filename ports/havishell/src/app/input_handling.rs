@@ -63,6 +63,9 @@ impl App {
                             if self.pylon_menu_open {
                                 self.hide_pylon_menu(cx);
                             }
+                            if self.overflow_menu_open {
+                                self.hide_overflow_menu(cx);
+                            }
                             // Dismiss context menu on any non-right-click.
                             // The compositor may also send PopupDismissed,
                             // but that is unreliable (e.g. stale Wayland
@@ -247,12 +250,15 @@ impl App {
 
                     // ----- Keyboard events -----
                     ServoWebViewAction::KeyDown { key_event } => {
-                        // Escape dismisses pylon menu
-                        if self.pylon_menu_open {
-                            if key_event.key_code
-                                == makepad_widgets::makepad_platform::KeyCode::Escape
-                            {
+                        if key_event.key_code
+                            == makepad_widgets::makepad_platform::KeyCode::Escape
+                        {
+                            if self.pylon_menu_open {
                                 self.hide_pylon_menu(cx);
+                                handled_input = true;
+                            }
+                            if self.overflow_menu_open {
+                                self.hide_overflow_menu(cx);
                                 handled_input = true;
                             }
                         }

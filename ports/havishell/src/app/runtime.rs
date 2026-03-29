@@ -364,7 +364,9 @@ impl App {
 
         // Sync tab bar UI
         self.sync_tab_bar(cx);
-        self.ui.button(cx, ids!(dock_btn)).set_text(cx, "🔼");
+        self.ui
+            .button(cx, ids!(dock_btn))
+            .set_text(cx, dock_button_text(self.menu_at_bottom));
         self.apply_menu_dock(cx);
 
         // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
