@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 4 nested tspan ordering</title>
+  <style>
+    body { font-family: monospace; margin: 16px; }
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results { white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; background: #fafafa; }
+    #host { position: absolute; left: 0; top: 0; visibility: visible; }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function raf() {
+      return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    async function settleLayout() {
+      await raf();
+      await raf();
+    }
+
+    async function suite_svg_phase4_tspan_ordering() {
+      const host = document.getElementById('host');
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '420');
+      svg.setAttribute('height', '180');
+      svg.style.display = 'block';
+
+      const nested = document.createElementNS(SVG_NS, 'text');
+      nested.setAttribute('font-size', '24');
+      nested.setAttribute('x', '10');
+      nested.setAttribute('y', '50');
+      nested.append('A');
+      const chunk = document.createElementNS(SVG_NS, 'tspan');
+      chunk.setAttribute('x', '140');
+      chunk.setAttribute('text-anchor', 'middle');
+      chunk.textContent = 'BCDEFG';
+      nested.append(chunk);
+      nested.append('H');
+      svg.append(nested);
+
+      const controlChunk = document.createElementNS(SVG_NS, 'text');
+      controlChunk.setAttribute('font-size', '24');
+      controlChunk.setAttribute('x', '140');
+      controlChunk.setAttribute('y', '120');
+      controlChunk.setAttribute('text-anchor', 'middle');
+      controlChunk.textContent = 'BCDEFG';
+      svg.append(controlChunk);
+
+      host.append(svg);
+      await settleLayout();
+
+      const nestedRect = nested.getBoundingClientRect();
+      const controlRect = controlChunk.getBoundingClientRect();
+
+      assert(nestedRect.left < controlRect.left - 20, 'nested text keeps leading direct text before the reset tspan chunk');
+      assert(nestedRect.right > controlRect.right + 1, 'trailing direct text stays after the reset tspan chunk in DOM order');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase4_tspan_ordering, 'svg-phase4-tspan-ordering');
+      window.testResults = summary;
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

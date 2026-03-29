@@ -542,6 +542,55 @@ pub struct SVGStopData<'dom> {
     pub stop_opacity: Option<&'dom str>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGMarkerUnitsValue {
+    UserSpaceOnUse,
+    StrokeWidth,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGPatternData<'dom> {
+    pub href: Option<SVGReferenceValue<'dom>>,
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
+    pub pattern_units: Option<SVGCoordinateUnits>,
+    pub pattern_content_units: Option<SVGCoordinateUnits>,
+    pub pattern_transform: SVGTransformListValue,
+    pub view_box: Option<SVGRectValue>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatioValue,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGFilterData {
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
+    pub filter_units: Option<SVGCoordinateUnits>,
+    pub primitive_units: Option<SVGCoordinateUnits>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGMarkerData {
+    pub ref_x: Option<SVGLengthValue>,
+    pub ref_y: Option<SVGLengthValue>,
+    pub marker_width: Option<SVGLengthValue>,
+    pub marker_height: Option<SVGLengthValue>,
+    pub marker_units: Option<SVGMarkerUnitsValue>,
+    pub orient_auto: bool,
+    pub view_box: Option<SVGRectValue>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatioValue,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGTextPathData<'dom> {
+    pub href: Option<SVGReferenceValue<'dom>>,
+    pub start_offset: Option<SVGLengthValue>,
+    pub text: SVGTextData,
+}
+
 #[derive(Clone, Debug)]
 pub struct SVGClipPathData {
     pub clip_path_units: Option<SVGCoordinateUnits>,
@@ -580,6 +629,7 @@ pub enum SVGNodeKind<'dom> {
     Geometry(SVGGeometryData<'dom>),
     Text(SVGTextData),
     TSpan(SVGTextData),
+    TextPath(SVGTextPathData<'dom>),
     Defs,
     Use(SVGUseData<'dom>),
     ForeignObject(SVGForeignObjectData),
@@ -587,6 +637,9 @@ pub enum SVGNodeKind<'dom> {
     Stop(SVGStopData<'dom>),
     ClipPath(SVGClipPathData),
     Mask(SVGMaskData),
+    Pattern(SVGPatternData<'dom>),
+    Filter(SVGFilterData),
+    Marker(SVGMarkerData),
     Image(SVGImageData<'dom>),
 }
 

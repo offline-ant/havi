@@ -21,12 +21,16 @@ pub enum SVGLayoutNodeKind {
     Group,
     Geometry,
     Text,
+    TextPath,
     Defs,
     Use,
     Gradient,
     Stop,
     ClipPath,
     Mask,
+    Pattern,
+    Filter,
+    Marker,
     ForeignObject,
     Image,
 }
@@ -107,14 +111,6 @@ pub fn resolve_svg_child_node<'dom>(
     )
 }
 
-pub fn collect_direct_text_content(node: ServoThreadSafeLayoutNode<'_>) -> String {
-    node.children()
-        .filter(|child| child.is_text_node())
-        .map(|child| child.text_content().into_owned())
-        .collect::<Vec<_>>()
-        .join("")
-}
-
 fn collect_svg_ancestor_chain<'dom>(
     node: ServoThreadSafeLayoutNode<'dom>,
 ) -> Vec<ServoThreadSafeLayoutNode<'dom>> {
@@ -167,9 +163,13 @@ fn resolve_svg_node_with_inheritance<'dom>(
             viewport: resolve_viewport_style(&svg_data, &computed_style),
             geometry: resolve_geometry_style(&svg_data, &computed_style, inherited_geometry),
         },
-        SVGNodeKind::Text(_) | SVGNodeKind::TSpan(_) => SVGNodeResolvedStyle::Text(
-            resolve_text_style(&svg_data, &computed_style, inherited_text),
-        ),
+        SVGNodeKind::Text(_) | SVGNodeKind::TSpan(_) | SVGNodeKind::TextPath(_) => {
+            SVGNodeResolvedStyle::Text(resolve_text_style(
+                &svg_data,
+                &computed_style,
+                inherited_text,
+            ))
+        }
         _ => SVGNodeResolvedStyle::Geometry(resolve_geometry_style(
             &svg_data,
             &computed_style,
@@ -221,6 +221,11 @@ pub fn summarize_node_kind(node_kind: &SVGNodeKind<'_>) -> SVGLayoutNodeSummary 
             establishes_viewport: false,
             participates_in_paint: true,
         },
+        SVGNodeKind::TextPath(_) => SVGLayoutNodeSummary {
+            kind: SVGLayoutNodeKind::TextPath,
+            establishes_viewport: false,
+            participates_in_paint: true,
+        },
         SVGNodeKind::Defs => SVGLayoutNodeSummary {
             kind: SVGLayoutNodeKind::Defs,
             establishes_viewport: false,
@@ -256,10 +261,100 @@ pub fn summarize_node_kind(node_kind: &SVGNodeKind<'_>) -> SVGLayoutNodeSummary 
             establishes_viewport: false,
             participates_in_paint: true,
         },
+        SVGNodeKind::Pattern(_) => SVGLayoutNodeSummary {
+            kind: SVGLayoutNodeKind::Pattern,
+            establishes_viewport: false,
+            participates_in_paint: false,
+        },
+        SVGNodeKind::Filter(_) => SVGLayoutNodeSummary {
+            kind: SVGLayoutNodeKind::Filter,
+            establishes_viewport: false,
+            participates_in_paint: false,
+        },
+        SVGNodeKind::Marker(_) => SVGLayoutNodeSummary {
+            kind: SVGLayoutNodeKind::Marker,
+            establishes_viewport: false,
+            participates_in_paint: false,
+        },
         SVGNodeKind::Image(_) => SVGLayoutNodeSummary {
             kind: SVGLayoutNodeKind::Image,
             establishes_viewport: false,
             participates_in_paint: true,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use layout_api::{
+        SVGFilterData, SVGNodeKind, SVGPatternData, SVGPreserveAspectRatioValue, SVGTextData,
+        SVGTextPathData,
+    };
+
+    use super::*;
+
+    fn empty_text() -> SVGTextData {
+        SVGTextData {
+            x: Vec::new(),
+            y: Vec::new(),
+            dx: Vec::new(),
+            dy: Vec::new(),
+            rotate: Vec::new(),
+            text_length: None,
+            length_adjust: None,
+            text_anchor: None,
+            alignment_baseline: None,
+            dominant_baseline: None,
+        }
+    }
+
+    #[test]
+    fn summarizes_phase3_resource_nodes_and_textpath() {
+        let pattern = summarize_node_kind(&SVGNodeKind::Pattern(SVGPatternData {
+            href: None,
+            x: None,
+            y: None,
+            width: None,
+            height: None,
+            pattern_units: None,
+            pattern_content_units: None,
+            pattern_transform: Vec::new(),
+            view_box: None,
+            preserve_aspect_ratio: SVGPreserveAspectRatioValue::default(),
+        }));
+        assert_eq!(pattern.kind, SVGLayoutNodeKind::Pattern);
+        assert!(!pattern.participates_in_paint);
+
+        let filter = summarize_node_kind(&SVGNodeKind::Filter(SVGFilterData {
+            x: None,
+            y: None,
+            width: None,
+            height: None,
+            filter_units: None,
+            primitive_units: None,
+        }));
+        assert_eq!(filter.kind, SVGLayoutNodeKind::Filter);
+        assert!(!filter.participates_in_paint);
+
+        let marker = summarize_node_kind(&SVGNodeKind::Marker(layout_api::SVGMarkerData {
+            ref_x: None,
+            ref_y: None,
+            marker_width: None,
+            marker_height: None,
+            marker_units: None,
+            orient_auto: true,
+            view_box: None,
+            preserve_aspect_ratio: SVGPreserveAspectRatioValue::default(),
+        }));
+        assert_eq!(marker.kind, SVGLayoutNodeKind::Marker);
+        assert!(!marker.participates_in_paint);
+
+        let text_path = summarize_node_kind(&SVGNodeKind::TextPath(SVGTextPathData {
+            href: None,
+            start_offset: None,
+            text: empty_text(),
+        }));
+        assert_eq!(text_path.kind, SVGLayoutNodeKind::TextPath);
+        assert!(text_path.participates_in_paint);
     }
 }

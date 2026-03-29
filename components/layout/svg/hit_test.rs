@@ -1,6 +1,8 @@
 use std::mem;
 
-use havi_types::fragment_tree::{SVGFillRule, SVGPathCommand, SVGPathData, SVGPoint, SVGStrokeStyle};
+use havi_types::fragment_tree::{SVGFillRule, SVGPathData, SVGPoint, SVGStrokeStyle};
+
+use super::path::flatten_svg_path;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SVGHitTargetKind {
@@ -43,7 +45,7 @@ pub fn hit_test_svg_path(
 }
 
 fn point_in_fill(path: &SVGPathData, point: SVGPoint) -> bool {
-    let segments = flatten_path(path);
+    let segments = flatten_svg_path(path);
     match path.fill_rule {
         SVGFillRule::EvenOdd => {
             let mut crossings = 0;
@@ -72,80 +74,11 @@ fn point_in_fill(path: &SVGPathData, point: SVGPoint) -> bool {
 
 fn point_near_stroke(path: &SVGPathData, point: SVGPoint, width: f32) -> bool {
     let tolerance = width * 0.5;
-    flatten_path(path)
+    flatten_svg_path(path)
         .into_iter()
         .any(|(from, to)| distance_to_segment(point, from, to) <= tolerance)
 }
 
-fn flatten_path(path: &SVGPathData) -> Vec<(SVGPoint, SVGPoint)> {
-    let mut segments = Vec::new();
-    let mut current = SVGPoint::new(0.0, 0.0);
-    let mut subpath_start = SVGPoint::new(0.0, 0.0);
-    let mut has_current = false;
-
-    for command in &path.commands {
-        match command {
-            SVGPathCommand::MoveTo(point) => {
-                current = *point;
-                subpath_start = *point;
-                has_current = true;
-            }
-            SVGPathCommand::LineTo(point) if has_current => {
-                segments.push((current, *point));
-                current = *point;
-            }
-            SVGPathCommand::QuadTo { ctrl, to } if has_current => {
-                let mut from = current;
-                for step in 1..=12 {
-                    let t = step as f32 / 12.0;
-                    let point = quadratic_bezier(current, *ctrl, *to, t);
-                    segments.push((from, point));
-                    from = point;
-                }
-                current = *to;
-            }
-            SVGPathCommand::CubicTo { ctrl1, ctrl2, to } if has_current => {
-                let mut from = current;
-                for step in 1..=16 {
-                    let t = step as f32 / 16.0;
-                    let point = cubic_bezier(current, *ctrl1, *ctrl2, *to, t);
-                    segments.push((from, point));
-                    from = point;
-                }
-                current = *to;
-            }
-            SVGPathCommand::Close if has_current => {
-                segments.push((current, subpath_start));
-                current = subpath_start;
-            }
-            _ => {}
-        }
-    }
-
-    segments
-}
-
-fn quadratic_bezier(from: SVGPoint, ctrl: SVGPoint, to: SVGPoint, t: f32) -> SVGPoint {
-    let inv = 1.0 - t;
-    SVGPoint::new(
-        inv * inv * from.x + 2.0 * inv * t * ctrl.x + t * t * to.x,
-        inv * inv * from.y + 2.0 * inv * t * ctrl.y + t * t * to.y,
-    )
-}
-
-fn cubic_bezier(from: SVGPoint, ctrl1: SVGPoint, ctrl2: SVGPoint, to: SVGPoint, t: f32) -> SVGPoint {
-    let inv = 1.0 - t;
-    SVGPoint::new(
-        inv.powi(3) * from.x +
-            3.0 * inv.powi(2) * t * ctrl1.x +
-            3.0 * inv * t.powi(2) * ctrl2.x +
-            t.powi(3) * to.x,
-        inv.powi(3) * from.y +
-            3.0 * inv.powi(2) * t * ctrl1.y +
-            3.0 * inv * t.powi(2) * ctrl2.y +
-            t.powi(3) * to.y,
-    )
-}
 
 fn ray_crosses_segment(point: SVGPoint, mut from: SVGPoint, mut to: SVGPoint) -> bool {
     if from.y > to.y {
@@ -179,6 +112,8 @@ fn distance_to_segment(point: SVGPoint, from: SVGPoint, to: SVGPoint) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use havi_types::fragment_tree::SVGPathCommand;
+
     use super::*;
 
     #[test]

@@ -207,6 +207,7 @@ pub fn resolve_text_style(
     let resources = resolve_resource_reference_style(&element.paint);
     let text_data = match &element.node_kind {
         SVGNodeKind::Text(text) | SVGNodeKind::TSpan(text) => Some(text),
+        SVGNodeKind::TextPath(text_path) => Some(&text_path.text),
         _ => None,
     };
     SVGTextStyle {

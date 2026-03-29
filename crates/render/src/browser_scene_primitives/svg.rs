@@ -35,7 +35,7 @@ pub(crate) fn lower_svg_leaf_primitives(
             owner_node_id,
         )),
         published::SVGLeafKind::Text(text) => {
-            if let Some(color) = svg_text_fast_path_color(svg) {
+            if let Some(color) = svg_text_fast_path_color(svg, text) {
                 return lower_svg_text_primitives(
                     registry,
                     glyph_runs,
@@ -102,8 +102,8 @@ fn lower_svg_text_outline_primitives(
     owner_node_id: Option<usize>,
 ) -> Vec<MpPrimitive> {
     let mut primitives = Vec::new();
-    for run in &text.runs {
-        let Some(commands) = svg_text_run_outline_commands(run) else {
+    for (run_index, run) in text.runs.iter().enumerate() {
+        let Some(commands) = svg_text_run_outline_commands(text, run_index as u32, run) else {
             continue;
         };
         primitives.extend(lower_svg_vector_primitives(
@@ -217,7 +217,65 @@ fn lower_svg_vector_primitives(
     primitives
 }
 
-fn svg_text_run_outline_commands(run: &published::SVGGlyphRun) -> Option<Vec<MpVectorPathCommand>> {
+fn svg_text_payload_is_linear(text: &published::SVGTextPayload) -> bool {
+    text.runs
+        .iter()
+        .enumerate()
+        .all(|(run_index, run)| svg_text_run_is_linear(text, run_index as u32, run))
+}
+
+fn svg_text_run_is_linear(
+    text: &published::SVGTextPayload,
+    run_index: u32,
+    run: &published::SVGGlyphRun,
+) -> bool {
+    let mut run_addressings = text.addressing.iter().filter(|char| char.run_index == run_index);
+    let mut pen_x = run.rect.origin.x.to_f32_px();
+    let baseline_y = run.rect.origin.y.to_f32_px() + run.baseline_ascent.to_f32_px();
+    let epsilon = 0.01_f32;
+
+    for glyph in &run.glyphs {
+        let char_count = glyph.char_count.max(1) as usize;
+        let Some(first_char) = run_addressings.next() else {
+            return false;
+        };
+        if first_char.rotation != 0.0 {
+            return false;
+        }
+        let expected_x = pen_x + glyph.x_offset.to_f32_px();
+        let expected_y = baseline_y + glyph.y_offset.to_f32_px();
+        if (first_char.position.x - expected_x).abs() > epsilon ||
+            (first_char.position.y - expected_y).abs() > epsilon
+        {
+            return false;
+        }
+        for _ in 1..char_count {
+            let Some(char) = run_addressings.next() else {
+                return false;
+            };
+            if char.rotation != 0.0 ||
+                (char.position.x - expected_x).abs() > epsilon ||
+                (char.position.y - expected_y).abs() > epsilon
+            {
+                return false;
+            }
+        }
+        pen_x += glyph.advance.to_f32_px();
+    }
+
+    let expected_x = pen_x;
+    run_addressings.all(|char| {
+        char.rotation == 0.0 &&
+            (char.position.x - expected_x).abs() <= epsilon &&
+            (char.position.y - baseline_y).abs() <= epsilon
+    })
+}
+
+fn svg_text_run_outline_commands(
+    text: &published::SVGTextPayload,
+    run_index: u32,
+    run: &published::SVGGlyphRun,
+) -> Option<Vec<MpVectorPathCommand>> {
     let font_data = run.font_data.as_ref()?;
     let face = ttf_parser::Face::parse(font_data.as_slice(), run.font_index).ok()?;
     let units_per_em = face.units_per_em() as f32;
@@ -225,38 +283,77 @@ fn svg_text_run_outline_commands(run: &published::SVGGlyphRun) -> Option<Vec<MpV
         return None;
     }
     let scale = run.font_size_px / units_per_em;
+    let glyph_origins = svg_text_run_glyph_origins(text, run_index, run);
     let mut commands = Vec::new();
-    let mut pen_x = run.rect.origin.x.to_f32_px();
-    let baseline_y = run.rect.origin.y.to_f32_px() + run.baseline_ascent.to_f32_px();
-    for glyph in &run.glyphs {
+    for (glyph, (origin_x, origin_y, rotation_degrees)) in run.glyphs.iter().zip(glyph_origins) {
         let glyph_id = match u16::try_from(glyph.glyph_id) {
             Ok(glyph_id) => ttf_parser::GlyphId(glyph_id),
             Err(_) => continue,
         };
         let mut builder = SVGTextOutlineBuilder {
             commands: &mut commands,
-            origin_x: pen_x + glyph.x_offset.to_f32_px(),
-            origin_y: baseline_y + glyph.y_offset.to_f32_px(),
+            origin_x,
+            origin_y,
+            rotation_degrees,
             scale,
         };
         let _ = face.outline_glyph(glyph_id, &mut builder);
-        pen_x += glyph.advance.to_f32_px();
     }
     (!commands.is_empty()).then_some(commands)
+}
+
+fn svg_text_run_glyph_origins(
+    text: &published::SVGTextPayload,
+    run_index: u32,
+    run: &published::SVGGlyphRun,
+) -> Vec<(f32, f32, f32)> {
+    let mut origins = Vec::with_capacity(run.glyphs.len());
+    let mut run_addressings = text.addressing.iter().filter(|char| char.run_index == run_index);
+    let mut pen_x = run.rect.origin.x.to_f32_px();
+    let baseline_y = run.rect.origin.y.to_f32_px() + run.baseline_ascent.to_f32_px();
+
+    for glyph in &run.glyphs {
+        let char_count = glyph.char_count.max(1) as usize;
+        let fallback = (
+            pen_x + glyph.x_offset.to_f32_px(),
+            baseline_y + glyph.y_offset.to_f32_px(),
+            0.0,
+        );
+        let first = run_addressings.next().map(|char| {
+            (
+                char.position.x,
+                char.position.y,
+                char.rotation,
+            )
+        }).unwrap_or(fallback);
+        for _ in 1..char_count {
+            let _ = run_addressings.next();
+        }
+        origins.push(first);
+        pen_x += glyph.advance.to_f32_px();
+    }
+
+    origins
 }
 
 struct SVGTextOutlineBuilder<'a> {
     commands: &'a mut Vec<MpVectorPathCommand>,
     origin_x: f32,
     origin_y: f32,
+    rotation_degrees: f32,
     scale: f32,
 }
 
 impl SVGTextOutlineBuilder<'_> {
     fn point(&self, x: f32, y: f32) -> makepad_widgets::Vec2f {
+        let local_x = x * self.scale;
+        let local_y = -y * self.scale;
+        let angle = self.rotation_degrees.to_radians();
+        let sin = angle.sin();
+        let cos = angle.cos();
         vec2(
-            self.origin_x + x * self.scale,
-            self.origin_y - y * self.scale,
+            self.origin_x + local_x * cos - local_y * sin,
+            self.origin_y + local_x * sin + local_y * cos,
         )
     }
 }
@@ -319,8 +416,11 @@ fn svg_current_color(svg: &published::SVGLeafFragment) -> published::SVGColor {
     }
 }
 
-fn svg_text_fast_path_color(svg: &published::SVGLeafFragment) -> Option<Vec4f> {
-    if svg.paint.stroke.is_some() {
+fn svg_text_fast_path_color(
+    svg: &published::SVGLeafFragment,
+    text: &published::SVGTextPayload,
+) -> Option<Vec4f> {
+    if svg.paint.stroke.is_some() || !svg_text_payload_is_linear(text) {
         return None;
     }
     let alpha = svg.paint.fill_opacity * svg.paint.opacity;

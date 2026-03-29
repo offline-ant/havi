@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 5 textPath</title>
+  <style>
+    body { font-family: monospace; margin: 16px; }
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results { white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; background: #fafafa; }
+    #host { position: absolute; left: 0; top: 0; visibility: visible; }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    function raf() { return new Promise(resolve => requestAnimationFrame(() => resolve())); }
+    async function settleLayout() { await raf(); await raf(); }
+
+    async function suite_svg_phase5_textpath() {
+      const host = document.getElementById('host');
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '420');
+      svg.setAttribute('height', '220');
+      svg.style.display = 'block';
+
+      const defs = document.createElementNS(SVG_NS, 'defs');
+      const vertical = document.createElementNS(SVG_NS, 'path');
+      vertical.setAttribute('id', 'vertical');
+      vertical.setAttribute('d', 'M 60 180 L 60 40');
+      defs.append(vertical);
+
+      const short = document.createElementNS(SVG_NS, 'path');
+      short.setAttribute('id', 'short');
+      short.setAttribute('d', 'M 220 140 L 240 140');
+      defs.append(short);
+      svg.append(defs);
+
+      const plain = document.createElementNS(SVG_NS, 'text');
+      plain.setAttribute('font-size', '24');
+      plain.setAttribute('x', '20');
+      plain.setAttribute('y', '40');
+      plain.textContent = 'ABCD';
+      svg.append(plain);
+
+      const onPath = document.createElementNS(SVG_NS, 'text');
+      onPath.setAttribute('font-size', '24');
+      const textPath = document.createElementNS(SVG_NS, 'textPath');
+      textPath.setAttribute('href', '#vertical');
+      textPath.textContent = 'ABCD';
+      onPath.append(textPath);
+      svg.append(onPath);
+
+      const hidden = document.createElementNS(SVG_NS, 'text');
+      hidden.setAttribute('font-size', '24');
+      const hiddenPath = document.createElementNS(SVG_NS, 'textPath');
+      hiddenPath.setAttribute('href', '#short');
+      hiddenPath.setAttribute('startOffset', '50');
+      hiddenPath.textContent = 'TOOLONG';
+      hidden.append(hiddenPath);
+      svg.append(hidden);
+
+      host.append(svg);
+      await settleLayout();
+
+      const plainRect = plain.getBoundingClientRect();
+      const pathRect = onPath.getBoundingClientRect();
+      const hiddenRect = hidden.getBoundingClientRect();
+
+      assert(pathRect.height > plainRect.height + 10, 'textPath places glyphs along the referenced path instead of a flat line');
+      assert(pathRect.width < plainRect.width, 'textPath changes horizontal footprint for vertical path placement');
+      assert(hiddenRect.width <= 1 && hiddenRect.height <= 1, 'fallen-off textPath characters are hidden from layout bounds');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase5_textpath, 'svg-phase5-textpath');
+      window.testResults = summary;
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

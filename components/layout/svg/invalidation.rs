@@ -139,6 +139,38 @@ pub fn classify_attribute_invalidation(
         "href" if matches!(node_kind, SVGLayoutNodeKind::Gradient) => {
             SVGInvalidationFlags::PAINT | SVGInvalidationFlags::RESOURCE_DEPENDENCY
         }
+        "href" if matches!(node_kind, SVGLayoutNodeKind::Pattern) => {
+            SVGInvalidationFlags::PAINT | SVGInvalidationFlags::RESOURCE_DEPENDENCY
+        }
+        "href" if matches!(node_kind, SVGLayoutNodeKind::TextPath) => {
+            SVGInvalidationFlags::GEOMETRY |
+                SVGInvalidationFlags::BOUNDS |
+                SVGInvalidationFlags::PAINT
+        }
+        "startOffset" if matches!(node_kind, SVGLayoutNodeKind::TextPath) => {
+            SVGInvalidationFlags::GEOMETRY | SVGInvalidationFlags::BOUNDS
+        }
+        "patternUnits" | "patternContentUnits" | "patternTransform"
+            if matches!(node_kind, SVGLayoutNodeKind::Pattern) =>
+        {
+            SVGInvalidationFlags::PAINT |
+                SVGInvalidationFlags::RESOURCE_DEPENDENCY |
+                SVGInvalidationFlags::BOUNDS
+        }
+        "filterUnits" | "primitiveUnits"
+            if matches!(node_kind, SVGLayoutNodeKind::Filter) =>
+        {
+            SVGInvalidationFlags::PAINT |
+                SVGInvalidationFlags::RESOURCE_DEPENDENCY |
+                SVGInvalidationFlags::BOUNDS
+        }
+        "markerUnits" | "orient" | "refX" | "refY" | "markerWidth" | "markerHeight"
+            if matches!(node_kind, SVGLayoutNodeKind::Marker) =>
+        {
+            SVGInvalidationFlags::PAINT |
+                SVGInvalidationFlags::RESOURCE_DEPENDENCY |
+                SVGInvalidationFlags::BOUNDS
+        }
         "x" | "y" | "width" | "height" | "rx" | "ry" | "cx" | "cy" | "r" | "x1" | "y1" | "x2" | "y2" | "points" | "d" => {
             SVGInvalidationFlags::GEOMETRY |
                 SVGInvalidationFlags::BOUNDS |
@@ -244,6 +276,11 @@ fn flags_for_dependency(
                 SVGInvalidationFlags::RESOURCE_DEPENDENCY |
                 SVGInvalidationFlags::BOUNDS |
                 SVGInvalidationFlags::HIT_TEST
+        }
+        SVGDependencyKind::TextPathSource => {
+            SVGInvalidationFlags::PAINT |
+                SVGInvalidationFlags::GEOMETRY |
+                SVGInvalidationFlags::BOUNDS
         }
     };
     propagated | (source_flags & SVGInvalidationFlags::GEOMETRY)
@@ -407,5 +444,78 @@ mod tests {
         assert!(flags.contains(SVGInvalidationFlags::TRANSFORM));
         assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
         assert!(flags.contains(SVGInvalidationFlags::HIT_TEST));
+    }
+
+    // Phase 3 tests: pattern/filter/marker/textPath invalidation
+
+    #[test]
+    fn pattern_reference_mutations_invalidate_dependencies() {
+        let flags = classify_attribute_invalidation(SVGLayoutNodeKind::Pattern, "href");
+        assert!(flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(flags.contains(SVGInvalidationFlags::RESOURCE_DEPENDENCY));
+    }
+
+    #[test]
+    fn filter_attribute_mutations_invalidate_dependencies() {
+        let flags = classify_attribute_invalidation(SVGLayoutNodeKind::Filter, "filterUnits");
+        assert!(flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(flags.contains(SVGInvalidationFlags::RESOURCE_DEPENDENCY));
+        assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
+    }
+
+    #[test]
+    fn marker_attribute_mutations_invalidate_dependencies() {
+        let flags = classify_attribute_invalidation(SVGLayoutNodeKind::Marker, "markerWidth");
+        assert!(flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(flags.contains(SVGInvalidationFlags::RESOURCE_DEPENDENCY));
+        assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
+    }
+
+    #[test]
+    fn textpath_attribute_mutations_invalidate_geometry() {
+        let href_flags = classify_attribute_invalidation(SVGLayoutNodeKind::TextPath, "href");
+        assert!(href_flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(href_flags.contains(SVGInvalidationFlags::GEOMETRY));
+        assert!(href_flags.contains(SVGInvalidationFlags::BOUNDS));
+
+        let offset_flags =
+            classify_attribute_invalidation(SVGLayoutNodeKind::TextPath, "startOffset");
+        assert!(offset_flags.contains(SVGInvalidationFlags::GEOMETRY));
+        assert!(offset_flags.contains(SVGInvalidationFlags::BOUNDS));
+    }
+
+    #[test]
+    fn textpath_source_changes_invalidate_textpath_node() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Geometry)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("curve"),
+            node(3, SVGLayoutNodeKind::Text).with_parent(OpaqueNode(1)),
+            SVGResourceGraphNode {
+                node: OpaqueNode(4),
+                parent: Some(OpaqueNode(3)),
+                kind: SVGLayoutNodeKind::TextPath,
+                element_id: None,
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs::default(),
+                href: Some("curve".to_string()),
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        let invalidation = propagate_invalidation(
+            &graph,
+            SVGInvalidationRoot::Node(OpaqueNode(2)),
+            classify_attribute_invalidation(SVGLayoutNodeKind::Geometry, "d"),
+        );
+
+        let flags = invalidation.node_flags(OpaqueNode(4));
+        assert!(flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(flags.contains(SVGInvalidationFlags::GEOMETRY));
+        assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
     }
 }

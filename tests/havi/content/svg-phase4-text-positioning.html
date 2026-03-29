@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 4 text positioning</title>
+  <style>
+    body { font-family: monospace; margin: 16px; }
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results { white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; background: #fafafa; }
+    #host { position: absolute; left: 0; top: 0; visibility: visible; }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function raf() {
+      return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    async function settleLayout() {
+      await raf();
+      await raf();
+    }
+
+    async function suite_svg_phase4_text_positioning() {
+      const host = document.getElementById('host');
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '360');
+      svg.setAttribute('height', '260');
+      svg.style.display = 'block';
+
+      function makeText(id, y, attrs) {
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('id', id);
+        text.setAttribute('font-size', '24');
+        text.setAttribute('x', '10');
+        text.setAttribute('y', String(y));
+        text.textContent = 'AB';
+        for (const [name, value] of Object.entries(attrs)) {
+          text.setAttribute(name, value);
+        }
+        svg.append(text);
+        return text;
+      }
+
+      const control = makeText('control', 40, {});
+      const xList = makeText('xList', 90, { x: '10 120' });
+      const dxList = makeText('dxList', 140, { dx: '0 110' });
+      const dyList = makeText('dyList', 190, { dy: '0 30' });
+      makeText('rotateList', 240, { rotate: '0 90' });
+      host.append(svg);
+
+      await settleLayout();
+
+      const controlRect = control.getBoundingClientRect();
+      const xListRect = xList.getBoundingClientRect();
+      const dxListRect = dxList.getBoundingClientRect();
+      const dyListRect = dyList.getBoundingClientRect();
+
+      assert(xListRect.width > controlRect.width + 60, 'x list positions later characters independently');
+      assert(dxListRect.width > controlRect.width + 60, 'dx list offsets later characters independently');
+      assert(dyListRect.height > controlRect.height + 10, 'dy list changes per-character vertical placement');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase4_text_positioning, 'svg-phase4-text-positioning');
+      window.testResults = summary;
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

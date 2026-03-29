@@ -293,6 +293,156 @@ pub fn transform_svg_path_data(path: &SVGPathData, transform: havi_types::fragme
     transformed
 }
 
+pub fn flatten_svg_path(path: &SVGPathData) -> Vec<(SVGPoint, SVGPoint)> {
+    let mut segments = Vec::new();
+    let mut current = SVGPoint::new(0.0, 0.0);
+    let mut subpath_start = SVGPoint::new(0.0, 0.0);
+    let mut has_current = false;
+
+    for command in &path.commands {
+        match command {
+            SVGPathCommand::MoveTo(point) => {
+                current = *point;
+                subpath_start = *point;
+                has_current = true;
+            }
+            SVGPathCommand::LineTo(point) if has_current => {
+                segments.push((current, *point));
+                current = *point;
+            }
+            SVGPathCommand::QuadTo { ctrl, to } if has_current => {
+                let mut from = current;
+                for step in 1..=12 {
+                    let t = step as f32 / 12.0;
+                    let point = quadratic_bezier(current, *ctrl, *to, t);
+                    segments.push((from, point));
+                    from = point;
+                }
+                current = *to;
+            }
+            SVGPathCommand::CubicTo { ctrl1, ctrl2, to } if has_current => {
+                let mut from = current;
+                for step in 1..=16 {
+                    let t = step as f32 / 16.0;
+                    let point = cubic_bezier(current, *ctrl1, *ctrl2, *to, t);
+                    segments.push((from, point));
+                    from = point;
+                }
+                current = *to;
+            }
+            SVGPathCommand::Close if has_current => {
+                segments.push((current, subpath_start));
+                current = subpath_start;
+            }
+            _ => {}
+        }
+    }
+
+    segments
+}
+
+pub fn svg_path_total_length(path: &SVGPathData) -> f32 {
+    flatten_svg_path(path)
+        .into_iter()
+        .map(|(from, to)| segment_length(from, to))
+        .sum()
+}
+
+pub fn svg_path_point_and_tangent_at_length(
+    path: &SVGPathData,
+    length: f32,
+) -> Option<(SVGPoint, SVGPoint)> {
+    let segments = flatten_svg_path(path);
+    let total_length: f32 = segments.iter().map(|(from, to)| segment_length(*from, *to)).sum();
+    if segments.is_empty() || !total_length.is_finite() || total_length <= 0.0 {
+        return None;
+    }
+
+    let clamped = length.clamp(0.0, total_length);
+    let mut remaining = clamped;
+    for (from, to) in &segments {
+        let segment_length = segment_length(*from, *to);
+        if segment_length <= f32::EPSILON {
+            continue;
+        }
+        if remaining <= segment_length {
+            let t = remaining / segment_length;
+            let point = SVGPoint::new(
+                from.x + (to.x - from.x) * t,
+                from.y + (to.y - from.y) * t,
+            );
+            let tangent = normalize_vector(SVGPoint::new(to.x - from.x, to.y - from.y));
+            return Some((point, tangent));
+        }
+        remaining -= segment_length;
+    }
+
+    let (from, to) = *segments.last()?;
+    Some((to, normalize_vector(SVGPoint::new(to.x - from.x, to.y - from.y))))
+}
+
+fn quadratic_bezier(from: SVGPoint, ctrl: SVGPoint, to: SVGPoint, t: f32) -> SVGPoint {
+    let inv = 1.0 - t;
+    SVGPoint::new(
+        inv * inv * from.x + 2.0 * inv * t * ctrl.x + t * t * to.x,
+        inv * inv * from.y + 2.0 * inv * t * ctrl.y + t * t * to.y,
+    )
+}
+
+fn cubic_bezier(from: SVGPoint, ctrl1: SVGPoint, ctrl2: SVGPoint, to: SVGPoint, t: f32) -> SVGPoint {
+    let inv = 1.0 - t;
+    SVGPoint::new(
+        inv.powi(3) * from.x +
+            3.0 * inv.powi(2) * t * ctrl1.x +
+            3.0 * inv * t.powi(2) * ctrl2.x +
+            t.powi(3) * to.x,
+        inv.powi(3) * from.y +
+            3.0 * inv.powi(2) * t * ctrl1.y +
+            3.0 * inv * t.powi(2) * ctrl2.y +
+            t.powi(3) * to.y,
+    )
+}
+
+fn segment_length(from: SVGPoint, to: SVGPoint) -> f32 {
+    ((to.x - from.x).powi(2) + (to.y - from.y).powi(2)).sqrt()
+}
+
+fn normalize_vector(vector: SVGPoint) -> SVGPoint {
+    let length = (vector.x * vector.x + vector.y * vector.y).sqrt();
+    if length <= f32::EPSILON {
+        SVGPoint::new(1.0, 0.0)
+    } else {
+        SVGPoint::new(vector.x / length, vector.y / length)
+    }
+}
+
 fn point(x: f32, y: f32) -> SVGPoint {
     SVGPoint::new(x, y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_length_and_sampling_follow_flattened_segments() {
+        let path = SVGPathData {
+            fill_rule: SVGFillRule::NonZero,
+            commands: vec![
+                SVGPathCommand::MoveTo(SVGPoint::new(0.0, 0.0)),
+                SVGPathCommand::LineTo(SVGPoint::new(0.0, 10.0)),
+                SVGPathCommand::LineTo(SVGPoint::new(10.0, 10.0)),
+            ],
+        };
+
+        assert_eq!(svg_path_total_length(&path), 20.0);
+
+        let (point, tangent) = svg_path_point_and_tangent_at_length(&path, 5.0).unwrap();
+        assert_eq!(point, SVGPoint::new(0.0, 5.0));
+        assert_eq!(tangent, SVGPoint::new(0.0, 1.0));
+
+        let (point, tangent) = svg_path_point_and_tangent_at_length(&path, 15.0).unwrap();
+        assert_eq!(point, SVGPoint::new(5.0, 10.0));
+        assert_eq!(tangent, SVGPoint::new(1.0, 0.0));
+    }
 }

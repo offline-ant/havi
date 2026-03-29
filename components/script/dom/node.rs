@@ -2605,6 +2605,44 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
                 height: typed_length(&local_name!("height")),
                 preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(attr(&local_name!("preserveAspectRatio"))),
             }),
+            &local_name!("pattern") => layout_api::SVGNodeKind::Pattern(layout_api::SVGPatternData {
+                href: typed_reference(),
+                x: typed_length(&local_name!("x")),
+                y: typed_length(&local_name!("y")),
+                width: typed_length(&local_name!("width")),
+                height: typed_length(&local_name!("height")),
+                pattern_units: layout_api::parse_svg_coordinate_units(attr(&local_name!("patternUnits"))),
+                pattern_content_units: layout_api::parse_svg_coordinate_units(attr(&local_name!("patternContentUnits"))),
+                pattern_transform: layout_api::parse_svg_transform_list(attr(&local_name!("patternTransform"))),
+                view_box: layout_api::parse_svg_optional_view_box(attr(&local_name!("viewBox"))),
+                preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(attr(&local_name!("preserveAspectRatio"))),
+            }),
+            &local_name!("filter") => layout_api::SVGNodeKind::Filter(layout_api::SVGFilterData {
+                x: typed_length(&local_name!("x")),
+                y: typed_length(&local_name!("y")),
+                width: typed_length(&local_name!("width")),
+                height: typed_length(&local_name!("height")),
+                filter_units: layout_api::parse_svg_coordinate_units(attr(&local_name!("filterUnits"))),
+                primitive_units: layout_api::parse_svg_coordinate_units(attr(&local_name!("primitiveUnits"))),
+            }),
+            &local_name!("marker") => layout_api::SVGNodeKind::Marker(layout_api::SVGMarkerData {
+                ref_x: typed_length(&local_name!("refX")),
+                ref_y: typed_length(&local_name!("refY")),
+                marker_width: typed_length(&local_name!("markerWidth")),
+                marker_height: typed_length(&local_name!("markerHeight")),
+                marker_units: layout_api::parse_svg_marker_units(attr(&local_name!("markerUnits"))),
+                orient_auto: attr(&local_name!("orient")).is_some_and(|o| o.trim().starts_with("auto")),
+                view_box: layout_api::parse_svg_optional_view_box(attr(&local_name!("viewBox"))),
+                preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(attr(&local_name!("preserveAspectRatio"))),
+            }),
+            &local_name!("textPath") => layout_api::SVGNodeKind::TextPath(layout_api::SVGTextPathData {
+                href: typed_reference(),
+                start_offset: {
+                    let raw = attr(&local_name!("startOffset"));
+                    raw.map(|raw| layout_api::parse_svg_length(Some(raw)))
+                },
+                text: typed_text(),
+            }),
             _ => return None,
         };
 

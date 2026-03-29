@@ -38,6 +38,17 @@ HPPR="$HPPR_ROOT/target/debug/hppr"
 HPPR_FUSE="$HPPR_ROOT/target/debug/hppr-fuse"
 HPPR_NFS="$HPPR_ROOT/target/debug/hppr-nfs"
 
+HAVI_BUILD_READY=""
+
+ensure_havi_built() {
+    [[ -n "$HAVI_BUILD_READY" ]] && return 0
+    echo "[${TEST_NAME:-test}] Building havi via ./mach-havi build..." >&2
+    (cd "$HAVI_ROOT" && ./mach-havi build >/dev/null)
+    HAVI_BUILD_READY=1
+}
+
+ensure_havi_built
+
 echo "--- CLI versions ---"
 "$HAVI_ROOT/target/debug/havi" --version || true
 hppr --version
@@ -463,10 +474,7 @@ wait_for_devtools() {
 start_servo() {
     local page="$1"
     local havi_bin="$HAVI_ROOT/target/debug/havi"
-    if [[ ! -x "$havi_bin" ]]; then
-        log "Building havi..."
-        cargo build -q --manifest-path "$HAVI_ROOT/ports/havishell/Cargo.toml"
-    fi
+    ensure_havi_built
 
     cd "$HAVI_ROOT"
 

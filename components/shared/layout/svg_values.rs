@@ -5,6 +5,7 @@ use havi_types::fragment_tree::{
     SVGCoordinateUnits, SVGFillRule, SVGGradientSpreadMethod, SVGLineCap, SVGLineJoin,
     SVGPaintOrder, SVGTextAnchor, SVGVectorEffect,
 };
+use crate::SVGMarkerUnitsValue;
 
 pub const SVG_LENGTHTYPE_UNKNOWN: u16 = 0;
 pub const SVG_LENGTHTYPE_NUMBER: u16 = 1;
@@ -499,6 +500,14 @@ pub fn parse_svg_vector_effect(raw: Option<&str>) -> Option<SVGVectorEffect> {
             "non-scaling-stroke" => Some(SVGVectorEffect::NonScalingStroke),
             _ => None,
         })
+}
+
+pub fn parse_svg_marker_units(raw: Option<&str>) -> Option<SVGMarkerUnitsValue> {
+    match raw?.trim() {
+        "userSpaceOnUse" => Some(SVGMarkerUnitsValue::UserSpaceOnUse),
+        "strokeWidth" => Some(SVGMarkerUnitsValue::StrokeWidth),
+        _ => None,
+    }
 }
 
 pub fn parse_svg_unit_interval(raw: Option<&str>) -> Option<f32> {

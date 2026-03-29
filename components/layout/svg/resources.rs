@@ -42,7 +42,13 @@ impl SVGResourceGraphNode {
             href: None,
             defined_resource: None,
             establishes_viewport: matches!(kind, SVGLayoutNodeKind::Viewport),
-            participates_in_paint: !matches!(kind, SVGLayoutNodeKind::Defs),
+            participates_in_paint: !matches!(
+                kind,
+                SVGLayoutNodeKind::Defs
+                    | SVGLayoutNodeKind::Pattern
+                    | SVGLayoutNodeKind::Filter
+                    | SVGLayoutNodeKind::Marker
+            ),
         }
     }
 
@@ -110,6 +116,7 @@ pub enum SVGDependencyKind {
     GradientContent,
     GradientTemplate,
     UseSource,
+    TextPathSource,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -446,6 +453,39 @@ impl SVGResourceGraph {
                 );
             }
         }
+
+        if matches!(node.kind, SVGLayoutNodeKind::Pattern) {
+            let Some(owner_resource) = self.resource_ids_by_node.get(&node.node).copied() else {
+                return;
+            };
+            let template = node
+                .href
+                .as_deref()
+                .and_then(normalize_local_reference)
+                .and_then(|id| self.resource_for_element_id(id));
+            if let Some(template) = template {
+                self.push_dependency(
+                    SVGDependencySource::Resource(template),
+                    SVGDependencyKind::Pattern,
+                    SVGDependencyTarget::Resource(owner_resource),
+                );
+            }
+        }
+
+        if matches!(node.kind, SVGLayoutNodeKind::TextPath) {
+            let referenced = node
+                .href
+                .as_deref()
+                .and_then(normalize_local_reference)
+                .and_then(|id| self.nodes_by_element_id.get(id).copied());
+            if let Some(path_node) = referenced {
+                self.push_dependency(
+                    SVGDependencySource::Node(path_node),
+                    SVGDependencyKind::TextPathSource,
+                    SVGDependencyTarget::Node(node.node),
+                );
+            }
+        }
     }
 
     fn push_dependency(
@@ -534,20 +574,47 @@ fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode>
             }),
             stops: Vec::new(),
         })),
-
         SVGLayoutNodeKind::ClipPath => SVGResourceKind::ClipPath(SVGClipPathResource {
             units: SVGCoordinateUnits::UserSpaceOnUse,
             transform: SVGTransform::identity(),
             paths: Vec::<SVGPathData>::new(),
         }),
-        SVGLayoutNodeKind::Defs | SVGLayoutNodeKind::Geometry | SVGLayoutNodeKind::Group | SVGLayoutNodeKind::Image | SVGLayoutNodeKind::Stop | SVGLayoutNodeKind::Text | SVGLayoutNodeKind::Viewport | SVGLayoutNodeKind::ForeignObject => {
-            return None;
-        }
         SVGLayoutNodeKind::Mask => SVGResourceKind::Mask(SVGMaskResource {
             units: SVGCoordinateUnits::ObjectBoundingBox,
             content_units: SVGCoordinateUnits::UserSpaceOnUse,
             rect: SVGRect::zero(),
         }),
+        SVGLayoutNodeKind::Pattern => SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(
+            havi_types::fragment_tree::SVGPatternResource {
+                units: SVGCoordinateUnits::ObjectBoundingBox,
+                content_units: SVGCoordinateUnits::UserSpaceOnUse,
+                pattern_transform: SVGTransform::identity(),
+                rect: SVGRect::zero(),
+            },
+        )),
+        SVGLayoutNodeKind::Filter => SVGResourceKind::Filter(
+            havi_types::fragment_tree::SVGFilterResource {
+                rect: SVGRect::zero(),
+            },
+        ),
+        SVGLayoutNodeKind::Marker => SVGResourceKind::Marker(
+            havi_types::fragment_tree::SVGMarkerResource {
+                view_box: None,
+                marker_units: SVGCoordinateUnits::UserSpaceOnUse,
+                orient_auto: true,
+            },
+        ),
+        SVGLayoutNodeKind::Defs
+        | SVGLayoutNodeKind::Geometry
+        | SVGLayoutNodeKind::Group
+        | SVGLayoutNodeKind::Image
+        | SVGLayoutNodeKind::Stop
+        | SVGLayoutNodeKind::Text
+        | SVGLayoutNodeKind::TextPath
+        | SVGLayoutNodeKind::Viewport
+        | SVGLayoutNodeKind::ForeignObject => {
+            return None;
+        }
         SVGLayoutNodeKind::Use => return None,
     };
     Some(SVGResourceNode { kind: resource })
@@ -656,5 +723,270 @@ mod tests {
                 target: SVGDependencyTarget::Resource(SVGResourceId(0)),
             }]
         );
+    }
+
+    // Phase 3 tests: pattern, filter, marker, textPath
+
+    #[test]
+    fn pattern_node_creates_paint_server_resource() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Pattern)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("pat"),
+        ]);
+
+        let resource_id = graph.resource_for_element_id("pat").expect("pattern resource");
+        assert!(matches!(
+            graph.resource(resource_id),
+            Some(SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(_)))
+        ));
+    }
+
+    #[test]
+    fn filter_node_creates_filter_resource() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Filter)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("blur"),
+        ]);
+
+        let resource_id = graph.resource_for_element_id("blur").expect("filter resource");
+        assert!(matches!(
+            graph.resource(resource_id),
+            Some(SVGResourceKind::Filter(_))
+        ));
+    }
+
+    #[test]
+    fn marker_node_creates_marker_resource() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Marker)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("arrow"),
+        ]);
+
+        let resource_id = graph.resource_for_element_id("arrow").expect("marker resource");
+        assert!(matches!(
+            graph.resource(resource_id),
+            Some(SVGResourceKind::Marker(_))
+        ));
+    }
+
+    #[test]
+    fn textpath_node_does_not_define_a_resource() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Geometry)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("curve"),
+            node(3, SVGLayoutNodeKind::Text).with_parent(OpaqueNode(1)),
+            SVGResourceGraphNode {
+                node: OpaqueNode(4),
+                parent: Some(OpaqueNode(3)),
+                kind: SVGLayoutNodeKind::TextPath,
+                element_id: None,
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs::default(),
+                href: Some("curve".to_string()),
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        assert!(graph.resource_id_for_node(OpaqueNode(4)).is_none());
+    }
+
+    #[test]
+    fn pattern_filter_marker_do_not_participate_in_paint() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Pattern)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("pat"),
+            node(3, SVGLayoutNodeKind::Filter)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("flt"),
+            node(4, SVGLayoutNodeKind::Marker)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("mrk"),
+        ]);
+
+        assert!(!graph.node_info(OpaqueNode(2)).unwrap().participates_in_paint);
+        assert!(!graph.node_info(OpaqueNode(3)).unwrap().participates_in_paint);
+        assert!(!graph.node_info(OpaqueNode(4)).unwrap().participates_in_paint);
+    }
+
+    #[test]
+    fn pattern_fill_reference_creates_reverse_dependency() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Pattern)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("pat"),
+            SVGResourceGraphNode {
+                node: OpaqueNode(3),
+                parent: Some(OpaqueNode(1)),
+                kind: SVGLayoutNodeKind::Geometry,
+                element_id: None,
+                fill_paint_server: Some("#pat".to_string()),
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs::default(),
+                href: None,
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        let resource_id = graph.resource_for_element_id("pat").expect("pattern resource");
+        let resolved = graph.node_resources(OpaqueNode(3)).unwrap();
+        assert_eq!(resolved.paint_servers.fill, Some(resource_id));
+        assert!(graph
+            .reverse_dependencies_for_resource(resource_id)
+            .iter()
+            .any(|dep| dep.kind == SVGDependencyKind::PaintServer
+                && dep.target == SVGDependencyTarget::Node(OpaqueNode(3))));
+    }
+
+    #[test]
+    fn filter_reference_creates_reverse_dependency() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Filter)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("blur"),
+            SVGResourceGraphNode {
+                node: OpaqueNode(3),
+                parent: Some(OpaqueNode(1)),
+                kind: SVGLayoutNodeKind::Geometry,
+                element_id: None,
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs {
+                    filter: Some("#blur".to_string()),
+                    ..Default::default()
+                },
+                href: None,
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        let resource_id = graph.resource_for_element_id("blur").expect("filter resource");
+        let resolved = graph.node_resources(OpaqueNode(3)).unwrap();
+        assert_eq!(resolved.resources.filter, Some(resource_id));
+        assert!(graph
+            .reverse_dependencies_for_resource(resource_id)
+            .iter()
+            .any(|dep| dep.kind == SVGDependencyKind::Filter
+                && dep.target == SVGDependencyTarget::Node(OpaqueNode(3))));
+    }
+
+    #[test]
+    fn marker_reference_creates_reverse_dependency() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Marker)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("arrow"),
+            SVGResourceGraphNode {
+                node: OpaqueNode(3),
+                parent: Some(OpaqueNode(1)),
+                kind: SVGLayoutNodeKind::Geometry,
+                element_id: None,
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs {
+                    marker_start: Some("#arrow".to_string()),
+                    marker_end: Some("#arrow".to_string()),
+                    ..Default::default()
+                },
+                href: None,
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        let resource_id = graph.resource_for_element_id("arrow").expect("marker resource");
+        let resolved = graph.node_resources(OpaqueNode(3)).unwrap();
+        assert_eq!(resolved.resources.marker_start, Some(resource_id));
+        assert_eq!(resolved.resources.marker_end, Some(resource_id));
+        let deps = graph.reverse_dependencies_for_resource(resource_id);
+        assert_eq!(deps.len(), 1);
+        assert!(deps.iter().all(|dep| dep.kind == SVGDependencyKind::Marker
+            && dep.target == SVGDependencyTarget::Node(OpaqueNode(3))));
+    }
+
+    #[test]
+    fn textpath_href_creates_textpath_source_dependency() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Geometry)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("curve"),
+            node(3, SVGLayoutNodeKind::Text).with_parent(OpaqueNode(1)),
+            SVGResourceGraphNode {
+                node: OpaqueNode(4),
+                parent: Some(OpaqueNode(3)),
+                kind: SVGLayoutNodeKind::TextPath,
+                element_id: None,
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs::default(),
+                href: Some("curve".to_string()),
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: true,
+            },
+        ]);
+
+        // The path node (2) should have a reverse dependency pointing to the textPath node (4).
+        assert_eq!(
+            graph.reverse_dependencies_for_node(OpaqueNode(2)),
+            &[SVGDependency {
+                kind: SVGDependencyKind::TextPathSource,
+                target: SVGDependencyTarget::Node(OpaqueNode(4)),
+            }]
+        );
+    }
+
+    #[test]
+    fn pattern_template_href_creates_pattern_dependency() {
+        let graph = SVGResourceGraph::build(&[
+            node(1, SVGLayoutNodeKind::Viewport),
+            node(2, SVGLayoutNodeKind::Pattern)
+                .with_parent(OpaqueNode(1))
+                .with_element_id("base"),
+            SVGResourceGraphNode {
+                node: OpaqueNode(3),
+                parent: Some(OpaqueNode(1)),
+                kind: SVGLayoutNodeKind::Pattern,
+                element_id: Some("derived".to_string()),
+                fill_paint_server: None,
+                stroke_paint_server: None,
+                resources: SVGResourceReferenceInputs::default(),
+                href: Some("base".to_string()),
+                defined_resource: None,
+                establishes_viewport: false,
+                participates_in_paint: false,
+            },
+        ]);
+
+        let base_id = graph.resource_for_element_id("base").expect("base pattern resource");
+        let derived_id = graph.resource_for_element_id("derived").expect("derived pattern resource");
+
+        // base change propagates to derived (the dependent pattern).
+        assert!(graph
+            .reverse_dependencies_for_resource(base_id)
+            .iter()
+            .any(|dep| dep.kind == SVGDependencyKind::Pattern
+                && dep.target == SVGDependencyTarget::Resource(derived_id)));
     }
 }
