@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 2 text x probe</title>
+  <style>
+    body { font-family: monospace; margin: 16px; }
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results { white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; background: #fafafa; }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function raf() {
+      return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    async function settleLayout() {
+      await raf();
+      await raf();
+    }
+
+    async function suite_svg_phase2_text_x_probe() {
+      const host = document.getElementById('host');
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '220');
+      svg.setAttribute('height', '100');
+      svg.style.display = 'block';
+
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.textContent = 'A';
+      text.setAttribute('x', '10 20');
+      text.setAttribute('y', '40');
+      text.setAttribute('font-size', '24');
+      svg.append(text);
+      host.append(svg);
+
+      await settleLayout();
+      const beforeLeft = text.getBoundingClientRect().left;
+      text.x.baseVal.getItem(0).value = 80;
+      await settleLayout();
+      const afterLeft = text.getBoundingClientRect().left;
+
+      assertEqual(text.getAttribute('x'), '80 20', 'text x list mutation serializes through shared typed backing');
+      assert(afterLeft > beforeLeft + 40, 'text x list mutation updates layout-visible geometry');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase2_text_x_probe, 'svg-phase2-text-x-probe');
+      window.testResults = summary;
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

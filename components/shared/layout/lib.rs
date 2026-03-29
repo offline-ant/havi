@@ -9,7 +9,10 @@
 #![deny(unsafe_code)]
 
 mod layout_damage;
+mod svg_values;
 pub mod wrapper_traits;
+
+pub use svg_values::*;
 
 use std::any::Any;
 use std::collections::hash_map::Entry;
@@ -29,6 +32,10 @@ use bitflags::bitflags;
 use embedder_traits::{Cursor, Theme, UntrustedNodeAddress, ViewportDetails};
 use euclid::{Point2D, Rect};
 use fonts::{FontContext, WebFontDocumentContext};
+use havi_types::fragment_tree::{
+    SVGCoordinateUnits, SVGFillRule, SVGGradientSpreadMethod, SVGLineCap, SVGLineJoin,
+    SVGPaintOrder, SVGTextAnchor, SVGVectorEffect,
+};
 pub use layout_damage::LayoutDamage;
 use libc::c_void;
 use malloc_size_of::{MallocSizeOf as MallocSizeOfTrait, MallocSizeOfOps, malloc_size_of_is_0};
@@ -54,7 +61,6 @@ use style::media_queries::Device;
 use style::properties::style_structs::Font;
 use style::properties::{ComputedValues, PropertyId};
 use style::selector_parser::{PseudoElement, RestyleDamage, Snapshot};
-use style::str::char_is_whitespace;
 use style::stylesheets::{DocumentStyleSheet, Stylesheet, UrlExtraData};
 use style::thread_state::{self, ThreadState};
 use style::values::computed::Overflow;
@@ -384,29 +390,29 @@ pub enum SVGGeometryData<'dom> {
         d: Option<&'dom str>,
     },
     Rect {
-        x: Option<&'dom str>,
-        y: Option<&'dom str>,
-        width: Option<&'dom str>,
-        height: Option<&'dom str>,
-        rx: Option<&'dom str>,
-        ry: Option<&'dom str>,
+        x: Option<SVGLengthValue>,
+        y: Option<SVGLengthValue>,
+        width: Option<SVGLengthValue>,
+        height: Option<SVGLengthValue>,
+        rx: Option<SVGLengthValue>,
+        ry: Option<SVGLengthValue>,
     },
     Circle {
-        cx: Option<&'dom str>,
-        cy: Option<&'dom str>,
-        r: Option<&'dom str>,
+        cx: Option<SVGLengthValue>,
+        cy: Option<SVGLengthValue>,
+        r: Option<SVGLengthValue>,
     },
     Ellipse {
-        cx: Option<&'dom str>,
-        cy: Option<&'dom str>,
-        rx: Option<&'dom str>,
-        ry: Option<&'dom str>,
+        cx: Option<SVGLengthValue>,
+        cy: Option<SVGLengthValue>,
+        rx: Option<SVGLengthValue>,
+        ry: Option<SVGLengthValue>,
     },
     Line {
-        x1: Option<&'dom str>,
-        y1: Option<&'dom str>,
-        x2: Option<&'dom str>,
-        y2: Option<&'dom str>,
+        x1: Option<SVGLengthValue>,
+        y1: Option<SVGLengthValue>,
+        x2: Option<SVGLengthValue>,
+        y2: Option<SVGLengthValue>,
     },
     Polyline {
         points: Option<&'dom str>,
@@ -431,28 +437,17 @@ impl SVGGeometryData<'_> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGViewportData<'dom> {
-    pub width: Option<&'dom str>,
-    pub height: Option<&'dom str>,
-    pub view_box: Option<&'dom str>,
-    pub preserve_aspect_ratio: Option<&'dom str>,
-    pub overflow: Option<&'dom str>,
+pub struct SVGViewportData {
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
+    pub view_box: Option<SVGRectValue>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatioValue,
+    pub overflow_hidden: bool,
 }
 
-impl SVGViewportData<'_> {
+impl SVGViewportData {
     pub fn ratio_from_view_box(&self) -> Option<f32> {
-        let mut numbers = self
-            .view_box?
-            .split(|c: char| c == ',' || char_is_whitespace(c))
-            .filter(|part| !part.is_empty());
-        let _min_x = numbers.next()?.parse::<f32>().ok()?;
-        let _min_y = numbers.next()?.parse::<f32>().ok()?;
-        let width = numbers.next()?.parse::<f32>().ok()?;
-        let height = numbers.next()?.parse::<f32>().ok()?;
-        if width <= 0.0 || height <= 0.0 || numbers.next().is_some() {
-            return None;
-        }
-        Some(width / height)
+        self.view_box.and_then(svg_view_box_ratio)
     }
 }
 
@@ -460,140 +455,138 @@ impl SVGViewportData<'_> {
 pub struct SVGPaintData<'dom> {
     pub color: Option<&'dom str>,
     pub fill: Option<&'dom str>,
-    pub fill_opacity: Option<&'dom str>,
-    pub fill_rule: Option<&'dom str>,
+    pub fill_opacity: Option<f32>,
+    pub fill_rule: Option<SVGFillRule>,
     pub stroke: Option<&'dom str>,
-    pub stroke_opacity: Option<&'dom str>,
-    pub stroke_width: Option<&'dom str>,
-    pub stroke_linejoin: Option<&'dom str>,
-    pub stroke_linecap: Option<&'dom str>,
-    pub stroke_miterlimit: Option<&'dom str>,
-    pub stroke_dasharray: Option<&'dom str>,
-    pub stroke_dashoffset: Option<&'dom str>,
-    pub paint_order: Option<&'dom str>,
-    pub opacity: Option<&'dom str>,
-    pub display: Option<&'dom str>,
-    pub visibility: Option<&'dom str>,
-    pub pointer_events: Option<&'dom str>,
-    pub vector_effect: Option<&'dom str>,
-    pub clip_rule: Option<&'dom str>,
-    pub clip_path: Option<&'dom str>,
-    pub mask: Option<&'dom str>,
-    pub filter: Option<&'dom str>,
-    pub marker_start: Option<&'dom str>,
-    pub marker_mid: Option<&'dom str>,
-    pub marker_end: Option<&'dom str>,
+    pub stroke_opacity: Option<f32>,
+    pub stroke_width: Option<SVGLengthValue>,
+    pub stroke_linejoin: Option<SVGLineJoin>,
+    pub stroke_linecap: Option<SVGLineCap>,
+    pub stroke_miterlimit: Option<f32>,
+    pub stroke_dasharray: Option<Vec<f32>>,
+    pub stroke_dashoffset: Option<f32>,
+    pub paint_order: Option<SVGPaintOrder>,
+    pub opacity: Option<f32>,
+    pub pointer_events: Option<SVGPointerEventsValue>,
+    pub vector_effect: Option<SVGVectorEffect>,
+    pub clip_rule: Option<SVGFillRule>,
+    pub clip_path: Option<SVGReferenceValue<'dom>>,
+    pub mask: Option<SVGReferenceValue<'dom>>,
+    pub filter: Option<SVGReferenceValue<'dom>>,
+    pub marker_start: Option<SVGReferenceValue<'dom>>,
+    pub marker_mid: Option<SVGReferenceValue<'dom>>,
+    pub marker_end: Option<SVGReferenceValue<'dom>>,
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGTextData<'dom> {
-    pub x: Option<&'dom str>,
-    pub y: Option<&'dom str>,
-    pub dx: Option<&'dom str>,
-    pub dy: Option<&'dom str>,
-    pub rotate: Option<&'dom str>,
-    pub text_length: Option<&'dom str>,
-    pub length_adjust: Option<&'dom str>,
-    pub text_anchor: Option<&'dom str>,
-    pub alignment_baseline: Option<&'dom str>,
-    pub dominant_baseline: Option<&'dom str>,
+pub struct SVGTextData {
+    pub x: SVGLengthListValue,
+    pub y: SVGLengthListValue,
+    pub dx: SVGLengthListValue,
+    pub dy: SVGLengthListValue,
+    pub rotate: SVGNumberListValue,
+    pub text_length: Option<SVGLengthValue>,
+    pub length_adjust: Option<SVGLengthAdjustValue>,
+    pub text_anchor: Option<SVGTextAnchor>,
+    pub alignment_baseline: Option<SVGTextBaselineValue>,
+    pub dominant_baseline: Option<SVGTextBaselineValue>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SVGUseData<'dom> {
-    pub href: Option<&'dom str>,
-    pub x: Option<&'dom str>,
-    pub y: Option<&'dom str>,
-    pub width: Option<&'dom str>,
-    pub height: Option<&'dom str>,
+    pub href: Option<SVGReferenceValue<'dom>>,
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGForeignObjectData<'dom> {
-    pub x: Option<&'dom str>,
-    pub y: Option<&'dom str>,
-    pub width: Option<&'dom str>,
-    pub height: Option<&'dom str>,
+pub struct SVGForeignObjectData {
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
 }
 
 #[derive(Clone, Debug)]
 pub enum SVGGradientData<'dom> {
     Linear {
-        href: Option<&'dom str>,
-        x1: Option<&'dom str>,
-        y1: Option<&'dom str>,
-        x2: Option<&'dom str>,
-        y2: Option<&'dom str>,
-        gradient_units: Option<&'dom str>,
-        gradient_transform: Option<&'dom str>,
-        spread_method: Option<&'dom str>,
+        href: Option<SVGReferenceValue<'dom>>,
+        x1: Option<SVGLengthValue>,
+        y1: Option<SVGLengthValue>,
+        x2: Option<SVGLengthValue>,
+        y2: Option<SVGLengthValue>,
+        gradient_units: Option<SVGCoordinateUnits>,
+        gradient_transform: SVGTransformListValue,
+        spread_method: Option<SVGGradientSpreadMethod>,
     },
     Radial {
-        href: Option<&'dom str>,
-        cx: Option<&'dom str>,
-        cy: Option<&'dom str>,
-        r: Option<&'dom str>,
-        fx: Option<&'dom str>,
-        fy: Option<&'dom str>,
-        fr: Option<&'dom str>,
-        gradient_units: Option<&'dom str>,
-        gradient_transform: Option<&'dom str>,
-        spread_method: Option<&'dom str>,
+        href: Option<SVGReferenceValue<'dom>>,
+        cx: Option<SVGLengthValue>,
+        cy: Option<SVGLengthValue>,
+        r: Option<SVGLengthValue>,
+        fx: Option<SVGLengthValue>,
+        fy: Option<SVGLengthValue>,
+        fr: Option<SVGLengthValue>,
+        gradient_units: Option<SVGCoordinateUnits>,
+        gradient_transform: SVGTransformListValue,
+        spread_method: Option<SVGGradientSpreadMethod>,
     },
 }
 
 #[derive(Clone, Debug)]
 pub struct SVGStopData<'dom> {
-    pub offset: Option<&'dom str>,
+    pub offset: Option<f32>,
     pub stop_color: Option<&'dom str>,
     pub stop_opacity: Option<&'dom str>,
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGClipPathData<'dom> {
-    pub clip_path_units: Option<&'dom str>,
+pub struct SVGClipPathData {
+    pub clip_path_units: Option<SVGCoordinateUnits>,
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGMaskData<'dom> {
-    pub x: Option<&'dom str>,
-    pub y: Option<&'dom str>,
-    pub width: Option<&'dom str>,
-    pub height: Option<&'dom str>,
-    pub mask_units: Option<&'dom str>,
-    pub mask_content_units: Option<&'dom str>,
+pub struct SVGMaskData {
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
+    pub mask_units: Option<SVGCoordinateUnits>,
+    pub mask_content_units: Option<SVGCoordinateUnits>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SVGImageData<'dom> {
-    pub href: Option<&'dom str>,
-    pub x: Option<&'dom str>,
-    pub y: Option<&'dom str>,
-    pub width: Option<&'dom str>,
-    pub height: Option<&'dom str>,
-    pub preserve_aspect_ratio: Option<&'dom str>,
+    pub href: Option<SVGReferenceValue<'dom>>,
+    pub x: Option<SVGLengthValue>,
+    pub y: Option<SVGLengthValue>,
+    pub width: Option<SVGLengthValue>,
+    pub height: Option<SVGLengthValue>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatioValue,
 }
 
 #[derive(Clone, Debug)]
 pub struct SVGCommonData<'dom> {
     pub element_id: Option<&'dom str>,
-    pub transform: Option<&'dom str>,
+    pub transform: SVGTransformListValue,
 }
 
 #[derive(Clone, Debug)]
 pub enum SVGNodeKind<'dom> {
-    Viewport(SVGViewportData<'dom>),
+    Viewport(SVGViewportData),
     Group,
     Geometry(SVGGeometryData<'dom>),
-    Text(SVGTextData<'dom>),
-    TSpan(SVGTextData<'dom>),
+    Text(SVGTextData),
+    TSpan(SVGTextData),
     Defs,
     Use(SVGUseData<'dom>),
-    ForeignObject(SVGForeignObjectData<'dom>),
+    ForeignObject(SVGForeignObjectData),
     Gradient(SVGGradientData<'dom>),
     Stop(SVGStopData<'dom>),
-    ClipPath(SVGClipPathData<'dom>),
-    Mask(SVGMaskData<'dom>),
+    ClipPath(SVGClipPathData),
+    Mask(SVGMaskData),
     Image(SVGImageData<'dom>),
 }
 
@@ -605,7 +598,7 @@ pub struct SVGElementData<'dom> {
 }
 
 impl<'dom> SVGElementData<'dom> {
-    pub fn viewport(&self) -> Option<&SVGViewportData<'dom>> {
+    pub fn viewport(&self) -> Option<&SVGViewportData> {
         match &self.node_kind {
             SVGNodeKind::Viewport(data) => Some(data),
             _ => None,

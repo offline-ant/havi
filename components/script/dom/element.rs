@@ -2156,6 +2156,15 @@ impl Element {
 
     pub(crate) fn set_attribute(&self, name: &LocalName, value: AttrValue, can_gc: CanGc) {
         assert!(name == &name.to_ascii_lowercase());
+        self.set_attribute_exact_name(name, value, can_gc);
+    }
+
+    pub(crate) fn set_attribute_exact_name(
+        &self,
+        name: &LocalName,
+        value: AttrValue,
+        can_gc: CanGc,
+    ) {
         assert!(!name.contains(':'));
 
         self.set_first_matching_attribute(

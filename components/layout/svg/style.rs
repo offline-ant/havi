@@ -9,12 +9,15 @@ use havi_types::fragment_tree::{
     SVGColor, SVGFillRule, SVGLineCap, SVGLineJoin, SVGPaintOrder, SVGTextAnchor,
     SVGVectorEffect,
 };
-use layout_api::{SVGElementData, SVGNodeKind, SVGPaintData};
+use layout_api::{
+    SVGElementData, SVGNodeKind, SVGPaintData, SVGPointerEventsValue as SVGPointerEvents,
+    SVGPreserveAspectRatioValue, SVGTextBaselineValue, resolve_svg_length_to_user_units,
+};
 
 #[derive(Clone, Debug)]
 pub struct SVGViewportStyle {
     pub overflow_hidden: bool,
-    pub preserve_aspect_ratio: Option<svgtypes::AspectRatio>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatioValue,
     pub displayed: bool,
     pub visible: bool,
     pub opacity: f32,
@@ -24,7 +27,7 @@ impl Default for SVGViewportStyle {
     fn default() -> Self {
         Self {
             overflow_hidden: false,
-            preserve_aspect_ratio: None,
+            preserve_aspect_ratio: Default::default(),
             displayed: true,
             visible: true,
             opacity: 1.0,
@@ -53,22 +56,6 @@ pub enum SVGPaintFallback {
     None,
     SolidColor(SVGColor),
 }
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SVGPointerEvents {
-    Auto,
-    None,
-    VisiblePainted,
-    VisibleFill,
-    VisibleStroke,
-    Visible,
-    Painted,
-    Fill,
-    Stroke,
-    All,
-    BoundingBox,
-}
-
 
 #[derive(Clone, Debug)]
 pub struct SVGResolvedStroke {
@@ -121,8 +108,8 @@ pub struct SVGTextStyle {
     pub visible: bool,
     pub pointer_events: SVGPointerEvents,
     pub text_anchor: SVGTextAnchor,
-    pub alignment_baseline: Option<String>,
-    pub dominant_baseline: Option<String>,
+    pub alignment_baseline: Option<SVGTextBaselineValue>,
+    pub dominant_baseline: Option<SVGTextBaselineValue>,
 }
 
 impl Default for SVGTextStyle {
@@ -174,17 +161,10 @@ pub struct SVGResourceReferenceStyle {
 
 pub fn resolve_viewport_style(element: &SVGElementData<'_>, computed: &ComputedValues) -> SVGViewportStyle {
     let defaults = resolve_common_state(&element.paint, computed);
-    let preserve_aspect_ratio = element
-        .viewport()
-        .and_then(|viewport| viewport.preserve_aspect_ratio)
-        .and_then(|raw| raw.parse::<svgtypes::AspectRatio>().ok());
-    let overflow_hidden = element
-        .viewport()
-        .and_then(|viewport| viewport.overflow)
-        .is_some_and(|overflow| matches!(overflow, "hidden" | "scroll" | "auto"));
+    let viewport = element.viewport();
     SVGViewportStyle {
-        overflow_hidden,
-        preserve_aspect_ratio,
+        overflow_hidden: viewport.is_some_and(|viewport| viewport.overflow_hidden),
+        preserve_aspect_ratio: viewport.map(|viewport| viewport.preserve_aspect_ratio).unwrap_or_default(),
         displayed: defaults.displayed,
         visible: defaults.visible,
         opacity: defaults.opacity,
@@ -200,20 +180,9 @@ pub fn resolve_geometry_style(
     let paint = resolve_paint_style(&element.paint, computed, inherited_paint);
     let common = resolve_common_state(&element.paint, computed);
     let resources = resolve_resource_reference_style(&element.paint);
-    let fill_rule = element
-        .paint
-        .fill_rule
-        .and_then(parse_fill_rule)
-        .unwrap_or(SVGFillRule::NonZero);
-    let clip_rule = element
-        .paint
-        .clip_rule
-        .and_then(parse_fill_rule)
-        .unwrap_or(SVGFillRule::NonZero);
-    let non_scaling_stroke = element
-        .paint
-        .vector_effect
-        .is_some_and(|value| value.split_whitespace().any(|part| part == "non-scaling-stroke"));
+    let fill_rule = element.paint.fill_rule.unwrap_or(SVGFillRule::NonZero);
+    let clip_rule = element.paint.clip_rule.unwrap_or(SVGFillRule::NonZero);
+    let non_scaling_stroke = element.paint.vector_effect == Some(SVGVectorEffect::NonScalingStroke);
     SVGGeometryStyle {
         paint,
         resources,
@@ -249,10 +218,9 @@ pub fn resolve_text_style(
         pointer_events: common.pointer_events,
         text_anchor: text_data
             .and_then(|text| text.text_anchor)
-            .and_then(parse_text_anchor)
             .unwrap_or(SVGTextAnchor::Start),
-        alignment_baseline: text_data.and_then(|text| text.alignment_baseline).map(ToOwned::to_owned),
-        dominant_baseline: text_data.and_then(|text| text.dominant_baseline).map(ToOwned::to_owned),
+        alignment_baseline: text_data.and_then(|text| text.alignment_baseline),
+        dominant_baseline: text_data.and_then(|text| text.dominant_baseline),
     }
 }
 
@@ -269,10 +237,7 @@ pub fn resolve_paint_style(
         inherited_fill,
         SVGResolvedPaint::SolidColor(svg_black()),
     );
-    let fill_opacity = paint_data
-        .fill_opacity
-        .and_then(parse_unit_interval)
-        .unwrap_or(1.0);
+    let fill_opacity = paint_data.fill_opacity.unwrap_or(1.0);
     let stroke_paint = resolve_paint(
         paint_data.stroke,
         current_color,
@@ -282,7 +247,6 @@ pub fn resolve_paint_style(
     let inherited_stroke = inherited.and_then(|style| style.stroke.as_ref());
     let vector_effect = paint_data
         .vector_effect
-        .and_then(parse_vector_effect)
         .or_else(|| inherited_stroke.map(|stroke| stroke.vector_effect))
         .unwrap_or(SVGVectorEffect::None);
     let stroke = match stroke_paint {
@@ -291,37 +255,32 @@ pub fn resolve_paint_style(
             paint,
             width: paint_data
                 .stroke_width
-                .and_then(parse_non_negative_number)
+                .and_then(resolve_svg_length_to_user_units)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.width))
                 .unwrap_or(1.0),
             opacity: paint_data
                 .stroke_opacity
-                .and_then(parse_unit_interval)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.opacity))
                 .unwrap_or(1.0),
             line_cap: paint_data
                 .stroke_linecap
-                .and_then(parse_line_cap)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.line_cap))
                 .unwrap_or(SVGLineCap::Butt),
             line_join: paint_data
                 .stroke_linejoin
-                .and_then(parse_line_join)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.line_join))
                 .unwrap_or(SVGLineJoin::Miter),
             miter_limit: paint_data
                 .stroke_miterlimit
-                .and_then(parse_non_negative_number)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.miter_limit))
                 .unwrap_or(4.0),
             dash_array: paint_data
                 .stroke_dasharray
-                .and_then(parse_dash_array)
+                .clone()
                 .or_else(|| inherited_stroke.map(|stroke| stroke.dash_array.clone()))
                 .unwrap_or_default(),
             dash_offset: paint_data
                 .stroke_dashoffset
-                .and_then(parse_number)
                 .or_else(|| inherited_stroke.map(|stroke| stroke.dash_offset))
                 .unwrap_or(0.0),
             vector_effect,
@@ -334,7 +293,6 @@ pub fn resolve_paint_style(
         stroke,
         paint_order: paint_data
             .paint_order
-            .and_then(parse_paint_order)
             .or_else(|| inherited.map(|style| style.paint_order))
             .unwrap_or(SVGPaintOrder::Normal),
     }
@@ -342,12 +300,12 @@ pub fn resolve_paint_style(
 
 pub fn resolve_resource_reference_style(paint_data: &SVGPaintData<'_>) -> SVGResourceReferenceStyle {
     SVGResourceReferenceStyle {
-        clip_path: paint_data.clip_path.and_then(parse_resource_iri),
-        mask: paint_data.mask.and_then(parse_resource_iri),
-        filter: paint_data.filter.and_then(parse_resource_iri),
-        marker_start: paint_data.marker_start.and_then(parse_resource_iri),
-        marker_mid: paint_data.marker_mid.and_then(parse_resource_iri),
-        marker_end: paint_data.marker_end.and_then(parse_resource_iri),
+        clip_path: paint_data.clip_path.and_then(|reference| reference.local_reference).map(str::to_owned),
+        mask: paint_data.mask.and_then(|reference| reference.local_reference).map(str::to_owned),
+        filter: paint_data.filter.and_then(|reference| reference.local_reference).map(str::to_owned),
+        marker_start: paint_data.marker_start.and_then(|reference| reference.local_reference).map(str::to_owned),
+        marker_mid: paint_data.marker_mid.and_then(|reference| reference.local_reference).map(str::to_owned),
+        marker_end: paint_data.marker_end.and_then(|reference| reference.local_reference).map(str::to_owned),
     }
 }
 
@@ -363,14 +321,8 @@ fn resolve_common_state(paint_data: &SVGPaintData<'_>, computed: &ComputedValues
     SVGCommonResolvedState {
         displayed: !computed.clone_display().is_none(),
         visible: computed.get_inherited_box().visibility == Visibility::Visible,
-        opacity: paint_data
-            .opacity
-            .and_then(parse_unit_interval)
-            .unwrap_or(computed.get_effects().opacity),
-        pointer_events: paint_data
-            .pointer_events
-            .and_then(parse_pointer_events)
-            .unwrap_or_else(|| {
+        opacity: paint_data.opacity.unwrap_or(computed.get_effects().opacity),
+        pointer_events: paint_data.pointer_events.unwrap_or_else(|| {
                 if computed.get_inherited_ui().pointer_events == PointerEvents::None {
                     SVGPointerEvents::None
                 } else {
@@ -525,130 +477,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_paint_order_and_dash_placeholders_round_trip_structure() {
+    fn phase2_uses_shared_dash_and_paint_order_parsers() {
         assert_eq!(
-            parse_paint_order("stroke markers fill"),
+            layout_api::parse_svg_paint_order(Some("stroke markers fill")),
             Some(SVGPaintOrder::StrokeMarkersFill)
         );
-        assert_eq!(parse_dash_array("1, 2 3"), Some(vec![1.0, 2.0, 3.0]));
-    }
-}
-
-fn parse_resource_iri(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    let inner = raw.strip_prefix("url(")?.strip_suffix(')')?.trim();
-    let inner = inner.strip_prefix('#').or_else(|| inner.strip_prefix("'#")).or_else(|| inner.strip_prefix("\"#"))?;
-    Some(
-        inner
-            .trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' ')
-            .to_owned(),
-    )
-}
-
-fn parse_unit_interval(raw: &str) -> Option<f32> {
-    let value = raw.trim().parse::<f32>().ok()?;
-    Some(value.clamp(0.0, 1.0))
-}
-
-fn parse_non_negative_number(raw: &str) -> Option<f32> {
-    let value = raw.trim().parse::<f32>().ok()?;
-    if value.is_finite() && value >= 0.0 {
-        Some(value)
-    } else {
-        None
-    }
-}
-
-fn parse_number(raw: &str) -> Option<f32> {
-    let value = raw.trim().parse::<f32>().ok()?;
-    value.is_finite().then_some(value)
-}
-
-fn parse_dash_array(raw: &str) -> Option<Vec<f32>> {
-    let raw = raw.trim();
-    if raw.eq_ignore_ascii_case("none") {
-        return Some(Vec::new());
-    }
-    let values = raw
-        .split(|ch: char| ch == ',' || ch.is_ascii_whitespace())
-        .filter(|part| !part.is_empty())
-        .map(parse_non_negative_number)
-        .collect::<Option<Vec<_>>>()?;
-    Some(values)
-}
-
-fn parse_vector_effect(raw: &str) -> Option<SVGVectorEffect> {
-    raw.split_whitespace()
-        .find_map(|part| match part {
-            "none" => Some(SVGVectorEffect::None),
-            "non-scaling-stroke" => Some(SVGVectorEffect::NonScalingStroke),
-            _ => None,
-        })
-}
-
-fn parse_paint_order(raw: &str) -> Option<SVGPaintOrder> {
-    let mut parts = raw.split_whitespace();
-    match (parts.next()?, parts.next(), parts.next()) {
-        ("normal", None, None) => Some(SVGPaintOrder::Normal),
-        ("fill", Some("stroke"), Some("markers")) => Some(SVGPaintOrder::FillStrokeMarkers),
-        ("fill", Some("markers"), Some("stroke")) => Some(SVGPaintOrder::FillMarkersStroke),
-        ("stroke", Some("fill"), Some("markers")) => Some(SVGPaintOrder::StrokeFillMarkers),
-        ("stroke", Some("markers"), Some("fill")) => Some(SVGPaintOrder::StrokeMarkersFill),
-        ("markers", Some("fill"), Some("stroke")) => Some(SVGPaintOrder::MarkersFillStroke),
-        ("markers", Some("stroke"), Some("fill")) => Some(SVGPaintOrder::MarkersStrokeFill),
-        _ => None,
-    }
-}
-
-fn parse_fill_rule(raw: &str) -> Option<SVGFillRule> {
-    match raw.trim() {
-        "nonzero" => Some(SVGFillRule::NonZero),
-        "evenodd" => Some(SVGFillRule::EvenOdd),
-        _ => None,
-    }
-}
-
-fn parse_line_cap(raw: &str) -> Option<SVGLineCap> {
-    match raw.trim() {
-        "butt" => Some(SVGLineCap::Butt),
-        "round" => Some(SVGLineCap::Round),
-        "square" => Some(SVGLineCap::Square),
-        _ => None,
-    }
-}
-
-fn parse_line_join(raw: &str) -> Option<SVGLineJoin> {
-    match raw.trim() {
-        "miter" => Some(SVGLineJoin::Miter),
-        "round" => Some(SVGLineJoin::Round),
-        "bevel" => Some(SVGLineJoin::Bevel),
-        _ => None,
-    }
-}
-
-fn parse_pointer_events(raw: &str) -> Option<SVGPointerEvents> {
-    match raw.trim() {
-        "auto" => Some(SVGPointerEvents::Auto),
-        "none" => Some(SVGPointerEvents::None),
-        "visiblePainted" => Some(SVGPointerEvents::VisiblePainted),
-        "visibleFill" => Some(SVGPointerEvents::VisibleFill),
-        "visibleStroke" => Some(SVGPointerEvents::VisibleStroke),
-        "visible" => Some(SVGPointerEvents::Visible),
-        "painted" => Some(SVGPointerEvents::Painted),
-        "fill" => Some(SVGPointerEvents::Fill),
-        "stroke" => Some(SVGPointerEvents::Stroke),
-        "all" => Some(SVGPointerEvents::All),
-        "bounding-box" => Some(SVGPointerEvents::BoundingBox),
-        _ => None,
-    }
-}
-
-fn parse_text_anchor(raw: &str) -> Option<SVGTextAnchor> {
-    match raw.trim() {
-        "start" => Some(SVGTextAnchor::Start),
-        "middle" => Some(SVGTextAnchor::Middle),
-        "end" => Some(SVGTextAnchor::End),
-        _ => None,
+        assert_eq!(
+            layout_api::parse_svg_dash_array(Some("1, 2 3")),
+            Some(vec![1.0, 2.0, 3.0])
+        );
     }
 }
 

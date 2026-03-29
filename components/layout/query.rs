@@ -53,12 +53,63 @@ use crate::fragment_tree::{FragmentFlags, FragmentTree};
 use crate::geom::PhysicalRect;
 use crate::style_ext::ComputedValuesExt;
 use crate::svg::hit_test::hit_test_svg_path;
+use crate::svg::transform::then_svg_transform;
 use havi_types::fragment_tree as published;
 
 fn au_rect_to_length_rect(rect: &Rect<Au, CSSPixel>) -> Rect<CSSPixelLength, CSSPixel> {
     Rect::new(
         Point2D::new(rect.origin.x.into(), rect.origin.y.into()),
         Size2D::new(rect.size.width.into(), rect.size.height.into()),
+    )
+}
+
+fn transform_svg_rect(
+    rect: PhysicalRect<Au>,
+    transform: published::SVGTransform,
+) -> PhysicalRect<Au> {
+    let corners = [
+        (rect.origin.x.to_f32_px(), rect.origin.y.to_f32_px()),
+        (
+            (rect.origin.x + rect.size.width).to_f32_px(),
+            rect.origin.y.to_f32_px(),
+        ),
+        (
+            rect.origin.x.to_f32_px(),
+            (rect.origin.y + rect.size.height).to_f32_px(),
+        ),
+        (
+            (rect.origin.x + rect.size.width).to_f32_px(),
+            (rect.origin.y + rect.size.height).to_f32_px(),
+        ),
+    ];
+    let transformed = corners.map(|(x, y)| {
+        (
+            transform.m11 * x + transform.m21 * y + transform.m31,
+            transform.m12 * x + transform.m22 * y + transform.m32,
+        )
+    });
+    let min_x = transformed
+        .iter()
+        .map(|(x, _)| *x)
+        .fold(f32::INFINITY, f32::min);
+    let min_y = transformed
+        .iter()
+        .map(|(_, y)| *y)
+        .fold(f32::INFINITY, f32::min);
+    let max_x = transformed
+        .iter()
+        .map(|(x, _)| *x)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let max_y = transformed
+        .iter()
+        .map(|(_, y)| *y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    PhysicalRect::new(
+        crate::geom::PhysicalPoint::new(Au::from_f32_px(min_x), Au::from_f32_px(min_y)),
+        crate::geom::PhysicalSize::new(
+            Au::from_f32_px(max_x - min_x),
+            Au::from_f32_px(max_y - min_y),
+        ),
     )
 }
 
@@ -139,6 +190,40 @@ fn node_is_fixed_positioned(node: ServoThreadSafeLayoutNode<'_>) -> bool {
         == Some(Position::Fixed)
 }
 
+fn accumulated_svg_transform_and_origin(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+) -> Option<(published::SVGTransform, euclid::Vector2D<Au, CSSPixel>)> {
+    let mut transform = published::SVGTransform::identity();
+    let mut current = Some(fragment_id);
+    let mut top_svg_fragment = None;
+
+    while let Some(id) = current {
+        match generation.kind(id) {
+            published::FragmentKind::SVGViewport(svg_fragment) => {
+                transform = then_svg_transform(transform, svg_fragment.local_to_parent_transform);
+                top_svg_fragment = Some(id);
+            }
+            published::FragmentKind::SVGContainer(svg_fragment) => {
+                transform = then_svg_transform(transform, svg_fragment.local_transform);
+                top_svg_fragment = Some(id);
+            }
+            published::FragmentKind::SVGLeaf(svg_fragment) => {
+                transform = then_svg_transform(transform, svg_fragment.local_transform);
+                top_svg_fragment = Some(id);
+            }
+            _ => break,
+        }
+        current = generation.node(id).parent;
+    }
+
+    let top_svg_fragment = top_svg_fragment?;
+    Some((
+        transform,
+        generation.containing_block(top_svg_fragment).origin.to_vector(),
+    ))
+}
+
 fn box_area_rect(
     generation: &published::FragmentArenaGeneration,
     fragment_id: published::FragmentId,
@@ -163,12 +248,12 @@ fn box_area_rect(
             Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
         }
         published::FragmentKind::SVGContainer(svg_fragment) => {
-            let containing_block = generation.containing_block(fragment_id);
-            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+            let (transform, origin) = accumulated_svg_transform_and_origin(generation, fragment_id)?;
+            Some(transform_svg_rect(svg_fragment.base.rect, transform).translate(origin))
         }
         published::FragmentKind::SVGLeaf(svg_fragment) => {
-            let containing_block = generation.containing_block(fragment_id);
-            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
+            let (transform, origin) = accumulated_svg_transform_and_origin(generation, fragment_id)?;
+            Some(transform_svg_rect(svg_fragment.base.rect, transform).translate(origin))
         }
         published::FragmentKind::Text(_) |
         published::FragmentKind::Image(_) |
@@ -1859,14 +1944,14 @@ pub fn query_elements_from_point(
                 generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
                 svg_fragment.base.rect.size,
             ),
-            published::FragmentKind::SVGContainer(svg_fragment) => PhysicalRect::new(
-                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
-                svg_fragment.base.rect.size,
-            ),
-            published::FragmentKind::SVGLeaf(svg_fragment) => PhysicalRect::new(
-                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
-                svg_fragment.base.rect.size,
-            ),
+            published::FragmentKind::SVGContainer(svg_fragment) => {
+                let (transform, origin) = accumulated_svg_transform_and_origin(generation, fragment_id)?;
+                transform_svg_rect(svg_fragment.base.rect, transform).translate(origin)
+            }
+            published::FragmentKind::SVGLeaf(svg_fragment) => {
+                let (transform, origin) = accumulated_svg_transform_and_origin(generation, fragment_id)?;
+                transform_svg_rect(svg_fragment.base.rect, transform).translate(origin)
+            }
             published::FragmentKind::Positioning(_) => return None,
         };
         let rect = if fragment_is_fixed_positioned(generation, fragment_id) {
@@ -2148,5 +2233,176 @@ pub(crate) fn process_effective_overflow_query(
             )))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use app_units::Au;
+    use havi_types::fragment_tree as published;
+    use style::dom::OpaqueNode;
+    use style::properties::ComputedValues;
+    use style::properties::style_structs::Font;
+
+    use super::box_area_rect;
+    use crate::geom::{PhysicalPoint, PhysicalRect, PhysicalSize};
+
+    fn initial_style() -> servo_arc::Arc<ComputedValues> {
+        ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
+    }
+
+    fn rect(x: i32, y: i32, width: i32, height: i32) -> PhysicalRect<Au> {
+        PhysicalRect::new(
+            PhysicalPoint::new(Au::from_px(x), Au::from_px(y)),
+            PhysicalSize::new(Au::from_px(width), Au::from_px(height)),
+        )
+    }
+
+    fn base_fragment(id: usize, rect: PhysicalRect<Au>) -> published::BaseFragment {
+        published::BaseFragment::new(
+            published::BaseFragmentInfo::new(OpaqueNode(id), None),
+            initial_style(),
+            rect,
+        )
+    }
+
+    fn svg_identity(id: usize) -> published::SVGFragmentIdentity {
+        published::SVGFragmentIdentity {
+            source_tag: published::Tag {
+                node: OpaqueNode(id),
+                pseudo: None,
+            },
+            instance_chain: None,
+        }
+    }
+
+    fn generation(nodes: Vec<published::FragmentNode>) -> published::FragmentArenaGeneration {
+        let len = nodes.len();
+        published::FragmentArenaGeneration {
+            geometry_roots: Arc::from([]),
+            paint_roots: Arc::from([]),
+            nodes: nodes.into(),
+            placements: Arc::from([]),
+            derived: published::FragmentDerivedData {
+                containing_blocks: vec![PhysicalRect::zero(); len],
+                scrollable_overflow: vec![PhysicalRect::zero(); len],
+                sticky_insets: vec![None; len],
+                background_images: vec![Vec::new(); len],
+            },
+            node_fragments: HashMap::new(),
+            svg_resources: Arc::from([]),
+            initial_containing_block: PhysicalRect::zero(),
+            scrollable_overflow: PhysicalRect::zero(),
+        }
+    }
+
+    #[test]
+    fn svg_box_area_accumulates_ancestor_container_transform() {
+        let generation = generation(vec![
+            published::FragmentNode {
+                parent: None,
+                kind: published::FragmentKind::SVGViewport(published::SVGViewportFragment {
+                    base: base_fragment(1, rect(0, 0, 200, 100)),
+                    identity: svg_identity(1),
+                    geometry_children: vec![published::FragmentId(1)],
+                    paint_children: Vec::new(),
+                    viewport_rect: published::SVGRect::new(
+                        published::SVGPoint::new(0.0, 0.0),
+                        crate::geom::PhysicalSize::new(200.0, 100.0),
+                    ),
+                    view_box_rect: None,
+                    local_to_parent_transform: published::SVGTransform::identity(),
+                    overflow_clip: None,
+                }),
+            },
+            published::FragmentNode {
+                parent: Some(published::FragmentId(0)),
+                kind: published::FragmentKind::SVGContainer(published::SVGContainerFragment {
+                    base: base_fragment(2, rect(0, 0, 20, 20)),
+                    identity: svg_identity(2),
+                    kind: published::SVGContainerKind::Group,
+                    geometry_children: vec![published::FragmentId(2)],
+                    paint_children: Vec::new(),
+                    local_transform: published::SVGTransform::new(1.0, 0.0, 0.0, 1.0, 60.0, 0.0),
+                    effects: Default::default(),
+                }),
+            },
+            published::FragmentNode {
+                parent: Some(published::FragmentId(1)),
+                kind: published::FragmentKind::SVGLeaf(published::SVGLeafFragment {
+                    base: base_fragment(3, rect(0, 0, 20, 20)),
+                    identity: svg_identity(3),
+                    kind: published::SVGLeafKind::Path(published::SVGPathPayload {
+                        path: published::SVGPathData {
+                            fill_rule: published::SVGFillRule::NonZero,
+                            commands: Vec::new(),
+                        },
+                    }),
+                    bounds: Default::default(),
+                    local_transform: published::SVGTransform::identity(),
+                    paint: Default::default(),
+                    effects: Default::default(),
+                }),
+            },
+        ]);
+
+        let rect = box_area_rect(&generation, published::FragmentId(2), layout_api::BoxAreaType::Border)
+            .expect("svg leaf should have a border box");
+        assert_eq!(rect.origin.x, Au::from_px(60));
+        assert_eq!(rect.origin.y, Au::from_px(0));
+        assert_eq!(rect.size.width, Au::from_px(20));
+        assert_eq!(rect.size.height, Au::from_px(20));
+    }
+
+    #[test]
+    fn svg_box_area_accumulates_viewport_mapper_transform() {
+        let generation = generation(vec![
+            published::FragmentNode {
+                parent: None,
+                kind: published::FragmentKind::SVGViewport(published::SVGViewportFragment {
+                    base: base_fragment(1, rect(0, 0, 200, 100)),
+                    identity: svg_identity(1),
+                    geometry_children: vec![published::FragmentId(1)],
+                    paint_children: Vec::new(),
+                    viewport_rect: published::SVGRect::new(
+                        published::SVGPoint::new(0.0, 0.0),
+                        crate::geom::PhysicalSize::new(200.0, 100.0),
+                    ),
+                    view_box_rect: Some(published::SVGRect::new(
+                        published::SVGPoint::new(0.0, 0.0),
+                        crate::geom::PhysicalSize::new(100.0, 100.0),
+                    )),
+                    local_to_parent_transform: published::SVGTransform::new(1.0, 0.0, 0.0, 1.0, 50.0, 0.0),
+                    overflow_clip: None,
+                }),
+            },
+            published::FragmentNode {
+                parent: Some(published::FragmentId(0)),
+                kind: published::FragmentKind::SVGLeaf(published::SVGLeafFragment {
+                    base: base_fragment(2, rect(0, 0, 100, 100)),
+                    identity: svg_identity(2),
+                    kind: published::SVGLeafKind::Path(published::SVGPathPayload {
+                        path: published::SVGPathData {
+                            fill_rule: published::SVGFillRule::NonZero,
+                            commands: Vec::new(),
+                        },
+                    }),
+                    bounds: Default::default(),
+                    local_transform: published::SVGTransform::identity(),
+                    paint: Default::default(),
+                    effects: Default::default(),
+                }),
+            },
+        ]);
+
+        let rect = box_area_rect(&generation, published::FragmentId(1), layout_api::BoxAreaType::Border)
+            .expect("svg leaf should have a border box");
+        assert_eq!(rect.origin.x, Au::from_px(50));
+        assert_eq!(rect.origin.y, Au::from_px(0));
+        assert_eq!(rect.size.width, Au::from_px(100));
+        assert_eq!(rect.size.height, Au::from_px(100));
     }
 }

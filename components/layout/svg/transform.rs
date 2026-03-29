@@ -1,4 +1,12 @@
 use havi_types::fragment_tree::{SVGPoint, SVGRect, SVGTransform};
+use layout_api::{
+    SVGPreserveAspectRatioValue, SVGTransformValue, compose_svg_transform_list,
+    SVG_MEETORSLICE_SLICE, SVG_PRESERVEASPECTRATIO_NONE, SVG_PRESERVEASPECTRATIO_XMAXYMAX,
+    SVG_PRESERVEASPECTRATIO_XMAXYMID, SVG_PRESERVEASPECTRATIO_XMAXYMIN,
+    SVG_PRESERVEASPECTRATIO_XMIDYMAX, SVG_PRESERVEASPECTRATIO_XMIDYMID,
+    SVG_PRESERVEASPECTRATIO_XMIDYMIN, SVG_PRESERVEASPECTRATIO_XMINYMAX,
+    SVG_PRESERVEASPECTRATIO_XMINYMID, SVG_PRESERVEASPECTRATIO_XMINYMIN,
+};
 
 #[derive(Clone, Debug)]
 pub struct SVGCoordinateMapper {
@@ -16,7 +24,7 @@ impl SVGCoordinateMapper {
 pub fn compute_view_box_mapper(
     viewport_rect: SVGRect,
     view_box_rect: Option<SVGRect>,
-    preserve_aspect_ratio: Option<svgtypes::AspectRatio>,
+    preserve_aspect_ratio: SVGPreserveAspectRatioValue,
 ) -> SVGCoordinateMapper {
     let Some(view_box_rect) = view_box_rect else {
         return SVGCoordinateMapper::identity();
@@ -30,8 +38,8 @@ pub fn compute_view_box_mapper(
         return SVGCoordinateMapper::identity();
     }
 
-    let preserve = preserve_aspect_ratio.unwrap_or_default();
-    let (scale_x, scale_y, extra_x, extra_y) = if preserve.align == svgtypes::Align::None {
+    let preserve = preserve_aspect_ratio;
+    let (scale_x, scale_y, extra_x, extra_y) = if preserve.align == SVG_PRESERVEASPECTRATIO_NONE {
         (
             viewport_width / view_box_width,
             viewport_height / view_box_height,
@@ -39,7 +47,7 @@ pub fn compute_view_box_mapper(
             0.0,
         )
     } else {
-        let uniform_scale = if preserve.slice {
+        let uniform_scale = if preserve.meet_or_slice == SVG_MEETORSLICE_SLICE {
             (viewport_width / view_box_width).max(viewport_height / view_box_height)
         } else {
             (viewport_width / view_box_width).min(viewport_height / view_box_height)
@@ -60,19 +68,16 @@ pub fn compute_view_box_mapper(
     }
 }
 
-pub fn parse_svg_transform(raw: Option<&str>) -> SVGTransform {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return SVGTransform::identity();
-    };
-
-    let mut transform = SVGTransform::identity();
-    for token in svgtypes::TransformListParser::from(raw) {
-        let Ok(token) = token else {
-            return SVGTransform::identity();
-        };
-        transform = then_svg_transform(transform, transform_token_to_matrix(token));
-    }
-    transform
+pub fn parse_svg_transform(raw: &[SVGTransformValue]) -> SVGTransform {
+    let matrix = compose_svg_transform_list(raw);
+    SVGTransform::new(
+        matrix.m11,
+        matrix.m12,
+        matrix.m21,
+        matrix.m22,
+        matrix.m31,
+        matrix.m32,
+    )
 }
 
 pub fn translate_svg_transform(tx: f32, ty: f32) -> SVGTransform {
@@ -97,45 +102,18 @@ pub fn transform_svg_point(transform: SVGTransform, point: SVGPoint) -> SVGPoint
     )
 }
 
-fn transform_token_to_matrix(token: svgtypes::TransformListToken) -> SVGTransform {
-    match token {
-        svgtypes::TransformListToken::Matrix { a, b, c, d, e, f } => {
-            SVGTransform::new(a as f32, b as f32, c as f32, d as f32, e as f32, f as f32)
-        }
-        svgtypes::TransformListToken::Translate { tx, ty } => {
-            translate_svg_transform(tx as f32, ty as f32)
-        }
-        svgtypes::TransformListToken::Scale { sx, sy } => {
-            SVGTransform::new(sx as f32, 0.0, 0.0, sy as f32, 0.0, 0.0)
-        }
-        svgtypes::TransformListToken::Rotate { angle } => {
-            let radians = (angle as f32).to_radians();
-            let sin = radians.sin();
-            let cos = radians.cos();
-            SVGTransform::new(cos, sin, -sin, cos, 0.0, 0.0)
-        }
-        svgtypes::TransformListToken::SkewX { angle } => {
-            SVGTransform::new(1.0, 0.0, (angle as f32).to_radians().tan(), 1.0, 0.0, 0.0)
-        }
-        svgtypes::TransformListToken::SkewY { angle } => {
-            SVGTransform::new(1.0, (angle as f32).to_radians().tan(), 0.0, 1.0, 0.0, 0.0)
-        }
-    }
-}
-
-fn alignment_factors(align: svgtypes::Align) -> (f32, f32) {
-    use svgtypes::Align;
-
+fn alignment_factors(align: u16) -> (f32, f32) {
     match align {
-        Align::None | Align::XMinYMin => (0.0, 0.0),
-        Align::XMidYMin => (0.5, 0.0),
-        Align::XMaxYMin => (1.0, 0.0),
-        Align::XMinYMid => (0.0, 0.5),
-        Align::XMidYMid => (0.5, 0.5),
-        Align::XMaxYMid => (1.0, 0.5),
-        Align::XMinYMax => (0.0, 1.0),
-        Align::XMidYMax => (0.5, 1.0),
-        Align::XMaxYMax => (1.0, 1.0),
+        SVG_PRESERVEASPECTRATIO_NONE | SVG_PRESERVEASPECTRATIO_XMINYMIN => (0.0, 0.0),
+        SVG_PRESERVEASPECTRATIO_XMIDYMIN => (0.5, 0.0),
+        SVG_PRESERVEASPECTRATIO_XMAXYMIN => (1.0, 0.0),
+        SVG_PRESERVEASPECTRATIO_XMINYMID => (0.0, 0.5),
+        SVG_PRESERVEASPECTRATIO_XMIDYMID => (0.5, 0.5),
+        SVG_PRESERVEASPECTRATIO_XMAXYMID => (1.0, 0.5),
+        SVG_PRESERVEASPECTRATIO_XMINYMAX => (0.0, 1.0),
+        SVG_PRESERVEASPECTRATIO_XMIDYMAX => (0.5, 1.0),
+        SVG_PRESERVEASPECTRATIO_XMAXYMAX => (1.0, 1.0),
+        _ => (0.5, 0.5),
     }
 }
 
@@ -145,7 +123,7 @@ mod tests {
 
     #[test]
     fn transform_list_applies_left_to_right() {
-        let transform = parse_svg_transform(Some("translate(10 0) scale(2)"));
+        let transform = parse_svg_transform(&layout_api::parse_svg_transform_list(Some("translate(10 0) scale(2)")));
         let point = transform_svg_point(transform, SVGPoint::new(1.0, 1.0));
         assert_eq!(point, SVGPoint::new(22.0, 2.0));
     }

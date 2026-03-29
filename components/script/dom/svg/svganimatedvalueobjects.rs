@@ -28,7 +28,8 @@ use super::svgvalueobjects::{
     SVGLength, SVGLengthList, SVGNumberList, SVGPreserveAspectRatio, SVGTransformList,
 };
 use super::values::{
-    parse_svg_number, parse_svg_view_box, set_svg_attribute_value, svg_attribute_value,
+    parse_svg_enumeration, parse_svg_number, parse_svg_view_box, serialize_svg_enumeration,
+    set_svg_attribute_value, svg_attribute_value,
 };
 
 #[dom_struct]
@@ -233,11 +234,10 @@ impl SVGAnimatedEnumeration {
     }
 
     fn current_value(&self) -> u16 {
-        let raw = svg_attribute_value(&self.owner, &self.attribute).unwrap_or_default();
-        self.mapping
-            .iter()
-            .find_map(|(name, value)| raw.trim().eq(*name).then_some(*value))
-            .unwrap_or(0)
+        parse_svg_enumeration(
+            svg_attribute_value(&self.owner, &self.attribute).as_deref(),
+            self.mapping,
+        )
     }
 }
 
@@ -247,8 +247,8 @@ impl SVGAnimatedEnumerationMethods<crate::DomTypeHolder> for SVGAnimatedEnumerat
     }
 
     fn SetBaseVal(&self, value: u16) {
-        if let Some((name, _)) = self.mapping.iter().find(|(_, mapped)| *mapped == value) {
-            set_svg_attribute_value(&self.owner, &self.attribute, Some((*name).to_owned()), CanGc::note());
+        if let Some(name) = serialize_svg_enumeration(value, self.mapping) {
+            set_svg_attribute_value(&self.owner, &self.attribute, Some(name.to_owned()), CanGc::note());
         }
     }
 

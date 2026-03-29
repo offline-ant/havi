@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 2 typed value coverage</title>
+  <style>
+    body {
+      font-family: monospace;
+      margin: 16px;
+      line-height: 1.4;
+    }
+
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results {
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 12px;
+      background: #fafafa;
+    }
+
+    #host {
+      position: absolute;
+      left: 0;
+      top: 0;
+      visibility: visible;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function raf() {
+      return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    async function settleLayout() {
+      await raf();
+      await raf();
+    }
+
+    function makeSvg(width, height, viewBox) {
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', String(width));
+      svg.setAttribute('height', String(height));
+      if (viewBox) {
+        svg.setAttribute('viewBox', viewBox);
+      }
+      svg.style.display = 'block';
+      svg.style.marginBottom = '12px';
+      return svg;
+    }
+
+    async function suite_svg_phase2_typed_values() {
+      const host = document.getElementById('host');
+
+      const textSvg = makeSvg(220, 100);
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.textContent = 'A';
+      text.setAttribute('x', '10 20');
+      text.setAttribute('y', '40');
+      text.setAttribute('font-size', '24');
+      textSvg.append(text);
+      host.append(textSvg);
+      await settleLayout();
+
+      const beforeTextLeft = text.getBoundingClientRect().left;
+      text.x.baseVal.getItem(0).value = 80;
+      text.rotate.baseVal.initialize(text.ownerSVGElement.createSVGNumber());
+      text.rotate.baseVal.getItem(0).value = 45;
+      text.textLength.baseVal.value = 25;
+      await settleLayout();
+      const afterTextLeft = text.getBoundingClientRect().left;
+
+      assertEqual(text.getAttribute('x'), '80 20', 'length-list mutation serializes through shared typed backing');
+      assertEqual(text.getAttribute('rotate'), '45', 'number-list mutation serializes through shared typed backing');
+      assertEqual(text.getAttribute('textLength'), '25', 'single-length mutation serializes through shared typed backing');
+      assert(afterTextLeft > beforeTextLeft + 40, 'text x mutation updates layout-visible geometry');
+
+      const transformSvg = makeSvg(220, 100);
+      const group = document.createElementNS(SVG_NS, 'g');
+      group.setAttribute('transform', 'translate(10 0)');
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', '0');
+      rect.setAttribute('y', '0');
+      rect.setAttribute('width', '20');
+      rect.setAttribute('height', '20');
+      group.append(rect);
+      transformSvg.append(group);
+      host.append(transformSvg);
+      await settleLayout();
+
+      const beforeRectLeft = rect.getBoundingClientRect().left;
+      group.transform.baseVal.getItem(0).setTranslate(60, 0);
+      await settleLayout();
+      const afterRectLeft = rect.getBoundingClientRect().left;
+
+      assertContains(group.getAttribute('transform'), '60', 'transform-list mutation serializes through shared typed backing');
+      assert(afterRectLeft > beforeRectLeft + 40, 'transform-list mutation updates layout-visible geometry');
+
+      const parSvg = makeSvg(200, 100, '0 0 100 100');
+      parSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      const parRect = document.createElementNS(SVG_NS, 'rect');
+      parRect.setAttribute('x', '0');
+      parRect.setAttribute('y', '0');
+      parRect.setAttribute('width', '100');
+      parRect.setAttribute('height', '100');
+      parSvg.append(parRect);
+      host.append(parSvg);
+      await settleLayout();
+
+      const beforeParLeft = parRect.getBoundingClientRect().left;
+      parSvg.preserveAspectRatio.baseVal.align = 2;
+      await settleLayout();
+      const afterParLeft = parRect.getBoundingClientRect().left;
+
+      assertEqual(parSvg.getAttribute('preserveAspectRatio'), 'xMinYMin meet', 'preserveAspectRatio mutation serializes through shared typed backing');
+      assert(afterParLeft < beforeParLeft - 20, 'preserveAspectRatio mutation updates viewBox-mapped layout');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase2_typed_values, 'svg-phase2-typed-values');
+      window.testResults = summary;
+
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

@@ -30,7 +30,7 @@ use super::dom::{
 };
 use super::foreign_object::{layout_foreign_object, layout_foreign_object_children};
 use super::path::{
-    decorated_bounds, normalize_svg_geometry, parse_svg_length, path_bounds, transform_svg_path_data,
+    decorated_bounds, normalize_svg_geometry, path_bounds, resolve_length, transform_svg_path_data,
 };
 use super::resources::{
     SVGResolvedNodeResources, SVGResourceGraph, SVGResourceGraphNode, SVGResourceReferenceInputs,
@@ -257,8 +257,8 @@ fn intrinsic_svg_root_sizes(svg_data: &SVGElementData<'_>) -> SVGRootIntrinsicSi
     let viewport = svg_data
         .viewport()
         .expect("outer SVG sizing only applies to viewport nodes");
-    let width = parse_svg_length(viewport.width).filter(|width| *width >= 0.0);
-    let height = parse_svg_length(viewport.height).filter(|height| *height >= 0.0);
+    let width = resolve_length(viewport.width).filter(|width| *width >= 0.0);
+    let height = resolve_length(viewport.height).filter(|height| *height >= 0.0);
 
     let ratio = match (width, height) {
         (Some(width), Some(height)) if width > 0.0 && height > 0.0 => Some(width / height),
@@ -361,7 +361,7 @@ fn build_svg_node_fragment(
             SVGNodeResolvedStyle::Viewport { viewport: viewport_style, .. },
         ) => {
             let viewport_rect = svg_rect_from_physical_rect(rect);
-            let view_box_rect = viewport.view_box.and_then(parse_view_box);
+            let view_box_rect = viewport.view_box.map(svg_rect_from_view_box);
             let mapper = compute_view_box_mapper(
                 viewport_rect,
                 view_box_rect,
@@ -369,7 +369,7 @@ fn build_svg_node_fragment(
             );
             let viewport_transform = then_svg_transform(
                 mapper.local_to_parent,
-                parse_svg_transform(node.svg_data.common.transform),
+                parse_svg_transform(&node.svg_data.common.transform),
             );
             let overflow_clip = viewport_style.overflow_hidden.then_some(
                 havi_types::fragment_tree::SVGOverflowClip {
@@ -460,7 +460,7 @@ fn build_svg_child_fragment(
                     identity,
                     kind: SVGContainerKind::Group,
                     children,
-                    local_transform: parse_svg_transform(node.svg_data.common.transform),
+                    local_transform: parse_svg_transform(&node.svg_data.common.transform),
                     effects: convert_effect_state(resolved.resources.clone()),
                 },
             )))
@@ -547,7 +547,7 @@ fn build_svg_child_fragment(
                 identity,
                 kind: SVGLeafKind::Path(SVGPathPayload { path }),
                 bounds,
-                local_transform: parse_svg_transform(node.svg_data.common.transform),
+                local_transform: parse_svg_transform(&node.svg_data.common.transform),
                 paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
                 effects: convert_effect_state(resolved.resources.clone()),
             })))
@@ -563,7 +563,7 @@ fn build_svg_child_fragment(
                 identity,
                 kind: SVGLeafKind::Text(text_layout.payload),
                 bounds: text_layout.bounds,
-                local_transform: parse_svg_transform(node.svg_data.common.transform),
+                local_transform: parse_svg_transform(&node.svg_data.common.transform),
                 paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
                 effects: convert_effect_state(resolved.resources.clone()),
             })))
@@ -580,10 +580,10 @@ fn build_svg_child_fragment(
                 identity,
                 kind: SVGLeafKind::Image(SVGImagePayload {
                     viewport_rect,
-                    href: image.href.map(str::to_owned),
+                    href: image.href.map(|reference| reference.raw.to_owned()),
                 }),
                 bounds,
-                local_transform: parse_svg_transform(node.svg_data.common.transform),
+                local_transform: parse_svg_transform(&node.svg_data.common.transform),
                 paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
                 effects: convert_effect_state(resolved.resources.clone()),
             })))
@@ -713,10 +713,9 @@ fn resolve_gradient_resource(
             spread_method,
             ..
         }) => {
-            gradient.units = parse_coordinate_units(*gradient_units).unwrap_or(gradient.units);
-            gradient.gradient_transform = parse_svg_transform(*gradient_transform);
-            gradient.spread_method = parse_spread_method(*spread_method)
-                .unwrap_or(gradient.spread_method);
+            gradient.units = (*gradient_units).unwrap_or(gradient.units);
+            gradient.gradient_transform = parse_svg_transform(gradient_transform);
+            gradient.spread_method = (*spread_method).unwrap_or(gradient.spread_method);
             let linear = match gradient.kind {
                 SVGGradientKind::Linear(ref linear) => linear.clone(),
                 _ => SVGLinearGradient {
@@ -747,10 +746,9 @@ fn resolve_gradient_resource(
             spread_method,
             ..
         }) => {
-            gradient.units = parse_coordinate_units(*gradient_units).unwrap_or(gradient.units);
-            gradient.gradient_transform = parse_svg_transform(*gradient_transform);
-            gradient.spread_method = parse_spread_method(*spread_method)
-                .unwrap_or(gradient.spread_method);
+            gradient.units = (*gradient_units).unwrap_or(gradient.units);
+            gradient.gradient_transform = parse_svg_transform(gradient_transform);
+            gradient.spread_method = (*spread_method).unwrap_or(gradient.spread_method);
             let radial = match gradient.kind {
                 SVGGradientKind::Radial(ref radial) => radial.clone(),
                 _ => SVGRadialGradient {
@@ -794,9 +792,8 @@ fn resolve_clip_path_resource(
 ) -> SVGClipPathResource {
     let (units, transform) = match &node.svg_data.node_kind {
         SVGNodeKind::ClipPath(data) => (
-            parse_coordinate_units(data.clip_path_units)
-                .unwrap_or(SVGCoordinateUnits::UserSpaceOnUse),
-            parse_svg_transform(node.svg_data.common.transform),
+            data.clip_path_units.unwrap_or(SVGCoordinateUnits::UserSpaceOnUse),
+            parse_svg_transform(&node.svg_data.common.transform),
         ),
         _ => (SVGCoordinateUnits::UserSpaceOnUse, SVGTransform::identity()),
     };
@@ -820,7 +817,7 @@ fn collect_clip_paths(
     resource_graph: &SVGResourceGraph,
     inherited_transform: SVGTransform,
 ) -> Vec<SVGPathData> {
-    let node_transform = parse_svg_transform(node.svg_data.common.transform);
+    let node_transform = parse_svg_transform(&node.svg_data.common.transform);
     let combined_transform = then_svg_transform(inherited_transform, node_transform);
     match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
         (
@@ -899,7 +896,7 @@ fn resolve_gradient_stop(
         SVGNodeResolvedStyle::Text(text) => text.paint.current_color,
     };
     SVGGradientStop {
-        offset: parse_stop_offset(stop.offset).unwrap_or(0.0),
+        offset: stop.offset.unwrap_or(0.0),
         color: stop
             .stop_color
             .map(str::to_owned)
@@ -912,7 +909,7 @@ fn resolve_gradient_stop(
             .map(str::to_owned)
             .or_else(|| inline_style_property(node, "stop-opacity"))
             .as_deref()
-            .and_then(parse_unit_interval)
+            .and_then(|raw| layout_api::parse_svg_unit_interval(Some(raw)))
             .unwrap_or(1.0),
     }
 }
@@ -937,7 +934,7 @@ fn gradient_template_node<'dom>(
         | SVGNodeKind::Gradient(SVGGradientData::Radial { href, .. }) => *href,
         _ => None,
     }?;
-    let id = href.trim().strip_prefix('#')?;
+    let id = href.local_reference?;
     let target = resource_graph.node_for_element_id(id)?;
     let target = nodes_by_opaque.get(&target).copied()?;
     let target = resolve_svg_node(target, style_context)?;
@@ -1029,9 +1026,14 @@ fn collect_resource_graph_node<'dom>(
     }
 
     graph_node.href = match &node.svg_data.node_kind {
-        SVGNodeKind::Use(data) => data.href.map(str::to_owned),
+        SVGNodeKind::Use(data) => data
+            .href
+            .and_then(|reference| reference.local_reference)
+            .map(str::to_owned),
         SVGNodeKind::Gradient(SVGGradientData::Linear { href, .. })
-        | SVGNodeKind::Gradient(SVGGradientData::Radial { href, .. }) => href.map(str::to_owned),
+        | SVGNodeKind::Gradient(SVGGradientData::Radial { href, .. }) => href
+            .and_then(|reference| reference.local_reference)
+            .map(str::to_owned),
         _ => None,
     };
 
@@ -1173,36 +1175,22 @@ fn physical_rect_from_svg_rect(rect: SVGRect) -> PhysicalRect<Au> {
     )
 }
 
-fn parse_view_box(raw: &str) -> Option<SVGRect> {
-    let mut values = raw
-        .split(|ch: char| ch == ',' || ch.is_ascii_whitespace())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<f32>().ok());
-    let min_x = values.next()?;
-    let min_y = values.next()?;
-    let width = values.next()?;
-    let height = values.next()?;
-    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-    if values.next().is_some() {
-        return None;
-    }
-    Some(SVGRect::new(
-        euclid::point2(min_x, min_y),
-        euclid::size2(width, height),
-    ))
+fn svg_rect_from_view_box(view_box: layout_api::SVGRectValue) -> SVGRect {
+    SVGRect::new(
+        euclid::point2(view_box.x, view_box.y),
+        euclid::size2(view_box.width, view_box.height),
+    )
 }
 
 fn image_viewport(image: &layout_api::SVGImageData<'_>) -> SVGRect {
     SVGRect::new(
         euclid::point2(
-            parse_svg_length(image.x).unwrap_or(0.0),
-            parse_svg_length(image.y).unwrap_or(0.0),
+            resolve_length(image.x).unwrap_or(0.0),
+            resolve_length(image.y).unwrap_or(0.0),
         ),
         euclid::size2(
-            parse_svg_length(image.width).unwrap_or(0.0),
-            parse_svg_length(image.height).unwrap_or(0.0),
+            resolve_length(image.width).unwrap_or(0.0),
+            resolve_length(image.height).unwrap_or(0.0),
         ),
     )
 }
@@ -1243,53 +1231,15 @@ fn default_gradient_resource() -> SVGGradientResource {
     }
 }
 
-fn parse_coordinate_units(raw: Option<&str>) -> Option<SVGCoordinateUnits> {
-    match raw?.trim() {
-        "userSpaceOnUse" => Some(SVGCoordinateUnits::UserSpaceOnUse),
-        "objectBoundingBox" => Some(SVGCoordinateUnits::ObjectBoundingBox),
-        _ => None,
-    }
-}
-
-fn parse_spread_method(raw: Option<&str>) -> Option<SVGGradientSpreadMethod> {
-    match raw?.trim() {
-        "pad" => Some(SVGGradientSpreadMethod::Pad),
-        "reflect" => Some(SVGGradientSpreadMethod::Reflect),
-        "repeat" => Some(SVGGradientSpreadMethod::Repeat),
-        _ => None,
-    }
-}
-
-fn parse_gradient_length(raw: Option<&str>, default: f32) -> f32 {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+fn parse_gradient_length(length: Option<layout_api::SVGLengthValue>, default: f32) -> f32 {
+    let Some(length) = length else {
         return default;
     };
-    let Ok(length) = raw.parse::<svgtypes::Length>() else {
-        return default;
+    let value = match length.unit_type {
+        layout_api::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
+        _ => resolve_length(Some(length)).unwrap_or(default),
     };
-    let value = match length.unit {
-        svgtypes::LengthUnit::Percent => length.number as f32 / 100.0,
-        svgtypes::LengthUnit::None | svgtypes::LengthUnit::Px => length.number as f32,
-        svgtypes::LengthUnit::In => (length.number * 96.0) as f32,
-        svgtypes::LengthUnit::Cm => (length.number * (96.0 / 2.54)) as f32,
-        svgtypes::LengthUnit::Mm => (length.number * (96.0 / 25.4)) as f32,
-        svgtypes::LengthUnit::Pt => (length.number * (96.0 / 72.0)) as f32,
-        svgtypes::LengthUnit::Pc => (length.number * 16.0) as f32,
-        svgtypes::LengthUnit::Em | svgtypes::LengthUnit::Ex => return default,
-    };
-    if value.is_finite() {
-        value
-    } else {
-        default
-    }
-}
-
-fn parse_stop_offset(raw: Option<&str>) -> Option<f32> {
-    let raw = raw?.trim();
-    if let Some(percent) = raw.strip_suffix('%') {
-        return percent.parse::<f32>().ok().map(|value| (value / 100.0).clamp(0.0, 1.0));
-    }
-    raw.parse::<f32>().ok().map(|value| value.clamp(0.0, 1.0))
+    if value.is_finite() { value } else { default }
 }
 
 fn parse_svg_color(raw: &str) -> Option<SVGColor> {
@@ -1302,9 +1252,6 @@ fn parse_svg_color(raw: &str) -> Option<SVGColor> {
     })
 }
 
-fn parse_unit_interval(raw: &str) -> Option<f32> {
-    raw.trim().parse::<f32>().ok().map(|value| value.clamp(0.0, 1.0))
-}
 
 #[cfg(test)]
 mod tests {

@@ -2,9 +2,11 @@ use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use layout_api::{SVGElementData, SVGNodeKind};
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc as ServoArc;
-use style::context::SharedStyleContext;
+use style::context::{SharedStyleContext, StyleContext, ThreadLocalStyleContext};
 use style::dom::{NodeInfo, TElement, TNode};
 use style::properties::ComputedValues;
+use style::stylist::RuleInclusion;
+use style::traversal::resolve_style;
 
 use crate::fragment_tree::Tag;
 
@@ -129,6 +131,27 @@ fn collect_svg_ancestor_chain<'dom>(
     chain
 }
 
+fn resolve_svg_node_style<'dom>(
+    node: ServoThreadSafeLayoutNode<'dom>,
+    context: &SharedStyleContext,
+) -> Option<ServoArc<ComputedValues>> {
+    if node.style_data().is_some() {
+        return Some(node.style(context));
+    }
+
+    if let Some(element) = node.unsafe_get().as_element() {
+        let mut thread_local = ThreadLocalStyleContext::new();
+        let mut style_context = StyleContext {
+            shared: context,
+            thread_local: &mut thread_local,
+        };
+        let styles = resolve_style(&mut style_context, element, RuleInclusion::All, None, None);
+        return Some(styles.primary().clone());
+    }
+
+    node.is_text_node().then(|| node.parent_style(context))
+}
+
 fn resolve_svg_node_with_inheritance<'dom>(
     node: ServoThreadSafeLayoutNode<'dom>,
     context: &SharedStyleContext,
@@ -137,7 +160,7 @@ fn resolve_svg_node_with_inheritance<'dom>(
 ) -> Option<SVGResolvedNode<'dom>> {
     let svg_data = node.svg_data()?;
     let tag = Tag::from(node);
-    let computed_style = node.style(context);
+    let computed_style = resolve_svg_node_style(node, context)?;
     let summary = summarize_node_kind(&svg_data.node_kind);
     let resolved_style = match &svg_data.node_kind {
         SVGNodeKind::Viewport(_) => SVGNodeResolvedStyle::Viewport {

@@ -511,12 +511,15 @@ fn normalize_local_reference(raw: &str) -> Option<&str> {
     if let Some(stripped) = raw.strip_prefix('#') {
         return Some(stripped.trim());
     }
-    let inner = raw.strip_prefix("url(")?.strip_suffix(')')?.trim();
-    if let Some(stripped) = inner.strip_prefix('#') {
-        return Some(stripped.trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' '));
+    if let Some(inner) = raw.strip_prefix("url(").and_then(|raw| raw.strip_suffix(')')) {
+        let inner = inner.trim();
+        if let Some(stripped) = inner.strip_prefix('#') {
+            return Some(stripped.trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' '));
+        }
+        let inner = inner.trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' ');
+        return inner.strip_prefix('#');
     }
-    let inner = inner.trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' ');
-    inner.strip_prefix('#')
+    Some(raw.trim_matches(|ch| ch == '\'' || ch == '"' || ch == ' '))
 }
 
 fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode> {

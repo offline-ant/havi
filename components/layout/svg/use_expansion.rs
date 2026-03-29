@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use style::dom::OpaqueNode;
 
 use super::dom::SVGResolvedNode;
-use super::path::parse_svg_length;
+use super::path::resolve_length;
 use super::resources::SVGResourceGraph;
 use super::transform::{parse_svg_transform, then_svg_transform, translate_svg_transform};
 
@@ -34,19 +34,19 @@ pub fn expand_use_node<'dom>(
             layout_api::SVGNodeKind::Use(data) => Some(data),
             _ => None,
         },
-        use_node.svg_data.common.transform,
+        &use_node.svg_data.common.transform,
     );
     result
 }
 
 fn use_instance_transform(
     use_data: Option<&layout_api::SVGUseData<'_>>,
-    transform: Option<&str>,
+    transform: &[layout_api::SVGTransformValue],
 ) -> SVGTransform {
     let translation = use_data.map_or(SVGTransform::identity(), |data| {
         translate_svg_transform(
-            parse_svg_length(data.x).unwrap_or(0.0),
-            parse_svg_length(data.y).unwrap_or(0.0),
+            resolve_length(data.x).unwrap_or(0.0),
+            resolve_length(data.y).unwrap_or(0.0),
         )
     });
     let node_transform = parse_svg_transform(transform);
@@ -61,13 +61,13 @@ mod tests {
     fn combines_use_translation_and_transform() {
         let transform = use_instance_transform(
             Some(&layout_api::SVGUseData {
-                href: Some("#shape"),
-                x: Some("10"),
-                y: Some("20"),
+                href: layout_api::parse_svg_reference(Some("#shape")),
+                x: Some(layout_api::parse_svg_length(Some("10"))),
+                y: Some(layout_api::parse_svg_length(Some("20"))),
                 width: None,
                 height: None,
             }),
-            Some("scale(2)"),
+            &layout_api::parse_svg_transform_list(Some("scale(2)")),
         );
         let point = super::super::transform::transform_svg_point(
             transform,

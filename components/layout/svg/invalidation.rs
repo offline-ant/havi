@@ -373,6 +373,23 @@ mod tests {
     }
 
     #[test]
+    fn text_position_mutations_are_geometry_invalidations() {
+        let flags = classify_attribute_invalidation(SVGLayoutNodeKind::Text, "x");
+        assert!(flags.contains(SVGInvalidationFlags::GEOMETRY));
+        assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
+        assert!(flags.contains(SVGInvalidationFlags::HIT_TEST));
+    }
+
+    #[test]
+    fn resource_reference_mutations_invalidate_dependencies() {
+        let flags = classify_attribute_invalidation(SVGLayoutNodeKind::Geometry, "clip-path");
+        assert!(flags.contains(SVGInvalidationFlags::PAINT));
+        assert!(flags.contains(SVGInvalidationFlags::RESOURCE_DEPENDENCY));
+        assert!(flags.contains(SVGInvalidationFlags::BOUNDS));
+        assert!(flags.contains(SVGInvalidationFlags::HIT_TEST));
+    }
+
+    #[test]
     fn view_box_changes_invalidate_descendant_transforms() {
         let graph = SVGResourceGraph::build(&[
             node(1, SVGLayoutNodeKind::Viewport),

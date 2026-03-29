@@ -3,7 +3,7 @@ use std::ops::Range;
 use app_units::Au;
 use base::text::is_bidi_control;
 use fonts::{FontMetrics, FontRef, LAST_RESORT_GLYPH_ADVANCE, ShapingFlags, ShapingOptions};
-use layout_api::SVGNodeKind;
+use layout_api::{SVGNodeKind, SVGTextBaselineValue};
 use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use style::Zero;
 use style::computed_values::text_rendering::T as TextRendering;
@@ -15,7 +15,7 @@ use xi_unicode::linebreak_property;
 use super::dom::{
     SVGNodeResolvedStyle, SVGResolvedNode, collect_direct_text_content, resolve_svg_child_node,
 };
-use super::path::parse_svg_length;
+use super::path::resolve_length;
 use crate::context::LayoutContext;
 use havi_types::fragment_tree::{
     SVGAddressableChar, SVGBounds, SVGGlyphRun, SVGPoint, SVGTextAnchor, SVGTextChunk,
@@ -140,10 +140,10 @@ fn layout_svg_text_node(
         return;
     };
 
-    let mut x = parse_svg_length(text_data.x).unwrap_or(cursor.x);
-    let mut y = parse_svg_length(text_data.y).unwrap_or(cursor.y);
-    x += parse_svg_length(text_data.dx).unwrap_or(0.0);
-    y += parse_svg_length(text_data.dy).unwrap_or(0.0);
+    let mut x = text_data.x.first().copied().and_then(|value| resolve_length(Some(value))).unwrap_or(cursor.x);
+    let mut y = text_data.y.first().copied().and_then(|value| resolve_length(Some(value))).unwrap_or(cursor.y);
+    x += text_data.dx.first().copied().and_then(|value| resolve_length(Some(value))).unwrap_or(0.0);
+    y += text_data.dy.first().copied().and_then(|value| resolve_length(Some(value))).unwrap_or(0.0);
 
     let text_content = collect_direct_text_content(node.node);
     if !text_content.is_empty() {
@@ -385,7 +385,7 @@ fn shape_svg_text_segment(
     })
 }
 
-fn text_node_data<'a>(node: &'a SVGResolvedNode<'a>) -> Option<&'a layout_api::SVGTextData<'a>> {
+fn text_node_data<'a>(node: &'a SVGResolvedNode<'a>) -> Option<&'a layout_api::SVGTextData> {
     match &node.svg_data.node_kind {
         SVGNodeKind::Text(data) | SVGNodeKind::TSpan(data) => Some(data),
         _ => None,
@@ -410,16 +410,17 @@ fn resolve_baseline_y(font_metrics: &FontMetrics, node: &SVGResolvedNode<'_>, y:
     let baseline = match &node.resolved_style {
         SVGNodeResolvedStyle::Text(style) => style
             .alignment_baseline
-            .as_deref()
-            .or(style.dominant_baseline.as_deref()),
+            .or(style.dominant_baseline),
         _ => None,
     };
     match baseline {
-        Some("middle") | Some("central") => {
+        Some(SVGTextBaselineValue::Middle) | Some(SVGTextBaselineValue::Central) => {
             y + (font_metrics.ascent - font_metrics.descent).scale_by(0.5)
         }
-        Some("hanging") | Some("text-before-edge") => y + font_metrics.ascent,
-        Some("text-after-edge") => y - font_metrics.descent,
+        Some(SVGTextBaselineValue::Hanging) | Some(SVGTextBaselineValue::TextBeforeEdge) => {
+            y + font_metrics.ascent
+        }
+        Some(SVGTextBaselineValue::TextAfterEdge) => y - font_metrics.descent,
         _ => y,
     }
 }

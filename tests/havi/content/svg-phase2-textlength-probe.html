@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 2 textLength probe</title>
+  <style>
+    body { font-family: monospace; margin: 16px; }
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results { white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; background: #fafafa; }
+  </style>
+</head>
+<body>
+  <div id="status">Running...</div>
+  <pre id="results"></pre>
+  <div id="host"></div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    async function suite_svg_phase2_textlength_probe() {
+      const host = document.getElementById('host');
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('width', '200');
+      svg.setAttribute('height', '80');
+      svg.style.display = 'block';
+
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.textContent = 'A';
+      text.setAttribute('x', '10');
+      text.setAttribute('y', '40');
+      svg.append(text);
+      host.append(svg);
+
+      text.textLength.baseVal.value = 25;
+      assertEqual(text.getAttribute('textLength'), '25', 'textLength wrapper mutation writes camelCase SVG attribute');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase2_textlength_probe, 'svg-phase2-textlength-probe');
+      window.testResults = summary;
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

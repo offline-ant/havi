@@ -1,11 +1,9 @@
-use std::str::FromStr;
-
 use havi_types::fragment_tree::{
     SVGFillRule, SVGLineCap, SVGLineJoin, SVGPaint, SVGPathCommand, SVGPathData, SVGPoint,
     SVGRect,
 };
 
-use layout_api::SVGGeometryData;
+use layout_api::{SVGGeometryData, SVGLengthValue, resolve_svg_length_to_user_units};
 use super::style::SVGResolvedStroke;
 use super::transform::transform_svg_point;
 
@@ -69,36 +67,36 @@ pub fn normalize_svg_geometry(
             height,
             ..
         } => normalize_rect(
-            parse_svg_length(x.as_deref()).unwrap_or(0.0),
-            parse_svg_length(y.as_deref()).unwrap_or(0.0),
-            parse_svg_length(width.as_deref()).unwrap_or(0.0),
-            parse_svg_length(height.as_deref()).unwrap_or(0.0),
+            resolve_length(*x).unwrap_or(0.0),
+            resolve_length(*y).unwrap_or(0.0),
+            resolve_length(*width).unwrap_or(0.0),
+            resolve_length(*height).unwrap_or(0.0),
             fill_rule,
         ),
         SVGGeometryData::Circle { cx, cy, r } => normalize_ellipse(
-            parse_svg_length(cx.as_deref()).unwrap_or(0.0),
-            parse_svg_length(cy.as_deref()).unwrap_or(0.0),
-            parse_svg_length(r.as_deref()).unwrap_or(0.0),
-            parse_svg_length(r.as_deref()).unwrap_or(0.0),
+            resolve_length(*cx).unwrap_or(0.0),
+            resolve_length(*cy).unwrap_or(0.0),
+            resolve_length(*r).unwrap_or(0.0),
+            resolve_length(*r).unwrap_or(0.0),
             fill_rule,
         ),
         SVGGeometryData::Ellipse { cx, cy, rx, ry } => normalize_ellipse(
-            parse_svg_length(cx.as_deref()).unwrap_or(0.0),
-            parse_svg_length(cy.as_deref()).unwrap_or(0.0),
-            parse_svg_length(rx.as_deref()).unwrap_or(0.0),
-            parse_svg_length(ry.as_deref()).unwrap_or(0.0),
+            resolve_length(*cx).unwrap_or(0.0),
+            resolve_length(*cy).unwrap_or(0.0),
+            resolve_length(*rx).unwrap_or(0.0),
+            resolve_length(*ry).unwrap_or(0.0),
             fill_rule,
         ),
         SVGGeometryData::Line { x1, y1, x2, y2 } => SVGNormalizedPath {
             fill_rule,
             commands: vec![
                 SVGPathCommand::MoveTo(point(
-                    parse_svg_length(x1.as_deref()).unwrap_or(0.0),
-                    parse_svg_length(y1.as_deref()).unwrap_or(0.0),
+                    resolve_length(*x1).unwrap_or(0.0),
+                    resolve_length(*y1).unwrap_or(0.0),
                 )),
                 SVGPathCommand::LineTo(point(
-                    parse_svg_length(x2.as_deref()).unwrap_or(0.0),
-                    parse_svg_length(y2.as_deref()).unwrap_or(0.0),
+                    resolve_length(*x2).unwrap_or(0.0),
+                    resolve_length(*y2).unwrap_or(0.0),
                 )),
             ],
         },
@@ -269,21 +267,8 @@ fn normalize_points(raw: Option<&str>, fill_rule: SVGFillRule, closed: bool) -> 
     SVGNormalizedPath { fill_rule, commands }
 }
 
-pub fn parse_svg_length(raw: Option<&str>) -> Option<f32> {
-    let raw = raw?;
-    let length = svgtypes::Length::from_str(raw).ok()?;
-    let px = match length.unit {
-        svgtypes::LengthUnit::None | svgtypes::LengthUnit::Px => length.number,
-        svgtypes::LengthUnit::In => length.number * 96.0,
-        svgtypes::LengthUnit::Cm => length.number * (96.0 / 2.54),
-        svgtypes::LengthUnit::Mm => length.number * (96.0 / 25.4),
-        svgtypes::LengthUnit::Pt => length.number * (96.0 / 72.0),
-        svgtypes::LengthUnit::Pc => length.number * 16.0,
-        svgtypes::LengthUnit::Percent | svgtypes::LengthUnit::Em | svgtypes::LengthUnit::Ex => {
-            return None;
-        }
-    };
-    px.is_finite().then_some(px as f32)
+pub fn resolve_length(length: Option<SVGLengthValue>) -> Option<f32> {
+    length.and_then(resolve_svg_length_to_user_units)
 }
 
 pub fn transform_svg_path_data(path: &SVGPathData, transform: havi_types::fragment_tree::SVGTransform) -> SVGPathData {
