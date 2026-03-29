@@ -14,11 +14,8 @@ pub(super) fn fragment_local_bounds(
         published::FragmentKind::Image(image) => physical_rect_to_rect(image.base.rect),
         published::FragmentKind::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
         published::FragmentKind::SVGViewport(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGGroup(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGPath(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGText(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGForeignObject(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGImage(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGContainer(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGLeaf(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::Positioning(_) => Rect {
             pos: dvec2(0.0, 0.0),
             size: dvec2(0.0, 0.0),

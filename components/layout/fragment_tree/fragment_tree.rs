@@ -392,77 +392,33 @@ impl<'a> ArenaBuilder<'a> {
                     overflow_clip: svg_fragment.overflow_clip.clone(),
                 })
             }
-            Fragment::SVGGroup(svg_fragment) => {
+            Fragment::SVGContainer(svg_fragment) => {
                 let svg_fragment = svg_fragment.borrow();
                 let geometry_children = svg_fragment
                     .children
                     .iter()
                     .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
                     .collect();
-                published::FragmentKind::SVGGroup(published::SVGGroupFragment {
+                published::FragmentKind::SVGContainer(published::SVGContainerFragment {
                     base,
                     identity: svg_fragment.identity.clone(),
+                    kind: svg_fragment.kind.clone(),
                     geometry_children,
                     paint_children: Vec::new(),
                     local_transform: svg_fragment.local_transform,
-                    opacity: svg_fragment.opacity,
-                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
+                    effects: remap_svg_effect_state(svg_fragment.effects.clone(), resource_offset),
                 })
             }
-            Fragment::SVGPath(svg_fragment) => {
+            Fragment::SVGLeaf(svg_fragment) => {
                 let svg_fragment = svg_fragment.borrow();
-                published::FragmentKind::SVGPath(published::SVGPathFragment {
+                published::FragmentKind::SVGLeaf(published::SVGLeafFragment {
                     base,
                     identity: svg_fragment.identity.clone(),
-                    path: svg_fragment.path.clone(),
-                    object_bounding_box: svg_fragment.object_bounding_box,
-                    decorated_bounding_box: svg_fragment.decorated_bounding_box,
+                    kind: remap_svg_leaf_kind(svg_fragment.kind.clone(), resource_offset),
+                    bounds: remap_svg_bounds(svg_fragment.bounds.clone(), resource_offset),
                     local_transform: svg_fragment.local_transform,
-                    fill: remap_svg_paint(svg_fragment.fill.clone(), resource_offset),
-                    stroke: svg_fragment
-                        .stroke
-                        .clone()
-                        .map(|stroke| remap_svg_stroke_style(stroke, resource_offset)),
-                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
-                })
-            }
-            Fragment::SVGText(svg_fragment) => {
-                let svg_fragment = svg_fragment.borrow();
-                published::FragmentKind::SVGText(published::SVGTextFragment {
-                    base,
-                    identity: svg_fragment.identity.clone(),
-                    text_runs: svg_fragment.text_runs.iter().map(convert_text_fragment).collect(),
-                    object_bounding_box: svg_fragment.object_bounding_box,
-                    decorated_bounding_box: svg_fragment.decorated_bounding_box,
-                    local_transform: svg_fragment.local_transform,
-                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
-                })
-            }
-            Fragment::SVGForeignObject(svg_fragment) => {
-                let svg_fragment = svg_fragment.borrow();
-                let geometry_children = svg_fragment
-                    .children
-                    .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
-                    .collect();
-                published::FragmentKind::SVGForeignObject(published::SVGForeignObjectFragment {
-                    base,
-                    identity: svg_fragment.identity.clone(),
-                    geometry_children,
-                    paint_children: Vec::new(),
-                    svg_viewport_rect: svg_fragment.svg_viewport_rect,
-                    local_transform: svg_fragment.local_transform,
-                })
-            }
-            Fragment::SVGImage(svg_fragment) => {
-                let svg_fragment = svg_fragment.borrow();
-                published::FragmentKind::SVGImage(published::SVGImageFragment {
-                    base,
-                    identity: svg_fragment.identity.clone(),
-                    viewport_rect: svg_fragment.viewport_rect,
-                    local_transform: svg_fragment.local_transform,
-                    href: svg_fragment.href.clone(),
-                    resources: remap_svg_resource_references(svg_fragment.resources.clone(), resource_offset),
+                    paint: remap_svg_paint_style(svg_fragment.paint.clone(), resource_offset),
+                    effects: remap_svg_effect_state(svg_fragment.effects.clone(), resource_offset),
                 })
             }
             Fragment::AbsoluteOrFixedPositioned(_) => unreachable!("filtered by internal_fragment_key"),
@@ -490,11 +446,8 @@ impl<'a> ArenaBuilder<'a> {
             Fragment::Image(_) |
             Fragment::IFrame(_) |
             Fragment::SVGViewport(_) |
-            Fragment::SVGGroup(_) |
-            Fragment::SVGPath(_) |
-            Fragment::SVGText(_) |
-            Fragment::SVGForeignObject(_) |
-            Fragment::SVGImage(_) => base.rect,
+            Fragment::SVGContainer(_) |
+            Fragment::SVGLeaf(_) => base.rect,
             Fragment::AbsoluteOrFixedPositioned(_) => PhysicalRect::zero(),
         });
         self.derived.sticky_insets.push(match fragment {
@@ -536,14 +489,11 @@ impl<'a> ArenaBuilder<'a> {
             Fragment::Box(box_fragment) | Fragment::Float(box_fragment) => box_fragment.borrow().children.clone(),
             Fragment::Positioning(positioning_fragment) => positioning_fragment.borrow().children.clone(),
             Fragment::SVGViewport(svg_fragment) => svg_fragment.borrow().children.clone(),
-            Fragment::SVGGroup(svg_fragment) => svg_fragment.borrow().children.clone(),
-            Fragment::SVGForeignObject(svg_fragment) => svg_fragment.borrow().children.clone(),
+            Fragment::SVGContainer(svg_fragment) => svg_fragment.borrow().children.clone(),
             Fragment::Text(_) |
             Fragment::Image(_) |
             Fragment::IFrame(_) |
-            Fragment::SVGPath(_) |
-            Fragment::SVGText(_) |
-            Fragment::SVGImage(_) => Vec::new(),
+            Fragment::SVGLeaf(_) => Vec::new(),
             Fragment::AbsoluteOrFixedPositioned(_) => return,
         };
 
@@ -565,18 +515,13 @@ impl<'a> ArenaBuilder<'a> {
             published::FragmentKind::SVGViewport(svg_fragment) => {
                 svg_fragment.paint_children = paint_children;
             }
-            published::FragmentKind::SVGGroup(svg_fragment) => {
-                svg_fragment.paint_children = paint_children;
-            }
-            published::FragmentKind::SVGForeignObject(svg_fragment) => {
+            published::FragmentKind::SVGContainer(svg_fragment) => {
                 svg_fragment.paint_children = paint_children;
             }
             published::FragmentKind::Text(_) |
             published::FragmentKind::Image(_) |
             published::FragmentKind::IFrame(_) |
-            published::FragmentKind::SVGPath(_) |
-            published::FragmentKind::SVGText(_) |
-            published::FragmentKind::SVGImage(_) => {}
+            published::FragmentKind::SVGLeaf(_) => {}
         }
     }
 
@@ -904,11 +849,8 @@ fn convert_fragment_base(fragment: &Fragment) -> published::BaseFragment {
         Fragment::Image(imf) => convert_base(&imf.borrow().base),
         Fragment::IFrame(ifr) => convert_base(&ifr.borrow().base),
         Fragment::SVGViewport(fragment) => convert_base(&fragment.borrow().base),
-        Fragment::SVGGroup(fragment) => convert_base(&fragment.borrow().base),
-        Fragment::SVGPath(fragment) => convert_base(&fragment.borrow().base),
-        Fragment::SVGText(fragment) => convert_base(&fragment.borrow().base),
-        Fragment::SVGForeignObject(fragment) => convert_base(&fragment.borrow().base),
-        Fragment::SVGImage(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGContainer(fragment) => convert_base(&fragment.borrow().base),
+        Fragment::SVGLeaf(fragment) => convert_base(&fragment.borrow().base),
         Fragment::AbsoluteOrFixedPositioned(_) => {
             unreachable!("filtered by internal_fragment_key")
         }
@@ -926,31 +868,13 @@ fn published_fragment_mapping_tag(
                 .identity
                 .current_instance_owner_or_source_tag(),
         ),
-        Fragment::SVGGroup(fragment) => Some(
+        Fragment::SVGContainer(fragment) => Some(
             fragment
                 .borrow()
                 .identity
                 .current_instance_owner_or_source_tag(),
         ),
-        Fragment::SVGPath(fragment) => Some(
-            fragment
-                .borrow()
-                .identity
-                .current_instance_owner_or_source_tag(),
-        ),
-        Fragment::SVGText(fragment) => Some(
-            fragment
-                .borrow()
-                .identity
-                .current_instance_owner_or_source_tag(),
-        ),
-        Fragment::SVGForeignObject(fragment) => Some(
-            fragment
-                .borrow()
-                .identity
-                .current_instance_owner_or_source_tag(),
-        ),
-        Fragment::SVGImage(fragment) => Some(
+        Fragment::SVGLeaf(fragment) => Some(
             fragment
                 .borrow()
                 .identity
@@ -968,11 +892,8 @@ fn fragment_out_of_flow_placement_id(fragment: &Fragment) -> Option<u32> {
         Fragment::Image(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::IFrame(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::SVGViewport(fragment) => fragment.borrow().base.out_of_flow_placement_id,
-        Fragment::SVGGroup(fragment) => fragment.borrow().base.out_of_flow_placement_id,
-        Fragment::SVGPath(fragment) => fragment.borrow().base.out_of_flow_placement_id,
-        Fragment::SVGText(fragment) => fragment.borrow().base.out_of_flow_placement_id,
-        Fragment::SVGForeignObject(fragment) => fragment.borrow().base.out_of_flow_placement_id,
-        Fragment::SVGImage(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGContainer(fragment) => fragment.borrow().base.out_of_flow_placement_id,
+        Fragment::SVGLeaf(fragment) => fragment.borrow().base.out_of_flow_placement_id,
         Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }
@@ -986,11 +907,8 @@ fn internal_fragment_key(fragment: &Fragment) -> Option<usize> {
         Fragment::Image(fragment) => Some(fragment_key(fragment)),
         Fragment::IFrame(fragment) => Some(fragment_key(fragment)),
         Fragment::SVGViewport(fragment) => Some(fragment_key(fragment)),
-        Fragment::SVGGroup(fragment) => Some(fragment_key(fragment)),
-        Fragment::SVGPath(fragment) => Some(fragment_key(fragment)),
-        Fragment::SVGText(fragment) => Some(fragment_key(fragment)),
-        Fragment::SVGForeignObject(fragment) => Some(fragment_key(fragment)),
-        Fragment::SVGImage(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGContainer(fragment) => Some(fragment_key(fragment)),
+        Fragment::SVGLeaf(fragment) => Some(fragment_key(fragment)),
         Fragment::AbsoluteOrFixedPositioned(_) => None,
     }
 }
@@ -1018,21 +936,21 @@ fn remap_svg_resource_node(
     node
 }
 
-fn remap_svg_resource_references(
-    resources: published::SVGResourceReferences,
+fn remap_svg_effect_state(
+    effects: published::SVGEffectState,
     resource_offset: Option<u32>,
-) -> published::SVGResourceReferences {
-    published::SVGResourceReferences {
-        clip_path: resources.clip_path.map(|id| remap_svg_resource_id(id, resource_offset)),
-        mask: resources.mask.map(|id| remap_svg_resource_id(id, resource_offset)),
-        filter: resources.filter.map(|id| remap_svg_resource_id(id, resource_offset)),
-        marker_start: resources
+) -> published::SVGEffectState {
+    published::SVGEffectState {
+        clip_path: effects.clip_path.map(|id| remap_svg_resource_id(id, resource_offset)),
+        mask: effects.mask.map(|id| remap_svg_resource_id(id, resource_offset)),
+        filter: effects.filter.map(|id| remap_svg_resource_id(id, resource_offset)),
+        marker_start: effects
             .marker_start
             .map(|id| remap_svg_resource_id(id, resource_offset)),
-        marker_mid: resources
+        marker_mid: effects
             .marker_mid
             .map(|id| remap_svg_resource_id(id, resource_offset)),
-        marker_end: resources
+        marker_end: effects
             .marker_end
             .map(|id| remap_svg_resource_id(id, resource_offset)),
     }
@@ -1040,8 +958,8 @@ fn remap_svg_resource_references(
 
 fn remap_svg_paint(paint: published::SVGPaint, resource_offset: Option<u32>) -> published::SVGPaint {
     match paint {
-        published::SVGPaint::Resource(id) => {
-            published::SVGPaint::Resource(remap_svg_resource_id(id, resource_offset))
+        published::SVGPaint::Server(id) => {
+            published::SVGPaint::Server(remap_svg_resource_id(id, resource_offset))
         }
         _ => paint,
     }
@@ -1053,6 +971,39 @@ fn remap_svg_stroke_style(
 ) -> published::SVGStrokeStyle {
     stroke.paint = remap_svg_paint(stroke.paint, resource_offset);
     stroke
+}
+
+fn remap_svg_paint_style(
+    mut paint: published::SVGPaintStyle,
+    resource_offset: Option<u32>,
+) -> published::SVGPaintStyle {
+    paint.fill = remap_svg_paint(paint.fill, resource_offset);
+    paint.stroke = paint
+        .stroke
+        .map(|stroke| remap_svg_stroke_style(stroke, resource_offset));
+    paint
+}
+
+fn remap_svg_leaf_kind(
+    mut kind: published::SVGLeafKind,
+    _resource_offset: Option<u32>,
+) -> published::SVGLeafKind {
+    match &mut kind {
+        published::SVGLeafKind::Path(_) => {}
+        published::SVGLeafKind::Text(_) => {}
+        published::SVGLeafKind::Image(_) => {}
+    }
+    if let published::SVGLeafKind::Path(_) = &kind {
+        return kind;
+    }
+    kind
+}
+
+fn remap_svg_bounds(
+    bounds: published::SVGBounds,
+    _resource_offset: Option<u32>,
+) -> published::SVGBounds {
+    bounds
 }
 
 fn remap_svg_resource_id(

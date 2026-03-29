@@ -9,6 +9,7 @@ havi-types = { path = "../types" }
 layout = { path = "../../components/layout" }
 pixels = { path = "../../components/pixels" }
 rustybuzz = "0.20"
+ttf-parser = "0.24"
 
 makepad-widgets = { path = "../../../makepad/widgets" }
 makepad-compositor = { path = "../../../havi-makepad/compositor" }

@@ -13,9 +13,11 @@ use style::properties::ComputedValues;
 use style::values::CSSFloat;
 
 use havi_types::fragment_tree::{
-    SVGClipPathResource, SVGColor, SVGCoordinateUnits, SVGFragmentIdentity, SVGGradientKind,
-    SVGGradientResource, SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint,
-    SVGPathData, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle,
+    SVGBounds, SVGClipPathResource, SVGColor, SVGContainerKind, SVGCoordinateUnits,
+    SVGEffectState, SVGFragmentIdentity, SVGGradientKind, SVGGradientResource,
+    SVGGradientSpreadMethod, SVGGradientStop, SVGImagePayload, SVGLeafKind,
+    SVGLinearGradient, SVGPaint, SVGPaintServerResource, SVGPaintStyle, SVGPathData,
+    SVGPathPayload, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle,
     SVGTransform, SVGUseInstanceChain, SVGRadialGradient, Tag as PublishedTag,
 };
 use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
@@ -40,9 +42,8 @@ use super::use_expansion::expand_use_node;
 use crate::context::LayoutContext;
 use crate::dom::NodeExt;
 use crate::fragment_tree::{
-    BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags, Tag,
-    SVGForeignObjectFragment, SVGGroupFragment, SVGImageFragment, SVGPathFragment,
-    SVGTextFragment, SVGViewportFragment,
+    BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags,
+    SVGContainerFragment, SVGLeafFragment, SVGViewportFragment, Tag,
 };
 use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSize};
 use crate::layout_box_base::{CacheableLayoutResult, LayoutBoxBase};
@@ -443,7 +444,7 @@ fn build_svg_child_fragment(
     let identity = identity_context.fragment_identity(node.tag);
 
     match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
-        (SVGLayoutNodeKind::Group, _, SVGNodeResolvedStyle::Geometry(style)) => {
+        (SVGLayoutNodeKind::Group, _, SVGNodeResolvedStyle::Geometry(_style)) => {
             let children = build_svg_children(
                 node,
                 layout_context,
@@ -453,18 +454,18 @@ fn build_svg_child_fragment(
                 identity_context,
             );
             let rect = union_fragment_rects(&children);
-            Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
-                SVGGroupFragment {
+            Some(Fragment::SVGContainer(crate::cell::ArcRefCell::new(
+                SVGContainerFragment {
                     base: BaseFragment::new(base_fragment_info, node.computed_style.clone().into(), rect),
                     identity,
+                    kind: SVGContainerKind::Group,
                     children,
                     local_transform: parse_svg_transform(node.svg_data.common.transform),
-                    opacity: style.opacity,
-                    resources: resolved.resources.clone(),
+                    effects: convert_effect_state(resolved.resources.clone()),
                 },
             )))
         }
-        (SVGLayoutNodeKind::Use, _, SVGNodeResolvedStyle::Geometry(style)) => {
+        (SVGLayoutNodeKind::Use, _, SVGNodeResolvedStyle::Geometry(_style)) => {
             let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
             let referenced_identity_context = identity_context.for_expanded_use(node.tag);
             let mut children = Vec::new();
@@ -485,14 +486,14 @@ fn build_svg_child_fragment(
                 children.push(fragment);
             }
             let rect = union_fragment_rects(&children);
-            Some(Fragment::SVGGroup(crate::cell::ArcRefCell::new(
-                SVGGroupFragment {
+            Some(Fragment::SVGContainer(crate::cell::ArcRefCell::new(
+                SVGContainerFragment {
                     base: BaseFragment::new(base_fragment_info, node.computed_style.clone().into(), rect),
                     identity,
+                    kind: SVGContainerKind::Group,
                     children,
                     local_transform: expansion.instance_transform,
-                    opacity: style.opacity,
-                    resources: resolved.resources.clone(),
+                    effects: convert_effect_state(resolved.resources.clone()),
                 },
             )))
         }
@@ -505,17 +506,20 @@ fn build_svg_child_fragment(
                 positioning_context,
                 viewport_rect,
             );
-            Some(Fragment::SVGForeignObject(crate::cell::ArcRefCell::new(
-                SVGForeignObjectFragment {
+            Some(Fragment::SVGContainer(crate::cell::ArcRefCell::new(
+                SVGContainerFragment {
                     base: BaseFragment::new(
                         base_fragment_info,
                         node.computed_style.clone().into(),
                         physical_rect_from_svg_rect(viewport_rect),
                     ),
                     identity,
+                    kind: SVGContainerKind::ForeignObject {
+                        svg_viewport_rect: viewport_rect,
+                    },
                     children,
-                    svg_viewport_rect: viewport_rect,
                     local_transform: foreign_object.local_transform,
+                    effects: convert_effect_state(resolved.resources.clone()),
                 },
             )))
         }
@@ -526,55 +530,62 @@ fn build_svg_child_fragment(
         ) => {
             let path: SVGPathData = normalize_svg_geometry(geometry, style.fill_rule).into();
             let object_bounding_box = path_bounds(&path).unwrap_or_default();
-            let decorated_bounding_box = decorated_bounds(&path, style.paint.stroke.as_ref())
+            let stroke_bounding_box = decorated_bounds(&path, style.paint.stroke.as_ref())
                 .unwrap_or(object_bounding_box);
-            Some(Fragment::SVGPath(crate::cell::ArcRefCell::new(SVGPathFragment {
-                base: BaseFragment::new(
-                    base_fragment_info,
-                    node.computed_style.clone().into(),
-                    physical_rect_from_svg_rect(decorated_bounding_box),
-                ),
-                identity,
-                path,
+            let bounds = SVGBounds {
                 object_bounding_box,
-                decorated_bounding_box,
+                stroke_bounding_box,
+                decorated_bounding_box: stroke_bounding_box,
+                visual_bounding_box: stroke_bounding_box,
+            };
+            Some(Fragment::SVGLeaf(crate::cell::ArcRefCell::new(SVGLeafFragment {
+                base: BaseFragment::new(
+                    base_fragment_info,
+                    node.computed_style.clone().into(),
+                    physical_rect_from_svg_rect(bounds.visual_bounding_box),
+                ),
+                identity,
+                kind: SVGLeafKind::Path(SVGPathPayload { path }),
+                bounds,
                 local_transform: parse_svg_transform(node.svg_data.common.transform),
-                fill: convert_resolved_paint(resource_graph, node.tag.node, &style.paint.fill),
-                stroke: style.paint.stroke.as_ref().map(|stroke| {
-                    convert_stroke_style(resource_graph, node.tag.node, stroke)
-                }),
-                resources: resolved.resources.clone(),
+                paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
+                effects: convert_effect_state(resolved.resources.clone()),
             })))
         }
-        (SVGLayoutNodeKind::Text, _, SVGNodeResolvedStyle::Text(_)) => {
+        (SVGLayoutNodeKind::Text, _, SVGNodeResolvedStyle::Text(style)) => {
             let text_layout = layout_svg_text(node, layout_context);
-            Some(Fragment::SVGText(crate::cell::ArcRefCell::new(SVGTextFragment {
+            Some(Fragment::SVGLeaf(crate::cell::ArcRefCell::new(SVGLeafFragment {
                 base: BaseFragment::new(
                     base_fragment_info,
                     node.computed_style.clone().into(),
-                    physical_rect_from_svg_rect(text_layout.decorated_bounding_box),
+                    physical_rect_from_svg_rect(text_layout.bounds.visual_bounding_box),
                 ),
                 identity,
-                text_runs: text_layout.text_runs,
-                object_bounding_box: text_layout.object_bounding_box,
-                decorated_bounding_box: text_layout.decorated_bounding_box,
+                kind: SVGLeafKind::Text(text_layout.payload),
+                bounds: text_layout.bounds,
                 local_transform: parse_svg_transform(node.svg_data.common.transform),
-                resources: resolved.resources.clone(),
+                paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
+                effects: convert_effect_state(resolved.resources.clone()),
             })))
         }
-        (SVGLayoutNodeKind::Image, SVGNodeKind::Image(image), SVGNodeResolvedStyle::Geometry(_)) => {
+        (SVGLayoutNodeKind::Image, SVGNodeKind::Image(image), SVGNodeResolvedStyle::Geometry(style)) => {
             let viewport_rect = image_viewport(image);
-            Some(Fragment::SVGImage(crate::cell::ArcRefCell::new(SVGImageFragment {
+            let bounds = image_bounds(viewport_rect, style.paint.stroke.as_ref());
+            Some(Fragment::SVGLeaf(crate::cell::ArcRefCell::new(SVGLeafFragment {
                 base: BaseFragment::new(
                     base_fragment_info,
                     node.computed_style.clone().into(),
-                    physical_rect_from_svg_rect(viewport_rect),
+                    physical_rect_from_svg_rect(bounds.visual_bounding_box),
                 ),
                 identity,
-                viewport_rect,
+                kind: SVGLeafKind::Image(SVGImagePayload {
+                    viewport_rect,
+                    href: image.href.map(str::to_owned),
+                }),
+                bounds,
                 local_transform: parse_svg_transform(node.svg_data.common.transform),
-                href: image.href.map(str::to_owned),
-                resources: resolved.resources.clone(),
+                paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
+                effects: convert_effect_state(resolved.resources.clone()),
             })))
         }
         (SVGLayoutNodeKind::Defs, _, _)
@@ -623,7 +634,7 @@ fn resolve_svg_resource_node(
                     resource_graph,
                     visiting,
                 ) {
-                    if let Some(SVGResourceKind::Gradient(resource)) =
+                    if let Some(SVGResourceKind::PaintServer(SVGPaintServerResource::Gradient(resource))) =
                         resource_graph.resource_mut(resource_id)
                     {
                         *resource = gradient;
@@ -1078,14 +1089,20 @@ fn convert_resolved_paint(
     match paint {
         SVGResolvedPaint::None => SVGPaint::None,
         SVGResolvedPaint::SolidColor(color) => SVGPaint::SolidColor(*color),
+        SVGResolvedPaint::CurrentColor => SVGPaint::CurrentColor,
+        SVGResolvedPaint::ContextFill => SVGPaint::ContextFill,
+        SVGResolvedPaint::ContextStroke => SVGPaint::ContextStroke,
         SVGResolvedPaint::ResourceReference(reference) => {
             let iri = reference.iri.trim();
             let id = iri.strip_prefix('#').unwrap_or(iri);
-            let resource_id = resource_graph
-                .resource_for_element_id(id)
-                .filter(|id| matches!(resource_graph.resource(*id), Some(SVGResourceKind::Gradient(_))));
+            let resource_id = resource_graph.resource_for_element_id(id).filter(|id| {
+                matches!(
+                    resource_graph.resource(*id),
+                    Some(SVGResourceKind::PaintServer(_))
+                )
+            });
             if let Some(resource_id) = resource_id {
-                SVGPaint::Resource(resource_id)
+                SVGPaint::Server(resource_id)
             } else {
                 match &reference.fallback {
                     Some(SVGPaintFallback::SolidColor(color)) => SVGPaint::SolidColor(*color),
@@ -1108,8 +1125,32 @@ fn convert_stroke_style(
         line_cap: stroke.line_cap,
         line_join: stroke.line_join,
         miter_limit: stroke.miter_limit,
-        non_scaling: stroke.non_scaling,
+        dash_array: stroke.dash_array.clone(),
+        dash_offset: stroke.dash_offset,
+        vector_effect: stroke.vector_effect,
     }
+}
+
+fn convert_paint_style(
+    resource_graph: &SVGResourceGraph,
+    node: OpaqueNode,
+    paint: &super::style::SVGPaintStyle,
+    opacity: f32,
+) -> SVGPaintStyle {
+    SVGPaintStyle {
+        fill: convert_resolved_paint(resource_graph, node, &paint.fill),
+        fill_opacity: paint.fill_opacity,
+        stroke: paint
+            .stroke
+            .as_ref()
+            .map(|stroke| convert_stroke_style(resource_graph, node, stroke)),
+        opacity,
+        paint_order: paint.paint_order,
+    }
+}
+
+fn convert_effect_state(resources: SVGEffectState) -> SVGEffectState {
+    resources
 }
 
 fn svg_rect_from_physical_rect(rect: PhysicalRect<Au>) -> SVGRect {
@@ -1164,6 +1205,21 @@ fn image_viewport(image: &layout_api::SVGImageData<'_>) -> SVGRect {
             parse_svg_length(image.height).unwrap_or(0.0),
         ),
     )
+}
+
+fn image_bounds(viewport_rect: SVGRect, stroke: Option<&super::style::SVGResolvedStroke>) -> SVGBounds {
+    let inflate = stroke.map(|stroke| stroke.width.max(0.0) * 0.5).unwrap_or(0.0);
+    let mut stroke_bounding_box = viewport_rect;
+    stroke_bounding_box.origin.x -= inflate;
+    stroke_bounding_box.origin.y -= inflate;
+    stroke_bounding_box.size.width += inflate * 2.0;
+    stroke_bounding_box.size.height += inflate * 2.0;
+    SVGBounds {
+        object_bounding_box: viewport_rect,
+        stroke_bounding_box,
+        decorated_bounding_box: stroke_bounding_box,
+        visual_bounding_box: stroke_bounding_box,
+    }
 }
 
 fn union_fragment_rects(fragments: &[Fragment]) -> PhysicalRect<Au> {
@@ -1269,7 +1325,7 @@ mod tests {
     fn convert_resolved_paint_accepts_func_iri_without_hash_prefix() {
         let mut resource_graph = SVGResourceGraph::default();
         resource_graph.resources.push(SVGResourceNode {
-            kind: SVGResourceKind::Gradient(SVGGradientResource {
+            kind: SVGResourceKind::PaintServer(SVGPaintServerResource::Gradient(SVGGradientResource {
                 units: SVGCoordinateUnits::ObjectBoundingBox,
                 gradient_transform: SVGTransform::identity(),
                 spread_method: SVGGradientSpreadMethod::Pad,
@@ -1278,7 +1334,7 @@ mod tests {
                     end: SVGPoint::new(1.0, 0.0),
                 }),
                 stops: Vec::new(),
-            }),
+            })),
         });
         resource_graph
             .resources_by_element_id
@@ -1299,8 +1355,8 @@ mod tests {
         );
 
         match paint {
-            SVGPaint::Resource(SVGResourceId(0)) => {}
-            other => panic!("expected gradient resource, got {other:?}"),
+            SVGPaint::Server(SVGResourceId(0)) => {}
+            other => panic!("expected paint server resource, got {other:?}"),
         }
     }
 

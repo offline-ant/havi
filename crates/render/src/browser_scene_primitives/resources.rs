@@ -2,7 +2,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use havi_types::fragment_tree::{FragmentImageKey, ImageFragment, ImageSourceKind, TextFragment};
+use havi_types::fragment_tree::{
+    FragmentImageKey, ImageFragment, ImageSourceKind, SVGGlyphRun, TextFragment,
+};
 use makepad_browser_scene::{
     MpFontKey, MpFontResource, MpImageKey, MpImageSource, MpRendererImageHandle,
     MpRendererImageProducer, ResourceRegistry,
@@ -135,27 +137,54 @@ pub(super) fn ensure_font_resource(
     registry: &mut ResourceRegistry,
     tf: &TextFragment,
 ) -> Result<MpFontKey, String> {
-    let key = font_key_for_text(tf)?;
+    ensure_font_resource_from_parts(registry, tf.font_data.as_ref(), tf.font_index, "text fragment")
+}
+
+pub(super) fn ensure_svg_font_resource(
+    registry: &mut ResourceRegistry,
+    run: &SVGGlyphRun,
+) -> Result<MpFontKey, String> {
+    ensure_font_resource_from_parts(registry, run.font_data.as_ref(), run.font_index, "svg glyph run")
+}
+
+fn ensure_font_resource_from_parts(
+    registry: &mut ResourceRegistry,
+    font_data: Option<&Arc<Vec<u8>>>,
+    font_index: u32,
+    missing_label: &str,
+) -> Result<MpFontKey, String> {
+    let key = font_key_for_parts(font_data, font_index, missing_label)?;
     if !registry.fonts.contains_key(&key) {
-        registry.upsert_font(key, materialize_font_resource(tf)?);
+        registry.upsert_font(
+            key,
+            materialize_font_resource_from_parts(font_data, font_index, missing_label)?,
+        );
     }
     Ok(key)
 }
 
-pub(super) fn font_key_for_text(tf: &TextFragment) -> Result<MpFontKey, String> {
-    let Some(font_data) = tf.font_data.as_ref() else {
-        return Err("text fragment missing font data".to_string());
+fn font_key_for_parts(
+    font_data: Option<&Arc<Vec<u8>>>,
+    font_index: u32,
+    missing_label: &str,
+) -> Result<MpFontKey, String> {
+    let Some(font_data) = font_data else {
+        return Err(format!("{missing_label} missing font data"));
     };
-    Ok(MpFontKey(hash_value(&(font_data.as_ptr() as usize, font_data.len(), tf.font_index))))
+    Ok(MpFontKey(hash_value(&(font_data.as_ptr() as usize, font_data.len(), font_index))))
 }
 
-pub(super) fn materialize_font_resource(tf: &TextFragment) -> Result<MpFontResource, String> {
-    let Some(font_data) = tf.font_data.as_ref() else {
-        return Err("text fragment missing font data".to_string());
+fn materialize_font_resource_from_parts(
+    font_data: Option<&Arc<Vec<u8>>>,
+    font_index: u32,
+    missing_label: &str,
+) -> Result<MpFontResource, String> {
+    let Some(font_data) = font_data else {
+        return Err(format!("{missing_label} missing font data"));
     };
     Ok(MpFontResource {
         bytes: Arc::from(font_data.as_slice()),
-        face_index: tf.font_index,
+        face_index: font_index,
     })
 }
 

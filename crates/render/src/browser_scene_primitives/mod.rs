@@ -21,8 +21,8 @@ use self::box_background::{append_box_background_primitives, has_unsupported_bac
 use self::box_border::{append_box_border_primitives, border_paint, border_radius, outline_paint};
 use self::box_shadow::append_box_shadow_primitives;
 use self::resources::ensure_image_resource_for_fragment;
-use self::svg::lower_svg_path_primitives;
-use self::text::{lower_svg_text_primitives, lower_text_primitive};
+use self::svg::lower_svg_leaf_primitives;
+use self::text::lower_text_primitive;
 use crate::color::inherited_color;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
@@ -98,33 +98,22 @@ pub(crate) fn paint_run_item_to_primitives(
             primitive.effect_id = effect_id;
             Ok(vec![primitive])
         }
-        (StackingContextSection::Foreground, published::FragmentKind::SVGPath(svg)) => {
-            Ok(lower_svg_path_primitives(
+        (StackingContextSection::Foreground, published::FragmentKind::SVGLeaf(svg)) => {
+            lower_svg_leaf_primitives(
                 generation,
-                bounds,
-                svg,
-                spatial_id,
-                clip_chain_id,
-                effect_id,
-                owner_node_id,
-            ))
-        }
-        (StackingContextSection::Foreground, published::FragmentKind::SVGText(svg)) => {
-            lower_svg_text_primitives(
                 registry,
                 glyph_runs,
                 owner_node_id,
                 item.local_origin,
+                bounds,
                 svg,
                 spatial_id,
                 clip_chain_id,
                 effect_id,
             )
         }
-        (StackingContextSection::Foreground, published::FragmentKind::SVGImage(_)) |
         (StackingContextSection::Foreground, published::FragmentKind::SVGViewport(_)) |
-        (StackingContextSection::Foreground, published::FragmentKind::SVGGroup(_)) |
-        (StackingContextSection::Foreground, published::FragmentKind::SVGForeignObject(_)) => {
+        (StackingContextSection::Foreground, published::FragmentKind::SVGContainer(_)) => {
             Ok(Vec::new())
         }
         _ => Err("paint run not supported by browser-scene adapter yet".to_string()),
@@ -210,20 +199,17 @@ fn paint_item_bounds(
         published::FragmentKind::Image(image) => physical_rect_to_rect(image.base.rect),
         published::FragmentKind::IFrame(iframe) => physical_rect_to_rect(iframe.base.rect),
         published::FragmentKind::SVGViewport(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGGroup(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGPath(svg) => Rect {
+        published::FragmentKind::SVGContainer(svg) => physical_rect_to_rect(svg.base.rect),
+        published::FragmentKind::SVGLeaf(svg) => Rect {
             pos: dvec2(
-                svg.decorated_bounding_box.origin.x as f64,
-                svg.decorated_bounding_box.origin.y as f64,
+                svg.bounds.visual_bounding_box.origin.x as f64,
+                svg.bounds.visual_bounding_box.origin.y as f64,
             ),
             size: dvec2(
-                svg.decorated_bounding_box.size.width as f64,
-                svg.decorated_bounding_box.size.height as f64,
+                svg.bounds.visual_bounding_box.size.width as f64,
+                svg.bounds.visual_bounding_box.size.height as f64,
             ),
         },
-        published::FragmentKind::SVGText(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGForeignObject(svg) => physical_rect_to_rect(svg.base.rect),
-        published::FragmentKind::SVGImage(svg) => physical_rect_to_rect(svg.base.rect),
         published::FragmentKind::Positioning(_) => Rect {
             pos: dvec2(0.0, 0.0),
             size: dvec2(0.0, 0.0),

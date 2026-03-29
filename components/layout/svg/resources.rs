@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 
 use havi_types::fragment_tree::{
-    SVGClipPathResource, SVGCoordinateUnits, SVGGradientKind, SVGGradientResource,
-    SVGGradientSpreadMethod, SVGLinearGradient, SVGMaskResource, SVGPathData, SVGPoint,
-    SVGRect, SVGResourceId, SVGResourceKind, SVGResourceNode, SVGResourceReferences,
-    SVGTransform, SVGUseInstanceSource,
+    SVGClipPathResource, SVGCoordinateUnits, SVGEffectState, SVGGradientKind,
+    SVGGradientResource, SVGGradientSpreadMethod, SVGLinearGradient, SVGMaskResource,
+    SVGPaintServerResource, SVGPathData, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind,
+    SVGResourceNode, SVGTransform, SVGUseInstanceSource,
 };
 use rustc_hash::FxHashMap;
 use style::dom::OpaqueNode;
@@ -127,7 +127,7 @@ pub struct SVGPaintServerUses {
 #[derive(Clone, Debug, Default)]
 pub struct SVGResolvedNodeResources {
     pub paint_servers: SVGPaintServerUses,
-    pub resources: SVGResourceReferences,
+    pub resources: SVGEffectState,
     pub use_instance_source: Option<SVGResourceId>,
     pub referenced_node: Option<OpaqueNode>,
 }
@@ -303,7 +303,7 @@ impl SVGResourceGraph {
                     .and_then(normalize_local_reference)
                     .and_then(|id| self.resource_for_element_id(id)),
             },
-            resources: SVGResourceReferences {
+            resources: SVGEffectState {
                 clip_path: node
                     .resources
                     .clip_path
@@ -496,12 +496,12 @@ fn resource_owner_for_descendant(
 
 fn dependency_kind_for_resource_contents(resource: Option<&SVGResourceKind>) -> Option<SVGDependencyKind> {
     match resource? {
-        SVGResourceKind::Gradient(_) => Some(SVGDependencyKind::GradientContent),
+        SVGResourceKind::PaintServer(SVGPaintServerResource::Gradient(_)) => Some(SVGDependencyKind::GradientContent),
+        SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(_)) => Some(SVGDependencyKind::Pattern),
         SVGResourceKind::ClipPath(_) => Some(SVGDependencyKind::ClipPath),
         SVGResourceKind::Mask(_) => Some(SVGDependencyKind::Mask),
         SVGResourceKind::Filter(_) => Some(SVGDependencyKind::Filter),
         SVGResourceKind::Marker(_) => Some(SVGDependencyKind::Marker),
-        SVGResourceKind::Pattern(_) => Some(SVGDependencyKind::Pattern),
         SVGResourceKind::UseInstanceSource(_) => None,
     }
 }
@@ -521,7 +521,7 @@ fn normalize_local_reference(raw: &str) -> Option<&str> {
 
 fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode> {
     let resource = match kind {
-        SVGLayoutNodeKind::Gradient => SVGResourceKind::Gradient(SVGGradientResource {
+        SVGLayoutNodeKind::Gradient => SVGResourceKind::PaintServer(SVGPaintServerResource::Gradient(SVGGradientResource {
             units: SVGCoordinateUnits::ObjectBoundingBox,
             gradient_transform: SVGTransform::identity(),
             spread_method: SVGGradientSpreadMethod::Pad,
@@ -530,7 +530,8 @@ fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode>
                 end: SVGPoint::new(1.0, 0.0),
             }),
             stops: Vec::new(),
-        }),
+        })),
+
         SVGLayoutNodeKind::ClipPath => SVGResourceKind::ClipPath(SVGClipPathResource {
             units: SVGCoordinateUnits::UserSpaceOnUse,
             transform: SVGTransform::identity(),

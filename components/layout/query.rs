@@ -162,23 +162,11 @@ fn box_area_rect(
             let containing_block = generation.containing_block(fragment_id);
             Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
         }
-        published::FragmentKind::SVGGroup(svg_fragment) => {
+        published::FragmentKind::SVGContainer(svg_fragment) => {
             let containing_block = generation.containing_block(fragment_id);
             Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
         }
-        published::FragmentKind::SVGPath(svg_fragment) => {
-            let containing_block = generation.containing_block(fragment_id);
-            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
-        }
-        published::FragmentKind::SVGText(svg_fragment) => {
-            let containing_block = generation.containing_block(fragment_id);
-            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
-        }
-        published::FragmentKind::SVGForeignObject(svg_fragment) => {
-            let containing_block = generation.containing_block(fragment_id);
-            Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
-        }
-        published::FragmentKind::SVGImage(svg_fragment) => {
+        published::FragmentKind::SVGLeaf(svg_fragment) => {
             let containing_block = generation.containing_block(fragment_id);
             Some(svg_fragment.base.rect.translate(containing_block.origin.to_vector()))
         }
@@ -291,11 +279,9 @@ fn resolved_size_should_be_used_value(
         published::FragmentKind::Image(_) |
         published::FragmentKind::IFrame(_) |
         published::FragmentKind::SVGViewport(_) |
-        published::FragmentKind::SVGGroup(_) |
-        published::FragmentKind::SVGPath(_) |
-        published::FragmentKind::SVGForeignObject(_) |
-        published::FragmentKind::SVGImage(_) => true,
-        published::FragmentKind::Text(_) | published::FragmentKind::SVGText(_) => false,
+        published::FragmentKind::SVGContainer(_) => true,
+        published::FragmentKind::SVGLeaf(svg) => !matches!(svg.kind, published::SVGLeafKind::Text(_)),
+        published::FragmentKind::Text(_) => false,
     }
 }
 
@@ -556,11 +542,8 @@ pub fn process_resolved_style_request(
             published::FragmentKind::Image(_) |
             published::FragmentKind::IFrame(_) |
             published::FragmentKind::SVGViewport(_) |
-            published::FragmentKind::SVGGroup(_) |
-            published::FragmentKind::SVGPath(_) |
-            published::FragmentKind::SVGText(_) |
-            published::FragmentKind::SVGForeignObject(_) |
-            published::FragmentKind::SVGImage(_) => return computed_style(Some(fragment_id)),
+            published::FragmentKind::SVGContainer(_) |
+            published::FragmentKind::SVGLeaf(_) => return computed_style(Some(fragment_id)),
         };
 
         if display.inside() == DisplayInside::Grid {
@@ -1876,23 +1859,11 @@ pub fn query_elements_from_point(
                 generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
                 svg_fragment.base.rect.size,
             ),
-            published::FragmentKind::SVGGroup(svg_fragment) => PhysicalRect::new(
+            published::FragmentKind::SVGContainer(svg_fragment) => PhysicalRect::new(
                 generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
                 svg_fragment.base.rect.size,
             ),
-            published::FragmentKind::SVGPath(svg_fragment) => PhysicalRect::new(
-                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
-                svg_fragment.base.rect.size,
-            ),
-            published::FragmentKind::SVGText(svg_fragment) => PhysicalRect::new(
-                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
-                svg_fragment.base.rect.size,
-            ),
-            published::FragmentKind::SVGForeignObject(svg_fragment) => PhysicalRect::new(
-                generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
-                svg_fragment.base.rect.size,
-            ),
-            published::FragmentKind::SVGImage(svg_fragment) => PhysicalRect::new(
+            published::FragmentKind::SVGLeaf(svg_fragment) => PhysicalRect::new(
                 generation.containing_block(fragment_id).origin + svg_fragment.base.rect.origin.to_vector(),
                 svg_fragment.base.rect.size,
             ),
@@ -2000,7 +1971,7 @@ pub fn query_elements_from_point(
                     results,
                 );
             }
-            published::FragmentKind::SVGGroup(svg_fragment) => {
+            published::FragmentKind::SVGContainer(svg_fragment) => {
                 for child in svg_fragment.paint_children.iter().rev() {
                     hit_test_paint_child(generation, child, point, root_scroll_offset, results);
                 }
@@ -2037,7 +2008,7 @@ pub fn query_elements_from_point(
                     }
                 }
             }
-            published::FragmentKind::SVGPath(svg_fragment) => {
+            published::FragmentKind::SVGLeaf(svg_fragment) => {
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
                 };
@@ -2048,51 +2019,53 @@ pub fn query_elements_from_point(
                 {
                     return;
                 }
-                let svg_point = published::SVGPoint::new(
-                    point.x - rect.origin.x + svg_fragment.decorated_bounding_box.origin.x,
-                    point.y - rect.origin.y + svg_fragment.decorated_bounding_box.origin.y,
-                );
-                if hit_test_svg_path(&svg_fragment.path, svg_fragment.stroke.as_ref(), svg_point).hit {
-                    push_svg_hit_test_result(
-                        &svg_fragment.identity,
-                        point,
-                        rect,
-                        &svg_fragment.base.style,
-                        results,
-                    );
-                }
-            }
-            published::FragmentKind::SVGText(svg_fragment) => {
-                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
-                    return;
+                let hit = match &svg_fragment.kind {
+                    published::SVGLeafKind::Path(path) => {
+                        let svg_point = published::SVGPoint::new(
+                            point.x - rect.origin.x + svg_fragment.bounds.visual_bounding_box.origin.x,
+                            point.y - rect.origin.y + svg_fragment.bounds.visual_bounding_box.origin.y,
+                        );
+                        hit_test_svg_path(
+                            &path.path,
+                            svg_fragment.paint.stroke.as_ref(),
+                            svg_point,
+                        )
+                        .hit
+                    }
+                    published::SVGLeafKind::Text(text) => {
+                        let hits_text_run = text.runs.iter().any(|text_run| {
+                            let run_rect = PhysicalRect::new(
+                                generation.containing_block(fragment_id).origin +
+                                    text_run.rect.origin.to_vector(),
+                                text_run.rect.size,
+                            );
+                            let run_rect = if fragment_is_fixed_positioned(generation, fragment_id) {
+                                run_rect
+                            } else {
+                                run_rect.translate(-root_scroll_offset)
+                            };
+                            let run_rect: Rect<f32, CSSPixel> = Rect::new(
+                                Point2D::new(run_rect.origin.x.to_f32_px(), run_rect.origin.y.to_f32_px()),
+                                Size2D::new(run_rect.size.width.to_f32_px(), run_rect.size.height.to_f32_px()),
+                            );
+                            point.x >= run_rect.origin.x &&
+                                point.x <= run_rect.origin.x + run_rect.size.width &&
+                                point.y >= run_rect.origin.y &&
+                                point.y <= run_rect.origin.y + run_rect.size.height
+                        });
+                        hits_text_run ||
+                            (text.runs.is_empty() &&
+                                point.x >= rect.origin.x &&
+                                point.x <= rect.origin.x + rect.size.width &&
+                                point.y >= rect.origin.y &&
+                                point.y <= rect.origin.y + rect.size.height)
+                    }
+                    published::SVGLeafKind::Image(_) => {
+                        point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
+                            point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
+                    }
                 };
-                let hits_text_run = svg_fragment.text_runs.iter().any(|text_run| {
-                    let run_rect = PhysicalRect::new(
-                        generation.containing_block(fragment_id).origin +
-                            text_run.base.rect.origin.to_vector(),
-                        text_run.base.rect.size,
-                    );
-                    let run_rect = if fragment_is_fixed_positioned(generation, fragment_id) {
-                        run_rect
-                    } else {
-                        run_rect.translate(-root_scroll_offset)
-                    };
-                    let run_rect: Rect<f32, CSSPixel> = Rect::new(
-                        Point2D::new(run_rect.origin.x.to_f32_px(), run_rect.origin.y.to_f32_px()),
-                        Size2D::new(run_rect.size.width.to_f32_px(), run_rect.size.height.to_f32_px()),
-                    );
-                    point.x >= run_rect.origin.x &&
-                        point.x <= run_rect.origin.x + run_rect.size.width &&
-                        point.y >= run_rect.origin.y &&
-                        point.y <= run_rect.origin.y + run_rect.size.height
-                });
-                if hits_text_run ||
-                    (svg_fragment.text_runs.is_empty() &&
-                        point.x >= rect.origin.x &&
-                        point.x <= rect.origin.x + rect.size.width &&
-                        point.y >= rect.origin.y &&
-                        point.y <= rect.origin.y + rect.size.height)
-                {
+                if hit {
                     push_svg_hit_test_result(
                         &svg_fragment.identity,
                         point,
@@ -2121,22 +2094,6 @@ pub fn query_elements_from_point(
                     }
                 }
             }
-            published::FragmentKind::SVGImage(svg_fragment) => {
-                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
-                    return;
-                };
-                if point.x >= rect.origin.x && point.x <= rect.origin.x + rect.size.width &&
-                    point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
-                {
-                    push_svg_hit_test_result(
-                        &svg_fragment.identity,
-                        point,
-                        rect,
-                        &svg_fragment.base.style,
-                        results,
-                    );
-                }
-            }
             published::FragmentKind::IFrame(iframe_fragment) => {
                 let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
                     return;
@@ -2156,28 +2113,7 @@ pub fn query_elements_from_point(
                     }
                 }
             }
-            published::FragmentKind::SVGForeignObject(svg_fragment) => {
-                let Some(rect) = absolute_rect(generation, fragment_id, root_scroll_offset) else {
-                    return;
-                };
-                if point.x < rect.origin.x ||
-                    point.x > rect.origin.x + rect.size.width ||
-                    point.y < rect.origin.y ||
-                    point.y > rect.origin.y + rect.size.height
-                {
-                    return;
-                }
-                for child in svg_fragment.paint_children.iter().rev() {
-                    hit_test_paint_child(generation, child, point, root_scroll_offset, results);
-                }
-                push_svg_hit_test_result(
-                    &svg_fragment.identity,
-                    point,
-                    rect,
-                    &svg_fragment.base.style,
-                    results,
-                );
-            }
+
         }
     }
 

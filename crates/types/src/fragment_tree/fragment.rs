@@ -8,8 +8,7 @@ use style::computed_values::position::T as Position;
 use style::values::specified::align::AlignFlags;
 
 use super::{
-    BaseFragment, BoxFragment, SVGForeignObjectFragment, SVGGroupFragment, SVGImageFragment,
-    SVGPathFragment, SVGTextFragment, SVGViewportFragment,
+    BaseFragment, BoxFragment, SVGContainerFragment, SVGLeafFragment, SVGViewportFragment,
 };
 use crate::geom::{LogicalVec2, PhysicalRect, PhysicalSides};
 
@@ -40,11 +39,8 @@ impl FragmentNode {
             FragmentKind::Image(fragment) => &fragment.base,
             FragmentKind::IFrame(fragment) => &fragment.base,
             FragmentKind::SVGViewport(fragment) => &fragment.base,
-            FragmentKind::SVGGroup(fragment) => &fragment.base,
-            FragmentKind::SVGPath(fragment) => &fragment.base,
-            FragmentKind::SVGText(fragment) => &fragment.base,
-            FragmentKind::SVGForeignObject(fragment) => &fragment.base,
-            FragmentKind::SVGImage(fragment) => &fragment.base,
+            FragmentKind::SVGContainer(fragment) => &fragment.base,
+            FragmentKind::SVGLeaf(fragment) => &fragment.base,
         }
     }
 }
@@ -58,11 +54,8 @@ pub enum FragmentKind {
     Image(ImageFragment),
     IFrame(IFrameFragment),
     SVGViewport(SVGViewportFragment),
-    SVGGroup(SVGGroupFragment),
-    SVGPath(SVGPathFragment),
-    SVGText(SVGTextFragment),
-    SVGForeignObject(SVGForeignObjectFragment),
-    SVGImage(SVGImageFragment),
+    SVGContainer(SVGContainerFragment),
+    SVGLeaf(SVGLeafFragment),
 }
 
 impl FragmentKind {
@@ -74,11 +67,8 @@ impl FragmentKind {
             FragmentKind::Image(fragment) => &fragment.base,
             FragmentKind::IFrame(fragment) => &fragment.base,
             FragmentKind::SVGViewport(fragment) => &fragment.base,
-            FragmentKind::SVGGroup(fragment) => &fragment.base,
-            FragmentKind::SVGPath(fragment) => &fragment.base,
-            FragmentKind::SVGText(fragment) => &fragment.base,
-            FragmentKind::SVGForeignObject(fragment) => &fragment.base,
-            FragmentKind::SVGImage(fragment) => &fragment.base,
+            FragmentKind::SVGContainer(fragment) => &fragment.base,
+            FragmentKind::SVGLeaf(fragment) => &fragment.base,
         }
     }
 }

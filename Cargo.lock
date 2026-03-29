@@ -3043,6 +3043,7 @@ dependencies = [
  "servo_arc",
  "stylo",
  "stylo_traits",
+ "ttf-parser 0.24.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-use euclid::{point2, size2, Transform2D};
+use euclid::Transform2D;
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{
     MpClipChain, MpClipKind, MpClipNode, MpEffectNode, MpFillRule, MpIsolation, MpMask,
@@ -68,11 +68,11 @@ pub(super) fn build_svg_viewport_fragment(
     )
 }
 
-pub(super) fn build_svg_group_fragment(
+pub(super) fn build_svg_container_fragment(
     cx: &mut Cx2d,
     generation: &published::FragmentArenaGeneration,
     _fragment_id: published::FragmentId,
-    svg: &published::SVGGroupFragment,
+    svg: &published::SVGContainerFragment,
     scroll_state: &crate::ScrollState,
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
@@ -97,17 +97,18 @@ pub(super) fn build_svg_group_fragment(
     let clip = resolve_svg_clip_resource(
         generation,
         scene,
-        svg.resources.clip_path,
+        svg.effects.clip_path,
         svg.base.rect,
         svg_cx.spatial_id,
         svg_cx.clip_chain_id,
     );
     svg_cx.clip_chain_id = clip.clip_chain_id;
-    if svg.opacity < 0.999 || clip.mask.is_some() {
+    let opacity = svg.base.style.get_effects().opacity;
+    if opacity < 0.999 || clip.mask.is_some() {
         svg_cx.effect_id = Some(scene.push_effect(MpEffectNode {
             spatial_id: svg_cx.spatial_id,
             clip_chain_id: svg_cx.clip_chain_id,
-            opacity: svg.opacity,
+            opacity,
             filters: Vec::new(),
             blend_mode: makepad_browser_scene::MpBlendMode::Normal,
             isolation: MpIsolation::Isolate,
@@ -129,56 +130,46 @@ pub(super) fn build_svg_group_fragment(
     )
 }
 
-pub(super) fn build_svg_path_fragment(
+pub(super) fn build_svg_leaf_fragment(
     cx: &mut Cx2d,
     generation: &published::FragmentArenaGeneration,
     fragment_id: published::FragmentId,
-    svg: &published::SVGPathFragment,
+    svg: &published::SVGLeafFragment,
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
     state: &mut BuildState,
     build_cx: BuildContext,
 ) -> Result<(), String> {
-    let mut path_cx = build_cx;
+    let mut leaf_cx = build_cx;
     if !svg_transform_is_identity(svg.local_transform) {
-        let rect = havi_types::PhysicalRect::new(
-            point2(
-                app_units::Au::from_f32_px(svg.decorated_bounding_box.origin.x),
-                app_units::Au::from_f32_px(svg.decorated_bounding_box.origin.y),
-            ),
-            size2(
-                app_units::Au::from_f32_px(svg.decorated_bounding_box.size.width),
-                app_units::Au::from_f32_px(svg.decorated_bounding_box.size.height),
-            ),
-        );
-        path_cx.spatial_id = push_svg_reference_frame(
+        leaf_cx.spatial_id = push_svg_reference_frame(
             scene,
             build_cx.spatial_id,
-            rect,
+            svg_rect_to_physical_rect(svg.bounds.visual_bounding_box),
             build_cx.containing_block_origin,
             Some(svg.local_transform),
             true,
         );
-        path_cx.containing_block_origin = dvec2(0.0, 0.0);
+        leaf_cx.containing_block_origin = dvec2(0.0, 0.0);
     }
     let clip = resolve_svg_clip_resource(
         generation,
         scene,
-        svg.resources.clip_path,
-        svg.base.rect,
-        path_cx.spatial_id,
-        path_cx.clip_chain_id,
+        svg.effects.clip_path,
+        svg_rect_to_physical_rect(svg.bounds.object_bounding_box),
+        leaf_cx.spatial_id,
+        leaf_cx.clip_chain_id,
     );
-    path_cx.clip_chain_id = clip.clip_chain_id;
-    if let Some(mask) = clip.mask {
-        path_cx.effect_id = Some(scene.push_effect(MpEffectNode {
-            spatial_id: path_cx.spatial_id,
-            clip_chain_id: path_cx.clip_chain_id,
-            opacity: 1.0,
+    leaf_cx.clip_chain_id = clip.clip_chain_id;
+    if svg.paint.opacity < 0.999 || clip.mask.is_some() {
+        leaf_cx.effect_id = Some(scene.push_effect(MpEffectNode {
+            spatial_id: leaf_cx.spatial_id,
+            clip_chain_id: leaf_cx.clip_chain_id,
+            opacity: svg.paint.opacity,
             filters: Vec::new(),
             blend_mode: makepad_browser_scene::MpBlendMode::Normal,
             isolation: MpIsolation::Isolate,
-            mask: Some(mask),
+            mask: clip.mask,
         }));
     }
     push_fragment_primitives(
@@ -189,66 +180,24 @@ pub(super) fn build_svg_path_fragment(
         state,
         &RenderPaintItem {
             section: StackingContextSection::Foreground,
-            local_origin: path_cx.containing_block_origin,
+            local_origin: leaf_cx.containing_block_origin,
             fragment_id,
         },
         owner_node_id_for_fragment(generation, fragment_id),
-        path_cx,
+        leaf_cx,
     )
 }
 
-pub(super) fn build_svg_foreign_object_fragment(
-    cx: &mut Cx2d,
-    generation: &published::FragmentArenaGeneration,
-    fragment_id: published::FragmentId,
-    svg: &published::SVGForeignObjectFragment,
-    scroll_state: &crate::ScrollState,
-    scene: &mut MpScene,
-    registry: &mut ResourceRegistry,
-    state: &mut BuildState,
-    ids: &mut DirectBuilderIds,
-    build_cx: BuildContext,
-    scroll_nodes: &mut BrowserDocumentScrollNodes,
-    previous_document: Option<&makepad_browser_scene::MpDocument>,
-) -> Result<(), String> {
-    let mut foreign_object_cx = build_cx;
-    if !svg_transform_is_identity(svg.local_transform) {
-        foreign_object_cx.spatial_id = push_svg_reference_frame(
-            scene,
-            build_cx.spatial_id,
-            svg.base.rect,
-            build_cx.containing_block_origin,
-            Some(svg.local_transform),
-            true,
-        );
-        foreign_object_cx.containing_block_origin = dvec2(0.0, 0.0);
-    }
-    push_fragment_primitives(
-        cx,
-        generation,
-        scene,
-        registry,
-        state,
-        &RenderPaintItem {
-            section: StackingContextSection::Foreground,
-            local_origin: foreign_object_cx.containing_block_origin,
-            fragment_id,
-        },
-        owner_node_id_for_fragment(generation, fragment_id),
-        foreign_object_cx,
-    )?;
-    build_paint_list(
-        cx,
-        generation,
-        &svg.paint_children,
-        scroll_state,
-        scene,
-        registry,
-        state,
-        ids,
-        foreign_object_cx,
-        scroll_nodes,
-        previous_document,
+fn svg_rect_to_physical_rect(rect: published::SVGRect) -> havi_types::PhysicalRect<app_units::Au> {
+    havi_types::PhysicalRect::new(
+        havi_types::PhysicalPoint::new(
+            app_units::Au::from_f32_px(rect.origin.x),
+            app_units::Au::from_f32_px(rect.origin.y),
+        ),
+        havi_types::PhysicalSize::new(
+            app_units::Au::from_f32_px(rect.size.width.max(0.0)),
+            app_units::Au::from_f32_px(rect.size.height.max(0.0)),
+        ),
     )
 }
 

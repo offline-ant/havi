@@ -182,10 +182,15 @@ for layout or first paint.
 
 Current architectural model:
 
-- native fragment kinds: `SVGViewport`, `SVGGroup`, `SVGPath`, `SVGText`,
-  `SVGForeignObject`, `SVGImage`
-- native resource kinds: gradients, clip paths, masks, filters, markers,
-  patterns, and `use` instance sources
+- native fragment kinds: `SVGViewport`, `SVGContainer`, `SVGLeaf`
+- container kinds: `Group`, `ForeignObject`
+- leaf payload kinds: `Path`, `Text`, `Image`
+- all paintable SVG leaves publish shared `SVGBounds`, `SVGPaintStyle`, and
+  `SVGEffectState`
+- SVG text publishes native `SVGTextPayload { runs, chunks, addressing }`
+  instead of HTML text fragments
+- native resource kinds: paint servers (`Gradient`, `Pattern`), clip paths,
+  masks, filters, markers, and `use` instance sources
 - explicit layout subsystem ownership in `components/layout/svg/`
 - standalone `image/svg+xml` navigation now creates a real SVG document and
   renders through the native SVG pipeline
@@ -199,20 +204,25 @@ Current first-cut coverage:
   `polygon`, `defs`, `use`, `linearGradient`, `radialGradient`, `stop`,
   `clipPath`, `foreignObject`, `image`, `text`, `tspan`
 - properties: transforms, `viewBox`, `preserveAspectRatio`, solid fill and
-  stroke, gradients, `currentColor`, `display`, `visibility`, `opacity`,
-  `pointer-events`, `fill-rule`, `clip-rule`,
-  `vector-effect: non-scaling-stroke`, basic text positioning attributes
-- native resource behavior: `use` instance expansion, gradient publication,
+  stroke, gradients, `currentColor`, `display`, `visibility`, leaf `opacity`,
+  `fill-opacity`, `pointer-events`, `fill-rule`, `clip-rule`,
+  `vector-effect: non-scaling-stroke`, placeholder publication for
+  `paint-order`, stroke dash data, masks, filters, markers, and patterns,
+  basic text positioning attributes
+- native resource behavior: `use` instance expansion, paint-server publication,
   clip-path geometry publication, and simple clip-chain lowering from clip-path
   bounds
-- query behavior: shape hit testing now uses SVG path geometry rather than only
-  axis-aligned fragment bounds
+- renderer behavior: all SVG leaves now traverse one shared leaf builder path;
+  retained text is used only for simple solid-fill SVG text and complex SVG text
+  lowers through the vector path boundary
+- query behavior: shape hit testing now uses SVG path geometry and SVG text run
+  bounds rather than only axis-aligned fragment bounds
 
 Still deferred:
 
 - full filters and masks
-- markers and patterns
-- browser-grade SVG text shaping and `textPath`
+- markers and patterns beyond publication
+- browser-grade SVG text shaping, `textLength`, and `textPath`
 - full `foreignObject` HTML formatting-context embedding
 - full DOM API parity
 

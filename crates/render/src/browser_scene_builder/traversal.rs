@@ -5,8 +5,7 @@ use makepad_widgets::{dvec2, Cx2d};
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
 use super::svg::{
-    build_svg_foreign_object_fragment, build_svg_group_fragment, build_svg_path_fragment,
-    build_svg_viewport_fragment,
+    build_svg_container_fragment, build_svg_leaf_fragment, build_svg_viewport_fragment,
 };
 use super::{
     log_builder_skip_once, BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
@@ -179,7 +178,7 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
-        published::FragmentKind::SVGGroup(svg) => build_svg_group_fragment(
+        published::FragmentKind::SVGContainer(svg) => build_svg_container_fragment(
             cx,
             generation,
             fragment_id,
@@ -193,25 +192,11 @@ pub(super) fn build_fragment(
             scroll_nodes,
             previous_document,
         ),
-        published::FragmentKind::SVGForeignObject(svg) => build_svg_foreign_object_fragment(
-            cx,
-            generation,
-            fragment_id,
-            svg,
-            scroll_state,
-            scene,
-            registry,
-            state,
-            ids,
-            build_cx,
-            scroll_nodes,
-            previous_document,
-        ),
-        published::FragmentKind::SVGPath(svg) => {
+        published::FragmentKind::SVGLeaf(svg) => {
             if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
                 return Ok(());
             }
-            build_svg_path_fragment(
+            build_svg_leaf_fragment(
                 cx,
                 generation,
                 fragment_id,
@@ -219,44 +204,6 @@ pub(super) fn build_fragment(
                 scene,
                 registry,
                 state,
-                build_cx,
-            )
-        }
-        published::FragmentKind::SVGText(svg) => {
-            if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
-                return Ok(());
-            }
-            push_fragment_primitives(
-                cx,
-                generation,
-                scene,
-                registry,
-                state,
-                &RenderPaintItem {
-                    section: StackingContextSection::Foreground,
-                    local_origin: build_cx.containing_block_origin,
-                    fragment_id,
-                },
-                owner_node_id_for_fragment(generation, fragment_id),
-                build_cx,
-            )
-        }
-        published::FragmentKind::SVGImage(svg) => {
-            if svg.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT) {
-                return Ok(());
-            }
-            push_fragment_primitives(
-                cx,
-                generation,
-                scene,
-                registry,
-                state,
-                &RenderPaintItem {
-                    section: StackingContextSection::Foreground,
-                    local_origin: build_cx.containing_block_origin,
-                    fragment_id,
-                },
-                owner_node_id_for_fragment(generation, fragment_id),
                 build_cx,
             )
         }
@@ -340,19 +287,10 @@ pub(super) fn owner_node_id_for_fragment(
         published::FragmentKind::SVGViewport(svg) => {
             Some(svg.identity.current_instance_owner_or_source_tag().node.0)
         }
-        published::FragmentKind::SVGGroup(svg) => {
+        published::FragmentKind::SVGContainer(svg) => {
             Some(svg.identity.current_instance_owner_or_source_tag().node.0)
         }
-        published::FragmentKind::SVGPath(svg) => {
-            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
-        }
-        published::FragmentKind::SVGText(svg) => {
-            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
-        }
-        published::FragmentKind::SVGForeignObject(svg) => {
-            Some(svg.identity.current_instance_owner_or_source_tag().node.0)
-        }
-        published::FragmentKind::SVGImage(svg) => {
+        published::FragmentKind::SVGLeaf(svg) => {
             Some(svg.identity.current_instance_owner_or_source_tag().node.0)
         }
     }

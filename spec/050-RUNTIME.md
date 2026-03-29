@@ -53,8 +53,11 @@ Required runtime behavior:
 
 - inline SVG is not serialized to a temporary image URL for layout or first
   paint
-- `use`, gradients, and clip paths resolve through the native SVG resource graph
-- SVG text and `foreignObject` remain native fragment kinds even when feature
+- the fragment arena publishes native SVG viewport/container/leaf objects rather
+  than HTML text fragments or renderer-specific SVG fragment kinds
+- `use`, paint servers, and clip paths resolve through the native SVG resource
+  graph
+- SVG text and `foreignObject` remain native SVG payload kinds even when feature
   coverage is partial
 - external SVG image resources remain implementation-defined and may use a
   separate backend from inline SVG

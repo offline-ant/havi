@@ -54,14 +54,11 @@ impl FragmentArenaGeneration {
             }
             FragmentKind::Positioning(fragment) => fragment.geometry_children.as_slice(),
             FragmentKind::SVGViewport(fragment) => fragment.geometry_children.as_slice(),
-            FragmentKind::SVGGroup(fragment) => fragment.geometry_children.as_slice(),
-            FragmentKind::SVGForeignObject(fragment) => fragment.geometry_children.as_slice(),
+            FragmentKind::SVGContainer(fragment) => fragment.geometry_children.as_slice(),
             FragmentKind::Text(_) |
             FragmentKind::Image(_) |
             FragmentKind::IFrame(_) |
-            FragmentKind::SVGPath(_) |
-            FragmentKind::SVGText(_) |
-            FragmentKind::SVGImage(_) => &[],
+            FragmentKind::SVGLeaf(_) => &[],
         }
     }
 
@@ -72,14 +69,11 @@ impl FragmentArenaGeneration {
             }
             FragmentKind::Positioning(fragment) => fragment.paint_children.as_slice(),
             FragmentKind::SVGViewport(fragment) => fragment.paint_children.as_slice(),
-            FragmentKind::SVGGroup(fragment) => fragment.paint_children.as_slice(),
-            FragmentKind::SVGForeignObject(fragment) => fragment.paint_children.as_slice(),
+            FragmentKind::SVGContainer(fragment) => fragment.paint_children.as_slice(),
             FragmentKind::Text(_) |
             FragmentKind::Image(_) |
             FragmentKind::IFrame(_) |
-            FragmentKind::SVGPath(_) |
-            FragmentKind::SVGText(_) |
-            FragmentKind::SVGImage(_) => &[],
+            FragmentKind::SVGLeaf(_) => &[],
         }
     }
 

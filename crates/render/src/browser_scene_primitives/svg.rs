@@ -1,12 +1,341 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{
     MpGradientStop, MpPrimitive, MpPrimitiveId, MpVectorDraw, MpVectorFillRule,
     MpVectorGradientSpreadMethod, MpVectorLineCap, MpVectorLineJoin, MpVectorPaint,
-    MpVectorPathCommand, MpVectorPathPrimitive,
+    MpVectorPathCommand, MpVectorPathPrimitive, ResourceRegistry,
 };
-use makepad_widgets::{dvec2, vec2, vec4, Rect, Vec2f, Vec4f};
+use makepad_widgets::{Rect, Vec2f, Vec4f, dvec2, vec2, vec4};
+
+use super::text::lower_svg_text_primitives;
+use crate::color::inherited_color;
+
+pub(crate) fn lower_svg_leaf_primitives(
+    generation: &published::FragmentArenaGeneration,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<makepad_browser_scene::MpGlyphRunKey, makepad_browser_scene::MpGlyphRunResource>,
+    owner_node_id: Option<usize>,
+    local_origin: makepad_widgets::DVec2,
+    _bounds: Rect,
+    svg: &published::SVGLeafFragment,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+) -> Result<Vec<MpPrimitive>, String> {
+    match &svg.kind {
+        published::SVGLeafKind::Path(path) => Ok(lower_svg_path_leaf_primitives(
+            generation,
+            svg,
+            path,
+            spatial_id,
+            clip_chain_id,
+            effect_id,
+            owner_node_id,
+        )),
+        published::SVGLeafKind::Text(text) => {
+            if let Some(color) = svg_text_fast_path_color(svg) {
+                return lower_svg_text_primitives(
+                    registry,
+                    glyph_runs,
+                    owner_node_id,
+                    local_origin,
+                    &text.runs,
+                    color,
+                    spatial_id,
+                    clip_chain_id,
+                    effect_id,
+                );
+            }
+            Ok(lower_svg_text_outline_primitives(
+                generation,
+                svg,
+                text,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                owner_node_id,
+            ))
+        }
+        published::SVGLeafKind::Image(_) => Ok(Vec::new()),
+    }
+}
+
+fn lower_svg_path_leaf_primitives(
+    generation: &published::FragmentArenaGeneration,
+    svg: &published::SVGLeafFragment,
+    path: &published::SVGPathPayload,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    owner_node_id: Option<usize>,
+) -> Vec<MpPrimitive> {
+    lower_svg_vector_primitives(
+        generation,
+        svg,
+        Arc::<[MpVectorPathCommand]>::from(
+            path.path
+                .commands
+                .iter()
+                .map(convert_path_command)
+                .collect::<Vec<_>>(),
+        ),
+        match path.path.fill_rule {
+            published::SVGFillRule::NonZero => MpVectorFillRule::NonZero,
+            published::SVGFillRule::EvenOdd => MpVectorFillRule::EvenOdd,
+        },
+        spatial_id,
+        clip_chain_id,
+        effect_id,
+        owner_node_id,
+    )
+}
+
+fn lower_svg_text_outline_primitives(
+    generation: &published::FragmentArenaGeneration,
+    svg: &published::SVGLeafFragment,
+    text: &published::SVGTextPayload,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    owner_node_id: Option<usize>,
+) -> Vec<MpPrimitive> {
+    let mut primitives = Vec::new();
+    for run in &text.runs {
+        let Some(commands) = svg_text_run_outline_commands(run) else {
+            continue;
+        };
+        primitives.extend(lower_svg_vector_primitives(
+            generation,
+            svg,
+            Arc::<[MpVectorPathCommand]>::from(commands),
+            MpVectorFillRule::NonZero,
+            spatial_id,
+            clip_chain_id,
+            effect_id,
+            owner_node_id,
+        ));
+    }
+    primitives
+}
+
+fn lower_svg_vector_primitives(
+    generation: &published::FragmentArenaGeneration,
+    svg: &published::SVGLeafFragment,
+    commands: Arc<[MpVectorPathCommand]>,
+    fill_rule: MpVectorFillRule,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    owner_node_id: Option<usize>,
+) -> Vec<MpPrimitive> {
+    let bounds = Rect {
+        pos: dvec2(
+            svg.bounds.decorated_bounding_box.origin.x as f64,
+            svg.bounds.decorated_bounding_box.origin.y as f64,
+        ),
+        size: dvec2(
+            svg.bounds.decorated_bounding_box.size.width as f64,
+            svg.bounds.decorated_bounding_box.size.height as f64,
+        ),
+    };
+    let current_color = svg_current_color(svg);
+    let mut primitives = Vec::new();
+    for op in svg_paint_ops(svg.paint.paint_order) {
+        match op {
+            SVGPaintOp::Fill => {
+                if let Some(fill) = lower_svg_paint(
+                    generation,
+                    &svg.bounds.object_bounding_box,
+                    current_color,
+                    &svg.paint.fill,
+                    svg.paint.fill_opacity * svg.paint.opacity,
+                ) {
+                    primitives.push(MpPrimitive {
+                        id: MpPrimitiveId(0),
+                        spatial_id,
+                        clip_chain_id,
+                        effect_id,
+                        bounds,
+                        kind: makepad_browser_scene::MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                            commands: commands.clone(),
+                            draw: MpVectorDraw::Fill { fill_rule },
+                            paint: fill,
+                        }),
+                        hit_test_tag: owner_node_id
+                            .map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
+                    });
+                }
+            }
+            SVGPaintOp::Stroke => {
+                let Some(stroke) = &svg.paint.stroke else {
+                    continue;
+                };
+                if let Some(paint) = lower_svg_paint(
+                    generation,
+                    &svg.bounds.object_bounding_box,
+                    current_color,
+                    &stroke.paint,
+                    stroke.opacity * svg.paint.opacity,
+                ) {
+                    primitives.push(MpPrimitive {
+                        id: MpPrimitiveId(0),
+                        spatial_id,
+                        clip_chain_id,
+                        effect_id,
+                        bounds,
+                        kind: makepad_browser_scene::MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                            commands: commands.clone(),
+                            draw: MpVectorDraw::Stroke {
+                                width: stroke.width.max(0.0),
+                                line_cap: match stroke.line_cap {
+                                    published::SVGLineCap::Butt => MpVectorLineCap::Butt,
+                                    published::SVGLineCap::Round => MpVectorLineCap::Round,
+                                    published::SVGLineCap::Square => MpVectorLineCap::Square,
+                                },
+                                line_join: match stroke.line_join {
+                                    published::SVGLineJoin::Miter => MpVectorLineJoin::Miter,
+                                    published::SVGLineJoin::Round => MpVectorLineJoin::Round,
+                                    published::SVGLineJoin::Bevel => MpVectorLineJoin::Bevel,
+                                },
+                                miter_limit: stroke.miter_limit,
+                                non_scaling: matches!(
+                                    stroke.vector_effect,
+                                    published::SVGVectorEffect::NonScalingStroke
+                                ),
+                            },
+                            paint,
+                        }),
+                        hit_test_tag: owner_node_id
+                            .map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
+                    });
+                }
+            }
+        }
+    }
+    primitives
+}
+
+fn svg_text_run_outline_commands(run: &published::SVGGlyphRun) -> Option<Vec<MpVectorPathCommand>> {
+    let font_data = run.font_data.as_ref()?;
+    let face = ttf_parser::Face::parse(font_data.as_slice(), run.font_index).ok()?;
+    let units_per_em = face.units_per_em() as f32;
+    if units_per_em <= 0.0 {
+        return None;
+    }
+    let scale = run.font_size_px / units_per_em;
+    let mut commands = Vec::new();
+    let mut pen_x = run.rect.origin.x.to_f32_px();
+    let baseline_y = run.rect.origin.y.to_f32_px() + run.baseline_ascent.to_f32_px();
+    for glyph in &run.glyphs {
+        let glyph_id = match u16::try_from(glyph.glyph_id) {
+            Ok(glyph_id) => ttf_parser::GlyphId(glyph_id),
+            Err(_) => continue,
+        };
+        let mut builder = SVGTextOutlineBuilder {
+            commands: &mut commands,
+            origin_x: pen_x + glyph.x_offset.to_f32_px(),
+            origin_y: baseline_y + glyph.y_offset.to_f32_px(),
+            scale,
+        };
+        let _ = face.outline_glyph(glyph_id, &mut builder);
+        pen_x += glyph.advance.to_f32_px();
+    }
+    (!commands.is_empty()).then_some(commands)
+}
+
+struct SVGTextOutlineBuilder<'a> {
+    commands: &'a mut Vec<MpVectorPathCommand>,
+    origin_x: f32,
+    origin_y: f32,
+    scale: f32,
+}
+
+impl SVGTextOutlineBuilder<'_> {
+    fn point(&self, x: f32, y: f32) -> makepad_widgets::Vec2f {
+        vec2(
+            self.origin_x + x * self.scale,
+            self.origin_y - y * self.scale,
+        )
+    }
+}
+
+impl ttf_parser::OutlineBuilder for SVGTextOutlineBuilder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.commands.push(MpVectorPathCommand::MoveTo(self.point(x, y)));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.commands.push(MpVectorPathCommand::LineTo(self.point(x, y)));
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.commands.push(MpVectorPathCommand::QuadTo {
+            ctrl: self.point(x1, y1),
+            to: self.point(x, y),
+        });
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.commands.push(MpVectorPathCommand::CubicTo {
+            ctrl1: self.point(x1, y1),
+            ctrl2: self.point(x2, y2),
+            to: self.point(x, y),
+        });
+    }
+
+    fn close(&mut self) {
+        self.commands.push(MpVectorPathCommand::Close);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SVGPaintOp {
+    Fill,
+    Stroke,
+}
+
+fn svg_paint_ops(order: published::SVGPaintOrder) -> &'static [SVGPaintOp] {
+    use SVGPaintOp::{Fill, Stroke};
+    match order {
+        published::SVGPaintOrder::Normal |
+        published::SVGPaintOrder::FillStrokeMarkers |
+        published::SVGPaintOrder::FillMarkersStroke |
+        published::SVGPaintOrder::MarkersFillStroke => &[Fill, Stroke],
+        published::SVGPaintOrder::StrokeFillMarkers |
+        published::SVGPaintOrder::StrokeMarkersFill |
+        published::SVGPaintOrder::MarkersStrokeFill => &[Stroke, Fill],
+    }
+}
+
+fn svg_current_color(svg: &published::SVGLeafFragment) -> published::SVGColor {
+    let color = inherited_color(&svg.base.style);
+    published::SVGColor {
+        red: color.x,
+        green: color.y,
+        blue: color.z,
+        alpha: color.w,
+    }
+}
+
+fn svg_text_fast_path_color(svg: &published::SVGLeafFragment) -> Option<Vec4f> {
+    if svg.paint.stroke.is_some() {
+        return None;
+    }
+    let alpha = svg.paint.fill_opacity * svg.paint.opacity;
+    if !alpha.is_finite() || alpha <= 0.0 {
+        return None;
+    }
+    match &svg.paint.fill {
+        published::SVGPaint::SolidColor(color) => Some(svg_color(*color, alpha)),
+        published::SVGPaint::CurrentColor => Some(svg_color(svg_current_color(svg), alpha)),
+        published::SVGPaint::None |
+        published::SVGPaint::ContextFill |
+        published::SVGPaint::ContextStroke |
+        published::SVGPaint::Server(_) => None,
+    }
+}
 
 fn svg_color(color: published::SVGColor, alpha_scale: f32) -> Vec4f {
     vec4(
@@ -15,95 +344,6 @@ fn svg_color(color: published::SVGColor, alpha_scale: f32) -> Vec4f {
         color.blue,
         (color.alpha * alpha_scale).clamp(0.0, 1.0),
     )
-}
-
-pub(crate) fn lower_svg_path_primitives(
-    generation: &published::FragmentArenaGeneration,
-    _bounds: Rect,
-    svg: &published::SVGPathFragment,
-    spatial_id: makepad_browser_scene::MpSpatialId,
-    clip_chain_id: makepad_browser_scene::MpClipChainId,
-    effect_id: Option<makepad_browser_scene::MpEffectId>,
-    owner_node_id: Option<usize>,
-) -> Vec<MpPrimitive> {
-    let bounds = Rect {
-        pos: dvec2(
-            svg.decorated_bounding_box.origin.x as f64,
-            svg.decorated_bounding_box.origin.y as f64,
-        ),
-        size: dvec2(
-            svg.decorated_bounding_box.size.width as f64,
-            svg.decorated_bounding_box.size.height as f64,
-        ),
-    };
-    let commands = Arc::<[MpVectorPathCommand]>::from(
-        svg.path
-            .commands
-            .iter()
-            .map(convert_path_command)
-            .collect::<Vec<_>>(),
-    );
-    let mut primitives = Vec::new();
-
-    if let Some(fill) = lower_svg_paint(generation, &svg.object_bounding_box, &svg.fill, 1.0) {
-        primitives.push(MpPrimitive {
-            id: MpPrimitiveId(0),
-            spatial_id,
-            clip_chain_id,
-            effect_id,
-            bounds,
-            kind: makepad_browser_scene::MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
-                commands: commands.clone(),
-                draw: MpVectorDraw::Fill {
-                    fill_rule: match svg.path.fill_rule {
-                        published::SVGFillRule::NonZero => MpVectorFillRule::NonZero,
-                        published::SVGFillRule::EvenOdd => MpVectorFillRule::EvenOdd,
-                    },
-                },
-                paint: fill,
-            }),
-            hit_test_tag: owner_node_id.map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
-        });
-    }
-
-    if let Some(stroke) = &svg.stroke {
-        if let Some(paint) = lower_svg_paint(
-            generation,
-            &svg.object_bounding_box,
-            &stroke.paint,
-            stroke.opacity,
-        ) {
-            primitives.push(MpPrimitive {
-                id: MpPrimitiveId(0),
-                spatial_id,
-                clip_chain_id,
-                effect_id,
-                bounds,
-                kind: makepad_browser_scene::MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
-                    commands,
-                    draw: MpVectorDraw::Stroke {
-                        width: stroke.width.max(0.0),
-                        line_cap: match stroke.line_cap {
-                            published::SVGLineCap::Butt => MpVectorLineCap::Butt,
-                            published::SVGLineCap::Round => MpVectorLineCap::Round,
-                            published::SVGLineCap::Square => MpVectorLineCap::Square,
-                        },
-                        line_join: match stroke.line_join {
-                            published::SVGLineJoin::Miter => MpVectorLineJoin::Miter,
-                            published::SVGLineJoin::Round => MpVectorLineJoin::Round,
-                            published::SVGLineJoin::Bevel => MpVectorLineJoin::Bevel,
-                        },
-                        miter_limit: stroke.miter_limit,
-                        non_scaling: stroke.non_scaling,
-                    },
-                    paint,
-                }),
-                hit_test_tag: owner_node_id.map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
-            });
-        }
-    }
-
-    primitives
 }
 
 fn convert_path_command(command: &published::SVGPathCommand) -> MpVectorPathCommand {
@@ -126,30 +366,47 @@ fn convert_path_command(command: &published::SVGPathCommand) -> MpVectorPathComm
 fn lower_svg_paint(
     generation: &published::FragmentArenaGeneration,
     object_bounding_box: &published::SVGRect,
+    current_color: published::SVGColor,
     paint: &published::SVGPaint,
     opacity: f32,
 ) -> Option<MpVectorPaint> {
     match paint {
-        published::SVGPaint::None | published::SVGPaint::CurrentColor => None,
+        published::SVGPaint::None | published::SVGPaint::ContextFill | published::SVGPaint::ContextStroke => None,
         published::SVGPaint::SolidColor(color) => Some(MpVectorPaint::Solid {
             color: svg_color(*color, opacity),
         }),
-        published::SVGPaint::Resource(resource_id) => {
-            lower_svg_gradient_paint(generation, object_bounding_box, *resource_id, opacity)
+        published::SVGPaint::CurrentColor => Some(MpVectorPaint::Solid {
+            color: svg_color(current_color, opacity),
+        }),
+        published::SVGPaint::Server(resource_id) => {
+            lower_svg_paint_server(generation, object_bounding_box, *resource_id, opacity)
         }
     }
 }
 
-fn lower_svg_gradient_paint(
+fn lower_svg_paint_server(
     generation: &published::FragmentArenaGeneration,
     object_bounding_box: &published::SVGRect,
     resource_id: published::SVGResourceId,
     opacity: f32,
 ) -> Option<MpVectorPaint> {
     let resource = generation.svg_resource(resource_id)?;
-    let published::SVGResourceKind::Gradient(gradient) = &resource.kind else {
+    let published::SVGResourceKind::PaintServer(server) = &resource.kind else {
         return None;
     };
+    match server {
+        published::SVGPaintServerResource::Gradient(gradient) => {
+            lower_svg_gradient_paint(object_bounding_box, gradient, opacity)
+        }
+        published::SVGPaintServerResource::Pattern(_) => None,
+    }
+}
+
+fn lower_svg_gradient_paint(
+    object_bounding_box: &published::SVGRect,
+    gradient: &published::SVGGradientResource,
+    opacity: f32,
+) -> Option<MpVectorPaint> {
     let stops = gradient
         .stops
         .iter()
@@ -265,15 +522,14 @@ fn radial_focal_radius_ratio(radial: &published::SVGRadialGradient) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     use app_units::Au;
     use havi_types::fragment_tree::{
         FragmentArenaGeneration, FragmentDerivedData, PaintChild, SVGColor,
-        SVGCoordinateUnits, SVGGradientKind, SVGGradientResource,
-        SVGGradientSpreadMethod, SVGGradientStop, SVGLinearGradient, SVGPaint,
-        SVGRadialGradient, SVGResourceKind, SVGResourceNode, SVGTransform,
+        SVGCoordinateUnits, SVGGradientKind, SVGGradientResource, SVGGradientSpreadMethod,
+        SVGGradientStop, SVGLinearGradient, SVGPaint, SVGPaintServerResource, SVGRadialGradient,
+        SVGResourceKind, SVGResourceNode, SVGTransform,
     };
     use havi_types::{PhysicalPoint, PhysicalRect, PhysicalSize};
 
@@ -300,7 +556,7 @@ mod tests {
             },
             node_fragments: HashMap::new(),
             svg_resources: Arc::from([SVGResourceNode {
-                kind: SVGResourceKind::Gradient(gradient),
+                kind: SVGResourceKind::PaintServer(SVGPaintServerResource::Gradient(gradient)),
             }]),
             initial_containing_block: au_rect(0, 0, 0, 0),
             scrollable_overflow: au_rect(0, 0, 0, 0),
@@ -340,7 +596,13 @@ mod tests {
         let paint = lower_svg_paint(
             &generation,
             &object_bounding_box(),
-            &SVGPaint::Resource(published::SVGResourceId(0)),
+            SVGColor {
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+                alpha: 1.0,
+            },
+            &SVGPaint::Server(published::SVGResourceId(0)),
             1.0,
         )
         .expect("gradient paint");
@@ -379,7 +641,13 @@ mod tests {
         let paint = lower_svg_paint(
             &generation,
             &object_bounding_box(),
-            &SVGPaint::Resource(published::SVGResourceId(0)),
+            SVGColor {
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+                alpha: 1.0,
+            },
+            &SVGPaint::Server(published::SVGResourceId(0)),
             0.5,
         )
         .expect("gradient paint");

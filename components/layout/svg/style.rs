@@ -5,7 +5,10 @@ use style::computed_values::pointer_events::T as PointerEvents;
 use style::computed_values::visibility::T as Visibility;
 use style::properties::ComputedValues;
 
-use havi_types::fragment_tree::{SVGColor, SVGFillRule, SVGLineCap, SVGLineJoin};
+use havi_types::fragment_tree::{
+    SVGColor, SVGFillRule, SVGLineCap, SVGLineJoin, SVGPaintOrder, SVGTextAnchor,
+    SVGVectorEffect,
+};
 use layout_api::{SVGElementData, SVGNodeKind, SVGPaintData};
 
 #[derive(Clone, Debug)]
@@ -33,6 +36,9 @@ impl Default for SVGViewportStyle {
 pub enum SVGResolvedPaint {
     None,
     SolidColor(SVGColor),
+    CurrentColor,
+    ContextFill,
+    ContextStroke,
     ResourceReference(SVGPaintServerReference),
 }
 
@@ -63,12 +69,6 @@ pub enum SVGPointerEvents {
     BoundingBox,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SVGTextAnchor {
-    Start,
-    Middle,
-    End,
-}
 
 #[derive(Clone, Debug)]
 pub struct SVGResolvedStroke {
@@ -78,7 +78,9 @@ pub struct SVGResolvedStroke {
     pub line_cap: SVGLineCap,
     pub line_join: SVGLineJoin,
     pub miter_limit: f32,
-    pub non_scaling: bool,
+    pub dash_array: Vec<f32>,
+    pub dash_offset: f32,
+    pub vector_effect: SVGVectorEffect,
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +147,7 @@ pub struct SVGPaintStyle {
     pub fill: SVGResolvedPaint,
     pub fill_opacity: f32,
     pub stroke: Option<SVGResolvedStroke>,
+    pub paint_order: SVGPaintOrder,
 }
 
 impl Default for SVGPaintStyle {
@@ -154,6 +157,7 @@ impl Default for SVGPaintStyle {
             fill: SVGResolvedPaint::SolidColor(svg_black()),
             fill_opacity: 1.0,
             stroke: None,
+            paint_order: SVGPaintOrder::Normal,
         }
     }
 }
@@ -275,48 +279,64 @@ pub fn resolve_paint_style(
         inherited.and_then(|style| style.stroke.as_ref()).map(|stroke| &stroke.paint),
         SVGResolvedPaint::None,
     );
+    let inherited_stroke = inherited.and_then(|style| style.stroke.as_ref());
+    let vector_effect = paint_data
+        .vector_effect
+        .and_then(parse_vector_effect)
+        .or_else(|| inherited_stroke.map(|stroke| stroke.vector_effect))
+        .unwrap_or(SVGVectorEffect::None);
     let stroke = match stroke_paint {
         SVGResolvedPaint::None => None,
-        paint => {
-            let inherited_stroke = inherited.and_then(|style| style.stroke.as_ref());
-            Some(SVGResolvedStroke {
-                paint,
-                width: paint_data
-                    .stroke_width
-                    .and_then(parse_non_negative_number)
-                    .or_else(|| inherited_stroke.map(|stroke| stroke.width))
-                    .unwrap_or(1.0),
-                opacity: paint_data
-                    .stroke_opacity
-                    .and_then(parse_unit_interval)
-                    .or_else(|| inherited_stroke.map(|stroke| stroke.opacity))
-                    .unwrap_or(1.0),
-                line_cap: paint_data
-                    .stroke_linecap
-                    .and_then(parse_line_cap)
-                    .or_else(|| inherited_stroke.map(|stroke| stroke.line_cap))
-                    .unwrap_or(SVGLineCap::Butt),
-                line_join: paint_data
-                    .stroke_linejoin
-                    .and_then(parse_line_join)
-                    .or_else(|| inherited_stroke.map(|stroke| stroke.line_join))
-                    .unwrap_or(SVGLineJoin::Miter),
-                miter_limit: paint_data
-                    .stroke_miterlimit
-                    .and_then(parse_non_negative_number)
-                    .or_else(|| inherited_stroke.map(|stroke| stroke.miter_limit))
-                    .unwrap_or(4.0),
-                non_scaling: paint_data
-                    .vector_effect
-                    .is_some_and(|value| value.split_whitespace().any(|part| part == "non-scaling-stroke")),
-            })
-        }
+        paint => Some(SVGResolvedStroke {
+            paint,
+            width: paint_data
+                .stroke_width
+                .and_then(parse_non_negative_number)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.width))
+                .unwrap_or(1.0),
+            opacity: paint_data
+                .stroke_opacity
+                .and_then(parse_unit_interval)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.opacity))
+                .unwrap_or(1.0),
+            line_cap: paint_data
+                .stroke_linecap
+                .and_then(parse_line_cap)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.line_cap))
+                .unwrap_or(SVGLineCap::Butt),
+            line_join: paint_data
+                .stroke_linejoin
+                .and_then(parse_line_join)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.line_join))
+                .unwrap_or(SVGLineJoin::Miter),
+            miter_limit: paint_data
+                .stroke_miterlimit
+                .and_then(parse_non_negative_number)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.miter_limit))
+                .unwrap_or(4.0),
+            dash_array: paint_data
+                .stroke_dasharray
+                .and_then(parse_dash_array)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.dash_array.clone()))
+                .unwrap_or_default(),
+            dash_offset: paint_data
+                .stroke_dashoffset
+                .and_then(parse_number)
+                .or_else(|| inherited_stroke.map(|stroke| stroke.dash_offset))
+                .unwrap_or(0.0),
+            vector_effect,
+        }),
     };
     SVGPaintStyle {
         current_color,
         fill,
         fill_opacity,
         stroke,
+        paint_order: paint_data
+            .paint_order
+            .and_then(parse_paint_order)
+            .or_else(|| inherited.map(|style| style.paint_order))
+            .unwrap_or(SVGPaintOrder::Normal),
     }
 }
 
@@ -386,7 +406,7 @@ fn resolve_paint(
     let Some(raw) = raw else {
         return inherited.cloned().unwrap_or(default);
     };
-    if raw == "inherit" || raw == "context-fill" || raw == "context-stroke" {
+    if raw.trim() == "inherit" {
         return inherited.cloned().unwrap_or(default);
     }
     parse_paint(raw, current_color).unwrap_or_else(|| inherited.cloned().unwrap_or(default))
@@ -400,7 +420,7 @@ fn parse_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
 fn parse_svgtypes_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolvedPaint> {
     match svgtypes::Paint::from_str(raw).ok()? {
         svgtypes::Paint::None => Some(SVGResolvedPaint::None),
-        svgtypes::Paint::CurrentColor => Some(SVGResolvedPaint::SolidColor(current_color)),
+        svgtypes::Paint::CurrentColor => Some(SVGResolvedPaint::CurrentColor),
         svgtypes::Paint::Color(color) => Some(SVGResolvedPaint::SolidColor(convert_svgtypes_color(color))),
         svgtypes::Paint::FuncIRI(iri, fallback) => Some(SVGResolvedPaint::ResourceReference(
             SVGPaintServerReference {
@@ -416,9 +436,9 @@ fn parse_svgtypes_paint(raw: &str, current_color: SVGColor) -> Option<SVGResolve
                 }),
             },
         )),
-        svgtypes::Paint::Inherit | svgtypes::Paint::ContextFill | svgtypes::Paint::ContextStroke => {
-            None
-        }
+        svgtypes::Paint::Inherit => None,
+        svgtypes::Paint::ContextFill => Some(SVGResolvedPaint::ContextFill),
+        svgtypes::Paint::ContextStroke => Some(SVGResolvedPaint::ContextStroke),
     }
 }
 
@@ -481,6 +501,37 @@ mod tests {
             other => panic!("unexpected paint: {other:?}"),
         }
     }
+
+    #[test]
+    fn parse_paint_preserves_context_and_currentcolor_variants() {
+        let current = SVGColor {
+            red: 1.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 1.0,
+        };
+        assert!(matches!(
+            parse_paint("currentColor", current),
+            Some(SVGResolvedPaint::CurrentColor)
+        ));
+        assert!(matches!(
+            parse_paint("context-fill", current),
+            Some(SVGResolvedPaint::ContextFill)
+        ));
+        assert!(matches!(
+            parse_paint("context-stroke", current),
+            Some(SVGResolvedPaint::ContextStroke)
+        ));
+    }
+
+    #[test]
+    fn parse_paint_order_and_dash_placeholders_round_trip_structure() {
+        assert_eq!(
+            parse_paint_order("stroke markers fill"),
+            Some(SVGPaintOrder::StrokeMarkersFill)
+        );
+        assert_eq!(parse_dash_array("1, 2 3"), Some(vec![1.0, 2.0, 3.0]));
+    }
 }
 
 fn parse_resource_iri(raw: &str) -> Option<String> {
@@ -505,6 +556,47 @@ fn parse_non_negative_number(raw: &str) -> Option<f32> {
         Some(value)
     } else {
         None
+    }
+}
+
+fn parse_number(raw: &str) -> Option<f32> {
+    let value = raw.trim().parse::<f32>().ok()?;
+    value.is_finite().then_some(value)
+}
+
+fn parse_dash_array(raw: &str) -> Option<Vec<f32>> {
+    let raw = raw.trim();
+    if raw.eq_ignore_ascii_case("none") {
+        return Some(Vec::new());
+    }
+    let values = raw
+        .split(|ch: char| ch == ',' || ch.is_ascii_whitespace())
+        .filter(|part| !part.is_empty())
+        .map(parse_non_negative_number)
+        .collect::<Option<Vec<_>>>()?;
+    Some(values)
+}
+
+fn parse_vector_effect(raw: &str) -> Option<SVGVectorEffect> {
+    raw.split_whitespace()
+        .find_map(|part| match part {
+            "none" => Some(SVGVectorEffect::None),
+            "non-scaling-stroke" => Some(SVGVectorEffect::NonScalingStroke),
+            _ => None,
+        })
+}
+
+fn parse_paint_order(raw: &str) -> Option<SVGPaintOrder> {
+    let mut parts = raw.split_whitespace();
+    match (parts.next()?, parts.next(), parts.next()) {
+        ("normal", None, None) => Some(SVGPaintOrder::Normal),
+        ("fill", Some("stroke"), Some("markers")) => Some(SVGPaintOrder::FillStrokeMarkers),
+        ("fill", Some("markers"), Some("stroke")) => Some(SVGPaintOrder::FillMarkersStroke),
+        ("stroke", Some("fill"), Some("markers")) => Some(SVGPaintOrder::StrokeFillMarkers),
+        ("stroke", Some("markers"), Some("fill")) => Some(SVGPaintOrder::StrokeMarkersFill),
+        ("markers", Some("fill"), Some("stroke")) => Some(SVGPaintOrder::MarkersFillStroke),
+        ("markers", Some("stroke"), Some("fill")) => Some(SVGPaintOrder::MarkersStrokeFill),
+        _ => None,
     }
 }
 

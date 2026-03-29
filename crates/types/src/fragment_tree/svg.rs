@@ -1,7 +1,11 @@
+use std::ops::Range;
+use std::sync::Arc;
+
+use app_units::Au;
 use euclid::Transform2D;
 use style_traits::CSSPixel;
 
-use super::{BaseFragment, FragmentId, PaintChild, Tag, TextFragment};
+use super::{BaseFragment, FragmentId, PaintChild, ShapedGlyph, Tag};
 use crate::geom::{PhysicalPoint, PhysicalRect};
 
 pub type SVGScalar = f32;
@@ -53,16 +57,93 @@ pub enum SVGGradientSpreadMethod {
     Repeat,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGTextAnchor {
+    Start,
+    Middle,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGPaintOrder {
+    Normal,
+    FillStrokeMarkers,
+    FillMarkersStroke,
+    StrokeFillMarkers,
+    StrokeMarkersFill,
+    MarkersFillStroke,
+    MarkersStrokeFill,
+}
+
+impl Default for SVGPaintOrder {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGVectorEffect {
+    None,
+    NonScalingStroke,
+}
+
+impl Default for SVGVectorEffect {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum SVGPaint {
     None,
     SolidColor(SVGColor),
     CurrentColor,
-    Resource(SVGResourceId),
+    ContextFill,
+    ContextStroke,
+    Server(SVGResourceId),
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGStrokeStyle {
+    pub paint: SVGPaint,
+    pub width: f32,
+    pub opacity: f32,
+    pub line_cap: SVGLineCap,
+    pub line_join: SVGLineJoin,
+    pub miter_limit: f32,
+    pub dash_array: Vec<f32>,
+    pub dash_offset: f32,
+    pub vector_effect: SVGVectorEffect,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGPaintStyle {
+    pub fill: SVGPaint,
+    pub fill_opacity: f32,
+    pub stroke: Option<SVGStrokeStyle>,
+    pub opacity: f32,
+    pub paint_order: SVGPaintOrder,
+}
+
+impl Default for SVGPaintStyle {
+    fn default() -> Self {
+        Self {
+            fill: SVGPaint::SolidColor(SVGColor {
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+                alpha: 1.0,
+            }),
+            fill_opacity: 1.0,
+            stroke: None,
+            opacity: 1.0,
+            paint_order: SVGPaintOrder::Normal,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct SVGResourceReferences {
+pub struct SVGEffectState {
     pub clip_path: Option<SVGResourceId>,
     pub mask: Option<SVGResourceId>,
     pub filter: Option<SVGResourceId>,
@@ -99,6 +180,14 @@ impl SVGFragmentIdentity {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct SVGBounds {
+    pub object_bounding_box: SVGRect,
+    pub stroke_bounding_box: SVGRect,
+    pub decorated_bounding_box: SVGRect,
+    pub visual_bounding_box: SVGRect,
+}
+
 #[derive(Clone, Debug)]
 pub struct SVGViewportFragment {
     pub base: BaseFragment,
@@ -112,14 +201,86 @@ pub struct SVGViewportFragment {
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGGroupFragment {
+pub enum SVGContainerKind {
+    Group,
+    ForeignObject {
+        svg_viewport_rect: SVGRect,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGContainerFragment {
     pub base: BaseFragment,
     pub identity: SVGFragmentIdentity,
+    pub kind: SVGContainerKind,
     pub geometry_children: Vec<FragmentId>,
     pub paint_children: Vec<PaintChild>,
     pub local_transform: SVGTransform,
-    pub opacity: f32,
-    pub resources: SVGResourceReferences,
+    pub effects: SVGEffectState,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGPathPayload {
+    pub path: SVGPathData,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGGlyphRun {
+    pub text: String,
+    pub rect: PhysicalRect<Au>,
+    pub font_size_px: f32,
+    pub glyphs: Vec<ShapedGlyph>,
+    pub font_data: Option<Arc<Vec<u8>>>,
+    pub font_index: u32,
+    pub baseline_ascent: Au,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGTextChunk {
+    pub run_range: Range<u32>,
+    pub anchor: SVGTextAnchor,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGAddressableChar {
+    pub run_index: u32,
+    pub utf8_range: Range<u32>,
+    pub position: SVGPoint,
+    pub rotation: f32,
+    pub hidden: bool,
+    pub middle_of_cluster: bool,
+    pub anchored_chunk_start: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SVGTextPayload {
+    pub runs: Vec<SVGGlyphRun>,
+    pub chunks: Vec<SVGTextChunk>,
+    pub addressing: Vec<SVGAddressableChar>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGImagePayload {
+    pub viewport_rect: SVGRect,
+    pub href: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SVGLeafKind {
+    Path(SVGPathPayload),
+    Text(SVGTextPayload),
+    Image(SVGImagePayload),
+}
+
+#[derive(Clone, Debug)]
+pub struct SVGLeafFragment {
+    pub base: BaseFragment,
+    pub identity: SVGFragmentIdentity,
+    pub kind: SVGLeafKind,
+    pub bounds: SVGBounds,
+    pub local_transform: SVGTransform,
+    pub paint: SVGPaintStyle,
+    pub effects: SVGEffectState,
 }
 
 #[derive(Clone, Debug)]
@@ -145,74 +306,24 @@ pub struct SVGPathData {
 }
 
 #[derive(Clone, Debug)]
-pub struct SVGStrokeStyle {
-    pub paint: SVGPaint,
-    pub width: f32,
-    pub opacity: f32,
-    pub line_cap: SVGLineCap,
-    pub line_join: SVGLineJoin,
-    pub miter_limit: f32,
-    pub non_scaling: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct SVGPathFragment {
-    pub base: BaseFragment,
-    pub identity: SVGFragmentIdentity,
-    pub path: SVGPathData,
-    pub object_bounding_box: SVGRect,
-    pub decorated_bounding_box: SVGRect,
-    pub local_transform: SVGTransform,
-    pub fill: SVGPaint,
-    pub stroke: Option<SVGStrokeStyle>,
-    pub resources: SVGResourceReferences,
-}
-
-#[derive(Clone, Debug)]
-pub struct SVGTextFragment {
-    pub base: BaseFragment,
-    pub identity: SVGFragmentIdentity,
-    pub text_runs: Vec<TextFragment>,
-    pub object_bounding_box: SVGRect,
-    pub decorated_bounding_box: SVGRect,
-    pub local_transform: SVGTransform,
-    pub resources: SVGResourceReferences,
-}
-
-#[derive(Clone, Debug)]
-pub struct SVGForeignObjectFragment {
-    pub base: BaseFragment,
-    pub identity: SVGFragmentIdentity,
-    pub geometry_children: Vec<FragmentId>,
-    pub paint_children: Vec<PaintChild>,
-    pub svg_viewport_rect: SVGRect,
-    pub local_transform: SVGTransform,
-}
-
-#[derive(Clone, Debug)]
-pub struct SVGImageFragment {
-    pub base: BaseFragment,
-    pub identity: SVGFragmentIdentity,
-    pub viewport_rect: SVGRect,
-    pub local_transform: SVGTransform,
-    pub href: Option<String>,
-    pub resources: SVGResourceReferences,
-}
-
-#[derive(Clone, Debug)]
 pub struct SVGResourceNode {
     pub kind: SVGResourceKind,
 }
 
 #[derive(Clone, Debug)]
 pub enum SVGResourceKind {
-    Gradient(SVGGradientResource),
+    PaintServer(SVGPaintServerResource),
     ClipPath(SVGClipPathResource),
     Mask(SVGMaskResource),
     Filter(SVGFilterResource),
     Marker(SVGMarkerResource),
-    Pattern(SVGPatternResource),
     UseInstanceSource(SVGUseInstanceSource),
+}
+
+#[derive(Clone, Debug)]
+pub enum SVGPaintServerResource {
+    Gradient(SVGGradientResource),
+    Pattern(SVGPatternResource),
 }
 
 #[derive(Clone, Debug)]
