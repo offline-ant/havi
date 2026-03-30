@@ -583,6 +583,7 @@ fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode>
             units: SVGCoordinateUnits::ObjectBoundingBox,
             content_units: SVGCoordinateUnits::UserSpaceOnUse,
             rect: SVGRect::zero(),
+            paths: Vec::new(),
         }),
         SVGLayoutNodeKind::Pattern => SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(
             havi_types::fragment_tree::SVGPatternResource {
@@ -606,6 +607,7 @@ fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode>
                 view_box: None,
                 marker_units: SVGCoordinateUnits::UserSpaceOnUse,
                 orient_auto: true,
+                paths: Vec::new(),
             },
         ),
         SVGLayoutNodeKind::Defs

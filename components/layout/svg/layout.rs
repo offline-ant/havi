@@ -453,48 +453,55 @@ fn build_svg_resource_owned_subtrees(
         .enumerate()
         .filter_map(|(index, resource)| {
             let resource_id = SVGResourceId(index as u32);
-            let SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(_)) = &resource.kind else {
-                return None;
-            };
             let owner = resource_graph.resource_owner(resource_id)?;
             let owner = nodes_by_opaque.get(&owner).copied()?;
             let owner = resolve_svg_node(owner, &layout_context.style_context)?;
-            let resolved = resolve_pattern_resource_data(
-                &owner,
-                &layout_context.style_context,
-                nodes_by_opaque,
-                resource_graph,
-                &mut Vec::new(),
-            )?;
-            let content_source = resolved.content_source_node?;
-            let mut fragment_roots = Vec::new();
-            for child in content_source.node.children() {
-                let Some(child) = resolve_svg_child_node(child, &layout_context.style_context, &content_source) else {
-                    continue;
-                };
-                let Some(fragment) = build_svg_child_fragment(
-                    &child,
-                    layout_context,
-                    positioning_context,
-                    resource_graph,
-                    nodes_by_opaque,
-                    SVGFragmentIdentityContext::default(),
-                ) else {
-                    continue;
-                };
-                fragment_roots.push(fragment);
+            match &resource.kind {
+                SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(_)) => {
+                    let resolved = resolve_pattern_resource_data(
+                        &owner,
+                        &layout_context.style_context,
+                        nodes_by_opaque,
+                        resource_graph,
+                        &mut Vec::new(),
+                    )?;
+                    let content_source = resolved.content_source_node?;
+                    let mut fragment_roots = Vec::new();
+                    for child in content_source.node.children() {
+                        let Some(child) = resolve_svg_child_node(
+                            child,
+                            &layout_context.style_context,
+                            &content_source,
+                        ) else {
+                            continue;
+                        };
+                        let Some(fragment) = build_svg_child_fragment(
+                            &child,
+                            layout_context,
+                            positioning_context,
+                            resource_graph,
+                            nodes_by_opaque,
+                            SVGFragmentIdentityContext::default(),
+                        ) else {
+                            continue;
+                        };
+                        fragment_roots.push(fragment);
+                    }
+                    if fragment_roots.is_empty() {
+                        return None;
+                    }
+                    let mut resource_dependencies = resolved.source_resource_dependencies;
+                    resource_dependencies.sort_by_key(|id| id.0);
+                    resource_dependencies.dedup();
+                    Some(SVGResourceOwnedSubtree {
+                        owner_resource_id: resource_id,
+                        fragment_roots,
+                        resource_dependencies,
+                    })
+                }
+                SVGResourceKind::Marker(_) => None,
+                _ => None,
             }
-            if fragment_roots.is_empty() {
-                return None;
-            }
-            let mut resource_dependencies = resolved.source_resource_dependencies;
-            resource_dependencies.sort_by_key(|id| id.0);
-            resource_dependencies.dedup();
-            Some(SVGResourceOwnedSubtree {
-                owner_resource_id: resource_id,
-                fragment_roots,
-                resource_dependencies,
-            })
         })
         .collect()
 }
@@ -772,17 +779,50 @@ fn resolve_svg_resource_node(
                 }
             }
         }
+        SVGNodeKind::Mask(data) => {
+            if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
+                let units = data.mask_units.unwrap_or(SVGCoordinateUnits::ObjectBoundingBox);
+                let content_units = data
+                    .mask_content_units
+                    .unwrap_or(SVGCoordinateUnits::UserSpaceOnUse);
+                let rect = svg_resource_rect(
+                    data.x,
+                    data.y,
+                    data.width,
+                    data.height,
+                    -0.1,
+                    -0.1,
+                    1.2,
+                    1.2,
+                );
+                let paths = collect_mask_paths(
+                    node,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    SVGTransform::identity(),
+                );
+                if let Some(SVGResourceKind::Mask(resource)) =
+                    resource_graph.resource_mut(resource_id)
+                {
+                    resource.units = units;
+                    resource.content_units = content_units;
+                    resource.rect = rect;
+                    resource.paths = paths;
+                }
+            }
+        }
         SVGNodeKind::Filter(data) => {
             if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
-                let rect = havi_types::fragment_tree::SVGRect::new(
-                    euclid::point2(
-                        resolve_length(data.x).unwrap_or(-0.1),
-                        resolve_length(data.y).unwrap_or(-0.1),
-                    ),
-                    euclid::size2(
-                        resolve_length(data.width).unwrap_or(1.2),
-                        resolve_length(data.height).unwrap_or(1.2),
-                    ),
+                let rect = svg_resource_rect(
+                    data.x,
+                    data.y,
+                    data.width,
+                    data.height,
+                    -0.1,
+                    -0.1,
+                    1.2,
+                    1.2,
                 );
                 if let Some(SVGResourceKind::Filter(resource)) =
                     resource_graph.resource_mut(resource_id)
@@ -800,12 +840,20 @@ fn resolve_svg_resource_node(
                     }
                     _ => SVGCoordinateUnits::UserSpaceOnUse,
                 };
+                let paths = collect_marker_paths(
+                    node,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    SVGTransform::identity(),
+                );
                 if let Some(SVGResourceKind::Marker(resource)) =
                     resource_graph.resource_mut(resource_id)
                 {
                     resource.view_box = view_box;
                     resource.marker_units = marker_units;
                     resource.orient_auto = data.orient_auto;
+                    resource.paths = paths;
                 }
             }
         }
@@ -1160,6 +1208,138 @@ fn collect_clip_paths(
                 .filter_map(|referenced| {
                     let referenced = resolve_svg_node(referenced, style_context)?;
                     Some(collect_clip_paths(
+                        &referenced,
+                        style_context,
+                        nodes_by_opaque,
+                        resource_graph,
+                        use_transform,
+                    ))
+                })
+                .flatten()
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn collect_mask_paths(
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
+    resource_graph: &SVGResourceGraph,
+    inherited_transform: SVGTransform,
+) -> Vec<SVGPathData> {
+    let node_transform = parse_svg_transform(&node.svg_data.common.transform);
+    let combined_transform = then_svg_transform(inherited_transform, node_transform);
+    match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
+        (
+            SVGLayoutNodeKind::Geometry,
+            SVGNodeKind::Geometry(geometry),
+            SVGNodeResolvedStyle::Geometry(style),
+        ) => {
+            let path: SVGPathData = normalize_svg_geometry(geometry, style.fill_rule).into();
+            if path.commands.is_empty() {
+                Vec::new()
+            } else {
+                vec![transform_svg_path_data(&path, combined_transform)]
+            }
+        }
+        (SVGLayoutNodeKind::Group, _, _) | (SVGLayoutNodeKind::Mask, _, _) => node
+            .node
+            .children()
+            .filter_map(|child| {
+                let child = resolve_svg_child_node(child, style_context, node)?;
+                Some(collect_mask_paths(
+                    &child,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    combined_transform,
+                ))
+            })
+            .flatten()
+            .collect(),
+        (SVGLayoutNodeKind::Use, _, _) => {
+            let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
+            let use_transform = then_svg_transform(combined_transform, expansion.instance_transform);
+            expansion
+                .referenced_node
+                .into_iter()
+                .filter_map(|referenced| {
+                    let referenced = resolve_svg_node(referenced, style_context)?;
+                    Some(collect_mask_paths(
+                        &referenced,
+                        style_context,
+                        nodes_by_opaque,
+                        resource_graph,
+                        use_transform,
+                    ))
+                })
+                .flatten()
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn collect_marker_paths(
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'_>,
+    resource_graph: &SVGResourceGraph,
+    inherited_transform: SVGTransform,
+) -> Vec<havi_types::fragment_tree::SVGMarkerPathResource> {
+    let node_transform = parse_svg_transform(&node.svg_data.common.transform);
+    let combined_transform = then_svg_transform(inherited_transform, node_transform);
+    match (&node.summary.kind, &node.svg_data.node_kind, &node.resolved_style) {
+        (
+            SVGLayoutNodeKind::Geometry,
+            SVGNodeKind::Geometry(geometry),
+            SVGNodeResolvedStyle::Geometry(style),
+        ) => {
+            let path: SVGPathData = normalize_svg_geometry(geometry, style.fill_rule).into();
+            if path.commands.is_empty() {
+                return Vec::new();
+            }
+            let path = transform_svg_path_data(&path, combined_transform);
+            let object_bounding_box = path_bounds(&path).unwrap_or_default();
+            let stroke_bounding_box = decorated_bounds(&path, style.paint.stroke.as_ref())
+                .unwrap_or(object_bounding_box);
+            vec![havi_types::fragment_tree::SVGMarkerPathResource {
+                path,
+                bounds: SVGBounds {
+                    object_bounding_box,
+                    stroke_bounding_box,
+                    decorated_bounding_box: stroke_bounding_box,
+                    visual_bounding_box: stroke_bounding_box,
+                },
+                paint: convert_paint_style(resource_graph, node.tag.node, &style.paint, style.opacity),
+            }]
+        }
+        (SVGLayoutNodeKind::Group, _, _) | (SVGLayoutNodeKind::Marker, _, _) => node
+            .node
+            .children()
+            .filter_map(|child| {
+                let child = resolve_svg_child_node(child, style_context, node)?;
+                Some(collect_marker_paths(
+                    &child,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    combined_transform,
+                ))
+            })
+            .flatten()
+            .collect(),
+        (SVGLayoutNodeKind::Use, _, _) => {
+            let expansion = expand_use_node(node, nodes_by_opaque, resource_graph);
+            let use_transform = then_svg_transform(combined_transform, expansion.instance_transform);
+            expansion
+                .referenced_node
+                .into_iter()
+                .filter_map(|referenced| {
+                    let referenced = resolve_svg_node(referenced, style_context)?;
+                    Some(collect_marker_paths(
                         &referenced,
                         style_context,
                         nodes_by_opaque,
@@ -1545,6 +1725,39 @@ fn union_fragment_rects(fragments: &[Fragment]) -> PhysicalRect<Au> {
         return PhysicalRect::zero();
     };
     rects.fold(first, |union, rect| union.union(&rect))
+}
+
+fn svg_resource_rect(
+    x: Option<layout_api::SVGLengthValue>,
+    y: Option<layout_api::SVGLengthValue>,
+    width: Option<layout_api::SVGLengthValue>,
+    height: Option<layout_api::SVGLengthValue>,
+    default_x: f32,
+    default_y: f32,
+    default_width: f32,
+    default_height: f32,
+) -> SVGRect {
+    SVGRect::new(
+        euclid::point2(
+            parse_resource_rect_length(x, default_x),
+            parse_resource_rect_length(y, default_y),
+        ),
+        euclid::size2(
+            parse_resource_rect_length(width, default_width),
+            parse_resource_rect_length(height, default_height),
+        ),
+    )
+}
+
+fn parse_resource_rect_length(length: Option<layout_api::SVGLengthValue>, default: f32) -> f32 {
+    let Some(length) = length else {
+        return default;
+    };
+    let value = match length.unit_type {
+        layout_api::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
+        _ => resolve_length(Some(length)).unwrap_or(default),
+    };
+    if value.is_finite() { value } else { default }
 }
 
 fn default_gradient_resource() -> SVGGradientResource {

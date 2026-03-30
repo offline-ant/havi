@@ -455,6 +455,7 @@ pub struct SVGMaskResource {
     pub units: SVGCoordinateUnits,
     pub content_units: SVGCoordinateUnits,
     pub rect: SVGRect,
+    pub paths: Vec<SVGPathData>,
 }
 
 #[derive(Clone, Debug)]
@@ -463,10 +464,18 @@ pub struct SVGFilterResource {
 }
 
 #[derive(Clone, Debug)]
+pub struct SVGMarkerPathResource {
+    pub path: SVGPathData,
+    pub bounds: SVGBounds,
+    pub paint: SVGPaintStyle,
+}
+
+#[derive(Clone, Debug)]
 pub struct SVGMarkerResource {
     pub view_box: Option<SVGRect>,
     pub marker_units: SVGCoordinateUnits,
     pub orient_auto: bool,
+    pub paths: Vec<SVGMarkerPathResource>,
 }
 
 #[derive(Clone, Debug)]

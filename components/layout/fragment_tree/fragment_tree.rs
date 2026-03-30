@@ -456,22 +456,25 @@ impl<'a> ArenaBuilder<'a> {
                 .iter()
                 .filter_map(|fragment| self.build_geometry(fragment, None, Some(resource_offset), false))
                 .collect::<Vec<_>>();
-            let resource_id = remap_svg_resource_id(subtree.owner_resource_id, Some(resource_offset));
-            let Some(resource) = self.svg_resources.get_mut(resource_id.0 as usize) else {
-                continue;
-            };
-            let published::SVGResourceKind::PaintServer(published::SVGPaintServerResource::Pattern(pattern)) =
-                &mut resource.kind
-            else {
-                continue;
-            };
-            pattern.source_fragment_roots = fragment_roots;
-            pattern.source_resource_dependencies = subtree
+            let resource_dependencies = subtree
                 .resource_dependencies
                 .iter()
                 .copied()
                 .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
-                .collect();
+                .collect::<Vec<_>>();
+            let resource_id = remap_svg_resource_id(subtree.owner_resource_id, Some(resource_offset));
+            let Some(resource) = self.svg_resources.get_mut(resource_id.0 as usize) else {
+                continue;
+            };
+            match &mut resource.kind {
+                published::SVGResourceKind::PaintServer(
+                    published::SVGPaintServerResource::Pattern(pattern),
+                ) => {
+                    pattern.source_fragment_roots = fragment_roots;
+                    pattern.source_resource_dependencies = resource_dependencies;
+                }
+                _ => {}
+            }
         }
     }
 

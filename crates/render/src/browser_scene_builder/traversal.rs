@@ -204,6 +204,7 @@ pub(super) fn build_fragment(
                 scene,
                 registry,
                 state,
+                ids,
                 build_cx,
             )
         }

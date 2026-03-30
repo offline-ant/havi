@@ -216,8 +216,9 @@ Current first-cut coverage:
   `textLength`, `lengthAdjust="spacing"`, and the basic `textPath` subset
 - native resource behavior: `use` instance expansion, paint-server publication,
   clip-path geometry publication, simple clip-chain lowering from clip-path
-  bounds, execution-ready pattern resource publication, and document-owned
-  pattern tile scenes for the current path/text subset
+  bounds, execution-ready pattern resource publication, basic binary mask
+  geometry lowering, basic marker attachment with path-vertex placement, and
+  document-owned pattern tile scenes for the current path/text subset
 - renderer behavior: all SVG leaves now traverse one shared leaf builder path;
   retained text is used only for simple solid-fill SVG text and complex SVG text
   lowers through the vector path boundary, including dashed strokes and pattern
@@ -243,8 +244,9 @@ Current Phase 1 SVG DOM coverage:
 
 Still deferred:
 
-- full filters and masks
-- marker execution and long-tail marker semantics
+- full SVG filter execution
+- long-tail mask semantics beyond the current basic geometry subset
+- long-tail marker semantics beyond the current basic path subset
 - long-tail pattern semantics beyond the current basic path/text subset
 - `lengthAdjust="spacingAndGlyphs"`
 - full `foreignObject` HTML formatting-context embedding

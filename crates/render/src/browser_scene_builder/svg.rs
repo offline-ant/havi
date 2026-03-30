@@ -5,7 +5,7 @@ use euclid::Transform2D;
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{
     MpClipChain, MpClipKind, MpClipNode, MpDocument, MpEffectNode, MpFillRule,
-    MpIsolation, MpMask, MpMaskSampleMode, MpPatternTileId, MpPatternTileSource,
+    MpFilter, MpIsolation, MpMask, MpMaskSampleMode, MpPatternTileId, MpPatternTileSource,
     MpPrimitive, MpPrimitiveId, MpPrimitiveKind, MpReferenceFrame, MpScene,
     MpSpatialKind, MpSpatialNode, MpVectorDashPattern, MpVectorDraw, MpVectorMaskContent,
     MpVectorMaskPath, MpVectorPaint, MpVectorPathCommand, MpVectorPathPrimitive,
@@ -17,12 +17,14 @@ use style_traits::CSSPixel;
 use super::geometry::physical_rect_to_rect;
 use super::traversal::{build_fragment, build_paint_list, push_fragment_primitives};
 use super::{
-    BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
+    log_builder_skip_once, BrowserDocumentScrollNodes, BuildContext, BuildState,
+    DirectBuilderIds,
 };
 use crate::browser_scene_builder::traversal::owner_node_id_for_fragment;
 use crate::browser_scene_primitives::svg::{
-    normalize_svg_dash_pattern, resolve_svg_pattern_resource_id, svg_leaf_vector_shapes,
-    svg_paint_context, svg_paint_phases, SVGPaintContext, SVGPaintPhase,
+    convert_path_command, normalize_svg_dash_pattern, resolve_svg_pattern_resource_id,
+    svg_leaf_vector_shapes, svg_paint_context, svg_paint_phases, SVGPaintContext,
+    SVGPaintPhase,
 };
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
@@ -114,15 +116,35 @@ pub(super) fn build_svg_container_fragment(
     );
     svg_cx.clip_chain_id = clip.clip_chain_id;
     let opacity = svg.base.style.get_effects().opacity;
-    if opacity < 0.999 || clip.mask.is_some() {
+    let filters = resolve_svg_filter_effects(generation, svg.effects.filter);
+    let svg_mask = resolve_svg_mask_resource(
+        cx,
+        generation,
+        svg.effects.mask,
+        physical_rect_to_svg_rect(svg.base.rect),
+        physical_rect_to_rect(svg.base.rect),
+        &SVGPaintContext {
+            current_color: published::SVGColor::default(),
+            fill: crate::browser_scene_primitives::svg::SVGContextPaint {
+                paint: published::SVGPaint::None,
+                opacity: 1.0,
+            },
+            stroke: None,
+        },
+        registry,
+        ids,
+        svg_cx.clone(),
+    )?;
+    let mask = combine_svg_effect_masks(clip.mask, svg_mask);
+    if opacity < 0.999 || !filters.is_empty() || mask.is_some() {
         svg_cx.effect_id = Some(scene.push_effect(MpEffectNode {
             spatial_id: svg_cx.spatial_id,
             clip_chain_id: svg_cx.clip_chain_id,
             opacity,
-            filters: Vec::new(),
+            filters,
             blend_mode: makepad_browser_scene::MpBlendMode::Normal,
             isolation: MpIsolation::Isolate,
-            mask: clip.mask,
+            mask,
         }));
     }
     build_paint_list(
@@ -148,6 +170,7 @@ pub(super) fn build_svg_leaf_fragment(
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
     state: &mut BuildState,
+    ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
 ) -> Result<(), String> {
     let mut leaf_cx = build_cx.clone();
@@ -171,15 +194,33 @@ pub(super) fn build_svg_leaf_fragment(
         leaf_cx.clip_chain_id,
     );
     leaf_cx.clip_chain_id = clip.clip_chain_id;
-    if svg.paint.opacity < 0.999 || clip.mask.is_some() {
+    let paint_context = build_cx
+        .svg_paint_context
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| svg_paint_context(svg));
+    let filters = resolve_svg_filter_effects(generation, svg.effects.filter);
+    let svg_mask = resolve_svg_mask_resource(
+        cx,
+        generation,
+        svg.effects.mask,
+        svg.bounds.object_bounding_box,
+        svg_visual_bounds(svg),
+        &paint_context,
+        registry,
+        ids,
+        leaf_cx.clone(),
+    )?;
+    let mask = combine_svg_effect_masks(clip.mask, svg_mask);
+    if svg.paint.opacity < 0.999 || !filters.is_empty() || mask.is_some() {
         leaf_cx.effect_id = Some(scene.push_effect(MpEffectNode {
             spatial_id: leaf_cx.spatial_id,
             clip_chain_id: leaf_cx.clip_chain_id,
             opacity: svg.paint.opacity,
-            filters: Vec::new(),
+            filters,
             blend_mode: makepad_browser_scene::MpBlendMode::Normal,
             isolation: MpIsolation::Isolate,
-            mask: clip.mask,
+            mask,
         }));
     }
     push_fragment_primitives(
@@ -204,6 +245,7 @@ pub(super) fn build_svg_leaf_fragment(
         scene,
         registry,
         state,
+        ids,
         leaf_cx,
     )
 }
@@ -216,6 +258,7 @@ fn emit_svg_pattern_primitives(
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
     state: &mut BuildState,
+    ids: &mut DirectBuilderIds,
     build_cx: BuildContext,
 ) -> Result<(), String> {
     let shapes = svg_leaf_vector_shapes(svg);
@@ -346,10 +389,628 @@ fn emit_svg_pattern_primitives(
                     });
                 }
             }
-            SVGPaintPhase::Markers => {}
+            SVGPaintPhase::Markers => {
+                emit_svg_marker_primitives(
+                    cx,
+                    generation,
+                    fragment_id,
+                    svg,
+                    scene,
+                    registry,
+                    state,
+                    ids,
+                    build_cx.clone(),
+                    &paint_context,
+                )?;
+            }
         }
     }
     Ok(())
+}
+
+fn resolve_svg_filter_effects(
+    generation: &published::FragmentArenaGeneration,
+    resource_id: Option<published::SVGResourceId>,
+) -> Vec<MpFilter> {
+    let Some(resource_id) = resource_id else {
+        return Vec::new();
+    };
+    let Some(resource) = generation.svg_resource(resource_id) else {
+        return Vec::new();
+    };
+    let published::SVGResourceKind::Filter(_filter) = &resource.kind else {
+        return Vec::new();
+    };
+    log_builder_skip_once("svg filter resources do not lower primitives yet; keeping SVG filter reference as a no-op");
+    Vec::new()
+}
+
+fn combine_svg_effect_masks(clip_mask: Option<MpMask>, svg_mask: Option<MpMask>) -> Option<MpMask> {
+    match (clip_mask, svg_mask) {
+        (Some(clip_mask), Some(_)) => {
+            log_builder_skip_once(
+                "svg mask composition with vector clip-path masks is not lowered yet; using clip-path mask only",
+            );
+            Some(clip_mask)
+        }
+        (Some(mask), None) | (None, Some(mask)) => Some(mask),
+        (None, None) => None,
+    }
+}
+
+fn resolve_svg_mask_resource(
+    _cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    resource_id: Option<published::SVGResourceId>,
+    object_bounding_box: published::SVGRect,
+    task_bounds: Rect,
+    _paint_context: &SVGPaintContext,
+    _registry: &mut ResourceRegistry,
+    _ids: &mut DirectBuilderIds,
+    _build_cx: BuildContext,
+) -> Result<Option<MpMask>, String> {
+    let Some(resource_id) = resource_id else {
+        return Ok(None);
+    };
+    let Some(resource) = generation.svg_resource(resource_id) else {
+        return Ok(None);
+    };
+    let published::SVGResourceKind::Mask(mask) = &resource.kind else {
+        return Ok(None);
+    };
+    if mask.paths.is_empty() {
+        return Ok(None);
+    }
+    let mask_rect = resolve_svg_mask_rect(mask, object_bounding_box);
+    if mask_rect.size.width <= 0.0 || mask_rect.size.height <= 0.0 {
+        return Ok(None);
+    }
+    let content = lower_svg_mask_resource_content(mask, object_bounding_box);
+    if content.paths.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(MpMask::Vector {
+        bounds: task_bounds,
+        mode: MpMaskSampleMode::Alpha,
+        content,
+    }))
+}
+
+fn lower_svg_mask_resource_content(
+    mask: &published::SVGMaskResource,
+    object_bounding_box: published::SVGRect,
+) -> MpVectorMaskContent {
+    let transform = affine_to_mat4(svg_mask_content_affine(mask.content_units, object_bounding_box));
+    MpVectorMaskContent {
+        paths: mask
+            .paths
+            .iter()
+            .map(|path| MpVectorMaskPath {
+                fill_rule: match path.fill_rule {
+                    published::SVGFillRule::NonZero => MpFillRule::NonZero,
+                    published::SVGFillRule::EvenOdd => MpFillRule::EvenOdd,
+                },
+                commands: path.commands.iter().map(lower_svg_clip_path_command).collect(),
+                transform,
+            })
+            .collect(),
+    }
+}
+
+fn resolve_svg_mask_rect(
+    mask: &published::SVGMaskResource,
+    object_bounding_box: published::SVGRect,
+) -> published::SVGRect {
+    match mask.units {
+        published::SVGCoordinateUnits::UserSpaceOnUse => mask.rect,
+        published::SVGCoordinateUnits::ObjectBoundingBox => published::SVGRect::new(
+            euclid::point2(
+                object_bounding_box.origin.x + mask.rect.origin.x * object_bounding_box.size.width,
+                object_bounding_box.origin.y + mask.rect.origin.y * object_bounding_box.size.height,
+            ),
+            euclid::size2(
+                mask.rect.size.width * object_bounding_box.size.width,
+                mask.rect.size.height * object_bounding_box.size.height,
+            ),
+        ),
+    }
+}
+
+fn svg_mask_content_affine(
+    units: published::SVGCoordinateUnits,
+    object_bounding_box: published::SVGRect,
+) -> [f32; 6] {
+    match units {
+        published::SVGCoordinateUnits::UserSpaceOnUse => identity_affine(),
+        published::SVGCoordinateUnits::ObjectBoundingBox => [
+            object_bounding_box.size.width,
+            0.0,
+            0.0,
+            object_bounding_box.size.height,
+            object_bounding_box.origin.x,
+            object_bounding_box.origin.y,
+        ],
+    }
+}
+
+fn emit_svg_marker_primitives(
+    cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    _fragment_id: published::FragmentId,
+    svg: &published::SVGLeafFragment,
+    scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
+    state: &mut BuildState,
+    ids: &mut DirectBuilderIds,
+    build_cx: BuildContext,
+    paint_context: &SVGPaintContext,
+) -> Result<(), String> {
+    let Some(placements) = svg_marker_placements(svg) else {
+        return Ok(());
+    };
+    emit_svg_marker_resource(
+        cx,
+        generation,
+        svg.effects.marker_start,
+        &placements.start,
+        scene,
+        registry,
+        state,
+        ids,
+        build_cx.clone(),
+        paint_context,
+    )?;
+    emit_svg_marker_resource(
+        cx,
+        generation,
+        svg.effects.marker_mid,
+        &placements.mid,
+        scene,
+        registry,
+        state,
+        ids,
+        build_cx.clone(),
+        paint_context,
+    )?;
+    emit_svg_marker_resource(
+        cx,
+        generation,
+        svg.effects.marker_end,
+        &placements.end,
+        scene,
+        registry,
+        state,
+        ids,
+        build_cx,
+        paint_context,
+    )
+}
+
+fn emit_svg_marker_resource(
+    _cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    resource_id: Option<published::SVGResourceId>,
+    placements: &[SVGMarkerPlacement],
+    scene: &mut MpScene,
+    _registry: &mut ResourceRegistry,
+    _state: &mut BuildState,
+    _ids: &mut DirectBuilderIds,
+    build_cx: BuildContext,
+    paint_context: &SVGPaintContext,
+) -> Result<(), String> {
+    if placements.is_empty() {
+        return Ok(());
+    }
+    let Some(resource_id) = resource_id else {
+        return Ok(());
+    };
+    let Some(resource) = generation.svg_resource(resource_id) else {
+        return Ok(());
+    };
+    let published::SVGResourceKind::Marker(marker) = &resource.kind else {
+        return Ok(());
+    };
+    if marker.paths.is_empty() {
+        return Ok(());
+    }
+    for placement in placements {
+        let spatial_id = push_svg_marker_reference_frame(
+            scene,
+            build_cx.spatial_id,
+            placement.position,
+            if marker.orient_auto { placement.angle_radians } else { 0.0 },
+        );
+        for marker_path in &marker.paths {
+            emit_svg_marker_path_primitives(
+                scene,
+                spatial_id,
+                build_cx.clip_chain_id,
+                build_cx.effect_id,
+                marker_path,
+                paint_context,
+            );
+        }
+    }
+    Ok(())
+}
+
+fn emit_svg_marker_path_primitives(
+    scene: &mut MpScene,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    marker_path: &published::SVGMarkerPathResource,
+    paint_context: &SVGPaintContext,
+) {
+    let bounds = Rect {
+        pos: dvec2(
+            marker_path.bounds.decorated_bounding_box.origin.x as f64,
+            marker_path.bounds.decorated_bounding_box.origin.y as f64,
+        ),
+        size: dvec2(
+            marker_path.bounds.decorated_bounding_box.size.width as f64,
+            marker_path.bounds.decorated_bounding_box.size.height as f64,
+        ),
+    };
+    let commands: std::sync::Arc<[MpVectorPathCommand]> = std::sync::Arc::from(
+        marker_path
+            .path
+            .commands
+            .iter()
+            .map(convert_path_command)
+            .collect::<Vec<_>>(),
+    );
+    let fill_rule = match marker_path.path.fill_rule {
+        published::SVGFillRule::NonZero => makepad_browser_scene::MpVectorFillRule::NonZero,
+        published::SVGFillRule::EvenOdd => makepad_browser_scene::MpVectorFillRule::EvenOdd,
+    };
+    for phase in svg_paint_phases(marker_path.paint.paint_order) {
+        match phase {
+            SVGPaintPhase::Fill => {
+                let Some(paint) = lower_svg_marker_paint(
+                    &marker_path.paint.fill,
+                    paint_context.current_color,
+                    marker_path.paint.fill_opacity * marker_path.paint.opacity,
+                    Some(paint_context),
+                ) else {
+                    continue;
+                };
+                scene.push_primitive(MpPrimitive {
+                    id: MpPrimitiveId(0),
+                    spatial_id,
+                    clip_chain_id,
+                    effect_id,
+                    bounds,
+                    kind: MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                        commands: commands.clone(),
+                        draw: MpVectorDraw::Fill { fill_rule },
+                        paint,
+                    }),
+                    hit_test_tag: None,
+                });
+            }
+            SVGPaintPhase::Stroke => {
+                let Some(stroke) = &marker_path.paint.stroke else {
+                    continue;
+                };
+                let Some(paint) = lower_svg_marker_paint(
+                    &stroke.paint,
+                    paint_context.current_color,
+                    stroke.opacity * marker_path.paint.opacity,
+                    Some(paint_context),
+                ) else {
+                    continue;
+                };
+                scene.push_primitive(MpPrimitive {
+                    id: MpPrimitiveId(0),
+                    spatial_id,
+                    clip_chain_id,
+                    effect_id,
+                    bounds,
+                    kind: MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                        commands: commands.clone(),
+                        draw: MpVectorDraw::Stroke(MpVectorStrokeStyle {
+                            width: stroke.width.max(0.0),
+                            line_cap: match stroke.line_cap {
+                                published::SVGLineCap::Butt => makepad_browser_scene::MpVectorLineCap::Butt,
+                                published::SVGLineCap::Round => makepad_browser_scene::MpVectorLineCap::Round,
+                                published::SVGLineCap::Square => makepad_browser_scene::MpVectorLineCap::Square,
+                            },
+                            line_join: match stroke.line_join {
+                                published::SVGLineJoin::Miter => makepad_browser_scene::MpVectorLineJoin::Miter,
+                                published::SVGLineJoin::Round => makepad_browser_scene::MpVectorLineJoin::Round,
+                                published::SVGLineJoin::Bevel => makepad_browser_scene::MpVectorLineJoin::Bevel,
+                            },
+                            miter_limit: stroke.miter_limit,
+                            non_scaling: matches!(
+                                stroke.vector_effect,
+                                published::SVGVectorEffect::NonScalingStroke
+                            ),
+                            dash_pattern: normalize_svg_dash_pattern(&stroke.dash_array, stroke.dash_offset)
+                                .map(|pattern| MpVectorDashPattern {
+                                    segments: pattern.segments,
+                                    offset: pattern.offset,
+                                }),
+                        }),
+                        paint,
+                    }),
+                    hit_test_tag: None,
+                });
+            }
+            SVGPaintPhase::Markers => {}
+        }
+    }
+}
+
+fn lower_svg_marker_paint(
+    paint: &published::SVGPaint,
+    current_color: published::SVGColor,
+    opacity: f32,
+    context: Option<&SVGPaintContext>,
+) -> Option<MpVectorPaint> {
+    match paint {
+        published::SVGPaint::None => None,
+        published::SVGPaint::SolidColor(color) => Some(MpVectorPaint::Solid {
+            color: makepad_widgets::vec4(
+                color.red,
+                color.green,
+                color.blue,
+                (color.alpha * opacity).clamp(0.0, 1.0),
+            ),
+        }),
+        published::SVGPaint::CurrentColor => Some(MpVectorPaint::Solid {
+            color: makepad_widgets::vec4(
+                current_color.red,
+                current_color.green,
+                current_color.blue,
+                (current_color.alpha * opacity).clamp(0.0, 1.0),
+            ),
+        }),
+        published::SVGPaint::ContextFill => {
+            let context = context?;
+            lower_svg_marker_paint(
+                &context.fill.paint,
+                context.current_color,
+                opacity * context.fill.opacity,
+                None,
+            )
+        }
+        published::SVGPaint::ContextStroke => {
+            let context = context?;
+            let stroke = context.stroke.as_ref()?;
+            lower_svg_marker_paint(
+                &stroke.paint,
+                context.current_color,
+                opacity * stroke.opacity,
+                None,
+            )
+        }
+        published::SVGPaint::Server(_) => None,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SVGMarkerPlacement {
+    position: published::SVGPoint,
+    angle_radians: f32,
+}
+
+struct SVGMarkerPlacements {
+    start: Vec<SVGMarkerPlacement>,
+    mid: Vec<SVGMarkerPlacement>,
+    end: Vec<SVGMarkerPlacement>,
+}
+
+fn svg_marker_placements(svg: &published::SVGLeafFragment) -> Option<SVGMarkerPlacements> {
+    let published::SVGLeafKind::Path(path) = &svg.kind else {
+        return None;
+    };
+    marker_placements_for_path(&path.path)
+}
+
+fn marker_placements_for_path(path: &published::SVGPathData) -> Option<SVGMarkerPlacements> {
+    let mut placements = SVGMarkerPlacements {
+        start: Vec::new(),
+        mid: Vec::new(),
+        end: Vec::new(),
+    };
+    let mut current = None;
+    let mut subpath_start = None;
+    let mut segments = Vec::new();
+
+    for command in &path.commands {
+        match *command {
+            published::SVGPathCommand::MoveTo(point) => {
+                append_subpath_marker_placements(&mut placements, &segments);
+                segments.clear();
+                current = Some(point);
+                subpath_start = Some(point);
+            }
+            published::SVGPathCommand::LineTo(to) => {
+                let Some(from) = current else { continue; };
+                if let Some(segment) = marker_segment_line(from, to) {
+                    segments.push(segment);
+                }
+                current = Some(to);
+            }
+            published::SVGPathCommand::QuadTo { ctrl, to } => {
+                let Some(from) = current else { continue; };
+                if let Some(segment) = marker_segment_quad(from, ctrl, to) {
+                    segments.push(segment);
+                }
+                current = Some(to);
+            }
+            published::SVGPathCommand::CubicTo { ctrl1, ctrl2, to } => {
+                let Some(from) = current else { continue; };
+                if let Some(segment) = marker_segment_cubic(from, ctrl1, ctrl2, to) {
+                    segments.push(segment);
+                }
+                current = Some(to);
+            }
+            published::SVGPathCommand::Close => {
+                let (Some(from), Some(to)) = (current, subpath_start) else { continue; };
+                if let Some(segment) = marker_segment_line(from, to) {
+                    segments.push(segment);
+                }
+                current = Some(to);
+            }
+        }
+    }
+
+    append_subpath_marker_placements(&mut placements, &segments);
+    if placements.start.is_empty() && placements.mid.is_empty() && placements.end.is_empty() {
+        return None;
+    }
+    Some(placements)
+}
+
+#[derive(Clone, Copy)]
+struct SVGMarkerSegment {
+    from: published::SVGPoint,
+    to: published::SVGPoint,
+    start_tangent: makepad_widgets::Vec2f,
+    end_tangent: makepad_widgets::Vec2f,
+}
+
+fn marker_segment_line(
+    from: published::SVGPoint,
+    to: published::SVGPoint,
+) -> Option<SVGMarkerSegment> {
+    let tangent = vec2(to.x - from.x, to.y - from.y);
+    tangent_to_angle(tangent)?;
+    Some(SVGMarkerSegment {
+        from,
+        to,
+        start_tangent: tangent,
+        end_tangent: tangent,
+    })
+}
+
+fn marker_segment_quad(
+    from: published::SVGPoint,
+    ctrl: published::SVGPoint,
+    to: published::SVGPoint,
+) -> Option<SVGMarkerSegment> {
+    let start_tangent = first_non_zero_tangent(&[
+        vec2(ctrl.x - from.x, ctrl.y - from.y),
+        vec2(to.x - from.x, to.y - from.y),
+    ])?;
+    let end_tangent = first_non_zero_tangent(&[
+        vec2(to.x - ctrl.x, to.y - ctrl.y),
+        vec2(to.x - from.x, to.y - from.y),
+    ])?;
+    Some(SVGMarkerSegment {
+        from,
+        to,
+        start_tangent,
+        end_tangent,
+    })
+}
+
+fn marker_segment_cubic(
+    from: published::SVGPoint,
+    ctrl1: published::SVGPoint,
+    ctrl2: published::SVGPoint,
+    to: published::SVGPoint,
+) -> Option<SVGMarkerSegment> {
+    let start_tangent = first_non_zero_tangent(&[
+        vec2(ctrl1.x - from.x, ctrl1.y - from.y),
+        vec2(ctrl2.x - from.x, ctrl2.y - from.y),
+        vec2(to.x - from.x, to.y - from.y),
+    ])?;
+    let end_tangent = first_non_zero_tangent(&[
+        vec2(to.x - ctrl2.x, to.y - ctrl2.y),
+        vec2(to.x - ctrl1.x, to.y - ctrl1.y),
+        vec2(to.x - from.x, to.y - from.y),
+    ])?;
+    Some(SVGMarkerSegment {
+        from,
+        to,
+        start_tangent,
+        end_tangent,
+    })
+}
+
+fn append_subpath_marker_placements(
+    placements: &mut SVGMarkerPlacements,
+    segments: &[SVGMarkerSegment],
+) {
+    let Some(first) = segments.first() else {
+        return;
+    };
+    placements.start.push(SVGMarkerPlacement {
+        position: first.from,
+        angle_radians: tangent_to_angle(first.start_tangent).unwrap_or(0.0),
+    });
+    for index in 0..segments.len().saturating_sub(1) {
+        let incoming = segments[index].end_tangent;
+        let outgoing = segments[index + 1].start_tangent;
+        placements.mid.push(SVGMarkerPlacement {
+            position: segments[index].to,
+            angle_radians: tangent_pair_angle(incoming, outgoing)
+                .or_else(|| tangent_to_angle(outgoing))
+                .or_else(|| tangent_to_angle(incoming))
+                .unwrap_or(0.0),
+        });
+    }
+    if let Some(last) = segments.last() {
+        placements.end.push(SVGMarkerPlacement {
+            position: last.to,
+            angle_radians: tangent_to_angle(last.end_tangent).unwrap_or(0.0),
+        });
+    }
+}
+
+fn first_non_zero_tangent(candidates: &[makepad_widgets::Vec2f]) -> Option<makepad_widgets::Vec2f> {
+    candidates
+        .iter()
+        .copied()
+        .find(|tangent| tangent_to_angle(*tangent).is_some())
+}
+
+fn tangent_pair_angle(
+    incoming: makepad_widgets::Vec2f,
+    outgoing: makepad_widgets::Vec2f,
+) -> Option<f32> {
+    let sum = vec2(incoming.x + outgoing.x, incoming.y + outgoing.y);
+    tangent_to_angle(sum)
+}
+
+fn tangent_to_angle(tangent: makepad_widgets::Vec2f) -> Option<f32> {
+    let length_sq = tangent.x * tangent.x + tangent.y * tangent.y;
+    (length_sq > f32::EPSILON).then_some(tangent.y.atan2(tangent.x))
+}
+
+fn push_svg_marker_reference_frame(
+    scene: &mut MpScene,
+    parent: makepad_browser_scene::MpSpatialId,
+    position: published::SVGPoint,
+    angle_radians: f32,
+) -> makepad_browser_scene::MpSpatialId {
+    let sin = angle_radians.sin();
+    let cos = angle_radians.cos();
+    scene.push_spatial_node(MpSpatialNode {
+        parent: Some(parent),
+        kind: MpSpatialKind::ReferenceFrame(MpReferenceFrame {
+            viewport_rect: Rect {
+                pos: dvec2(0.0, 0.0),
+                size: dvec2(0.0, 0.0),
+            },
+            placement_origin: dvec2(0.0, 0.0),
+            transform: Some(affine_to_mat4([
+                cos,
+                sin,
+                -sin,
+                cos,
+                position.x,
+                position.y,
+            ])),
+            perspective: None,
+            transform_style: makepad_browser_scene::MpTransformStyle::Flat,
+            backface_visibility: makepad_browser_scene::MpBackfaceVisibility::Visible,
+            flattens_descendants: true,
+        }),
+    })
 }
 
 fn build_pattern_tile_source(
@@ -888,6 +1549,15 @@ fn svg_rect_to_physical_rect(rect: published::SVGRect) -> havi_types::PhysicalRe
             app_units::Au::from_f32_px(rect.size.width.max(0.0)),
             app_units::Au::from_f32_px(rect.size.height.max(0.0)),
         ),
+    )
+}
+
+fn physical_rect_to_svg_rect(
+    rect: havi_types::PhysicalRect<app_units::Au>,
+) -> published::SVGRect {
+    published::SVGRect::new(
+        euclid::point2(rect.origin.x.to_f32_px(), rect.origin.y.to_f32_px()),
+        euclid::size2(rect.size.width.to_f32_px(), rect.size.height.to_f32_px()),
     )
 }
 

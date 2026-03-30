@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 7 markers</title>
+  <style>
+    html, body { margin: 0; background: white; }
+    svg { display: block; }
+  </style>
+</head>
+<body>
+  <svg width="380" height="180" viewBox="0 0 380 180" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="start-dot" markerUnits="userSpaceOnUse" orient="auto">
+        <circle cx="0" cy="0" r="8" fill="context-stroke"/>
+      </marker>
+      <marker id="mid-square" markerUnits="userSpaceOnUse" orient="auto">
+        <rect x="-6" y="-6" width="12" height="12" fill="context-stroke"/>
+      </marker>
+      <marker id="end-arrow" markerUnits="userSpaceOnUse" orient="auto">
+        <path d="M 0 0 L -16 8 L -16 -8 Z" fill="context-stroke"/>
+      </marker>
+      <marker id="fill-dot" markerUnits="userSpaceOnUse" orient="auto">
+        <circle cx="0" cy="0" r="6" fill="#ff9900"/>
+      </marker>
+    </defs>
+
+    <path d="M 40 130 L 120 50 L 220 50"
+          fill="none"
+          stroke="#0055ff"
+          stroke-width="8"
+          marker-start="url(#start-dot)"
+          marker-mid="url(#mid-square)"
+          marker-end="url(#end-arrow)"/>
+
+    <path d="M 260 130 L 320 60 L 340 130"
+          fill="#ff9900"
+          stroke="#222222"
+          stroke-width="4"
+          marker-start="url(#fill-dot)"
+          marker-mid="url(#fill-dot)"
+          marker-end="url(#fill-dot)"/>
+  </svg>
+
+  <script>
+    window.phase7MarkerSamples = {
+      strokeMarkerStart: { point: [40, 130], expected: [0, 85, 255] },
+      strokeMarkerMid: { point: [120, 50], expected: [0, 85, 255] },
+      strokeMarkerEnd: { point: [210, 50], expected: [0, 85, 255] },
+      fillMarkerStart: { point: [260, 130], expected: [255, 153, 0] },
+      fillMarkerMid: { point: [318, 67], expected: [255, 153, 0] },
+      fillMarkerEnd: { point: [340, 130], expected: [255, 153, 0] }
+    };
+    window.phase7MarkerReady = true;
+  </script>
+</body>
+</html>
