@@ -1,0 +1,9 @@
+# SVG entry-path rendering parity for the current supported subset.
+# Inline and standalone SVG use the native DOM/layout/resource pipeline.
+# External SVG images remain a distinct image-document runtime, so this
+# manifest checks rendering parity only for supported output that currently
+# matches exactly across all entry paths.
+
+== cases/svg-inline-entry-path-fill.html cases/standalone-svg-entry-path-fill.svg
+== cases/svg-inline-entry-path-fill.html cases/svg-external-entry-path-fill-img.html
+== cases/svg-inline-entry-path-fill.html cases/svg-external-entry-path-fill-background.html

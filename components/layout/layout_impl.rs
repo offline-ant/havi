@@ -564,6 +564,134 @@ impl Layout for LayoutThread {
     }
 
     #[servo_tracing::instrument(skip_all)]
+    fn query_svg_bbox(
+        &self,
+        node: TrustedNodeAddress,
+        options: layout_api::SVGBoundingBoxOptionsData,
+    ) -> Option<Rect<f32, CSSPixel>> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_bbox_query(fragment_tree, node, options)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_ctm(
+        &self,
+        node: TrustedNodeAddress,
+    ) -> Option<euclid::Transform2D<f32, CSSPixel, CSSPixel>> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_ctm_query(fragment_tree, node)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_screen_ctm(
+        &self,
+        node: TrustedNodeAddress,
+    ) -> Option<euclid::Transform2D<f32, CSSPixel, CSSPixel>> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_screen_ctm_query(fragment_tree, node)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_geometry_fill_contains(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_geometry_fill_contains_query(fragment_tree, node, point)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_geometry_stroke_contains(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_geometry_stroke_contains_query(fragment_tree, node, point)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_geometry_total_length(&self, node: TrustedNodeAddress) -> Option<f32> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_geometry_total_length_query(fragment_tree, node)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_geometry_point_at_length(
+        &self,
+        node: TrustedNodeAddress,
+        length: f32,
+    ) -> Option<Point2D<f32, CSSPixel>> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_geometry_point_at_length_query(fragment_tree, node, length)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_text_substring_length(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<f32> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_text_substring_length_query(fragment_tree, node, charnum, nchars)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_text_char_geometry(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+    ) -> Option<layout_api::SVGTextCharGeometry> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_text_char_geometry_query(fragment_tree, node, charnum)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_text_char_num_at_position(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<i32> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_text_char_num_at_position_query(fragment_tree, node, point)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
+    fn query_svg_text_range_bbox(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<Rect<f32, CSSPixel>> {
+        let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
+        let fragment_tree = self.fragment_tree.borrow();
+        let fragment_tree = fragment_tree.as_ref()?;
+        crate::query::process_svg_text_range_bbox_query(fragment_tree, node, charnum, nchars)
+    }
+
+    #[servo_tracing::instrument(skip_all)]
     fn query_elements_from_point(
         &self,
         point: webrender_api::units::LayoutPoint,
@@ -1720,6 +1848,7 @@ impl ReflowPhases {
                 QueryMsg::InnerWindowDimensionsQuery |
                 QueryMsg::PaddingQuery |
                 QueryMsg::ResolvedFontStyleQuery |
+                QueryMsg::SVGQuery |
                 QueryMsg::ScrollParentQuery |
                 QueryMsg::StyleQuery => Self::empty(),
             },

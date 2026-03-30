@@ -9,9 +9,11 @@
 #![deny(unsafe_code)]
 
 mod layout_damage;
+mod svg_parse;
 mod svg_values;
 pub mod wrapper_traits;
 
+pub use svg_parse::*;
 pub use svg_values::*;
 
 use std::any::Any;
@@ -30,7 +32,7 @@ use base::generic_channel::GenericSender;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use bitflags::bitflags;
 use embedder_traits::{Cursor, Theme, UntrustedNodeAddress, ViewportDetails};
-use euclid::{Point2D, Rect};
+use euclid::{Point2D, Rect, Transform2D};
 use fonts::{FontContext, WebFontDocumentContext};
 use havi_types::fragment_tree::{
     SVGCoordinateUnits, SVGFillRule, SVGGradientSpreadMethod, SVGLineCap, SVGLineJoin,
@@ -886,6 +888,57 @@ pub trait Layout {
         &self,
         point: Point2D<Au, CSSPixel>,
     ) -> Option<(OpaqueNode, usize)>;
+    fn query_svg_bbox(
+        &self,
+        node: TrustedNodeAddress,
+        options: SVGBoundingBoxOptionsData,
+    ) -> Option<Rect<f32, CSSPixel>>;
+    fn query_svg_ctm(
+        &self,
+        node: TrustedNodeAddress,
+    ) -> Option<Transform2D<f32, CSSPixel, CSSPixel>>;
+    fn query_svg_screen_ctm(
+        &self,
+        node: TrustedNodeAddress,
+    ) -> Option<Transform2D<f32, CSSPixel, CSSPixel>>;
+    fn query_svg_geometry_fill_contains(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool>;
+    fn query_svg_geometry_stroke_contains(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool>;
+    fn query_svg_geometry_total_length(&self, node: TrustedNodeAddress) -> Option<f32>;
+    fn query_svg_geometry_point_at_length(
+        &self,
+        node: TrustedNodeAddress,
+        length: f32,
+    ) -> Option<Point2D<f32, CSSPixel>>;
+    fn query_svg_text_substring_length(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<f32>;
+    fn query_svg_text_char_geometry(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+    ) -> Option<SVGTextCharGeometry>;
+    fn query_svg_text_char_num_at_position(
+        &self,
+        node: TrustedNodeAddress,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<i32>;
+    fn query_svg_text_range_bbox(
+        &self,
+        node: TrustedNodeAddress,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<Rect<f32, CSSPixel>>;
     fn query_elements_from_point(
         &self,
         point: LayoutPoint,
@@ -923,6 +976,22 @@ pub enum BoxAreaType {
 }
 
 pub type CSSPixelRectIterator = Box<dyn Iterator<Item = Rect<Au, CSSPixel>>>;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SVGBoundingBoxOptionsData {
+    pub fill: bool,
+    pub stroke: bool,
+    pub markers: bool,
+    pub clipped: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SVGTextCharGeometry {
+    pub start: Point2D<f32, CSSPixel>,
+    pub end: Point2D<f32, CSSPixel>,
+    pub extent: Rect<f32, CSSPixel>,
+    pub rotation: f32,
+}
 
 #[derive(Default)]
 pub struct PhysicalSides {
@@ -1009,6 +1078,7 @@ pub enum QueryMsg {
     ScrollParentQuery,
     ResolvedFontStyleQuery,
     ResolvedStyleQuery,
+    SVGQuery,
     ScrollingAreaOrOffsetQuery,
     StyleQuery,
     TextIndexQuery,

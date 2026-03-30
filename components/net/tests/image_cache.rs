@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use base::id::{PipelineId, TEST_PIPELINE_ID, TEST_WEBVIEW_ID};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use net::image_cache::ImageCacheFactoryImpl;
+use net::image_cache::{ImageCacheFactoryImpl, rasterize_svg_bytes_sync};
 use net_traits::image_cache::{
     ImageCache, ImageCacheFactory, ImageCacheResponseMessage, ImageCacheResult, ImageLoadListener,
     ImageOrMetadataAvailable, ImageResponse, PendingImageId, PendingImageResponse,
@@ -21,6 +21,7 @@ use paint_api::{CrossProcessPaintApi, PaintMessage};
 use servo_url::BrowserUrl;
 use uuid::Uuid;
 use webrender_api::ImageKey;
+use webrender_api::units::DeviceIntSize;
 
 use crate::mock_origin;
 
@@ -66,6 +67,20 @@ fn jpeg_image_bytes() -> Vec<u8> {
 fn svg_image_bytes() -> Vec<u8> {
     br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
     <circle cx="50" cy="50" r="40" fill="red"/>
+</svg>"#
+        .to_vec()
+}
+
+fn viewbox_only_svg_image_bytes() -> Vec<u8> {
+    br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 30">
+    <rect width="60" height="30" fill="green"/>
+</svg>"#
+        .to_vec()
+}
+
+fn red_favicon_svg_bytes() -> Vec<u8> {
+    br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+    <rect width="16" height="16" fill="red"/>
 </svg>"#
         .to_vec()
 }
@@ -559,4 +574,63 @@ fn test_svg_bytes_are_cached() {
     };
 
     assert_eq!(cache.get_vector_image_bytes(vec_img.id).as_deref(), Some(&svg_bytes));
+}
+
+#[test]
+fn test_svg_viewbox_only_metadata_uses_viewbox_dimensions() {
+    let (cache, key_receiver) = create_test_image_cache();
+    let url = BrowserUrl::parse("http://example.com/viewbox.svg").unwrap();
+    let origin = mock_origin();
+
+    let id = match cache.get_cached_image_status(url.clone(), origin.clone(), None) {
+        ImageCacheResult::ReadyForRequest(id) => id,
+        _ => panic!("Expected ReadyForRequest"),
+    };
+
+    cache.notify_pending_response(
+        id,
+        FetchResponseMsg::ProcessResponse(
+            create_request_id(),
+            Ok(create_test_metadata(Some(mime::IMAGE_SVG))),
+        ),
+    );
+
+    let svg_bytes = viewbox_only_svg_image_bytes();
+    cache.notify_pending_response(
+        id,
+        FetchResponseMsg::ProcessResponseChunk(create_request_id(), DebugVec(svg_bytes.clone())),
+    );
+
+    cache.notify_pending_response(
+        id,
+        FetchResponseMsg::ProcessResponseEOF(create_request_id(), Ok(()), create_timing()),
+    );
+
+    let vec_img = loop {
+        handle_pending_key_requests(&cache, &key_receiver);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let result = cache.get_cached_image_status(url.clone(), origin.clone(), None);
+        let ImageCacheResult::Available(ImageOrMetadataAvailable::ImageAvailable { image, .. }) =
+            result
+        else {
+            continue;
+        };
+
+        let net_traits::image_cache::Image::Vector(vec_img) = image else {
+            panic!("Expected vector image");
+        };
+        break vec_img;
+    };
+
+    assert_eq!(vec_img.metadata.width, 60);
+    assert_eq!(vec_img.metadata.height, 30);
+}
+
+#[test]
+fn test_svg_favicon_rasterizer_handles_viewbox_only_root() {
+    let raster = rasterize_svg_bytes_sync(&red_favicon_svg_bytes(), DeviceIntSize::new(32, 32))
+        .expect("rasterized favicon");
+    assert_eq!(raster.metadata.width, 32);
+    assert_eq!(raster.metadata.height, 32);
+    assert_eq!(&raster.bytes[..4], &[255, 0, 0, 255]);
 }

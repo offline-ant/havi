@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use makepad_browser_scene::{
-    MpClipChain, MpClipChainId, MpClipKind, MpClipNode, MpHitTestTag, MpPerCornerRadius,
-    MpPrimitive, MpScene, ResourceRegistry,
+    MpClipChain, MpClipChainId, MpClipKind, MpClipNode, MpGlyphRunKey, MpGlyphRunResource,
+    MpHitTestTag, MpPerCornerRadius, MpPrimitive, MpScene, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, vec2, Rect};
 use havi_types::BackgroundImage;
@@ -9,6 +11,7 @@ use style::properties::ComputedValues;
 
 use super::gradient::{angle_percentage_stops, length_percentage_stops, radial_shape};
 use super::resources::ensure_background_image_resource;
+use super::svg::append_svg_background_generation_primitives;
 use crate::background::{BackgroundLayerGeom, layout_background_layer, resolve_insets};
 use crate::color::resolve_color;
 
@@ -26,6 +29,8 @@ pub(super) fn has_unsupported_background_layers(computed: &ComputedValues) -> bo
 pub(super) fn append_box_background_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     computed: &ComputedValues,
     background_images: &[Option<BackgroundImage>],
     bounds: Rect,
@@ -35,7 +40,6 @@ pub(super) fn append_box_background_primitives(
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
     current_abs: &AbsoluteColor,
-    registry: &mut ResourceRegistry,
 ) -> Result<(), String> {
     let background_color = resolve_color(&computed.get_background().background_color, current_abs);
     if background_color.w > 0.001 {
@@ -65,6 +69,8 @@ pub(super) fn append_box_background_primitives(
     append_background_layer_primitives(
         scene,
         primitives,
+        registry,
+        glyph_runs,
         computed,
         background_images,
         bounds,
@@ -74,7 +80,6 @@ pub(super) fn append_box_background_primitives(
         effect_id,
         owner_node_id,
         current_abs,
-        registry,
     )
 }
 
@@ -144,6 +149,8 @@ fn background_layer_clip_chain(
 fn append_background_layer_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     computed: &ComputedValues,
     background_images: &[Option<BackgroundImage>],
     bounds: Rect,
@@ -153,7 +160,6 @@ fn append_background_layer_primitives(
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
     current_abs: &AbsoluteColor,
-    registry: &mut ResourceRegistry,
 ) -> Result<(), String> {
     use style::values::computed::image::LineDirection;
     use style::values::generics::image::GradientFlags;
@@ -318,6 +324,46 @@ fn append_background_layer_primitives(
                 let Some(background_image) = background_images.get(index).and_then(|image| image.as_ref()) else {
                     continue;
                 };
+                if matches!(background_image.source_kind, havi_types::ImageSourceKind::NativeSvg) {
+                    let (Some(layer), Some(svg_generation)) = (
+                        background_image.geometry.as_ref(),
+                        background_image.svg_generation.as_ref(),
+                    ) else {
+                        continue;
+                    };
+                    let layer = BackgroundLayerGeom {
+                        bounds_x: layer.bounds_x,
+                        bounds_y: layer.bounds_y,
+                        bounds_w: layer.bounds_w,
+                        bounds_h: layer.bounds_h,
+                        tile_w: layer.tile_w,
+                        tile_h: layer.tile_h,
+                        paint_x: layer.paint_x,
+                        paint_y: layer.paint_y,
+                        paint_w: layer.paint_w,
+                        paint_h: layer.paint_h,
+                    };
+                    let layer_clip_chain_id = if clip_radius.max() > 0.0
+                        || (layer.bounds_w - layer.tile_w).abs() > 0.01
+                        || (layer.bounds_h - layer.tile_h).abs() > 0.01
+                    {
+                        background_layer_clip_chain(scene, spatial_id, clip_chain_id, &layer, clip_radius)
+                    } else {
+                        clip_chain_id
+                    };
+                    primitives.extend(append_svg_background_generation_primitives(
+                        scene,
+                        registry,
+                        glyph_runs,
+                        owner_node_id,
+                        svg_generation,
+                        &layer,
+                        spatial_id,
+                        layer_clip_chain_id,
+                        effect_id,
+                    )?);
+                    continue;
+                }
                 let Some(layer) = layout_background_layer(
                     computed,
                     index,

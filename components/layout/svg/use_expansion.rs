@@ -1,24 +1,22 @@
 use havi_types::fragment_tree::{SVGResourceId, SVGTransform};
-use rustc_hash::FxHashMap;
-use style::dom::OpaqueNode;
 
-use super::dom::SVGResolvedNode;
 use super::path::resolve_length;
 use super::resources::SVGResourceGraph;
 use super::transform::{parse_svg_transform, then_svg_transform, translate_svg_transform};
+use super::tree::{SVGResolvedNode, SVGResolvedNodeMap};
 
 #[derive(Clone, Debug, Default)]
-pub struct SVGUseExpansionResult<'dom> {
+pub struct SVGUseExpansionResult<'a> {
     pub referenced_resource: Option<SVGResourceId>,
-    pub referenced_node: Option<script::layout_dom::ServoThreadSafeLayoutNode<'dom>>,
+    pub referenced_node: Option<&'a SVGResolvedNode>,
     pub instance_transform: SVGTransform,
 }
 
-pub fn expand_use_node<'dom>(
-    use_node: &SVGResolvedNode<'dom>,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, script::layout_dom::ServoThreadSafeLayoutNode<'dom>>,
+pub fn expand_use_node<'a>(
+    use_node: &'a SVGResolvedNode,
+    nodes_by_opaque: &'a SVGResolvedNodeMap<'a>,
     resource_graph: &SVGResourceGraph,
-) -> SVGUseExpansionResult<'dom> {
+) -> SVGUseExpansionResult<'a> {
     let mut result = SVGUseExpansionResult::default();
     let Some(resolved) = resource_graph.node_resources(use_node.tag.node) else {
         return result;
@@ -30,11 +28,11 @@ pub fn expand_use_node<'dom>(
         .and_then(|node| nodes_by_opaque.get(&node).copied());
 
     result.instance_transform = use_instance_transform(
-        match &use_node.svg_data.node_kind {
+        match &use_node.svg_data().node_kind {
             layout_api::SVGNodeKind::Use(data) => Some(data),
             _ => None,
         },
-        &use_node.svg_data.common.transform,
+        &use_node.svg_data().common.transform,
     );
     result
 }

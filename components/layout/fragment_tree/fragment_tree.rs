@@ -19,7 +19,14 @@ use super::{
     OutOfFlowPlacementFragment, SpecificLayoutInfo, TextFragment,
 };
 use crate::context::{ImageResolver, LayoutContext};
-use crate::geom::PhysicalRect;
+use crate::fragment_tree::{BaseFragmentInfo, FragmentFlags};
+use crate::geom::{PhysicalPoint, PhysicalRect, PhysicalSize};
+use crate::positioned::PositioningContext;
+use crate::svg::layout::build_svg_root_fragment_from_tree_with_text_context;
+use crate::svg::parse::{
+    compute_svg_image_intrinsic_sizes, extract_svg_root_metadata, parse_svg_tree,
+};
+use crate::svg::text::SVGTextLayoutContext;
 
 /// A scroll type, describing what kind of action originated a scroll request.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,6 +57,7 @@ pub struct AxesScrollSensitivity {
 
 pub struct FragmentTree {
     generation: Arc<published::FragmentArenaGeneration>,
+    svg_text_layout_context: SVGTextLayoutContext,
     pub viewport_scroll_sensitivity: AxesScrollSensitivity,
 }
 
@@ -108,12 +116,14 @@ impl FragmentTree {
             initial_containing_block,
         );
 
+        let svg_text_layout_context = SVGTextLayoutContext::from(layout_context);
         let generation = Arc::new(build_generation(
             root_fragments.as_ref(),
             &containing_blocks,
             initial_containing_block,
             scrollable_overflow,
             &layout_context.image_resolver,
+            &svg_text_layout_context,
         ));
 
         for node in &invalid_animating_nodes {
@@ -129,6 +139,7 @@ impl FragmentTree {
 
         Self {
             generation,
+            svg_text_layout_context,
             viewport_scroll_sensitivity,
         }
     }
@@ -153,7 +164,16 @@ impl FragmentTree {
             .generation
             .nodes
             .iter()
-            .map(|node| resolve_background_images_for_base(node.base(), image_resolver))
+            .map(|node| match &node.kind {
+                published::FragmentKind::Box(_) | published::FragmentKind::Float(_) => {
+                    resolve_background_images_for_base(
+                        node.base(),
+                        image_resolver,
+                        &self.svg_text_layout_context,
+                    )
+                }
+                _ => Vec::new(),
+            })
             .collect();
 
         Self {
@@ -168,6 +188,7 @@ impl FragmentTree {
                 initial_containing_block: self.generation.initial_containing_block,
                 scrollable_overflow: self.generation.scrollable_overflow,
             }),
+            svg_text_layout_context: self.svg_text_layout_context.clone(),
             viewport_scroll_sensitivity: self.viewport_scroll_sensitivity,
         }
     }
@@ -191,8 +212,9 @@ fn build_generation(
     initial_containing_block: PhysicalRect<Au>,
     scrollable_overflow: PhysicalRect<Au>,
     image_resolver: &Arc<ImageResolver>,
+    svg_text_layout_context: &SVGTextLayoutContext,
 ) -> published::FragmentArenaGeneration {
-    let mut builder = ArenaBuilder::new(containing_blocks, image_resolver);
+    let mut builder = ArenaBuilder::new(containing_blocks, image_resolver, svg_text_layout_context);
     let geometry_roots: Vec<_> = root_fragments
         .iter()
         .filter_map(|fragment| builder.build_geometry(fragment, None, None, true))
@@ -224,6 +246,7 @@ fn build_generation(
 struct ArenaBuilder<'a> {
     containing_blocks: &'a HashMap<usize, PhysicalRect<Au>>,
     image_resolver: &'a Arc<ImageResolver>,
+    svg_text_layout_context: &'a SVGTextLayoutContext,
     nodes: Vec<published::FragmentNode>,
     placements: Vec<published::OutOfFlowPlacement>,
     derived: published::FragmentDerivedData,
@@ -238,10 +261,12 @@ impl<'a> ArenaBuilder<'a> {
     fn new(
         containing_blocks: &'a HashMap<usize, PhysicalRect<Au>>,
         image_resolver: &'a Arc<ImageResolver>,
+        svg_text_layout_context: &'a SVGTextLayoutContext,
     ) -> Self {
         Self {
             containing_blocks,
             image_resolver,
+            svg_text_layout_context,
             nodes: Vec::new(),
             placements: Vec::new(),
             derived: published::FragmentDerivedData {
@@ -508,7 +533,14 @@ impl<'a> ArenaBuilder<'a> {
                 .clone(),
             _ => None,
         });
-        self.derived.background_images.push(resolve_background_images_for_base(base, self.image_resolver));
+        self.derived.background_images.push(match fragment {
+            Fragment::Box(_) | Fragment::Float(_) => resolve_background_images_for_base(
+                base,
+                self.image_resolver,
+                self.svg_text_layout_context,
+            ),
+            _ => Vec::new(),
+        });
     }
 
     fn record_node_mapping(&mut self, id: published::FragmentId, tag: Option<published::Tag>) {
@@ -731,9 +763,6 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
             crate::fragment_tree::ImageFragmentSourceKind::Raster => {
                 published::ImageSourceKind::Raster
             }
-            crate::fragment_tree::ImageFragmentSourceKind::SvgDocument => {
-                published::ImageSourceKind::SvgDocument
-            }
             crate::fragment_tree::ImageFragmentSourceKind::Canvas => {
                 published::ImageSourceKind::Canvas
             }
@@ -741,7 +770,6 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
                 published::ImageSourceKind::Video
             }
         },
-        svg_document_id: fragment.svg_document_id,
         image_revision: fragment.image_revision,
         frame_width,
         frame_height,
@@ -753,10 +781,11 @@ fn convert_image_fragment(fragment: &ImageFragment) -> published::ImageFragment 
 fn resolve_background_images_for_base(
     base: &published::BaseFragment,
     image_resolver: &Arc<ImageResolver>,
+    svg_text_layout_context: &SVGTextLayoutContext,
 ) -> Vec<Option<published::BackgroundImage>> {
     let background = base.style.get_background();
     let mut images = Vec::with_capacity(background.background_image.0.len());
-    for image in background.background_image.0.iter() {
+    for (index, image) in background.background_image.0.iter().enumerate() {
         match image {
             style::values::computed::image::Image::Url(url_value) => {
                 let Some(url) = url_value.url() else {
@@ -792,12 +821,13 @@ fn resolve_background_images_for_base(
                                 .id
                                 .map(|key| published::FragmentImageKey::from((key.0.0, key.1))),
                             source_kind: published::ImageSourceKind::Raster,
-                            svg_document_id: None,
                             revision: 0,
                             width,
                             height,
                             data,
                             byte_range,
+                            geometry: None,
+                            svg_generation: None,
                         }));
                     }
                     net_traits::image_cache::Image::Vector(vector_image) => {
@@ -805,16 +835,41 @@ fn resolve_background_images_for_base(
                             images.push(None);
                             continue;
                         };
-                        let byte_len = svg_bytes.len();
+                        let intrinsic = extract_svg_root_metadata(&svg_bytes)
+                            .ok()
+                            .map(|metadata| compute_svg_image_intrinsic_sizes(&metadata.viewport))
+                            .unwrap_or_default();
+                        let Some(geometry) = resolve_background_layer_geometry(
+                            base,
+                            index,
+                            intrinsic.width.unwrap_or(vector_image.metadata.width as f32),
+                            intrinsic.height.unwrap_or(vector_image.metadata.height as f32),
+                            intrinsic.ratio,
+                        ) else {
+                            images.push(None);
+                            continue;
+                        };
+                        let Some(svg_generation) = build_native_background_svg_generation(
+                            &svg_bytes,
+                            &base.style,
+                            svg_text_layout_context,
+                            image_resolver,
+                            geometry.tile_w,
+                            geometry.tile_h,
+                        ) else {
+                            images.push(None);
+                            continue;
+                        };
                         images.push(Some(published::BackgroundImage {
                             image_key: None,
-                            source_kind: published::ImageSourceKind::SvgDocument,
-                            svg_document_id: Some(vector_image.id.0),
+                            source_kind: published::ImageSourceKind::NativeSvg,
                             revision: vector_image.id.0,
                             width: vector_image.metadata.width,
                             height: vector_image.metadata.height,
-                            data: svg_bytes,
-                            byte_range: 0..byte_len,
+                            data: Arc::new(Vec::new()),
+                            byte_range: 0..0,
+                            geometry: Some(geometry),
+                            svg_generation: Some(Arc::new(svg_generation)),
                         }));
                     }
                 }
@@ -823,6 +878,285 @@ fn resolve_background_images_for_base(
         }
     }
     images
+}
+
+#[derive(Clone, Copy)]
+struct BackgroundBoxInsets {
+    top: f32,
+    right: f32,
+    bottom: f32,
+    left: f32,
+}
+
+fn resolve_background_layer_geometry(
+    base: &published::BaseFragment,
+    layer_index: usize,
+    natural_width: f32,
+    natural_height: f32,
+    natural_ratio: Option<f32>,
+) -> Option<published::BackgroundLayerGeometry> {
+    use style::computed_values::background_clip::single_value::T as Clip;
+    use style::computed_values::background_origin::single_value::T as Origin;
+    use style::values::computed::background::BackgroundSize;
+    use style::values::specified::background::{
+        BackgroundRepeat as RepeatXY, BackgroundRepeatKeyword as Repeat,
+    };
+
+    fn get_cyclic<T>(values: &[T], index: usize) -> &T {
+        &values[index % values.len()]
+    }
+
+    fn sub_rect(
+        x: f64,
+        y: f64,
+        w: f32,
+        h: f32,
+        border: &BackgroundBoxInsets,
+        padding: &BackgroundBoxInsets,
+        which: Origin,
+    ) -> (f64, f64, f32, f32) {
+        match which {
+            Origin::BorderBox => (x, y, w, h),
+            Origin::PaddingBox => (
+                x + border.left as f64,
+                y + border.top as f64,
+                (w - border.left - border.right).max(0.0),
+                (h - border.top - border.bottom).max(0.0),
+            ),
+            Origin::ContentBox => (
+                x + (border.left + padding.left) as f64,
+                y + (border.top + padding.top) as f64,
+                (w - border.left - border.right - padding.left - padding.right).max(0.0),
+                (h - border.top - border.bottom - padding.top - padding.bottom).max(0.0),
+            ),
+        }
+    }
+
+    fn clip_to_origin(clip: Clip) -> Origin {
+        match clip {
+            Clip::BorderBox => Origin::BorderBox,
+            Clip::PaddingBox => Origin::PaddingBox,
+            Clip::ContentBox => Origin::ContentBox,
+        }
+    }
+
+    fn layout_1d(
+        tile_size: &mut f32,
+        mut repeat: Repeat,
+        position: &style::values::computed::LengthPercentage,
+        painting_area_origin: f32,
+        painting_area_size: f32,
+        positioning_area_size: f32,
+    ) -> (f32, f32) {
+        if let Repeat::Round = repeat {
+            if positioning_area_size > 0.0 {
+                *tile_size = positioning_area_size / (positioning_area_size / *tile_size).round().max(1.0);
+            }
+        }
+
+        let mut origin = position
+            .to_used_value(app_units::Au::from_f32_px(positioning_area_size - *tile_size))
+            .to_f32_px();
+        let mut spacing = 0.0;
+        if let Repeat::Space = repeat {
+            let count = (positioning_area_size / *tile_size).floor();
+            if count >= 2.0 {
+                origin = 0.0;
+                spacing = (positioning_area_size - *tile_size * count) / (count - 1.0);
+            } else {
+                repeat = Repeat::NoRepeat;
+            }
+        }
+
+        match repeat {
+            Repeat::Repeat | Repeat::Round | Repeat::Space => {
+                let stride = *tile_size + spacing;
+                let offset = origin - painting_area_origin;
+                let origin = origin - stride * (offset / stride).ceil();
+                let end = painting_area_origin + painting_area_size;
+                (origin, end - origin)
+            }
+            Repeat::NoRepeat => (origin, *tile_size),
+        }
+    }
+
+    use style::values::specified::border::BorderStyle;
+
+    let computed = &base.style;
+    let border = computed.get_border();
+    let border_width = |style: BorderStyle, width: style::values::computed::BorderSideWidth| -> f32 {
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+            0.0
+        } else {
+            width.0.to_f32_px().max(0.0)
+        }
+    };
+    let border_insets = BackgroundBoxInsets {
+        top: border_width(border.clone_border_top_style(), border.clone_border_top_width()),
+        right: border_width(border.clone_border_right_style(), border.clone_border_right_width()),
+        bottom: border_width(border.clone_border_bottom_style(), border.clone_border_bottom_width()),
+        left: border_width(border.clone_border_left_style(), border.clone_border_left_width()),
+    };
+
+    let padding = computed.get_padding();
+    let padding_insets = BackgroundBoxInsets {
+        top: padding.padding_top.0.to_length().map_or(0.0, |length| length.px()),
+        right: padding.padding_right.0.to_length().map_or(0.0, |length| length.px()),
+        bottom: padding.padding_bottom.0.to_length().map_or(0.0, |length| length.px()),
+        left: padding.padding_left.0.to_length().map_or(0.0, |length| length.px()),
+    };
+
+    let background = computed.get_background();
+    let x = base.rect.origin.x.to_f32_px() as f64;
+    let y = base.rect.origin.y.to_f32_px() as f64;
+    let w = base.rect.size.width.to_f32_px();
+    let h = base.rect.size.height.to_f32_px();
+
+    let origin = *get_cyclic(&background.background_origin.0, layer_index);
+    let clip = *get_cyclic(&background.background_clip.0, layer_index);
+    let (position_x, position_y, position_w, position_h) =
+        sub_rect(x, y, w, h, &border_insets, &padding_insets, origin);
+    let (paint_x, paint_y, paint_w, paint_h) = sub_rect(
+        x,
+        y,
+        w,
+        h,
+        &border_insets,
+        &padding_insets,
+        clip_to_origin(clip),
+    );
+
+    let natural_ratio = if natural_width > 0.0 && natural_height > 0.0 {
+        Some(natural_width / natural_height)
+    } else {
+        natural_ratio.filter(|ratio| *ratio > 0.0)
+    };
+
+    let mut tile_w;
+    let mut tile_h;
+    match get_cyclic(&background.background_size.0, layer_index) {
+        BackgroundSize::Contain | BackgroundSize::Cover => {
+            tile_w = position_w;
+            tile_h = position_h;
+            if let Some(natural_ratio) = natural_ratio {
+                let position_ratio = position_w / position_h;
+                let fit_width = match get_cyclic(&background.background_size.0, layer_index) {
+                    BackgroundSize::Contain => position_ratio <= natural_ratio,
+                    BackgroundSize::Cover => position_ratio > natural_ratio,
+                    BackgroundSize::ExplicitSize { .. } => unreachable!(),
+                };
+                if fit_width {
+                    tile_h = tile_w / natural_ratio;
+                } else {
+                    tile_w = tile_h * natural_ratio;
+                }
+            }
+        }
+        BackgroundSize::ExplicitSize { width, height } => {
+            let mut explicit_w = width.non_auto().map(|value| {
+                value.0.to_used_value(app_units::Au::from_f32_px(position_w)).to_f32_px()
+            });
+            let mut explicit_h = height.non_auto().map(|value| {
+                value.0.to_used_value(app_units::Au::from_f32_px(position_h)).to_f32_px()
+            });
+            if explicit_w.is_none() && explicit_h.is_none() {
+                explicit_w = Some(natural_width);
+                explicit_h = Some(natural_height);
+            }
+            match (explicit_w, explicit_h) {
+                (Some(tile_width), Some(tile_height)) => {
+                    tile_w = tile_width;
+                    tile_h = tile_height;
+                }
+                (Some(tile_width), None) => {
+                    tile_w = tile_width;
+                    tile_h = natural_ratio.map(|ratio| tile_width / ratio).unwrap_or(position_h);
+                }
+                (None, Some(tile_height)) => {
+                    tile_h = tile_height;
+                    tile_w = natural_ratio.map(|ratio| tile_height * ratio).unwrap_or(position_w);
+                }
+                (None, None) => {
+                    tile_w = position_w;
+                    tile_h = position_h;
+                }
+            }
+        }
+    }
+
+    if tile_w <= 0.0 || tile_h <= 0.0 {
+        return None;
+    }
+
+    let RepeatXY(repeat_x, repeat_y) = *get_cyclic(&background.background_repeat.0, layer_index);
+    let (layout_x_origin, layout_x_size) = layout_1d(
+        &mut tile_w,
+        repeat_x,
+        get_cyclic(&background.background_position_x.0, layer_index),
+        paint_x as f32 - position_x as f32,
+        paint_w,
+        position_w,
+    );
+    let (layout_y_origin, layout_y_size) = layout_1d(
+        &mut tile_h,
+        repeat_y,
+        get_cyclic(&background.background_position_y.0, layer_index),
+        paint_y as f32 - position_y as f32,
+        paint_h,
+        position_h,
+    );
+
+    Some(published::BackgroundLayerGeometry {
+        bounds_x: position_x + layout_x_origin as f64,
+        bounds_y: position_y + layout_y_origin as f64,
+        bounds_w: layout_x_size,
+        bounds_h: layout_y_size,
+        tile_w,
+        tile_h,
+        paint_x,
+        paint_y,
+        paint_w,
+        paint_h,
+    })
+}
+
+fn build_native_background_svg_generation(
+    svg_bytes: &[u8],
+    default_style: &servo_arc::Arc<style::properties::ComputedValues>,
+    svg_text_layout_context: &SVGTextLayoutContext,
+    image_resolver: &Arc<ImageResolver>,
+    tile_width: f32,
+    tile_height: f32,
+) -> Option<published::FragmentArenaGeneration> {
+    let svg_tree = parse_svg_tree(svg_bytes).ok()?;
+    let rect = PhysicalRect::new(
+        PhysicalPoint::origin(),
+        PhysicalSize::new(Au::from_f32_px(tile_width), Au::from_f32_px(tile_height)),
+    );
+    let mut positioning_context = PositioningContext::default();
+    let root = build_svg_root_fragment_from_tree_with_text_context(
+        &svg_tree,
+        default_style.clone(),
+        svg_text_layout_context,
+        &mut positioning_context,
+        BaseFragmentInfo {
+            tag: None,
+            flags: FragmentFlags::empty(),
+        },
+        default_style,
+        rect,
+    )?;
+    let root_fragments = vec![root];
+    let containing_blocks = collect_containing_blocks(&root_fragments, &rect);
+    let scrollable_overflow = compute_tree_scrollable_overflow(&root_fragments, rect);
+    Some(build_generation(
+        &root_fragments,
+        &containing_blocks,
+        rect,
+        scrollable_overflow,
+        image_resolver,
+        svg_text_layout_context,
+    ))
 }
 
 fn collect_containing_blocks(

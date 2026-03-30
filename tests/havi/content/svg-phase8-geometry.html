@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HAVI SVG Phase 8 DOM geometry and text APIs</title>
+  <style>
+    body {
+      font-family: monospace;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    #hud {
+      position: absolute;
+      left: 0;
+      top: 130px;
+      right: 0;
+      padding: 16px;
+      background: white;
+    }
+
+    #status.pass { color: green; }
+    #status.fail { color: red; }
+    #results {
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 12px;
+      background: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <svg id="scene" xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">
+    <g id="group" transform="translate(15 7)">
+      <rect id="rect" x="10" y="20" width="30" height="40" fill="tomato" stroke="black" stroke-width="4"></rect>
+      <line id="line" x1="80" y1="20" x2="95" y2="20" stroke="black" stroke-width="4"></line>
+    </g>
+    <svg id="nested" x="50" y="5" width="60" height="40" viewBox="0 0 60 40">
+      <rect id="nestedRect" x="0" y="0" width="20" height="10" fill="navy"></rect>
+    </svg>
+    <text id="text" x="10" y="95">ABC<tspan id="tspan">DE</tspan></text>
+    <path id="textPathSource" d="M140 95 L220 95" fill="none" stroke="none"></path>
+    <text id="pathTextRoot"><textPath id="textPath" href="#textPathSource">XY</textPath></text>
+  </svg>
+
+  <div id="hud">
+    <div id="status">Running...</div>
+    <pre id="results"></pre>
+  </div>
+
+  <script src="test-utils.js"></script>
+  <script>
+    function approxEqual(actual, expected, epsilon, name) {
+      return assert(Math.abs(actual - expected) <= epsilon, name + ' (expected ' + expected + ', got ' + actual + ')');
+    }
+
+    function assertRect(rect, x, y, width, height, name) {
+      approxEqual(rect.x, x, 0.001, name + ' x');
+      approxEqual(rect.y, y, 0.001, name + ' y');
+      approxEqual(rect.width, width, 0.001, name + ' width');
+      approxEqual(rect.height, height, 0.001, name + ' height');
+    }
+
+    async function suite_svg_phase8_geometry() {
+      const rect = document.getElementById('rect');
+      const line = document.getElementById('line');
+      const group = document.getElementById('group');
+      const nested = document.getElementById('nested');
+      const text = document.getElementById('text');
+      const tspan = document.getElementById('tspan');
+      const textPath = document.getElementById('textPath');
+
+      assertRect(rect.getBBox(), 10, 20, 30, 40, 'rect.getBBox() uses the published fill geometry by default');
+      assertRect(rect.getBBox({ stroke: true }), 8, 18, 34, 44, 'rect.getBBox({stroke:true}) includes the published stroke bounds');
+      assertRect(group.getBBox(), 10, 20, 85, 40, 'group.getBBox() unions child geometry in group user space');
+      assertRect(nested.getBBox(), 0, 0, 20, 10, 'nested svg getBBox() reflects child geometry, not viewport size');
+
+      const groupCtm = group.getCTM();
+      approxEqual(groupCtm.e, 15, 0.001, 'group.getCTM().e uses native SVG transforms to the nearest viewport');
+      approxEqual(groupCtm.f, 7, 0.001, 'group.getCTM().f uses native SVG transforms to the nearest viewport');
+
+      const nestedCtm = nested.getCTM();
+      approxEqual(nestedCtm.e, 50, 0.001, 'nested svg getCTM() exposes viewport placement relative to the outer viewport');
+      approxEqual(nestedCtm.f, 5, 0.001, 'nested svg getCTM().f exposes viewport placement relative to the outer viewport');
+
+      const groupScreenCtm = group.getScreenCTM();
+      approxEqual(groupScreenCtm.e, 15, 0.001, 'group.getScreenCTM().e includes document-space placement');
+      approxEqual(groupScreenCtm.f, 7, 0.001, 'group.getScreenCTM().f includes document-space placement');
+
+      approxEqual(rect.getTotalLength(), 140, 0.001, 'rect.getTotalLength() uses native normalized path length');
+
+      const rectPoint = rect.getPointAtLength(35);
+      approxEqual(rectPoint.x, 40, 0.001, 'rect.getPointAtLength().x follows the published path');
+      approxEqual(rectPoint.y, 25, 0.001, 'rect.getPointAtLength().y follows the published path');
+
+      assert(rect.isPointInFill({ x: 20, y: 30 }), 'rect.isPointInFill() hits interior fill');
+      assert(!rect.isPointInFill({ x: 5, y: 5 }), 'rect.isPointInFill() rejects outside points');
+      assert(rect.isPointInStroke({ x: 10, y: 30 }), 'rect.isPointInStroke() hits the published stroke outline');
+      assert(!rect.isPointInStroke({ x: 20, y: 30 }), 'rect.isPointInStroke() rejects interior-only points');
+
+      approxEqual(line.getTotalLength(), 15, 0.001, 'line.getTotalLength() works for non-path geometry elements');
+      const linePoint = line.getPointAtLength(4);
+      approxEqual(linePoint.x, 84, 0.001, 'line.getPointAtLength().x samples normalized line geometry');
+      approxEqual(linePoint.y, 20, 0.001, 'line.getPointAtLength().y samples normalized line geometry');
+      assert(!line.isPointInFill({ x: 84, y: 20 }), 'line.isPointInFill() stays false for open geometry');
+      assert(line.isPointInStroke({ x: 84, y: 20 }), 'line.isPointInStroke() uses the published stroke geometry');
+
+      assert(text.getNumberOfChars() === 5, 'text.getNumberOfChars() counts the text subtree');
+      assert(tspan.getNumberOfChars() === 2, 'tspan.getNumberOfChars() counts only the tspan subtree');
+      assert(textPath.getNumberOfChars() === 2, 'textPath.getNumberOfChars() counts only the textPath subtree');
+
+      assert(text.getComputedTextLength() > tspan.getComputedTextLength(), 'text.getComputedTextLength() uses native published text advances');
+      assert(tspan.getComputedTextLength() > 0, 'tspan.getComputedTextLength() is positive');
+      assert(textPath.getComputedTextLength() > 0, 'textPath.getComputedTextLength() is positive');
+      assert(text.getSubStringLength(0, 2) > 0, 'text.getSubStringLength() uses published text geometry');
+
+      const textStart = text.getStartPositionOfChar(0);
+      const textEnd = text.getEndPositionOfChar(0);
+      assert(textEnd.x >= textStart.x, 'text.getEndPositionOfChar() follows the glyph advance direction');
+      assert(text.getExtentOfChar(0).width > 0, 'text.getExtentOfChar() returns a non-empty rect');
+      approxEqual(text.getRotationOfChar(0), 0, 0.001, 'text.getRotationOfChar() reads the published rotation');
+
+      const tspanStart = tspan.getStartPositionOfChar(0);
+      assert(tspanStart.x >= textStart.x, 'tspan start position is relative to the tspan subtree range');
+      const tspanBBox = tspan.getBBox();
+      assert(tspanBBox.width > 0, 'tspan.getBBox() has positive width');
+      assert(tspanBBox.height > 0, 'tspan.getBBox() has positive height');
+      assert(tspanBBox.x <= tspanStart.x, 'tspan.getBBox() begins at or before the first glyph origin');
+
+      assert(tspan.getCharNumAtPosition(tspanStart) === 0, 'tspan.getCharNumAtPosition() maps hit testing into the local subtree range');
+      assert(text.getCharNumAtPosition(tspanStart) === 3, 'text.getCharNumAtPosition() maps the same point into the root text range');
+      assert(textPath.getCharNumAtPosition(textPath.getStartPositionOfChar(0)) === 0, 'textPath.getCharNumAtPosition() maps hits into textPath-local indices');
+
+      tspan.selectSubString(0, 1);
+      const selection = document.getSelection();
+      assert(selection && selection.toString() === 'D', 'selectSubString() uses normal document selection plumbing');
+    }
+
+    (async function() {
+      const summary = await window.runTests(suite_svg_phase8_geometry, 'svg-phase8-geometry');
+      window.testResults = summary;
+
+      const status = document.getElementById('status');
+      status.className = summary.failed === 0 ? 'pass' : 'fail';
+      status.textContent = summary.failed === 0 ? 'All tests passed!' : 'Some tests failed';
+      document.getElementById('results').textContent = summary.results.join('\n');
+    })();
+  </script>
+</body>
+</html>

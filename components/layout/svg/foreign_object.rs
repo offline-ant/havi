@@ -1,10 +1,13 @@
 use app_units::Au;
 use havi_types::fragment_tree::{SVGRect, SVGTransform};
 use layout_api::SVGNodeKind;
+use script::layout_dom::ServoThreadSafeLayoutNode;
+use servo_arc::Arc as ServoArc;
+use style::properties::ComputedValues;
 
-use super::dom::SVGResolvedNode;
 use super::path::resolve_length;
 use super::transform::{parse_svg_transform, translate_svg_transform};
+use super::tree::SVGResolvedNode;
 use crate::context::LayoutContext;
 use crate::dom_traversal::{NodeAndStyleInfo, NonReplacedContents};
 use crate::flow::BlockFormattingContext;
@@ -23,8 +26,8 @@ pub struct SVGForeignObjectLayoutResult {
     pub local_to_html_containing_block: SVGTransform,
 }
 
-pub fn layout_foreign_object(node: &SVGResolvedNode<'_>) -> SVGForeignObjectLayoutResult {
-    let viewport_rect = match &node.svg_data.node_kind {
+pub fn layout_foreign_object(node: &SVGResolvedNode) -> SVGForeignObjectLayoutResult {
+    let viewport_rect = match &node.svg_data().node_kind {
         SVGNodeKind::ForeignObject(data) => Some(SVGRect::new(
             euclid::point2(
                 resolve_length(data.x).unwrap_or(0.0),
@@ -37,7 +40,7 @@ pub fn layout_foreign_object(node: &SVGResolvedNode<'_>) -> SVGForeignObjectLayo
         )),
         _ => None,
     };
-    let local_transform = parse_svg_transform(&node.svg_data.common.transform);
+    let local_transform = parse_svg_transform(&node.svg_data().common.transform);
     let local_to_html_containing_block = viewport_rect.map_or(SVGTransform::identity(), |rect| {
         translate_svg_transform(-rect.origin.x, -rect.origin.y)
     });
@@ -49,12 +52,13 @@ pub fn layout_foreign_object(node: &SVGResolvedNode<'_>) -> SVGForeignObjectLayo
 }
 
 pub(crate) fn layout_foreign_object_children(
-    node: &SVGResolvedNode<'_>,
+    node: ServoThreadSafeLayoutNode<'_>,
+    computed_style: ServoArc<ComputedValues>,
     layout_context: &LayoutContext,
     positioning_context: &mut PositioningContext,
     viewport_rect: SVGRect,
 ) -> Vec<Fragment> {
-    let info = NodeAndStyleInfo::new(node.node, node.computed_style.clone());
+    let info = NodeAndStyleInfo::new(node, computed_style.clone());
     let formatting_context = BlockFormattingContext::construct(
         layout_context,
         &info,
@@ -68,7 +72,7 @@ pub(crate) fn layout_foreign_object_children(
             inline: Au::from_f32_px(viewport_rect.size.width.max(0.0)),
             block: Au::from_f32_px(viewport_rect.size.height.max(0.0)),
         },
-        style: &node.computed_style,
+        style: &computed_style,
     };
     let containing_block = ContainingBlock {
         size: ContainingBlockSize {

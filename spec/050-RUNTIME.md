@@ -44,23 +44,36 @@ Browsers may persist additional local state for history, credentials, authoring,
 and shell integration. The format and storage location are implementation-
 defined.
 
-## Inline SVG runtime model
+## SVG runtime model
 
-Inline `<svg>` participates in the browser's native style, layout, fragment,
-and paint pipeline.
+Inline `<svg>` and standalone `image/svg+xml` documents participate in the
+browser's native style, layout, fragment, and paint pipeline.
 
 Required runtime behavior:
 
 - inline SVG is not serialized to a temporary image URL for layout or first
   paint
+- standalone SVG navigation uses the same native SVG DOM/layout/resource
+  pipeline as inline SVG
 - the fragment arena publishes native SVG viewport/container/leaf objects rather
   than HTML text fragments or renderer-specific SVG fragment kinds
 - `use`, paint servers, and clip paths resolve through the native SVG resource
   graph
 - SVG text and `foreignObject` remain native SVG payload kinds even when feature
   coverage is partial
-- external SVG image resources remain implementation-defined and may use a
-  separate backend from inline SVG
+- external SVG image resources use the same native SVG parse/layout/fragment/
+  paint pipeline as inline and standalone SVG for the supported SVG subset
+- external SVG image resources do not need to instantiate a page SVG DOM when
+  used as image resources
+
+Current HAVI entry-path SVG runtime state:
+
+- inline, standalone, and external SVG images share one native SVG
+  layout/resource/paint pipeline in the current tree
+- external SVG images do not instantiate a page SVG DOM and they do not expose
+  the SVG query surface
+
+Remaining additive SVG backlog is tracked in `../svg-missing.md`.
 
 Current HAVI Phase 1 browser-visible SVG DOM state:
 

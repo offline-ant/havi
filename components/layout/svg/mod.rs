@@ -4,11 +4,13 @@ pub mod foreign_object;
 pub mod hit_test;
 pub mod invalidation;
 pub mod layout;
+pub mod parse;
 pub mod path;
 pub mod resources;
 pub mod style;
 pub mod text;
 pub mod transform;
+pub mod tree;
 pub mod use_expansion;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -45,6 +45,7 @@ hyper_serde = { workspace = true }
 imsz = { workspace = true }
 ipc-channel = { workspace = true }
 itertools = { workspace = true }
+layout_api = { workspace = true }
 log = { workspace = true }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
@@ -59,8 +60,10 @@ pixels = { path = "../pixels" }
 profile_traits = { workspace = true }
 quick_cache = { version = "0.6.18", default-features = false, features = ["ahash"] }
 regex = { workspace = true }
-resvg = { workspace = true }
 rustc-hash = { workspace = true }
+svgtypes = { workspace = true }
+vello_cpu = { workspace = true }
+xml5ever = { workspace = true }
 serde = { workspace = true }
 servo_arc = { workspace = true }
 servo_config = { path = "../config" }

@@ -13,6 +13,7 @@ use crate::dom::bindings::reflector::DomGlobal;
 use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::document::Document;
 use crate::dom::dompoint::DOMPoint;
+use crate::dom::node::{Node, NodeTraits};
 use crate::dom::svg::svganimatedvalueobjects::SVGAnimatedNumber;
 use crate::dom::svg::svggraphicselement::SVGGraphicsElement;
 use crate::script_runtime::CanGc;
@@ -41,13 +42,44 @@ impl SVGGeometryElementMethods<crate::DomTypeHolder> for SVGGeometryElement {
         self.path_length.or_init(|| SVGAnimatedNumber::new(&self.global(), self.upcast(), local_name!("pathLength"), CanGc::note()))
     }
 
-    fn IsPointInFill(&self, _point: &DOMPointInit) -> bool { false }
+    fn IsPointInFill(&self, point: &DOMPointInit) -> bool {
+        self.owner_window()
+            .query_svg_geometry_fill_contains(
+                self.upcast::<Node>(),
+                euclid::Point2D::new(point.x as f32, point.y as f32),
+            )
+            .unwrap_or(false)
+    }
 
-    fn IsPointInStroke(&self, _point: &DOMPointInit) -> bool { false }
+    fn IsPointInStroke(&self, point: &DOMPointInit) -> bool {
+        self.owner_window()
+            .query_svg_geometry_stroke_contains(
+                self.upcast::<Node>(),
+                euclid::Point2D::new(point.x as f32, point.y as f32),
+            )
+            .unwrap_or(false)
+    }
 
-    fn GetTotalLength(&self) -> Finite<f32> { Finite::wrap(0.0) }
+    fn GetTotalLength(&self) -> Finite<f32> {
+        Finite::wrap(
+            self.owner_window()
+                .query_svg_geometry_total_length(self.upcast::<Node>())
+                .unwrap_or(0.0),
+        )
+    }
 
-    fn GetPointAtLength(&self, _distance: Finite<f32>) -> DomRoot<DOMPoint> {
-        DOMPoint::new(&self.global(), 0.0, 0.0, 0.0, 1.0, CanGc::note())
+    fn GetPointAtLength(&self, distance: Finite<f32>) -> DomRoot<DOMPoint> {
+        let point = self
+            .owner_window()
+            .query_svg_geometry_point_at_length(self.upcast::<Node>(), *distance)
+            .unwrap_or_else(|| euclid::Point2D::new(0.0, 0.0));
+        DOMPoint::new(
+            &self.global(),
+            point.x as f64,
+            point.y as f64,
+            0.0,
+            1.0,
+            CanGc::note(),
+        )
     }
 }

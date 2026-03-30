@@ -36,7 +36,6 @@ pub(super) fn background_image_key(
         owner_node_id,
         layer_index,
         bg.source_kind,
-        bg.svg_document_id,
         bg.revision,
         bg.width,
         bg.height,
@@ -49,17 +48,6 @@ pub(super) fn background_image_key(
 pub(super) fn materialize_background_image_resource(bg: &havi_types::BackgroundImage) -> MpImageSource {
     let size = dvec2(bg.width as f64, bg.height as f64);
     let bytes = &bg.data[bg.byte_range.clone()];
-    if matches!(bg.source_kind, havi_types::ImageSourceKind::SvgDocument) {
-        let id = bg
-            .svg_document_id
-            .unwrap_or_else(|| hash_value(&(bg.width, bg.height, bytes.as_ptr() as usize)));
-        makepad_browser_scene::register_svg_image_document(id, Arc::from(bytes), bg.revision);
-        return MpImageSource::renderer_backed(
-            size,
-            MpRendererImageProducer::SvgImageDocument { id },
-            bg.revision,
-        );
-    }
     MpImageSource::decoded_rgba8(size, Arc::from(bytes), bg.revision)
 }
 
@@ -80,7 +68,6 @@ pub(super) fn image_key_for_fragment(image: &ImageFragment) -> MpImageKey {
     }
     MpImageKey(hash_value(&(
         image.source_kind,
-        image.svg_document_id,
         image.image_revision,
         image.frame_width,
         image.frame_height,
@@ -93,17 +80,6 @@ pub(super) fn image_key_for_fragment(image: &ImageFragment) -> MpImageKey {
 pub(super) fn materialize_image_resource(image: &ImageFragment) -> MpImageSource {
     let size = dvec2(image.frame_width as f64, image.frame_height as f64);
     let bytes = &image.image_data[image.frame_byte_range.clone()];
-    if matches!(image.source_kind, ImageSourceKind::SvgDocument) {
-        let id = image
-            .svg_document_id
-            .unwrap_or_else(|| hash_value(&(image.frame_width, image.frame_height, bytes.as_ptr() as usize)));
-        makepad_browser_scene::register_svg_image_document(id, Arc::from(bytes), image.image_revision);
-        return MpImageSource::renderer_backed(
-            size,
-            MpRendererImageProducer::SvgImageDocument { id },
-            image.image_revision,
-        );
-    }
     if bytes.is_empty() {
         if let Some(image_key) = image.image_key {
             let producer = match image.source_kind {
@@ -118,7 +94,7 @@ pub(super) fn materialize_image_resource(image: &ImageFragment) -> MpImageSource
                 ImageSourceKind::Video => MpRendererImageProducer::VideoBinding {
                     handle: renderer_image_handle(image_key),
                 },
-                ImageSourceKind::SvgDocument => unreachable!(),
+                ImageSourceKind::NativeSvg => unreachable!(),
             };
             return MpImageSource::renderer_backed(size, producer, 0);
         }

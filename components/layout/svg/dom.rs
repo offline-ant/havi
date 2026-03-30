@@ -1,18 +1,21 @@
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
-use layout_api::{SVGElementData, SVGNodeKind};
+use html5ever::{local_name, ns};
+use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use layout_api::SVGNodeKind;
+use rustc_hash::FxHashMap;
 use script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc as ServoArc;
 use style::context::{SharedStyleContext, StyleContext, ThreadLocalStyleContext};
-use style::dom::{NodeInfo, TElement, TNode};
+use style::dom::{NodeInfo, TNode};
 use style::properties::ComputedValues;
 use style::stylist::RuleInclusion;
 use style::traversal::resolve_style;
 
 use crate::fragment_tree::Tag;
 
-use super::style::{
-    resolve_geometry_style, resolve_text_style, resolve_viewport_style, SVGGeometryStyle,
-    SVGTextStyle, SVGViewportStyle,
+use super::style::{SVGGeometryStyle, SVGTextStyle, SVGViewportStyle};
+use super::tree::{
+    SVGNodeData, SVGNodeId, SVGNodeMetadata, SVGOwnedNodeKind, SVGResolvedNode,
+    SVGStandaloneTree, SVGTreeChild, SVGTreeNode, resolve_svg_tree,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,79 +55,106 @@ pub enum SVGNodeResolvedStyle {
     Text(SVGTextStyle),
 }
 
-#[derive(Clone, Debug)]
-pub struct SVGResolvedNode<'dom> {
-    pub node: ServoThreadSafeLayoutNode<'dom>,
-    pub tag: Tag,
-    pub summary: SVGLayoutNodeSummary,
-    pub svg_data: SVGElementData<'dom>,
-    pub resolved_style: SVGNodeResolvedStyle,
-    pub computed_style: ServoArc<ComputedValues>,
-    next_inherited_geometry: Option<SVGGeometryStyle>,
-    next_inherited_text: Option<SVGTextStyle>,
+pub struct SVGDOMTreeAdapter<'dom> {
+    pub tree: SVGStandaloneTree,
+    pub dom_nodes: FxHashMap<SVGNodeId, ServoThreadSafeLayoutNode<'dom>>,
+    pub computed_styles: FxHashMap<SVGNodeId, ServoArc<ComputedValues>>,
+    pub tags: FxHashMap<SVGNodeId, Tag>,
 }
 
-impl SVGResolvedNode<'_> {
-    pub fn inherited_geometry(&self) -> Option<&SVGGeometryStyle> {
-        self.next_inherited_geometry.as_ref()
-    }
-
-    pub fn inherited_text(&self) -> Option<&SVGTextStyle> {
-        self.next_inherited_text.as_ref()
+impl SVGDOMTreeAdapter<'_> {
+    pub fn resolve(&self) -> SVGResolvedNode {
+        resolve_svg_tree(
+            &self.tree,
+            &|node_id| {
+                self.tags
+                    .get(&node_id)
+                    .copied()
+                    .expect("missing DOM SVG tag")
+            },
+            &|node_id| {
+                self.computed_styles
+                    .get(&node_id)
+                    .cloned()
+                    .expect("missing DOM SVG computed style")
+            },
+        )
     }
 }
 
-pub fn resolve_svg_node<'dom>(
-    node: ServoThreadSafeLayoutNode<'dom>,
+pub fn build_dom_svg_tree<'dom>(
+    root: ServoThreadSafeLayoutNode<'dom>,
     context: &SharedStyleContext,
-) -> Option<SVGResolvedNode<'dom>> {
-    let chain = collect_svg_ancestor_chain(node);
-    let mut inherited_geometry: Option<SVGGeometryStyle> = None;
-    let mut inherited_text: Option<SVGTextStyle> = None;
-    let mut resolved = None;
-
-    for current in chain {
-        let current_resolved = resolve_svg_node_with_inheritance(
-            current,
-            context,
-            inherited_geometry.as_ref(),
-            inherited_text.as_ref(),
-        )?;
-        inherited_geometry = current_resolved.inherited_geometry().cloned();
-        inherited_text = current_resolved.inherited_text().cloned();
-        resolved = Some(current_resolved);
-    }
-
-    resolved
-}
-
-pub fn resolve_svg_child_node<'dom>(
-    child: ServoThreadSafeLayoutNode<'dom>,
-    context: &SharedStyleContext,
-    parent: &SVGResolvedNode<'dom>,
-) -> Option<SVGResolvedNode<'dom>> {
-    resolve_svg_node_with_inheritance(
-        child,
+) -> Option<SVGDOMTreeAdapter<'dom>> {
+    let mut next_id = 0usize;
+    let mut dom_nodes = FxHashMap::default();
+    let mut computed_styles = FxHashMap::default();
+    let mut tags = FxHashMap::default();
+    let root = build_dom_svg_tree_node(
+        root,
         context,
-        parent.inherited_geometry(),
-        parent.inherited_text(),
-    )
+        &mut next_id,
+        &mut dom_nodes,
+        &mut computed_styles,
+        &mut tags,
+    )?;
+    Some(SVGDOMTreeAdapter {
+        tree: SVGStandaloneTree::new(root),
+        dom_nodes,
+        computed_styles,
+        tags,
+    })
 }
 
-fn collect_svg_ancestor_chain<'dom>(
+fn build_dom_svg_tree_node<'dom>(
     node: ServoThreadSafeLayoutNode<'dom>,
-) -> Vec<ServoThreadSafeLayoutNode<'dom>> {
-    let mut chain = Vec::new();
-    let mut current = Some(node.unsafe_get());
-    while let Some(layout_node) = current {
-        let threadsafe = ServoThreadSafeLayoutNode::new(layout_node);
-        if threadsafe.svg_data().is_some() {
-            chain.push(threadsafe);
+    context: &SharedStyleContext,
+    next_id: &mut usize,
+    dom_nodes: &mut FxHashMap<SVGNodeId, ServoThreadSafeLayoutNode<'dom>>,
+    computed_styles: &mut FxHashMap<SVGNodeId, ServoArc<ComputedValues>>,
+    tags: &mut FxHashMap<SVGNodeId, Tag>,
+) -> Option<SVGTreeNode> {
+    let mut data = SVGNodeData::from(node.svg_data()?);
+    if let SVGOwnedNodeKind::Stop(stop) = &mut data.node_kind {
+        if stop.stop_color.is_none() {
+            stop.stop_color = inline_style_property(node, "stop-color");
         }
-        current = layout_node.traversal_parent().map(|parent| parent.as_node());
+        if stop.stop_opacity.is_none() {
+            stop.stop_opacity = inline_style_property(node, "stop-opacity");
+        }
     }
-    chain.reverse();
-    chain
+
+    let node_id = SVGNodeId(*next_id);
+    *next_id += 1;
+    dom_nodes.insert(node_id, node);
+    computed_styles.insert(node_id, resolve_svg_node_style(node, context)?);
+    tags.insert(node_id, Tag::from(node));
+
+    let metadata = SVGNodeMetadata {
+        preserve_aspect_ratio_specified: preserve_aspect_ratio_is_specified(node),
+    };
+    let mut children = Vec::new();
+    for child in node.children() {
+        if child.is_text_node() {
+            let text = child.text_content().into_owned();
+            if !text.is_empty() {
+                children.push(SVGTreeChild::Text(text));
+            }
+            continue;
+        }
+        if let Some(child) = build_dom_svg_tree_node(
+            child,
+            context,
+            next_id,
+            dom_nodes,
+            computed_styles,
+            tags,
+        ) {
+            children.push(SVGTreeChild::Node(child));
+        }
+    }
+
+    Some(SVGTreeNode::new(node_id, data, children).with_metadata(metadata))
 }
 
 fn resolve_svg_node_style<'dom>(
@@ -148,54 +178,20 @@ fn resolve_svg_node_style<'dom>(
     node.is_text_node().then(|| node.parent_style(context))
 }
 
-fn resolve_svg_node_with_inheritance<'dom>(
-    node: ServoThreadSafeLayoutNode<'dom>,
-    context: &SharedStyleContext,
-    inherited_geometry: Option<&SVGGeometryStyle>,
-    inherited_text: Option<&SVGTextStyle>,
-) -> Option<SVGResolvedNode<'dom>> {
-    let svg_data = node.svg_data()?;
-    let tag = Tag::from(node);
-    let computed_style = resolve_svg_node_style(node, context)?;
-    let summary = summarize_node_kind(&svg_data.node_kind);
-    let resolved_style = match &svg_data.node_kind {
-        SVGNodeKind::Viewport(_) => SVGNodeResolvedStyle::Viewport {
-            viewport: resolve_viewport_style(&svg_data, &computed_style),
-            geometry: resolve_geometry_style(&svg_data, &computed_style, inherited_geometry),
-        },
-        SVGNodeKind::Text(_) | SVGNodeKind::TSpan(_) | SVGNodeKind::TextPath(_) => {
-            SVGNodeResolvedStyle::Text(resolve_text_style(
-                &svg_data,
-                &computed_style,
-                inherited_text,
-            ))
-        }
-        _ => SVGNodeResolvedStyle::Geometry(resolve_geometry_style(
-            &svg_data,
-            &computed_style,
-            inherited_geometry,
-        )),
-    };
+fn inline_style_property(node: ServoThreadSafeLayoutNode<'_>, property: &str) -> Option<String> {
+    let element = node.as_element()?;
+    let style = element.get_attr(&ns!(), &local_name!("style"))?;
+    style.rsplit(';').find_map(|declaration| {
+        let (name, value) = declaration.split_once(':')?;
+        (name.trim().eq_ignore_ascii_case(property)).then_some(value.trim().to_owned())
+    })
+}
 
-    let next_inherited_geometry = match &resolved_style {
-        SVGNodeResolvedStyle::Viewport { geometry, .. } => Some(geometry.clone()),
-        SVGNodeResolvedStyle::Geometry(geometry) => Some(geometry.clone()),
-        SVGNodeResolvedStyle::Text(_) => inherited_geometry.cloned(),
-    };
-    let next_inherited_text = match &resolved_style {
-        SVGNodeResolvedStyle::Text(text) => Some(text.clone()),
-        _ => inherited_text.cloned(),
-    };
-
-    Some(SVGResolvedNode {
-        node,
-        tag,
-        summary,
-        svg_data,
-        resolved_style,
-        computed_style,
-        next_inherited_geometry,
-        next_inherited_text,
+fn preserve_aspect_ratio_is_specified(node: ServoThreadSafeLayoutNode<'_>) -> bool {
+    node.as_element().is_some_and(|element| {
+        element
+            .get_attr(&ns!(), &local_name!("preserveAspectRatio"))
+            .is_some()
     })
 }
 

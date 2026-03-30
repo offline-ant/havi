@@ -11,7 +11,8 @@ use itertools::Itertools;
 use layout_api::wrapper_traits::{LayoutNode, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
 use layout_api::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, LayoutElementType, LayoutNodeType,
-    OffsetParentResponse, PhysicalSides, ScrollContainerQueryFlags, ScrollContainerResponse,
+    OffsetParentResponse, PhysicalSides, SVGBoundingBoxOptionsData, SVGTextCharGeometry,
+    ScrollContainerQueryFlags, ScrollContainerResponse,
 };
 use script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use servo_arc::Arc as ServoArc;
@@ -52,7 +53,8 @@ use crate::flow::inline::construct::{TextTransformation, WhitespaceCollapse, cap
 use crate::fragment_tree::{FragmentFlags, FragmentTree};
 use crate::geom::PhysicalRect;
 use crate::style_ext::ComputedValuesExt;
-use crate::svg::hit_test::hit_test_svg_path;
+use crate::svg::hit_test::{hit_test_svg_path, point_in_fill, point_near_stroke};
+use crate::svg::path::{svg_path_point_and_tangent_at_length, svg_path_total_length};
 use crate::svg::transform::then_svg_transform;
 use havi_types::fragment_tree as published;
 
@@ -455,6 +457,535 @@ pub fn process_client_rect_request(
     first_fragment_id(fragment_tree, node, None)
         .map(|fragment_id| fragment_client_rect(fragment_tree, fragment_id))
         .unwrap_or_default()
+}
+
+fn first_svg_fragment_id(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<published::FragmentId> {
+    fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .first()
+        .copied()
+}
+
+fn first_svg_path_fragment_id(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<published::FragmentId> {
+    let generation = fragment_tree.generation();
+    fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .iter()
+        .copied()
+        .find(|fragment_id| {
+            matches!(
+                generation.kind(*fragment_id),
+                published::FragmentKind::SVGLeaf(svg_fragment)
+                    if matches!(svg_fragment.kind, published::SVGLeafKind::Path(_))
+            )
+        })
+}
+
+fn first_svg_text_fragment_id(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<published::FragmentId> {
+    let generation = fragment_tree.generation();
+    fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .iter()
+        .copied()
+        .find(|fragment_id| {
+            matches!(
+                generation.kind(*fragment_id),
+                published::FragmentKind::SVGLeaf(svg_fragment)
+                    if matches!(svg_fragment.kind, published::SVGLeafKind::Text(_))
+            )
+        })
+}
+
+fn svg_rect_from_bounds(bounds: &published::SVGBounds, options: SVGBoundingBoxOptionsData) -> published::SVGRect {
+    let mut result: Option<published::SVGRect> = None;
+    let mut include = |rect: published::SVGRect| {
+        result = Some(match result.take() {
+            Some(current) => current.union(&rect),
+            None => rect,
+        });
+    };
+
+    if options.fill {
+        include(bounds.object_bounding_box);
+    }
+    if options.stroke {
+        include(bounds.stroke_bounding_box);
+    }
+    if options.markers {
+        include(bounds.decorated_bounding_box);
+    }
+    if options.clipped {
+        include(bounds.visual_bounding_box);
+    }
+
+    result.unwrap_or_default()
+}
+
+fn transform_svg_rect_scalar(rect: published::SVGRect, transform: published::SVGTransform) -> published::SVGRect {
+    let corners = [
+        (rect.origin.x, rect.origin.y),
+        (rect.origin.x + rect.size.width, rect.origin.y),
+        (rect.origin.x, rect.origin.y + rect.size.height),
+        (rect.origin.x + rect.size.width, rect.origin.y + rect.size.height),
+    ];
+    let transformed = corners.map(|(x, y)| {
+        (
+            transform.m11 * x + transform.m21 * y + transform.m31,
+            transform.m12 * x + transform.m22 * y + transform.m32,
+        )
+    });
+    let min_x = transformed.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+    let min_y = transformed.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
+    let max_x = transformed.iter().map(|(x, _)| *x).fold(f32::NEG_INFINITY, f32::max);
+    let max_y = transformed.iter().map(|(_, y)| *y).fold(f32::NEG_INFINITY, f32::max);
+    published::SVGRect::new(
+        published::SVGPoint::new(min_x, min_y),
+        crate::geom::PhysicalSize::new(max_x - min_x, max_y - min_y),
+    )
+}
+
+fn svg_fragment_child_transform(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+) -> Option<published::SVGTransform> {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::SVGViewport(svg_fragment) => Some(svg_fragment.local_to_parent_transform),
+        published::FragmentKind::SVGContainer(svg_fragment) => Some(svg_fragment.local_transform),
+        published::FragmentKind::SVGLeaf(svg_fragment) => Some(svg_fragment.local_transform),
+        _ => None,
+    }
+}
+
+fn svg_fragment_local_bbox(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    options: SVGBoundingBoxOptionsData,
+) -> Option<published::SVGRect> {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::SVGLeaf(svg_fragment) => Some(svg_rect_from_bounds(&svg_fragment.bounds, options)),
+        published::FragmentKind::SVGViewport(_) | published::FragmentKind::SVGContainer(_) => generation
+            .geometry_children(fragment_id)
+            .iter()
+            .copied()
+            .filter_map(|child_id| {
+                let bbox = svg_fragment_local_bbox(generation, child_id, options)?;
+                let transform = svg_fragment_child_transform(generation, child_id)?;
+                Some(transform_svg_rect_scalar(bbox, transform))
+            })
+            .fold(None::<published::SVGRect>, |current, rect| {
+                Some(match current {
+                    Some(current) => current.union(&rect),
+                    None => rect,
+                })
+            })
+            .or(Some(published::SVGRect::default())),
+        _ => None,
+    }
+}
+
+fn svg_rect_to_css_rect(rect: published::SVGRect) -> Rect<f32, CSSPixel> {
+    Rect::new(
+        Point2D::new(rect.origin.x, rect.origin.y),
+        Size2D::new(rect.size.width, rect.size.height),
+    )
+}
+
+fn svg_translation(tx: f32, ty: f32) -> published::SVGTransform {
+    published::SVGTransform::new(1.0, 0.0, 0.0, 1.0, tx, ty)
+}
+
+fn fragment_ctm_to_nearest_viewport(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+) -> Option<published::SVGTransform> {
+    let mut transform = published::SVGTransform::identity();
+    let mut current = Some(fragment_id);
+    let mut found_viewport = false;
+    let mut started_with_viewport = false;
+
+    while let Some(id) = current {
+        match generation.kind(id) {
+            published::FragmentKind::SVGLeaf(svg_fragment) => {
+                transform = then_svg_transform(transform, svg_fragment.local_transform);
+                current = generation.node(id).parent;
+            }
+            published::FragmentKind::SVGContainer(svg_fragment) => {
+                transform = then_svg_transform(transform, svg_fragment.local_transform);
+                current = generation.node(id).parent;
+            }
+            published::FragmentKind::SVGViewport(svg_fragment) => {
+                if id == fragment_id {
+                    started_with_viewport = true;
+                    transform = then_svg_transform(transform, svg_fragment.local_to_parent_transform);
+                    current = generation.node(id).parent;
+                } else {
+                    found_viewport = true;
+                    break;
+                }
+            }
+            _ => return None,
+        }
+    }
+
+    if started_with_viewport {
+        found_viewport.then_some(transform)
+    } else {
+        found_viewport.then_some(transform)
+    }
+}
+
+fn fragment_screen_ctm(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+) -> Option<published::SVGTransform> {
+    let (transform, origin) = accumulated_svg_transform_and_origin(generation, fragment_id)?;
+    Some(then_svg_transform(
+        transform,
+        svg_translation(origin.x.to_f32_px(), origin.y.to_f32_px()),
+    ))
+}
+
+fn svg_text_payload<'a>(
+    generation: &'a published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+) -> Option<&'a published::SVGTextPayload> {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::SVGLeaf(svg_fragment) => match &svg_fragment.kind {
+            published::SVGLeafKind::Text(text) => Some(text),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn svg_text_range(
+    payload: &published::SVGTextPayload,
+    charnum: u32,
+    nchars: u32,
+) -> Option<std::ops::Range<usize>> {
+    let start = charnum as usize;
+    if start > payload.addressing.len() {
+        return None;
+    }
+    let end = start.saturating_add(nchars as usize).min(payload.addressing.len());
+    Some(start..end)
+}
+
+fn svg_text_cluster_start(payload: &published::SVGTextPayload, index: usize) -> Option<usize> {
+    let current = payload.addressing.get(index)?;
+    let mut start = index;
+    while start > 0 &&
+        payload.addressing[start].run_index == current.run_index &&
+        payload.addressing[start].middle_of_cluster
+    {
+        start -= 1;
+    }
+    Some(start)
+}
+
+fn svg_text_cluster_advance(payload: &published::SVGTextPayload, index: usize) -> Option<f32> {
+    let cluster_start = svg_text_cluster_start(payload, index)?;
+    let addressable = payload.addressing.get(cluster_start)?;
+    let run = payload.runs.get(addressable.run_index as usize)?;
+    let cluster_ordinal = payload.addressing[..=cluster_start]
+        .iter()
+        .filter(|candidate| {
+            candidate.run_index == addressable.run_index && !candidate.middle_of_cluster
+        })
+        .count()
+        .saturating_sub(1);
+    Some(
+        run.glyphs
+            .get(cluster_ordinal)
+            .map(|glyph| glyph.advance.to_f32_px())
+            .unwrap_or(0.0),
+    )
+}
+
+fn svg_text_char_extent_rect(
+    payload: &published::SVGTextPayload,
+    index: usize,
+) -> Option<Rect<f32, CSSPixel>> {
+    let cluster_start = svg_text_cluster_start(payload, index)?;
+    let addressable = payload.addressing.get(cluster_start)?;
+    let run = payload.runs.get(addressable.run_index as usize)?;
+    let ascent = run.baseline_ascent.to_f32_px();
+    let descent = (run.rect.size.height.to_f32_px() - ascent).max(0.0);
+    let advance = svg_text_cluster_advance(payload, cluster_start)?.max(0.0);
+    let origin_x = addressable.position.x;
+    let origin_y = addressable.position.y;
+
+    if addressable.rotation == 0.0 {
+        return Some(Rect::new(
+            Point2D::new(origin_x, origin_y - ascent),
+            Size2D::new(advance, (ascent + descent).max(0.0)),
+        ));
+    }
+
+    let angle = addressable.rotation.to_radians();
+    let sin = angle.sin();
+    let cos = angle.cos();
+    let corners = [
+        (0.0, -ascent),
+        (advance, -ascent),
+        (0.0, descent),
+        (advance, descent),
+    ];
+    let transformed = corners.map(|(x, y)| {
+        let rotated_x = x * cos - y * sin;
+        let rotated_y = x * sin + y * cos;
+        (origin_x + rotated_x, origin_y + rotated_y)
+    });
+    let min_x = transformed.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+    let min_y = transformed.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
+    let max_x = transformed.iter().map(|(x, _)| *x).fold(f32::NEG_INFINITY, f32::max);
+    let max_y = transformed.iter().map(|(_, y)| *y).fold(f32::NEG_INFINITY, f32::max);
+    Some(Rect::new(
+        Point2D::new(min_x, min_y),
+        Size2D::new(max_x - min_x, max_y - min_y),
+    ))
+}
+
+fn svg_text_char_end_position(
+    payload: &published::SVGTextPayload,
+    index: usize,
+) -> Option<Point2D<f32, CSSPixel>> {
+    let cluster_start = svg_text_cluster_start(payload, index)?;
+    let addressable = payload.addressing.get(cluster_start)?;
+    let advance = svg_text_cluster_advance(payload, cluster_start)?;
+    let angle = addressable.rotation.to_radians();
+    Some(Point2D::new(
+        addressable.position.x + advance * angle.cos(),
+        addressable.position.y + advance * angle.sin(),
+    ))
+}
+
+pub(crate) fn process_svg_bbox_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    options: SVGBoundingBoxOptionsData,
+) -> Option<Rect<f32, CSSPixel>> {
+    let generation = fragment_tree.generation();
+    let rect = fragment_tree
+        .fragments_for_node(node.opaque(), None)
+        .iter()
+        .copied()
+        .filter_map(|fragment_id| svg_fragment_local_bbox(&generation, fragment_id, options))
+        .fold(None::<published::SVGRect>, |current, rect| {
+            Some(match current {
+                Some(current) => current.union(&rect),
+                None => rect,
+            })
+        })?;
+    Some(svg_rect_to_css_rect(rect))
+}
+
+pub(crate) fn process_svg_ctm_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<published::SVGTransform> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_fragment_id(fragment_tree, node)?;
+    fragment_ctm_to_nearest_viewport(&generation, fragment_id)
+}
+
+pub(crate) fn process_svg_screen_ctm_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<published::SVGTransform> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_fragment_id(fragment_tree, node)?;
+    fragment_screen_ctm(&generation, fragment_id)
+}
+
+pub(crate) fn process_svg_geometry_fill_contains_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    point: Point2D<f32, CSSPixel>,
+) -> Option<bool> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_path_fragment_id(fragment_tree, node)?;
+    let published::FragmentKind::SVGLeaf(svg_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let published::SVGLeafKind::Path(path) = &svg_fragment.kind else {
+        return None;
+    };
+    Some(point_in_fill(
+        &path.path,
+        published::SVGPoint::new(point.x, point.y),
+    ))
+}
+
+pub(crate) fn process_svg_geometry_stroke_contains_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    point: Point2D<f32, CSSPixel>,
+) -> Option<bool> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_path_fragment_id(fragment_tree, node)?;
+    let published::FragmentKind::SVGLeaf(svg_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let published::SVGLeafKind::Path(path) = &svg_fragment.kind else {
+        return None;
+    };
+    Some(
+        svg_fragment
+            .paint
+            .stroke
+            .as_ref()
+            .filter(|stroke| stroke.width > 0.0)
+            .is_some_and(|stroke| {
+                point_near_stroke(
+                    &path.path,
+                    published::SVGPoint::new(point.x, point.y),
+                    stroke.width,
+                )
+            }),
+    )
+}
+
+pub(crate) fn process_svg_geometry_total_length_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+) -> Option<f32> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_path_fragment_id(fragment_tree, node)?;
+    let published::FragmentKind::SVGLeaf(svg_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let published::SVGLeafKind::Path(path) = &svg_fragment.kind else {
+        return None;
+    };
+    Some(svg_path_total_length(&path.path))
+}
+
+pub(crate) fn process_svg_geometry_point_at_length_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    length: f32,
+) -> Option<Point2D<f32, CSSPixel>> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_path_fragment_id(fragment_tree, node)?;
+    let published::FragmentKind::SVGLeaf(svg_fragment) = generation.kind(fragment_id) else {
+        return None;
+    };
+    let published::SVGLeafKind::Path(path) = &svg_fragment.kind else {
+        return None;
+    };
+    let (point, _) = svg_path_point_and_tangent_at_length(&path.path, length)?;
+    Some(Point2D::new(point.x, point.y))
+}
+
+pub(crate) fn process_svg_text_substring_length_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    charnum: u32,
+    nchars: u32,
+) -> Option<f32> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_text_fragment_id(fragment_tree, node)?;
+    let payload = svg_text_payload(&generation, fragment_id)?;
+    let range = svg_text_range(payload, charnum, nchars)?;
+    let mut seen_clusters = Vec::new();
+    let mut length = 0.0;
+    for index in range {
+        let Some(cluster_start) = svg_text_cluster_start(payload, index) else {
+            continue;
+        };
+        if seen_clusters.contains(&cluster_start) {
+            continue;
+        }
+        seen_clusters.push(cluster_start);
+        if payload.addressing.get(cluster_start).is_some_and(|char| char.hidden) {
+            continue;
+        }
+        length += svg_text_cluster_advance(payload, cluster_start).unwrap_or(0.0);
+    }
+    Some(length)
+}
+
+pub(crate) fn process_svg_text_char_geometry_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    charnum: u32,
+) -> Option<SVGTextCharGeometry> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_text_fragment_id(fragment_tree, node)?;
+    let payload = svg_text_payload(&generation, fragment_id)?;
+    let index = charnum as usize;
+    let start_index = svg_text_cluster_start(payload, index)?;
+    let start_char = payload.addressing.get(start_index)?;
+    Some(SVGTextCharGeometry {
+        start: Point2D::new(start_char.position.x, start_char.position.y),
+        end: svg_text_char_end_position(payload, start_index)?,
+        extent: svg_text_char_extent_rect(payload, start_index)?,
+        rotation: start_char.rotation,
+    })
+}
+
+pub(crate) fn process_svg_text_char_num_at_position_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    point: Point2D<f32, CSSPixel>,
+) -> Option<i32> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_text_fragment_id(fragment_tree, node)?;
+    let payload = svg_text_payload(&generation, fragment_id)?;
+    let mut result = -1;
+    for index in 0..payload.addressing.len() {
+        if payload.addressing[index].hidden {
+            continue;
+        }
+        let Some(extent) = svg_text_char_extent_rect(payload, index) else {
+            continue;
+        };
+        if point.x >= extent.origin.x &&
+            point.x <= extent.origin.x + extent.size.width &&
+            point.y >= extent.origin.y &&
+            point.y <= extent.origin.y + extent.size.height
+        {
+            result = index as i32;
+        }
+    }
+    Some(result)
+}
+
+pub(crate) fn process_svg_text_range_bbox_query(
+    fragment_tree: &FragmentTree,
+    node: ServoThreadSafeLayoutNode<'_>,
+    charnum: u32,
+    nchars: u32,
+) -> Option<Rect<f32, CSSPixel>> {
+    let generation = fragment_tree.generation();
+    let fragment_id = first_svg_text_fragment_id(fragment_tree, node)?;
+    let payload = svg_text_payload(&generation, fragment_id)?;
+    let range = svg_text_range(payload, charnum, nchars)?;
+    let rect = range
+        .filter_map(|index| {
+            if payload.addressing[index].hidden {
+                return None;
+            }
+            svg_text_char_extent_rect(payload, index)
+        })
+        .fold(None::<Rect<f32, CSSPixel>>, |current, rect| {
+            Some(match current {
+                Some(current) => current.union(&rect),
+                None => rect,
+            })
+        })
+        .unwrap_or_else(Rect::zero);
+    Some(rect)
 }
 
 /// Process a query for the current CSS zoom of an element.

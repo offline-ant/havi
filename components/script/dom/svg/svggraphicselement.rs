@@ -4,6 +4,7 @@
 
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name};
+use layout_api::SVGBoundingBoxOptionsData;
 use stylo_dom::ElementState;
 
 use crate::dom::bindings::codegen::Bindings::SVGGraphicsElementBinding::{SVGBoundingBoxOptions, SVGGraphicsElementMethods};
@@ -13,8 +14,10 @@ use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::document::Document;
 use crate::dom::dommatrix::DOMMatrix;
 use crate::dom::domrect::DOMRect;
+use crate::dom::node::{Node, NodeTraits};
 use crate::dom::svg::svganimatedvalueobjects::SVGAnimatedTransformList;
 use crate::dom::svg::svgelement::SVGElement;
+use crate::dom::svg::svgtextcontentelement::SVGTextContentElement;
 use crate::dom::svg::svgvalueobjects::svg_matrix_from_transform;
 use crate::dom::virtualmethods::VirtualMethods;
 use crate::script_runtime::CanGc;
@@ -63,15 +66,74 @@ impl SVGGraphicsElementMethods<crate::DomTypeHolder> for SVGGraphicsElement {
         self.transform.or_init(|| SVGAnimatedTransformList::new(&self.global(), self.upcast(), local_name!("transform"), CanGc::note()))
     }
 
-    fn GetBBox(&self, _options: &SVGBoundingBoxOptions) -> DomRoot<DOMRect> {
-        DOMRect::new(&self.global(), 0.0, 0.0, 0.0, 0.0, CanGc::note())
+    fn GetBBox(&self, options: &SVGBoundingBoxOptions) -> DomRoot<DOMRect> {
+        let query_options = SVGBoundingBoxOptionsData {
+            fill: options.fill,
+            stroke: options.stroke,
+            markers: options.markers,
+            clipped: options.clipped,
+        };
+        let rect = self
+            .owner_window()
+            .query_svg_bbox(self.upcast::<Node>(), query_options)
+            .or_else(|| {
+                self.downcast::<SVGTextContentElement>()
+                    .and_then(SVGTextContentElement::subtree_bbox)
+            })
+            .unwrap_or_else(euclid::Rect::zero);
+        DOMRect::new(
+            &self.global(),
+            rect.origin.x as f64,
+            rect.origin.y as f64,
+            rect.size.width as f64,
+            rect.size.height as f64,
+            CanGc::note(),
+        )
     }
 
     fn GetCTM(&self) -> Option<DomRoot<DOMMatrix>> {
-        Some(svg_matrix_from_transform(&self.global(), euclid::default::Transform2D::identity(), CanGc::note()))
+        self.owner_window()
+            .query_svg_ctm(self.upcast::<Node>())
+            .or_else(|| {
+                self.downcast::<SVGTextContentElement>()
+                    .and_then(SVGTextContentElement::subtree_ctm)
+            })
+            .map(|transform| {
+                svg_matrix_from_transform(
+                    &self.global(),
+                    euclid::default::Transform2D::new(
+                        transform.m11,
+                        transform.m12,
+                        transform.m21,
+                        transform.m22,
+                        transform.m31,
+                        transform.m32,
+                    ),
+                    CanGc::note(),
+                )
+            })
     }
 
     fn GetScreenCTM(&self) -> Option<DomRoot<DOMMatrix>> {
-        self.GetCTM()
+        self.owner_window()
+            .query_svg_screen_ctm(self.upcast::<Node>())
+            .or_else(|| {
+                self.downcast::<SVGTextContentElement>()
+                    .and_then(SVGTextContentElement::subtree_screen_ctm)
+            })
+            .map(|transform| {
+                svg_matrix_from_transform(
+                    &self.global(),
+                    euclid::default::Transform2D::new(
+                        transform.m11,
+                        transform.m12,
+                        transform.m21,
+                        transform.m22,
+                        transform.m31,
+                        transform.m32,
+                    ),
+                    CanGc::note(),
+                )
+            })
     }
 }

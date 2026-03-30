@@ -58,10 +58,10 @@ use js::rust::{
 use layout_api::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, ElementsFromPointFlags,
     ElementsFromPointResult, FragmentType, Layout, LayoutImageDestination, PendingImage,
-    PendingImageState, PhysicalSides, QueryMsg, ReflowGoal,
-    ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowStatistics, RestyleReason,
-    ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
-    combine_id_with_fragment_type,
+    PendingImageState, PhysicalSides, QueryMsg, ReflowGoal, SVGBoundingBoxOptionsData,
+    SVGTextCharGeometry, ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle,
+    ReflowStatistics, RestyleReason, ScrollContainerQueryFlags, ScrollContainerResponse,
+    TrustedNodeAddress, combine_id_with_fragment_type,
 };
 use malloc_size_of::MallocSizeOf;
 
@@ -3270,6 +3270,121 @@ impl Window {
         } else {
             None
         }
+    }
+
+    pub(crate) fn query_svg_bbox(
+        &self,
+        node: &Node,
+        options: SVGBoundingBoxOptionsData,
+    ) -> Option<Rect<f32, CSSPixel>> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_bbox(node.to_trusted_node_address(), options)
+    }
+
+    pub(crate) fn query_svg_ctm(
+        &self,
+        node: &Node,
+    ) -> Option<euclid::Transform2D<f32, CSSPixel, CSSPixel>> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout.borrow().query_svg_ctm(node.to_trusted_node_address())
+    }
+
+    pub(crate) fn query_svg_screen_ctm(
+        &self,
+        node: &Node,
+    ) -> Option<euclid::Transform2D<f32, CSSPixel, CSSPixel>> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_screen_ctm(node.to_trusted_node_address())
+    }
+
+    pub(crate) fn query_svg_geometry_fill_contains(
+        &self,
+        node: &Node,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_geometry_fill_contains(node.to_trusted_node_address(), point)
+    }
+
+    pub(crate) fn query_svg_geometry_stroke_contains(
+        &self,
+        node: &Node,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<bool> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_geometry_stroke_contains(node.to_trusted_node_address(), point)
+    }
+
+    pub(crate) fn query_svg_geometry_total_length(&self, node: &Node) -> Option<f32> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_geometry_total_length(node.to_trusted_node_address())
+    }
+
+    pub(crate) fn query_svg_geometry_point_at_length(
+        &self,
+        node: &Node,
+        length: f32,
+    ) -> Option<Point2D<f32, CSSPixel>> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_geometry_point_at_length(node.to_trusted_node_address(), length)
+    }
+
+    pub(crate) fn query_svg_text_substring_length(
+        &self,
+        node: &Node,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<f32> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_text_substring_length(node.to_trusted_node_address(), charnum, nchars)
+    }
+
+    pub(crate) fn query_svg_text_char_geometry(
+        &self,
+        node: &Node,
+        charnum: u32,
+    ) -> Option<SVGTextCharGeometry> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_text_char_geometry(node.to_trusted_node_address(), charnum)
+    }
+
+    pub(crate) fn query_svg_text_char_num_at_position(
+        &self,
+        node: &Node,
+        point: Point2D<f32, CSSPixel>,
+    ) -> Option<i32> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_text_char_num_at_position(node.to_trusted_node_address(), point)
+    }
+
+    pub(crate) fn query_svg_text_range_bbox(
+        &self,
+        node: &Node,
+        charnum: u32,
+        nchars: u32,
+    ) -> Option<Rect<f32, CSSPixel>> {
+        self.layout_reflow(QueryMsg::SVGQuery);
+        self.layout
+            .borrow()
+            .query_svg_text_range_bbox(node.to_trusted_node_address(), charnum, nchars)
     }
 
     pub(crate) fn elements_from_point_query(

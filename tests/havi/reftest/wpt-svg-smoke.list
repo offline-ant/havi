@@ -1,10 +1,11 @@
 # Curated standalone-SVG WPT screenshot reftests for HAVI.
 # Explicit == pairs are used because some SVG WPT files declare references via
 # html:link inside XML.
-# Local mode-specific smoke manifests live alongside this file:
+# Local SVG manifests live alongside this file:
 #   svg-standalone-smoke.list
 #   svg-external-image-smoke.list
 #   svg-inline-smoke.list
+#   svg-entry-path-parity.list
 
 == /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-fully-overlapping.svg /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/reference/green-100x100.svg
 == /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-basic-002.svg /home/devops/Projects/forge/experiment/servo-mainline/tests/wpt/tests/svg/pservers/reftests/radialgradient-basic-002-ref.svg

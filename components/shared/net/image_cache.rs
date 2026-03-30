@@ -25,8 +25,8 @@ use crate::request::CorsSettings;
 pub type VectorImageId = PendingImageId;
 
 // Represents either a decode-backed raster image with CPU-side bytes available
-// or a vector image for which only its natural dimensions and original SVG bytes
-// are cached. Vector images are rasterized later by the browser-scene renderer.
+// or a vector image for which natural dimensions and original SVG bytes are
+// cached for native SVG consumers.
 #[derive(Clone, Debug, MallocSizeOf)]
 pub enum Image {
     Raster(#[conditional_malloc_size_of] Arc<RasterImage>),
@@ -148,8 +148,8 @@ pub enum ImageCacheResult {
 }
 
 /// A shared [`ImageCacheFactory`] is a per-process data structure used to create an [`ImageCache`]
-/// inside that process in any `ScriptThread`. This allows sharing the same font database (for
-/// SVGs) and also decoding thread pool among all [`ImageCache`]s in the same process.
+/// inside that process in any `ScriptThread`. This allows sharing the decoding thread pool among
+/// all [`ImageCache`]s in the same process.
 pub trait ImageCacheFactory: Sync + Send {
     fn create(
         &self,

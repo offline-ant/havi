@@ -2,15 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use havi_types::fragment_tree as published;
+use euclid::Transform2D;
 use makepad_browser_scene::{
-    MpGradientStop, MpPrimitive, MpPrimitiveId, MpVectorDashPattern, MpVectorDraw,
-    MpVectorFillRule, MpVectorGradientSpreadMethod, MpVectorLineCap, MpVectorLineJoin,
-    MpVectorPaint, MpVectorPathCommand, MpVectorPathPrimitive, MpVectorStrokeStyle,
-    ResourceRegistry,
+    MpClipChain, MpClipKind, MpClipNode, MpGradientStop, MpPrimitive, MpPrimitiveId,
+    MpReferenceFrame, MpScene, MpSpatialKind, MpSpatialNode, MpTransformStyle,
+    MpVectorDashPattern, MpVectorDraw, MpVectorFillRule, MpVectorGradientSpreadMethod,
+    MpVectorLineCap, MpVectorLineJoin, MpVectorPaint, MpVectorPathCommand,
+    MpVectorPathPrimitive, MpVectorStrokeStyle, ResourceRegistry,
 };
-use makepad_widgets::{Rect, Vec2f, Vec4f, dvec2, vec2, vec4};
+use makepad_widgets::{DVec2, Mat4f, Rect, Vec2f, Vec4f, dvec2, vec2, vec4};
 
 use super::text::lower_svg_text_primitives;
+use crate::background::BackgroundLayerGeom;
 use crate::color::inherited_color;
 
 pub(crate) fn lower_svg_leaf_primitives(
@@ -64,6 +67,253 @@ pub(crate) fn lower_svg_leaf_primitives(
         }
         published::SVGLeafKind::Image(_) => Ok(Vec::new()),
     }
+}
+
+pub(crate) fn append_svg_background_generation_primitives(
+    scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<makepad_browser_scene::MpGlyphRunKey, makepad_browser_scene::MpGlyphRunResource>,
+    owner_node_id: Option<usize>,
+    generation: &published::FragmentArenaGeneration,
+    layer: &BackgroundLayerGeom,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+) -> Result<Vec<MpPrimitive>, String> {
+    let mut primitives = Vec::new();
+    for tile_rect in background_tile_rects(layer) {
+        let tile_spatial_id = scene.push_spatial_node(MpSpatialNode {
+            parent: Some(spatial_id),
+            kind: MpSpatialKind::ReferenceFrame(MpReferenceFrame {
+                viewport_rect: Rect {
+                    pos: dvec2(0.0, 0.0),
+                    size: tile_rect.size,
+                },
+                placement_origin: tile_rect.pos,
+                transform: None,
+                perspective: None,
+                transform_style: MpTransformStyle::Flat,
+                backface_visibility: makepad_browser_scene::MpBackfaceVisibility::Visible,
+                flattens_descendants: true,
+            }),
+        });
+        for paint_root in generation.paint_roots.iter() {
+            if let published::PaintChild::Fragment(fragment_id) = paint_root {
+                append_svg_background_fragment(
+                    scene,
+                    registry,
+                    glyph_runs,
+                    owner_node_id,
+                    generation,
+                    *fragment_id,
+                    tile_spatial_id,
+                    clip_chain_id,
+                    effect_id,
+                    dvec2(0.0, 0.0),
+                    &mut primitives,
+                )?;
+            }
+        }
+    }
+    Ok(primitives)
+}
+
+fn append_svg_background_fragment(
+    scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<makepad_browser_scene::MpGlyphRunKey, makepad_browser_scene::MpGlyphRunResource>,
+    owner_node_id: Option<usize>,
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: makepad_browser_scene::MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    local_origin: DVec2,
+    primitives: &mut Vec<MpPrimitive>,
+) -> Result<(), String> {
+    match generation.kind(fragment_id) {
+        published::FragmentKind::SVGViewport(svg) => {
+            let viewport_spatial_id = push_svg_reference_frame(
+                scene,
+                spatial_id,
+                svg.base.rect,
+                local_origin,
+                None,
+                false,
+            );
+            let clip_chain_id = svg.overflow_clip.as_ref().map_or(clip_chain_id, |clip| {
+                let clip_id = scene.push_clip(MpClipNode {
+                    spatial_id: viewport_spatial_id,
+                    kind: MpClipKind::Rect {
+                        rect: Rect {
+                            pos: dvec2(clip.rect.origin.x as f64, clip.rect.origin.y as f64),
+                            size: dvec2(clip.rect.size.width as f64, clip.rect.size.height as f64),
+                        },
+                    },
+                });
+                scene.push_clip_chain(MpClipChain {
+                    parent: Some(clip_chain_id),
+                    clips: vec![clip_id],
+                })
+            });
+            let spatial_id = if svg.local_to_parent_transform == Transform2D::identity() {
+                viewport_spatial_id
+            } else {
+                push_svg_reference_frame(
+                    scene,
+                    viewport_spatial_id,
+                    svg.base.rect,
+                    dvec2(0.0, 0.0),
+                    Some(svg.local_to_parent_transform),
+                    true,
+                )
+            };
+            for child in generation.paint_children(fragment_id) {
+                if let published::PaintChild::Fragment(child_id) = child {
+                    append_svg_background_fragment(
+                        scene,
+                        registry,
+                        glyph_runs,
+                        owner_node_id,
+                        generation,
+                        *child_id,
+                        spatial_id,
+                        clip_chain_id,
+                        effect_id,
+                        dvec2(0.0, 0.0),
+                        primitives,
+                    )?;
+                }
+            }
+        }
+        published::FragmentKind::SVGContainer(svg) => {
+            let (spatial_id, local_origin) = if svg.local_transform == Transform2D::identity() {
+                (spatial_id, local_origin)
+            } else {
+                (
+                    push_svg_reference_frame(
+                        scene,
+                        spatial_id,
+                        svg.base.rect,
+                        local_origin,
+                        Some(svg.local_transform),
+                        true,
+                    ),
+                    dvec2(0.0, 0.0),
+                )
+            };
+            for child in generation.paint_children(fragment_id) {
+                if let published::PaintChild::Fragment(child_id) = child {
+                    append_svg_background_fragment(
+                        scene,
+                        registry,
+                        glyph_runs,
+                        owner_node_id,
+                        generation,
+                        *child_id,
+                        spatial_id,
+                        clip_chain_id,
+                        effect_id,
+                        local_origin,
+                        primitives,
+                    )?;
+                }
+            }
+        }
+        published::FragmentKind::SVGLeaf(svg) => {
+            primitives.extend(lower_svg_leaf_primitives(
+                generation,
+                registry,
+                glyph_runs,
+                owner_node_id,
+                local_origin,
+                Rect { pos: dvec2(0.0, 0.0), size: dvec2(0.0, 0.0) },
+                svg,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                None,
+            )?);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn background_tile_rects(layer: &BackgroundLayerGeom) -> Vec<Rect> {
+    let tile_w = layer.tile_w.max(0.001) as f64;
+    let tile_h = layer.tile_h.max(0.001) as f64;
+    let end_x = layer.bounds_x + layer.bounds_w as f64;
+    let end_y = layer.bounds_y + layer.bounds_h as f64;
+    let mut rects = Vec::new();
+    let mut y = layer.bounds_y;
+    while y < end_y - 0.001 {
+        let mut x = layer.bounds_x;
+        while x < end_x - 0.001 {
+            rects.push(Rect {
+                pos: dvec2(x, y),
+                size: dvec2(tile_w, tile_h),
+            });
+            x += tile_w;
+        }
+        y += tile_h;
+    }
+    if rects.is_empty() {
+        rects.push(Rect {
+            pos: dvec2(layer.bounds_x, layer.bounds_y),
+            size: dvec2(tile_w, tile_h),
+        });
+    }
+    rects
+}
+
+fn push_svg_reference_frame(
+    scene: &mut MpScene,
+    parent: makepad_browser_scene::MpSpatialId,
+    rect: havi_types::PhysicalRect<app_units::Au>,
+    containing_block_origin: DVec2,
+    transform: Option<published::SVGTransform>,
+    relative_origin: bool,
+) -> makepad_browser_scene::MpSpatialId {
+    let border_rect = Rect {
+        pos: dvec2(rect.origin.x.to_f32_px() as f64, rect.origin.y.to_f32_px() as f64),
+        size: dvec2(rect.size.width.to_f32_px() as f64, rect.size.height.to_f32_px() as f64),
+    };
+    scene.push_spatial_node(MpSpatialNode {
+        parent: Some(parent),
+        kind: MpSpatialKind::ReferenceFrame(MpReferenceFrame {
+            viewport_rect: Rect {
+                pos: dvec2(0.0, 0.0),
+                size: border_rect.size,
+            },
+            placement_origin: if relative_origin {
+                containing_block_origin
+            } else {
+                containing_block_origin + border_rect.pos
+            },
+            transform: transform.and_then(svg_transform_to_mat4),
+            perspective: None,
+            transform_style: MpTransformStyle::Flat,
+            backface_visibility: makepad_browser_scene::MpBackfaceVisibility::Visible,
+            flattens_descendants: true,
+        }),
+    })
+}
+
+fn svg_transform_to_mat4(
+    transform: Transform2D<f32, style_traits::CSSPixel, style_traits::CSSPixel>,
+) -> Option<Mat4f> {
+    if transform == Transform2D::identity() {
+        return None;
+    }
+    Some(Mat4f {
+        v: [
+            transform.m11, transform.m12, 0.0, 0.0,
+            transform.m21, transform.m22, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            transform.m31, transform.m32, 0.0, 1.0,
+        ],
+    })
 }
 
 fn lower_svg_path_leaf_primitives(

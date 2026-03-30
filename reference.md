@@ -178,11 +178,11 @@ Current behavior:
 
 This keeps renderer ownership on the retained path while coverage work continues.
 
-## Inline SVG rollout status
+## SVG runtime rollout status
 
-Inline `<svg>` now renders on the native DOM -> layout -> fragment arena ->
-browser-scene path. HAVI no longer serializes inline SVG subtrees to data URLs
-for layout or first paint.
+Inline `<svg>` and standalone `image/svg+xml` navigation now render on the
+native DOM -> layout -> fragment arena -> browser-scene path. HAVI no longer
+serializes inline SVG subtrees to data URLs for layout or first paint.
 
 Current architectural model:
 
@@ -197,10 +197,14 @@ Current architectural model:
   masks, filters, markers, and `use` instance sources
 - explicit layout subsystem ownership in `components/layout/svg/`
 - standalone `image/svg+xml` navigation now creates a real SVG document and
-  renders through the native SVG pipeline
+  renders through the same native SVG DOM/layout/resource/query pipeline as
+  inline SVG
 - external SVG images (`<img src="foo.svg">`, CSS image URLs) now flow through
-  renderer-backed SVG image producers instead of the old layout-triggered
-  rasterization path
+  the same native SVG parse/layout/fragment/browser-scene pipeline as inline and
+  standalone SVG
+- external SVG images currently target supported rendering-output parity only;
+  they do not create a page SVG DOM and they do not expose the Phase 8 SVG
+  query surface
 
 Current first-cut coverage:
 
@@ -225,6 +229,9 @@ Current first-cut coverage:
   paints in the current basic subset
 - query behavior: shape hit testing now uses SVG path geometry and SVG text run
   bounds rather than only axis-aligned fragment bounds
+- entry-path parity coverage: `tests/havi/reftest/svg-entry-path-parity.list`
+  now checks the supported solid-fill rect subset across inline SVG,
+  standalone SVG, external SVG `<img>`, and external SVG CSS background users
 
 Current Phase 1 SVG DOM coverage:
 
@@ -242,7 +249,7 @@ Current Phase 1 SVG DOM coverage:
 - SVG factory and query surfaces that conflict with legacy aliases now use the
   existing bridge objects: `DOMPoint`, `DOMRect`, and `DOMMatrix`
 
-Still deferred:
+Still deferred, tracked in `./svg-missing.md`:
 
 - full SVG filter execution
 - long-tail mask semantics beyond the current basic geometry subset

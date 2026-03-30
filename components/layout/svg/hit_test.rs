@@ -44,7 +44,7 @@ pub fn hit_test_svg_path(
     }
 }
 
-fn point_in_fill(path: &SVGPathData, point: SVGPoint) -> bool {
+pub(crate) fn point_in_fill(path: &SVGPathData, point: SVGPoint) -> bool {
     let segments = flatten_svg_path(path);
     match path.fill_rule {
         SVGFillRule::EvenOdd => {
@@ -72,7 +72,7 @@ fn point_in_fill(path: &SVGPathData, point: SVGPoint) -> bool {
     }
 }
 
-fn point_near_stroke(path: &SVGPathData, point: SVGPoint, width: f32) -> bool {
+pub(crate) fn point_near_stroke(path: &SVGPathData, point: SVGPoint, width: f32) -> bool {
     let tolerance = width * 0.5;
     flatten_svg_path(path)
         .into_iter()

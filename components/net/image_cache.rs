@@ -2,16 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::cmp::min;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::{mem, thread};
 
 use base::id::{PipelineId, WebViewId};
 use base::threadpool::ThreadPool;
 use imsz::imsz_from_reader;
+use layout_api::{
+    extract_svg_root_metadata, parse_svg_length, parse_svg_optional_number,
+    parse_svg_transform_list, resolve_svg_length_to_user_units,
+};
 use log::{debug, warn};
 use malloc_size_of::{MallocSizeOf as MallocSizeOfTrait, MallocSizeOfOps};
 use malloc_size_of_derive::MallocSizeOf;
@@ -27,25 +31,31 @@ use parking_lot::Mutex;
 use pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage, load_from_memory};
 use profile_traits::mem::{Report, ReportKind};
 use profile_traits::path;
-use resvg::usvg::fontdb;
 use rustc_hash::FxHashMap;
 use servo_config::pref;
 use servo_url::{ImmutableOrigin, BrowserUrl};
+use vello_cpu::color::{AlphaColor, Srgb};
+use vello_cpu::kurbo::{
+    Affine, BezPath, Cap, Circle, Ellipse, Join, Line, Point, Rect, Shape, Stroke,
+};
+use vello_cpu::peniko::Fill;
+use vello_cpu::{Pixmap, RenderContext};
 use webrender_api::ImageKey as WebRenderImageKey;
 use webrender_api::units::DeviceIntSize;
+use xml5ever::TokenizerResult;
+use xml5ever::buffer_queue::BufferQueue;
+use xml5ever::tendril::StrTendril;
+use xml5ever::tokenizer::{ProcessResult, Tag, TagKind, Token, TokenSink, XmlTokenizer};
 
 // We bake in rippy.png as a fallback, in case the embedder does not provide a broken
 // image icon resource. This version is 229 bytes, so don't exchange it against
 // something of higher resolution.
 const FALLBACK_RIPPY: &[u8] = include_bytes!("../../resources/rippy.png");
 
-/// The current SVG stack relies on `resvg` to provide the natural dimensions of
-/// the SVG, which it automatically infers from the width/height/viewBox properties
-/// of the SVG. Since these can be arbitrarily large, this can cause us to allocate
-/// a pixmap with very large dimensions leading to the process being killed due to
-/// memory exhaustion. For example, the `/css/css-transforms/perspective-svg-001.html`
-/// test uses very large values for viewBox. Hence, we just clamp the maximum
-/// width/height of the pixmap allocated for rasterization.
+/// SVG favicon rasterization is a small self-contained path that intentionally
+/// supports only the native first-cut SVG subset needed for favicons. SVG root
+/// dimensions can be arbitrarily large, so clamp the raster target to avoid
+/// pathological allocations.
 const MAX_SVG_PIXMAP_DIMENSION: u32 = 5000;
 
 //
@@ -62,86 +72,46 @@ const MAX_SVG_PIXMAP_DIMENSION: u32 = 5000;
 // Helper functions.
 // ======================================================================
 
-fn svg_fontdb() -> Arc<fontdb::Database> {
-    static FONTDB: OnceLock<Arc<fontdb::Database>> = OnceLock::new();
-    FONTDB
-        .get_or_init(|| {
-            let mut fontdb = fontdb::Database::new();
-            fontdb.load_system_fonts();
-            Arc::new(fontdb)
-        })
-        .clone()
-}
-
-fn parse_svg_tree(
-    bytes: &[u8],
-    fontdb: Arc<fontdb::Database>,
-) -> Result<resvg::usvg::Tree, &'static str> {
-    let image_string_href_resolver = Box::new(
-        move |_: &str, _: &resvg::usvg::Options| {
-            // Do not try to load `href` in <image> as local file path.
-            None
-        },
-    );
-
-    let options = resvg::usvg::Options {
-        image_href_resolver: resvg::usvg::ImageHrefResolver {
-            resolve_data: resvg::usvg::ImageHrefResolver::default_data_resolver(),
-            resolve_string: image_string_href_resolver,
-        },
-        fontdb,
-        ..resvg::usvg::Options::default()
-    };
-
-    resvg::usvg::Tree::from_data(bytes, &options)
-        .inspect_err(|error| {
-            warn!("Error when parsing SVG data: {error}");
-        })
-        .map_err(|_| "Not a valid SVG document")
-}
-
 pub fn rasterize_svg_bytes_sync(
     bytes: &[u8],
     requested_size: DeviceIntSize,
 ) -> Option<RasterImage> {
-    let svg_tree = parse_svg_tree(bytes, svg_fontdb()).ok()?;
-    let natural_size = svg_tree.size().to_int_size();
-    let rasterized_size = {
-        let width = requested_size
-            .width
-            .try_into()
-            .unwrap_or(0)
-            .min(MAX_SVG_PIXMAP_DIMENSION);
-        let height = requested_size
-            .height
-            .try_into()
-            .unwrap_or(0)
-            .min(MAX_SVG_PIXMAP_DIMENSION);
-        resvg::tiny_skia::IntSize::from_wh(width, height).unwrap_or(natural_size)
-    };
-    let transform = resvg::tiny_skia::Transform::from_scale(
-        rasterized_size.width() as f32 / natural_size.width() as f32,
-        rasterized_size.height() as f32 / natural_size.height() as f32,
-    );
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(
-        rasterized_size.width(),
-        rasterized_size.height(),
-    )?;
-    resvg::render(&svg_tree, transform, &mut pixmap.as_mut());
+    let metadata = extract_svg_root_metadata(bytes)
+        .inspect_err(|error| warn!("Error when parsing SVG metadata: {error:?}"))
+        .ok()?;
+    let scene = parse_svg_favicon_scene(bytes)
+        .inspect_err(|error| warn!("Error when parsing SVG data: {error}"))
+        .ok()?;
 
-    let bytes = pixmap.take();
+    let width = u32::try_from(requested_size.width)
+        .unwrap_or(0)
+        .clamp(1, MAX_SVG_PIXMAP_DIMENSION);
+    let height = u32::try_from(requested_size.height)
+        .unwrap_or(0)
+        .clamp(1, MAX_SVG_PIXMAP_DIMENSION);
+    let width_u16 = u16::try_from(width).ok()?;
+    let height_u16 = u16::try_from(height).ok()?;
+
+    let mut context = RenderContext::new(width_u16, height_u16);
+    let root_transform = compute_favicon_root_transform(&metadata.viewport, width as f64, height as f64)?;
+    let inherited = FaviconInheritedStyle::default();
+    for child in &scene.children {
+        render_svg_favicon_node(&mut context, child, root_transform, &inherited);
+    }
+
+    let mut pixmap = Pixmap::new(width_u16, height_u16);
+    context.flush();
+    context.render_to_pixmap(&mut pixmap);
+    let bytes = pixmap.data_as_u8_slice().to_vec();
     let frame = ImageFrame {
         delay: None,
         byte_range: 0..bytes.len(),
-        width: rasterized_size.width(),
-        height: rasterized_size.height(),
+        width,
+        height,
     };
 
     Some(RasterImage {
-        metadata: ImageMetadata {
-            width: rasterized_size.width(),
-            height: rasterized_size.height(),
-        },
+        metadata: ImageMetadata { width, height },
         format: PixelFormat::RGBA8,
         frames: vec![frame],
         bytes: Arc::new(bytes),
@@ -151,12 +121,608 @@ pub fn rasterize_svg_bytes_sync(
     })
 }
 
+#[derive(Clone)]
+struct FaviconScene {
+    children: Vec<FaviconNode>,
+}
+
+#[derive(Clone)]
+struct FaviconNode {
+    transform: Affine,
+    style: FaviconNodeStyle,
+    kind: FaviconNodeKind,
+}
+
+#[derive(Clone)]
+enum FaviconNodeKind {
+    Group { children: Vec<FaviconNode> },
+    Path(BezPath),
+}
+
+#[derive(Clone, Default)]
+struct FaviconNodeStyle {
+    fill: Option<Option<[u8; 4]>>,
+    stroke: Option<Option<[u8; 4]>>,
+    stroke_width: Option<f64>,
+    fill_rule: Option<Fill>,
+    opacity: Option<f32>,
+    line_cap: Option<Cap>,
+    line_join: Option<Join>,
+    hidden: bool,
+}
+
+#[derive(Clone)]
+struct FaviconInheritedStyle {
+    fill: Option<[u8; 4]>,
+    stroke: Option<[u8; 4]>,
+    stroke_width: f64,
+    fill_rule: Fill,
+    opacity: f32,
+    line_cap: Cap,
+    line_join: Join,
+    hidden: bool,
+}
+
+impl Default for FaviconInheritedStyle {
+    fn default() -> Self {
+        Self {
+            fill: Some([0, 0, 0, 255]),
+            stroke: None,
+            stroke_width: 1.0,
+            fill_rule: Fill::NonZero,
+            opacity: 1.0,
+            line_cap: Cap::Butt,
+            line_join: Join::Miter,
+            hidden: false,
+        }
+    }
+}
+
+impl FaviconInheritedStyle {
+    fn with_node_style(&self, style: &FaviconNodeStyle) -> Self {
+        Self {
+            fill: style.fill.clone().unwrap_or(self.fill),
+            stroke: style.stroke.clone().unwrap_or(self.stroke),
+            stroke_width: style.stroke_width.unwrap_or(self.stroke_width),
+            fill_rule: style.fill_rule.unwrap_or(self.fill_rule),
+            opacity: (self.opacity * style.opacity.unwrap_or(1.0)).clamp(0.0, 1.0),
+            line_cap: style.line_cap.unwrap_or(self.line_cap),
+            line_join: style.line_join.unwrap_or(self.line_join),
+            hidden: self.hidden || style.hidden,
+        }
+    }
+}
+
+fn render_svg_favicon_node(
+    context: &mut RenderContext,
+    node: &FaviconNode,
+    current_transform: Affine,
+    inherited: &FaviconInheritedStyle,
+) {
+    let transform = current_transform * node.transform;
+    let style = inherited.with_node_style(&node.style);
+    if style.hidden || style.opacity <= 0.0 {
+        return;
+    }
+
+    match &node.kind {
+        FaviconNodeKind::Group { children } => {
+            for child in children {
+                render_svg_favicon_node(context, child, transform, &style);
+            }
+        }
+        FaviconNodeKind::Path(path) => {
+            context.set_transform(transform);
+            context.set_fill_rule(style.fill_rule);
+            if let Some(fill) = style.fill {
+                context.set_paint(color_with_opacity(fill, style.opacity));
+                context.fill_path(path);
+            }
+            if let Some(stroke) = style.stroke {
+                context.set_paint(color_with_opacity(stroke, style.opacity));
+                context.set_stroke(Stroke {
+                    width: style.stroke_width.max(0.0),
+                    join: style.line_join,
+                    start_cap: style.line_cap,
+                    end_cap: style.line_cap,
+                    ..Default::default()
+                });
+                context.stroke_path(path);
+            }
+        }
+    }
+}
+
+fn color_with_opacity(color: [u8; 4], opacity: f32) -> AlphaColor<Srgb> {
+    let alpha = (f32::from(color[3]) * opacity).round().clamp(0.0, 255.0) as u8;
+    AlphaColor::from_rgba8(color[0], color[1], color[2], alpha)
+}
+
+fn compute_favicon_root_transform(
+    viewport: &layout_api::SVGViewportData,
+    requested_width: f64,
+    requested_height: f64,
+) -> Option<Affine> {
+    let (view_box_x, view_box_y, view_box_width, view_box_height) = match viewport.view_box {
+        Some(view_box) => (view_box.x as f64, view_box.y as f64, view_box.width as f64, view_box.height as f64),
+        None => {
+            let width = viewport.width.and_then(resolve_svg_length_to_user_units)? as f64;
+            let height = viewport.height.and_then(resolve_svg_length_to_user_units)? as f64;
+            (0.0, 0.0, width, height)
+        }
+    };
+    if view_box_width <= 0.0 || view_box_height <= 0.0 {
+        return None;
+    }
+
+    let preserve = viewport.preserve_aspect_ratio;
+    let scale_x = requested_width / view_box_width;
+    let scale_y = requested_height / view_box_height;
+    let (scale_x, scale_y, align_x, align_y) = if preserve.align == layout_api::SVG_PRESERVEASPECTRATIO_NONE {
+        (scale_x, scale_y, 0.0, 0.0)
+    } else {
+        let uniform = if preserve.meet_or_slice == layout_api::SVG_MEETORSLICE_SLICE {
+            scale_x.max(scale_y)
+        } else {
+            scale_x.min(scale_y)
+        };
+        let extra_x = requested_width - view_box_width * uniform;
+        let extra_y = requested_height - view_box_height * uniform;
+        let (align_x_factor, align_y_factor) = match preserve.align {
+            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMIN => (0.0, 0.0),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMIN => (0.5, 0.0),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMIN => (1.0, 0.0),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMID => (0.0, 0.5),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMID => (0.5, 0.5),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMID => (1.0, 0.5),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMAX => (0.0, 1.0),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMAX => (0.5, 1.0),
+            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMAX => (1.0, 1.0),
+            _ => (0.5, 0.5),
+        };
+        (
+            uniform,
+            uniform,
+            extra_x * align_x_factor,
+            extra_y * align_y_factor,
+        )
+    };
+
+    Some(Affine::new([
+        scale_x,
+        0.0,
+        0.0,
+        scale_y,
+        align_x - view_box_x * scale_x,
+        align_y - view_box_y * scale_y,
+    ]))
+}
+
+fn parse_svg_favicon_scene(bytes: &[u8]) -> Result<FaviconScene, String> {
+    let source = std::str::from_utf8(bytes).map_err(|error| error.to_string())?;
+    let sink = SvgFaviconSink::default();
+    let input = BufferQueue::default();
+    input.push_back(StrTendril::from_slice(source));
+    let tokenizer = XmlTokenizer::new(sink, Default::default());
+    match tokenizer.feed(&input) {
+        TokenizerResult::Done | TokenizerResult::Script(_) | TokenizerResult::EncodingIndicator(_) => {}
+    }
+    tokenizer.end();
+    tokenizer.sink.into_scene()
+}
+
+#[derive(Default)]
+struct SvgFaviconSink {
+    state: RefCell<SvgFaviconState>,
+}
+
+impl SvgFaviconSink {
+    fn into_scene(self) -> Result<FaviconScene, String> {
+        self.state.into_inner().into_scene()
+    }
+}
+
+impl TokenSink for SvgFaviconSink {
+    type Handle = ();
+
+    fn process_token(&self, token: Token) -> ProcessResult<Self::Handle> {
+        let mut state = self.state.borrow_mut();
+        if state.error.is_some() {
+            return ProcessResult::Done;
+        }
+        match token {
+            Token::Tag(tag) => state.process_tag(tag),
+            Token::ParseError(error) => {
+                state.error = Some(error.into_owned());
+                ProcessResult::Done
+            }
+            Token::EndOfFile => {
+                state.finish();
+                ProcessResult::Done
+            }
+            _ => ProcessResult::Continue,
+        }
+    }
+}
+
+#[derive(Default)]
+struct SvgFaviconState {
+    root: Option<FaviconNode>,
+    stack: Vec<OpenFaviconNode>,
+    error: Option<String>,
+}
+
+struct OpenFaviconNode {
+    local_name: String,
+    node: Option<FaviconNode>,
+}
+
+impl SvgFaviconState {
+    fn into_scene(self) -> Result<FaviconScene, String> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        let root = self.root.ok_or_else(|| "not an SVG document".to_string())?;
+        let FaviconNodeKind::Group { children } = root.kind else {
+            return Err("invalid SVG root".to_string());
+        };
+        Ok(FaviconScene { children })
+    }
+
+    fn finish(&mut self) {
+        while let Some(open) = self.stack.pop() {
+            self.attach(open);
+        }
+        if self.root.is_none() && self.error.is_none() {
+            self.error = Some("not an SVG document".to_string());
+        }
+    }
+
+    fn process_tag(&mut self, tag: Tag) -> ProcessResult<()> {
+        match tag.kind {
+            TagKind::StartTag => {
+                self.start(tag);
+                ProcessResult::Continue
+            }
+            TagKind::EmptyTag => {
+                self.start(tag.clone());
+                if self.error.is_some() {
+                    return ProcessResult::Done;
+                }
+                self.end(&tag.name.local.to_string());
+                if self.error.is_some() {
+                    ProcessResult::Done
+                } else {
+                    ProcessResult::Continue
+                }
+            }
+            TagKind::EndTag => {
+                self.end(&tag.name.local.to_string());
+                if self.error.is_some() {
+                    ProcessResult::Done
+                } else {
+                    ProcessResult::Continue
+                }
+            }
+            TagKind::ShortTag => ProcessResult::Continue,
+        }
+    }
+
+    fn start(&mut self, tag: Tag) {
+        let local_name = tag.name.local.to_string();
+        let attrs = collect_svg_attr_map(&tag);
+        let node = if self.stack.is_empty() {
+            if local_name != "svg" {
+                self.error = Some("not an SVG document".to_string());
+                return;
+            }
+            Some(FaviconNode {
+                transform: parse_svg_favicon_transform(attrs.get("transform").map(String::as_str)),
+                style: parse_svg_favicon_style(&attrs),
+                kind: FaviconNodeKind::Group { children: Vec::new() },
+            })
+        } else {
+            parse_svg_favicon_node(&local_name, &attrs)
+        };
+        self.stack.push(OpenFaviconNode { local_name, node });
+    }
+
+    fn end(&mut self, local_name: &str) {
+        let Some(open) = self.stack.pop() else {
+            self.error = Some(format!("unexpected end tag </{local_name}>"));
+            return;
+        };
+        if open.local_name != local_name {
+            self.error = Some(format!("mismatched end tag </{local_name}>"));
+            return;
+        }
+        self.attach(open);
+    }
+
+    fn attach(&mut self, open: OpenFaviconNode) {
+        let Some(node) = open.node else {
+            return;
+        };
+        if self.stack.iter().any(|open| open.node.is_none()) {
+            return;
+        }
+        if let Some(parent) = self.stack.iter_mut().rev().find_map(|open| open.node.as_mut()) {
+            if let FaviconNodeKind::Group { children } = &mut parent.kind {
+                children.push(node);
+            }
+            return;
+        }
+        self.root = Some(node);
+    }
+}
+
+fn collect_svg_attr_map(tag: &Tag) -> HashMap<String, String> {
+    let mut attrs = HashMap::new();
+    for attr in &tag.attrs {
+        attrs.insert(attr.name.local.to_string(), attr.value.to_string());
+    }
+    if let Some(style) = attrs.get("style").cloned() {
+        for declaration in style.split(';') {
+            let Some((name, value)) = declaration.split_once(':') else {
+                continue;
+            };
+            attrs.insert(name.trim().to_string(), value.trim().to_string());
+        }
+    }
+    attrs
+}
+
+fn parse_svg_favicon_node(local_name: &str, attrs: &HashMap<String, String>) -> Option<FaviconNode> {
+    let transform = parse_svg_favicon_transform(attrs.get("transform").map(String::as_str));
+    let style = parse_svg_favicon_style(attrs);
+    let kind = match local_name {
+        "g" | "svg" => FaviconNodeKind::Group { children: Vec::new() },
+        "path" => FaviconNodeKind::Path(parse_svg_favicon_path(attrs.get("d")?)?),
+        "rect" => FaviconNodeKind::Path(parse_svg_favicon_rect(attrs)?),
+        "circle" => FaviconNodeKind::Path(parse_svg_favicon_circle(attrs)?),
+        "ellipse" => FaviconNodeKind::Path(parse_svg_favicon_ellipse(attrs)?),
+        "line" => FaviconNodeKind::Path(parse_svg_favicon_line(attrs)?),
+        "polyline" => FaviconNodeKind::Path(parse_svg_favicon_poly(attrs.get("points")?, false)?),
+        "polygon" => FaviconNodeKind::Path(parse_svg_favicon_poly(attrs.get("points")?, true)?),
+        _ => return None,
+    };
+    Some(FaviconNode { transform, style, kind })
+}
+
+fn parse_svg_favicon_style(attrs: &HashMap<String, String>) -> FaviconNodeStyle {
+    let opacity = attrs
+        .get("opacity")
+        .and_then(|value| parse_svg_optional_number(Some(value)))
+        .map(|value| value.clamp(0.0, 1.0));
+    FaviconNodeStyle {
+        fill: parse_svg_favicon_paint(attrs.get("fill").map(String::as_str)),
+        stroke: parse_svg_favicon_paint(attrs.get("stroke").map(String::as_str)),
+        stroke_width: attrs
+            .get("stroke-width")
+            .and_then(|value| parse_svg_favicon_length(value))
+            .map(f64::from),
+        fill_rule: attrs.get("fill-rule").and_then(|value| match value.as_str() {
+            "evenodd" => Some(Fill::EvenOdd),
+            "nonzero" => Some(Fill::NonZero),
+            _ => None,
+        }),
+        opacity,
+        line_cap: attrs.get("stroke-linecap").and_then(|value| match value.as_str() {
+            "round" => Some(Cap::Round),
+            "square" => Some(Cap::Square),
+            "butt" => Some(Cap::Butt),
+            _ => None,
+        }),
+        line_join: attrs.get("stroke-linejoin").and_then(|value| match value.as_str() {
+            "round" => Some(Join::Round),
+            "bevel" => Some(Join::Bevel),
+            "miter" => Some(Join::Miter),
+            _ => None,
+        }),
+        hidden: attrs.get("display").is_some_and(|value| value == "none") ||
+            attrs.get("visibility").is_some_and(|value| value == "hidden"),
+    }
+}
+
+fn parse_svg_favicon_paint(raw: Option<&str>) -> Option<Option<[u8; 4]>> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if raw.eq_ignore_ascii_case("none") {
+        return Some(None);
+    }
+    parse_svg_favicon_color(raw).map(Some)
+}
+
+fn parse_svg_favicon_color(raw: &str) -> Option<[u8; 4]> {
+    let raw = raw.trim();
+    if raw.eq_ignore_ascii_case("currentColor") {
+        return Some([0, 0, 0, 255]);
+    }
+    if raw.eq_ignore_ascii_case("transparent") {
+        return Some([0, 0, 0, 0]);
+    }
+    if let Some(hex) = raw.strip_prefix('#') {
+        return match hex.len() {
+            3 => Some([
+                u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?,
+                255,
+            ]),
+            4 => Some([
+                u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[3..4].repeat(2), 16).ok()?,
+            ]),
+            6 => Some([
+                u8::from_str_radix(&hex[0..2], 16).ok()?,
+                u8::from_str_radix(&hex[2..4], 16).ok()?,
+                u8::from_str_radix(&hex[4..6], 16).ok()?,
+                255,
+            ]),
+            8 => Some([
+                u8::from_str_radix(&hex[0..2], 16).ok()?,
+                u8::from_str_radix(&hex[2..4], 16).ok()?,
+                u8::from_str_radix(&hex[4..6], 16).ok()?,
+                u8::from_str_radix(&hex[6..8], 16).ok()?,
+            ]),
+            _ => None,
+        };
+    }
+    if let Some(args) = raw.strip_prefix("rgb(").and_then(|value| value.strip_suffix(')')) {
+        let components = parse_svg_color_components(args, false)?;
+        return Some([components[0], components[1], components[2], 255]);
+    }
+    if let Some(args) = raw.strip_prefix("rgba(").and_then(|value| value.strip_suffix(')')) {
+        let components = parse_svg_color_components(args, true)?;
+        return Some(components);
+    }
+    match raw.to_ascii_lowercase().as_str() {
+        "black" => Some([0, 0, 0, 255]),
+        "white" => Some([255, 255, 255, 255]),
+        "red" => Some([255, 0, 0, 255]),
+        "green" => Some([0, 128, 0, 255]),
+        "blue" => Some([0, 0, 255, 255]),
+        "yellow" => Some([255, 255, 0, 255]),
+        "gray" | "grey" => Some([128, 128, 128, 255]),
+        "silver" => Some([192, 192, 192, 255]),
+        "maroon" => Some([128, 0, 0, 255]),
+        "purple" => Some([128, 0, 128, 255]),
+        "fuchsia" | "magenta" => Some([255, 0, 255, 255]),
+        "lime" => Some([0, 255, 0, 255]),
+        "olive" => Some([128, 128, 0, 255]),
+        "navy" => Some([0, 0, 128, 255]),
+        "teal" => Some([0, 128, 128, 255]),
+        "aqua" | "cyan" => Some([0, 255, 255, 255]),
+        _ => None,
+    }
+}
+
+fn parse_svg_color_components(args: &str, has_alpha: bool) -> Option<[u8; 4]> {
+    let parts = args
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let expected = if has_alpha { 4 } else { 3 };
+    if parts.len() != expected {
+        return None;
+    }
+    let parse_rgb = |raw: &str| {
+        if let Some(percent) = raw.strip_suffix('%') {
+            let value: f32 = percent.parse().ok()?;
+            Some((value * 2.55).round().clamp(0.0, 255.0) as u8)
+        } else {
+            let value: f32 = raw.parse().ok()?;
+            Some(value.round().clamp(0.0, 255.0) as u8)
+        }
+    };
+    let parse_alpha = |raw: &str| {
+        if let Some(percent) = raw.strip_suffix('%') {
+            let value: f32 = percent.parse().ok()?;
+            Some((value * 2.55).round().clamp(0.0, 255.0) as u8)
+        } else {
+            let value: f32 = raw.parse().ok()?;
+            Some((value * 255.0).round().clamp(0.0, 255.0) as u8)
+        }
+    };
+    Some([
+        parse_rgb(parts[0])?,
+        parse_rgb(parts[1])?,
+        parse_rgb(parts[2])?,
+        if has_alpha { parse_alpha(parts[3])? } else { 255 },
+    ])
+}
+
+fn parse_svg_favicon_transform(raw: Option<&str>) -> Affine {
+    let transform = layout_api::compose_svg_transform_list(&parse_svg_transform_list(raw));
+    Affine::new([
+        transform.m11 as f64,
+        transform.m12 as f64,
+        transform.m21 as f64,
+        transform.m22 as f64,
+        transform.m31 as f64,
+        transform.m32 as f64,
+    ])
+}
+
+fn parse_svg_favicon_length(raw: &str) -> Option<f32> {
+    resolve_svg_length_to_user_units(parse_svg_length(Some(raw)))
+}
+
+fn parse_svg_favicon_path(raw: &str) -> Option<BezPath> {
+    let mut path = BezPath::new();
+    for segment in svgtypes::SimplifyingPathParser::from(raw) {
+        match segment.ok()? {
+            svgtypes::SimplePathSegment::MoveTo { x, y } => path.move_to(Point::new(x, y)),
+            svgtypes::SimplePathSegment::LineTo { x, y } => path.line_to(Point::new(x, y)),
+            svgtypes::SimplePathSegment::CurveTo { x1, y1, x2, y2, x, y } => {
+                path.curve_to(Point::new(x1, y1), Point::new(x2, y2), Point::new(x, y));
+            }
+            svgtypes::SimplePathSegment::Quadratic { x1, y1, x, y } => {
+                path.quad_to(Point::new(x1, y1), Point::new(x, y));
+            }
+            svgtypes::SimplePathSegment::ClosePath => path.close_path(),
+        }
+    }
+    Some(path)
+}
+
+fn parse_svg_favicon_rect(attrs: &HashMap<String, String>) -> Option<BezPath> {
+    let x = attrs.get("x").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let y = attrs.get("y").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let width = attrs.get("width").and_then(|value| parse_svg_favicon_length(value))?;
+    let height = attrs.get("height").and_then(|value| parse_svg_favicon_length(value))?;
+    Some(Rect::new(x as f64, y as f64, (x + width) as f64, (y + height) as f64).to_path(0.1))
+}
+
+fn parse_svg_favicon_circle(attrs: &HashMap<String, String>) -> Option<BezPath> {
+    let cx = attrs.get("cx").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let cy = attrs.get("cy").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let r = attrs.get("r").and_then(|value| parse_svg_favicon_length(value))?;
+    Some(Circle::new((cx as f64, cy as f64), r as f64).to_path(0.1))
+}
+
+fn parse_svg_favicon_ellipse(attrs: &HashMap<String, String>) -> Option<BezPath> {
+    let cx = attrs.get("cx").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let cy = attrs.get("cy").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let rx = attrs.get("rx").and_then(|value| parse_svg_favicon_length(value))?;
+    let ry = attrs.get("ry").and_then(|value| parse_svg_favicon_length(value))?;
+    Some(Ellipse::new((cx as f64, cy as f64), (rx as f64, ry as f64), 0.0).to_path(0.1))
+}
+
+fn parse_svg_favicon_line(attrs: &HashMap<String, String>) -> Option<BezPath> {
+    let x1 = attrs.get("x1").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let y1 = attrs.get("y1").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let x2 = attrs.get("x2").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    let y2 = attrs.get("y2").and_then(|value| parse_svg_favicon_length(value)).unwrap_or(0.0);
+    Some(Line::new((x1 as f64, y1 as f64), (x2 as f64, y2 as f64)).to_path(0.1))
+}
+
+fn parse_svg_favicon_poly(raw: &str, closed: bool) -> Option<BezPath> {
+    let mut points = svgtypes::PointsParser::from(raw)
+        .map(|(x, y)| Point::new(x, y))
+        .collect::<Vec<_>>();
+    let first = points.first().copied()?;
+    let mut path = BezPath::new();
+    path.move_to(first);
+    for point in points.drain(1..) {
+        path.line_to(point);
+    }
+    if closed {
+        path.close_path();
+    }
+    Some(path)
+}
+
 fn decode_bytes_sync(
     key: LoadKey,
     bytes: &[u8],
     cors: CorsStatus,
     content_type: Option<Mime>,
-    fontdb: Arc<fontdb::Database>,
 ) -> DecoderMsg {
     let is_svg_document = content_type.is_some_and(|content_type| {
         (
@@ -167,12 +733,23 @@ fn decode_bytes_sync(
     });
 
     let image = if is_svg_document {
-        parse_svg_tree(bytes, fontdb).ok().map(|svg_tree| {
+        extract_svg_root_metadata(bytes).ok().map(|metadata| {
+            let width = metadata
+                .viewport
+                .width
+                .and_then(layout_api::resolve_svg_length_to_user_units)
+                .filter(|value| *value > 0.0)
+                .or_else(|| metadata.viewport.view_box.map(|view_box| view_box.width.max(0.0)))
+                .unwrap_or(0.0) as u32;
+            let height = metadata
+                .viewport
+                .height
+                .and_then(layout_api::resolve_svg_length_to_user_units)
+                .filter(|value| *value > 0.0)
+                .or_else(|| metadata.viewport.view_box.map(|view_box| view_box.height.max(0.0)))
+                .unwrap_or(0.0) as u32;
             DecodedImage::VectorMetadata(VectorImageData {
-                metadata: ImageMetadata {
-                    width: svg_tree.size().width() as u32,
-                    height: svg_tree.size().height() as u32,
-                },
+                metadata: ImageMetadata { width, height },
                 bytes: Arc::new(bytes.to_vec()),
                 cors_status: cors,
             })
@@ -695,8 +1272,6 @@ pub struct ImageCacheFactoryImpl {
     broken_image_icon_data: Arc<Vec<u8>>,
     /// Thread pool for image decoding
     thread_pool: Arc<ThreadPool>,
-    /// A shared font database used while parsing SVG metadata during image decoding.
-    fontdb: Arc<fontdb::Database>,
 }
 
 impl ImageCacheFactoryImpl {
@@ -711,13 +1286,9 @@ impl ImageCacheFactoryImpl {
             .unwrap_or(pref!(threadpools_fallback_worker_num) as usize)
             .min(pref!(threadpools_image_cache_workers_max).max(1) as usize);
 
-        let mut fontdb = fontdb::Database::new();
-        fontdb.load_system_fonts();
-
         Self {
             broken_image_icon_data: Arc::new(broken_image_icon_data),
             thread_pool: Arc::new(ThreadPool::new(thread_count, "ImageCache".to_string())),
-            fontdb: Arc::new(fontdb),
         }
     }
 }
@@ -742,7 +1313,6 @@ impl ImageCacheFactory for ImageCacheFactoryImpl {
             })),
             broken_image_icon_data: self.broken_image_icon_data.clone(),
             thread_pool: self.thread_pool.clone(),
-            fontdb: self.fontdb.clone(),
         })
     }
 }
@@ -755,9 +1325,6 @@ pub struct ImageCacheImpl {
     /// Thread pool for image decoding. This is shared with other [`ImageCache`]s in the
     /// same process.
     thread_pool: Arc<ThreadPool>,
-    /// A shared font database used while parsing SVG metadata during image decoding.
-    /// This is shared with other [`ImageCache`]s in the same process.
-    fontdb: Arc<fontdb::Database>,
 }
 
 impl ImageCache for ImageCacheImpl {
@@ -839,7 +1406,6 @@ impl ImageCache for ImageCacheImpl {
                                 pl.bytes.as_slice(),
                                 pl.cors_status,
                                 pl.content_type.clone(),
-                                self.fontdb.clone(),
                             ),
                         )
                     },
@@ -989,10 +1555,8 @@ impl ImageCache for ImageCacheImpl {
                         };
 
                         let local_store = self.store.clone();
-                        let fontdb = self.fontdb.clone();
                         self.thread_pool.spawn(move || {
-                            let msg =
-                                decode_bytes_sync(key, &bytes, cors_status, content_type, fontdb);
+                            let msg = decode_bytes_sync(key, &bytes, cors_status, content_type);
                             local_store.lock().handle_decoder(msg);
                         });
                     },

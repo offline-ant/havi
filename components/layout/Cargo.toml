@@ -66,6 +66,7 @@ url = { workspace = true }
 svgtypes = { workspace = true }
 webrender_api = { workspace = true }
 xi-unicode = { workspace = true }
+xml5ever = { workspace = true }
 
 [dev-dependencies]
 num-traits = { workspace = true }

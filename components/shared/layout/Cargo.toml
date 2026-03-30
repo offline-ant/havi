@@ -40,3 +40,4 @@ servo_url = { path = "../../url" }
 stylo = { workspace = true }
 stylo_traits = { workspace = true }
 webrender_api = { workspace = true }
+xml5ever = { workspace = true }

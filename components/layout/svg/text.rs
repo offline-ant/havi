@@ -1,20 +1,22 @@
 use std::ops::Range;
-
-use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 use app_units::Au;
+use base::id::PainterId;
 use base::text::is_bidi_control;
-use fonts::{FontMetrics, FontRef, LAST_RESORT_GLYPH_ADVANCE, ShapingFlags, ShapingOptions};
+use fonts::{
+    FontContext, FontMetrics, FontRef, LAST_RESORT_GLYPH_ADVANCE, ShapingFlags, ShapingOptions,
+};
 use layout_api::{SVGNodeKind, SVGTextBaselineValue};
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
 use style::Zero;
 use style::computed_values::text_rendering::T as TextRendering;
-use style::dom::{NodeInfo, OpaqueNode, TElement, TNode};
+use style::dom::OpaqueNode;
 use unicode_bidi::{BidiInfo, Level};
 use unicode_script::Script;
 use xi_unicode::linebreak_property;
 
-use super::dom::{SVGNodeResolvedStyle, SVGResolvedNode, resolve_svg_child_node, resolve_svg_node};
+use super::dom::SVGNodeResolvedStyle;
+use super::tree::{SVGOwnedNodeKind, SVGResolvedChild, SVGResolvedNode, SVGResolvedNodeMap};
 use super::path::{
     normalize_svg_geometry, resolve_length, svg_path_point_and_tangent_at_length,
     svg_path_total_length, transform_svg_path_data,
@@ -22,7 +24,6 @@ use super::path::{
 use super::resources::SVGResourceGraph;
 use super::transform::{parse_svg_transform, then_svg_transform};
 use crate::context::LayoutContext;
-use script::layout_dom::ServoThreadSafeLayoutNode;
 use havi_types::fragment_tree::{
     SVGAddressableChar, SVGBounds, SVGGlyphRun, SVGPoint, SVGTextAnchor, SVGTextChunk,
     SVGTextPayload, ShapedGlyph,
@@ -63,7 +64,7 @@ struct SVGTextSegment {
 impl SVGTextSegment {
     fn update_if_compatible(
         &mut self,
-        layout_context: &LayoutContext,
+        text_layout_context: &SVGTextLayoutContext,
         new_font: &FontRef,
         script: Script,
         bidi_level: Level,
@@ -76,8 +77,8 @@ impl SVGTextSegment {
             return false;
         }
 
-        if new_font.key(layout_context.painter_id, &layout_context.font_context) !=
-            self.font.key(layout_context.painter_id, &layout_context.font_context) ||
+        if new_font.key(text_layout_context.painter_id, &text_layout_context.font_context) !=
+            self.font.key(text_layout_context.painter_id, &text_layout_context.font_context) ||
             new_font.descriptor.pt_size != self.font.descriptor.pt_size
         {
             return false;
@@ -96,11 +97,26 @@ struct ShapedSVGRun {
     font_metrics: std::sync::Arc<FontMetrics>,
 }
 
+#[derive(Clone)]
+pub(crate) struct SVGTextLayoutContext {
+    pub font_context: Arc<FontContext>,
+    pub painter_id: PainterId,
+}
+
+impl From<&LayoutContext<'_>> for SVGTextLayoutContext {
+    fn from(layout_context: &LayoutContext<'_>) -> Self {
+        Self {
+            font_context: layout_context.font_context.clone(),
+            painter_id: layout_context.painter_id,
+        }
+    }
+}
+
 pub(crate) fn layout_svg_text(
-    node: &SVGResolvedNode<'_>,
-    layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
+    text_layout_context: &SVGTextLayoutContext,
     resource_graph: &SVGResourceGraph,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'_>>,
+    nodes_by_opaque: &SVGResolvedNodeMap<'_>,
 ) -> SVGTextLayoutResult {
     let Some(text_data) = text_node_data(node) else {
         return SVGTextLayoutResult::default();
@@ -110,7 +126,7 @@ pub(crate) fn layout_svg_text(
     let mut contexts = vec![SVGTextPositioningContext::new(text_data)];
     layout_svg_text_container(
         node,
-        layout_context,
+        text_layout_context,
         resource_graph,
         nodes_by_opaque,
         &mut contexts,
@@ -309,7 +325,7 @@ impl SVGTextLayoutState {
         });
     }
 
-    fn finish(mut self, node: &SVGResolvedNode<'_>) -> SVGTextLayoutResult {
+    fn finish(mut self, node: &SVGResolvedNode) -> SVGTextLayoutResult {
         self.finish_current_chunk();
         let object_bounding_box = text_run_bounds(&self.runs).unwrap_or_default();
         let stroke_bounding_box = inflate_text_bounds(
@@ -335,10 +351,10 @@ impl SVGTextLayoutState {
 }
 
 fn layout_svg_text_container(
-    node: &SVGResolvedNode<'_>,
-    layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
+    text_layout_context: &SVGTextLayoutContext,
     resource_graph: &SVGResourceGraph,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'_>>,
+    nodes_by_opaque: &SVGResolvedNodeMap<'_>,
     contexts: &mut Vec<SVGTextPositioningContext>,
     state: &mut SVGTextLayoutState,
 ) {
@@ -350,40 +366,37 @@ fn layout_svg_text_container(
         start_cursor_x: state.cursor.x,
     };
 
-    for child in node.node.children() {
-        if child.is_text_node() {
-            let text = child.text_content().into_owned();
-            layout_svg_text_content(node, layout_context, &text, contexts, state);
-            continue;
-        }
-        if !child.is_element() {
-            continue;
-        }
-        let Some(child) = resolve_svg_child_node(child, &layout_context.style_context, node) else {
-            continue;
-        };
-        if matches!(child.svg_data.node_kind, SVGNodeKind::TextPath(_)) {
-            state.finish_current_chunk();
-        }
-        if matches!(
-            child.svg_data.node_kind,
-            SVGNodeKind::Text(_) | SVGNodeKind::TSpan(_) | SVGNodeKind::TextPath(_)
-        ) {
-            let Some(text_data) = text_node_data(&child) else {
-                continue;
-            };
-            contexts.push(SVGTextPositioningContext::new(text_data));
-            layout_svg_text_container(
-                &child,
-                layout_context,
-                resource_graph,
-                nodes_by_opaque,
-                contexts,
-                state,
-            );
-            contexts.pop();
-            if matches!(child.svg_data.node_kind, SVGNodeKind::TextPath(_)) {
-                state.finish_current_chunk();
+    for child in &node.children {
+        match child {
+            SVGResolvedChild::Text(text) => {
+                layout_svg_text_content(node, text_layout_context, text, contexts, state);
+            }
+            SVGResolvedChild::Node(child) => {
+                let child_svg_data = child.svg_data();
+                if matches!(child_svg_data.node_kind, SVGNodeKind::TextPath(_)) {
+                    state.finish_current_chunk();
+                }
+                if matches!(
+                    child_svg_data.node_kind,
+                    SVGNodeKind::Text(_) | SVGNodeKind::TSpan(_) | SVGNodeKind::TextPath(_)
+                ) {
+                    let Some(text_data) = text_node_data(child) else {
+                        continue;
+                    };
+                    contexts.push(SVGTextPositioningContext::new(text_data));
+                    layout_svg_text_container(
+                        child,
+                        text_layout_context,
+                        resource_graph,
+                        nodes_by_opaque,
+                        contexts,
+                        state,
+                    );
+                    contexts.pop();
+                    if matches!(child_svg_data.node_kind, SVGNodeKind::TextPath(_)) {
+                        state.finish_current_chunk();
+                    }
+                }
             }
         }
     }
@@ -394,12 +407,12 @@ fn layout_svg_text_container(
         ..range_start
     };
     apply_text_length_adjustment(node, range, state);
-    apply_text_path_layout(node, range, layout_context, resource_graph, nodes_by_opaque, state);
+    apply_text_path_layout(node, range, resource_graph, nodes_by_opaque, state);
 }
 
 fn layout_svg_text_content(
-    node: &SVGResolvedNode<'_>,
-    layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
+    text_layout_context: &SVGTextLayoutContext,
     text: &str,
     contexts: &mut Vec<SVGTextPositioningContext>,
     state: &mut SVGTextLayoutState,
@@ -416,7 +429,7 @@ fn layout_svg_text_content(
         if segment.text.is_empty() {
             continue;
         }
-        let shaped_runs = shape_svg_text_runs(node, layout_context, &segment.text);
+        let shaped_runs = shape_svg_text_runs(node, text_layout_context, &segment.text);
         if shaped_runs.is_empty() {
             continue;
         }
@@ -506,7 +519,7 @@ fn segment_chunk_origin_x(segment: &SVGTextSegmentPlan, current_x: f32) -> f32 {
 }
 
 fn apply_text_length_adjustment(
-    node: &SVGResolvedNode<'_>,
+    node: &SVGResolvedNode,
     range: SVGTextRange,
     state: &mut SVGTextLayoutState,
 ) {
@@ -546,14 +559,13 @@ fn apply_text_length_adjustment(
 }
 
 fn apply_text_path_layout(
-    node: &SVGResolvedNode<'_>,
+    node: &SVGResolvedNode,
     range: SVGTextRange,
-    layout_context: &LayoutContext,
     resource_graph: &SVGResourceGraph,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'_>>,
+    nodes_by_opaque: &SVGResolvedNodeMap<'_>,
     state: &mut SVGTextLayoutState,
 ) {
-    let SVGNodeKind::TextPath(text_path) = &node.svg_data.node_kind else {
+    let SVGNodeKind::TextPath(text_path) = &node.svg_data().node_kind else {
         return;
     };
     let Some(path_node) = text_path
@@ -563,7 +575,7 @@ fn apply_text_path_layout(
     else {
         return;
     };
-    let Some(path) = resolve_text_path_source_path(path_node, layout_context, nodes_by_opaque) else {
+    let Some(path) = resolve_text_path_source_path(path_node, nodes_by_opaque) else {
         return;
     };
     let total_path_length = svg_path_total_length(&path);
@@ -603,32 +615,30 @@ fn apply_text_path_layout(
 
 fn resolve_text_path_source_path(
     path_node: OpaqueNode,
-    layout_context: &LayoutContext,
-    nodes_by_opaque: &FxHashMap<OpaqueNode, ServoThreadSafeLayoutNode<'_>>,
+    nodes_by_opaque: &SVGResolvedNodeMap<'_>,
 ) -> Option<havi_types::fragment_tree::SVGPathData> {
-    let node = nodes_by_opaque.get(&path_node).copied()?;
-    let resolved = resolve_svg_node(node, &layout_context.style_context)?;
-    let (geometry, style) = match (&resolved.svg_data.node_kind, &resolved.resolved_style) {
+    let resolved = nodes_by_opaque.get(&path_node).copied()?;
+    let svg_data = resolved.svg_data();
+    let (geometry, style) = match (&svg_data.node_kind, &resolved.resolved_style) {
         (SVGNodeKind::Geometry(geometry), SVGNodeResolvedStyle::Geometry(style)) => (geometry, style),
         _ => return None,
     };
     let path = normalize_svg_geometry(geometry, style.fill_rule).into();
-    let transform = accumulate_svg_transform_chain(resolved.node);
+    let transform = accumulate_svg_transform_chain(resolved, nodes_by_opaque);
     Some(transform_svg_path_data(&path, transform))
 }
 
-fn accumulate_svg_transform_chain(mut node: ServoThreadSafeLayoutNode<'_>) -> havi_types::fragment_tree::SVGTransform {
+fn accumulate_svg_transform_chain(
+    node: &SVGResolvedNode,
+    nodes_by_opaque: &SVGResolvedNodeMap<'_>,
+) -> havi_types::fragment_tree::SVGTransform {
     let mut chain = Vec::new();
-    while let Some(svg) = node.svg_data() {
-        chain.push(parse_svg_transform(&svg.common.transform));
-        let Some(parent) = node
-            .unsafe_get()
-            .traversal_parent()
-            .map(|parent| ServoThreadSafeLayoutNode::new(parent.as_node()))
-        else {
-            break;
-        };
-        node = parent;
+    let mut current = Some(node);
+    while let Some(node) = current {
+        chain.push(parse_svg_transform(&node.svg_data().common.transform));
+        current = node
+            .parent_node
+            .and_then(|parent| nodes_by_opaque.get(&parent).copied());
     }
     chain.into_iter().rev().fold(
         havi_types::fragment_tree::SVGTransform::identity(),
@@ -726,7 +736,7 @@ fn consume_context_rotate(contexts: &mut [SVGTextPositioningContext]) -> Option<
 }
 
 fn position_shaped_svg_run(
-    node: &SVGResolvedNode<'_>,
+    node: &SVGResolvedNode,
     run_index: u32,
     mut run: SVGGlyphRun,
     font_metrics: &FontMetrics,
@@ -892,21 +902,21 @@ fn glyph_bounds_rect_with_metrics(
 }
 
 fn shape_svg_text_runs(
-    node: &SVGResolvedNode<'_>,
-    layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
+    text_layout_context: &SVGTextLayoutContext,
     text: &str,
 ) -> Vec<ShapedSVGRun> {
     let bidi_info = BidiInfo::new(text, None);
-    let segments = segment_text_by_font(node, layout_context, text, &bidi_info);
+    let segments = segment_text_by_font(node, text_layout_context, text, &bidi_info);
     segments
         .into_iter()
-        .filter_map(|segment| shape_svg_text_segment(node, layout_context, text, segment))
+        .filter_map(|segment| shape_svg_text_segment(node, text, segment))
         .collect()
 }
 
 fn segment_text_by_font(
-    node: &SVGResolvedNode<'_>,
-    layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
+    text_layout_context: &SVGTextLayoutContext,
     text: &str,
     bidi_info: &BidiInfo,
 ) -> Vec<SVGTextSegment> {
@@ -914,11 +924,11 @@ fn segment_text_by_font(
         .and_then(|text| text.font_size)
         .and_then(layout_api::resolve_svg_length_to_user_units)
         .map(|font_size_px| {
-            layout_context
+            text_layout_context
                 .font_context
                 .font_group_with_size(node.computed_style.clone_font(), Au::from_f32_px(font_size_px))
         })
-        .unwrap_or_else(|| layout_context.font_context.font_group(node.computed_style.clone_font()));
+        .unwrap_or_else(|| text_layout_context.font_context.font_group(node.computed_style.clone_font()));
     let lang = node.computed_style.get_font()._x_lang.clone();
 
     let mut current: Option<SVGTextSegment> = None;
@@ -935,7 +945,7 @@ fn segment_text_by_font(
         let bidi_level = bidi_info.levels[index];
         let next_character = iter.peek().map(|(_, next)| *next);
         let Some(font) = font_group.find_by_codepoint(
-            &layout_context.font_context,
+            &text_layout_context.font_context,
             character,
             next_character,
             lang.clone(),
@@ -944,7 +954,7 @@ fn segment_text_by_font(
         };
 
         if let Some(current) = current.as_mut() {
-            if current.update_if_compatible(layout_context, &font, script, bidi_level) {
+            if current.update_if_compatible(text_layout_context, &font, script, bidi_level) {
                 continue;
             }
         }
@@ -965,7 +975,7 @@ fn segment_text_by_font(
 
     if current.is_none() {
         current = font_group
-            .first(&layout_context.font_context)
+            .first(&text_layout_context.font_context)
             .map(|font| SVGTextSegment {
                 font,
                 script: Script::Common,
@@ -983,8 +993,7 @@ fn segment_text_by_font(
 }
 
 fn shape_svg_text_segment(
-    node: &SVGResolvedNode<'_>,
-    _layout_context: &LayoutContext,
+    node: &SVGResolvedNode,
     text: &str,
     segment: SVGTextSegment,
 ) -> Option<ShapedSVGRun> {
@@ -1071,30 +1080,30 @@ fn shape_svg_text_segment(
     })
 }
 
-fn text_node_data<'a>(node: &'a SVGResolvedNode<'a>) -> Option<&'a layout_api::SVGTextData> {
-    match &node.svg_data.node_kind {
-        SVGNodeKind::Text(data) | SVGNodeKind::TSpan(data) => Some(data),
+fn text_node_data(node: &SVGResolvedNode) -> Option<&layout_api::SVGTextData> {
+    match &node.node_data.node_kind {
+        SVGOwnedNodeKind::Text(data) | SVGOwnedNodeKind::TSpan(data) => Some(data),
         // TextPath contributes its inline text positioning; path-following is stubbed (svg-missing.md).
-        SVGNodeKind::TextPath(data) => Some(&data.text),
+        SVGOwnedNodeKind::TextPath(data) => Some(&data.text),
         _ => None,
     }
 }
 
-fn text_anchor(node: &SVGResolvedNode<'_>) -> SVGTextAnchor {
+fn text_anchor(node: &SVGResolvedNode) -> SVGTextAnchor {
     match &node.resolved_style {
         SVGNodeResolvedStyle::Text(style) => style.text_anchor,
         _ => SVGTextAnchor::Start,
     }
 }
 
-fn text_stroke_half_width(node: &SVGResolvedNode<'_>) -> Option<f32> {
+fn text_stroke_half_width(node: &SVGResolvedNode) -> Option<f32> {
     match &node.resolved_style {
         SVGNodeResolvedStyle::Text(style) => style.paint.stroke.as_ref().map(|stroke| stroke.width.max(0.0) * 0.5),
         _ => None,
     }
 }
 
-fn resolve_baseline_y(font_metrics: &FontMetrics, node: &SVGResolvedNode<'_>, y: Au) -> Au {
+fn resolve_baseline_y(font_metrics: &FontMetrics, node: &SVGResolvedNode, y: Au) -> Au {
     let baseline = match &node.resolved_style {
         SVGNodeResolvedStyle::Text(style) => style
             .alignment_baseline

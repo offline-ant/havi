@@ -36,10 +36,15 @@ use crate::fragment_tree::{
 };
 use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSize};
 use crate::layout_box_base::{CacheableLayoutResult, LayoutBoxBase};
+use crate::positioned::PositioningContext;
 use crate::sizing::{
     ComputeInlineContentSizes, InlineContentSizesResult, LazySize, SizeConstraint,
 };
 use crate::style_ext::{AspectRatio, Clamp, ComputedValuesExt, LayoutStyle};
+use crate::svg::layout::build_svg_root_fragment_from_tree;
+use crate::svg::parse::{
+    compute_svg_image_intrinsic_sizes, extract_svg_root_metadata, parse_svg_tree,
+};
 use crate::{ConstraintSpace, ContainingBlock};
 
 #[derive(Debug, MallocSizeOf)]
@@ -96,6 +101,16 @@ impl NaturalSizes {
         let width = natural_size_in_dots.width as f32 / dppx;
         let height = natural_size_in_dots.height as f32 / dppx;
         Self::from_width_and_height(width, height)
+    }
+
+    pub(crate) fn from_svg_image_intrinsic_sizes(
+        intrinsic: crate::svg::parse::SVGImageIntrinsicSizes,
+    ) -> Self {
+        Self {
+            width: intrinsic.width.map(Au::from_f32_px),
+            height: intrinsic.height.map(Au::from_f32_px),
+            ratio: intrinsic.ratio,
+        }
     }
 
     pub(crate) fn empty() -> Self {
@@ -159,10 +174,27 @@ impl ReplacedContents {
                 if let Some(content_image) = Self::from_content_property(node, context) {
                     return Some(content_image);
                 }
-                (
-                    ReplacedContentKind::Image(image_info),
-                    NaturalSizes::from_natural_size_in_dots(natural_size_in_dots),
-                )
+                let cached_image = image_info.url.as_ref().and_then(|url| {
+                    context
+                        .image_resolver
+                        .get_cached_image_for_url(
+                            node.opaque(),
+                            url.clone(),
+                            LayoutImageDestination::BoxTreeConstruction,
+                        )
+                        .ok()
+                });
+                let natural_size = image_info
+                    .image
+                    .as_ref()
+                    .and_then(|image| Self::natural_sizes_for_image(context, image))
+                    .or_else(|| {
+                        cached_image
+                            .as_ref()
+                            .and_then(|image| Self::natural_sizes_for_image(context, image))
+                    })
+                    .unwrap_or_else(|| NaturalSizes::from_natural_size_in_dots(natural_size_in_dots));
+                (ReplacedContentKind::Image(image_info), natural_size)
             } else if let Some((canvas_info, natural_size_in_dots)) = node.as_canvas() {
                 (
                     ReplacedContentKind::Canvas(canvas_info),
@@ -213,6 +245,27 @@ impl ReplacedContents {
         })
     }
 
+    fn natural_sizes_for_image(
+        context: &LayoutContext,
+        image: &Image,
+    ) -> Option<NaturalSizes> {
+        match image {
+            Image::Raster(image) => Some(NaturalSizes::from_width_and_height(
+                image.metadata.width as f32,
+                image.metadata.height as f32,
+            )),
+            Image::Vector(vector_image) => context
+                .image_resolver
+                .vector_image_bytes(vector_image.id)
+                .and_then(|bytes| extract_svg_root_metadata(&bytes).ok())
+                .map(|metadata| {
+                    NaturalSizes::from_svg_image_intrinsic_sizes(
+                        compute_svg_image_intrinsic_sizes(&metadata.viewport),
+                    )
+                }),
+        }
+    }
+
     fn from_content_property(
         node: ServoThreadSafeLayoutNode<'_>,
         context: &LayoutContext,
@@ -239,7 +292,7 @@ impl ReplacedContents {
         image_url: &ComputedUrl,
     ) -> Option<Self> {
         if let ComputedUrl::Valid(image_url) = image_url {
-            let (image, width, height) = match context.image_resolver.get_or_request_image_or_meta(
+            let (image, natural_size) = match context.image_resolver.get_or_request_image_or_meta(
                 node.opaque(),
                 image_url.clone().into(),
                 LayoutImageDestination::BoxTreeConstruction,
@@ -251,15 +304,18 @@ impl ReplacedContents {
                                 .image_resolver
                                 .handle_animated_image(node.opaque(), image.clone());
                         }
-                        let metadata = image.metadata();
-                        (
-                            Some(image.clone()),
-                            metadata.width as f32,
-                            metadata.height as f32,
-                        )
-                    },
+                        let natural_size = Self::natural_sizes_for_image(context, &image)
+                            .unwrap_or_else(|| {
+                                let metadata = image.metadata();
+                                NaturalSizes::from_width_and_height(
+                                    metadata.width as f32,
+                                    metadata.height as f32,
+                                )
+                            });
+                        (Some(image.clone()), natural_size)
+                    }
                     ImageOrMetadataAvailable::MetadataAvailable(metadata, _id) => {
-                        (None, metadata.width as f32, metadata.height as f32)
+                        (None, NaturalSizes::from_width_and_height(metadata.width as f32, metadata.height as f32))
                     },
                 },
                 LayoutImageCacheResult::Pending | LayoutImageCacheResult::LoadError => return None,
@@ -271,7 +327,7 @@ impl ReplacedContents {
                     showing_broken_image_icon: false,
                     url: Some(image_url.clone().into()),
                 }),
-                natural_size: NaturalSizes::from_width_and_height(width, height),
+                natural_size,
                 base_fragment_info: node.into(),
             });
         }
@@ -394,62 +450,54 @@ impl ReplacedContents {
         style: &ServoArc<ComputedValues>,
         size: PhysicalSize<Au>,
     ) -> Vec<Fragment> {
-        let (object_fit_size, rect) = self.calculate_fragment_rect(style, size);
+        let (_object_fit_size, rect) = self.calculate_fragment_rect(style, size);
         let clip = PhysicalRect::new(PhysicalPoint::origin(), size);
 
         let base = BaseFragment::new(self.base_fragment_info, style.clone().into(), rect);
         match &self.kind {
-            ReplacedContentKind::Image(image_info) => image_info
-                .image
-                .as_ref()
-                .and_then(|image| match image {
-                    Image::Raster(raster_image) => Some(ImageFragment {
+            ReplacedContentKind::Image(image_info) => match image_info.image.as_ref() {
+                Some(Image::Raster(raster_image)) => vec![Fragment::Image(ArcRefCell::new(
+                    ImageFragment {
                         base,
                         clip,
                         image_key: raster_image.id,
                         source_kind: crate::fragment_tree::ImageFragmentSourceKind::Raster,
-                        svg_document_id: None,
                         image_revision: 0,
                         source_width: 0,
                         source_height: 0,
                         source_data: None,
                         showing_broken_image_icon: image_info.showing_broken_image_icon,
                         raster_image: Some(raster_image.clone()),
-                    }),
-                    Image::Vector(vector_image) => {
-                        let svg_bytes = layout_context.image_resolver.vector_image_bytes(vector_image.id)?;
-                        let scale = layout_context.style_context.device_pixel_ratio();
-                        let width = u32::try_from(object_fit_size.width.scale_by(scale.0).to_px())
-                            .unwrap_or(0)
-                            .max(1);
-                        let height = u32::try_from(object_fit_size.height.scale_by(scale.0).to_px())
-                            .unwrap_or(0)
-                            .max(1);
-                        Some(ImageFragment {
-                            base,
-                            clip,
-                            image_key: None,
-                            source_kind: crate::fragment_tree::ImageFragmentSourceKind::SvgDocument,
-                            svg_document_id: Some(vector_image.id.0),
-                            image_revision: vector_image.id.0,
-                            source_width: width,
-                            source_height: height,
-                            source_data: Some(svg_bytes),
-                            showing_broken_image_icon: image_info.showing_broken_image_icon,
-                            raster_image: None,
-                        })
                     },
-                })
-                .map(|fragment| Fragment::Image(ArcRefCell::new(fragment)))
-                .into_iter()
-                .collect(),
+                ))],
+                Some(Image::Vector(vector_image)) => {
+                    let Some(svg_bytes) = layout_context.image_resolver.vector_image_bytes(vector_image.id) else {
+                        return Vec::new();
+                    };
+                    let Ok(svg_tree) = parse_svg_tree(&svg_bytes) else {
+                        return Vec::new();
+                    };
+                    let mut positioning_context = PositioningContext::default();
+                    build_svg_root_fragment_from_tree(
+                        &svg_tree,
+                        style.clone(),
+                        layout_context,
+                        &mut positioning_context,
+                        self.base_fragment_info,
+                        style,
+                        rect,
+                    )
+                    .into_iter()
+                    .collect()
+                }
+                None => Vec::new(),
+            },
             ReplacedContentKind::Video(video_info) => {
                 vec![Fragment::Image(ArcRefCell::new(ImageFragment {
                     base,
                     clip,
                     image_key: video_info.image_key,
                     source_kind: crate::fragment_tree::ImageFragmentSourceKind::Video,
-                    svg_document_id: None,
                     image_revision: 0,
                     source_width: 0,
                     source_height: 0,
@@ -494,7 +542,6 @@ impl ReplacedContents {
                     clip,
                     image_key: Some(image_key),
                     source_kind: crate::fragment_tree::ImageFragmentSourceKind::Canvas,
-                    svg_document_id: None,
                     image_revision: 0,
                     source_width: 0,
                     source_height: 0,

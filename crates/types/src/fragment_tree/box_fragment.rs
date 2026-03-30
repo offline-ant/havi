@@ -6,8 +6,8 @@ use servo_arc::Arc as ServoArc;
 use style::properties::ComputedValues;
 
 use super::{
-    BaseFragment, CollapsedBlockMargins, FragmentId, FragmentImageKey, ImageSourceKind,
-    PaintChild,
+    BaseFragment, CollapsedBlockMargins, FragmentArenaGeneration, FragmentId, FragmentImageKey,
+    ImageSourceKind, PaintChild,
 };
 use crate::geom::PhysicalSides;
 
@@ -18,15 +18,30 @@ pub struct Baselines {
 }
 
 #[derive(Clone, Debug)]
+pub struct BackgroundLayerGeometry {
+    pub bounds_x: f64,
+    pub bounds_y: f64,
+    pub bounds_w: f32,
+    pub bounds_h: f32,
+    pub tile_w: f32,
+    pub tile_h: f32,
+    pub paint_x: f64,
+    pub paint_y: f64,
+    pub paint_w: f32,
+    pub paint_h: f32,
+}
+
+#[derive(Clone, Debug)]
 pub struct BackgroundImage {
     pub image_key: Option<FragmentImageKey>,
     pub source_kind: ImageSourceKind,
-    pub svg_document_id: Option<u64>,
     pub revision: u64,
     pub width: u32,
     pub height: u32,
     pub data: Arc<Vec<u8>>,
     pub byte_range: Range<usize>,
+    pub geometry: Option<BackgroundLayerGeometry>,
+    pub svg_generation: Option<Arc<FragmentArenaGeneration>>,
 }
 
 #[derive(Clone, Debug)]

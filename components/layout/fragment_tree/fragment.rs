@@ -84,7 +84,6 @@ pub struct TextFragment {
 #[derive(Clone, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq)]
 pub enum ImageFragmentSourceKind {
     Raster,
-    SvgDocument,
     Canvas,
     Video,
 }
@@ -95,7 +94,6 @@ pub struct ImageFragment {
     pub clip: PhysicalRect<Au>,
     pub image_key: Option<ImageKey>,
     pub source_kind: ImageFragmentSourceKind,
-    pub svg_document_id: Option<u64>,
     pub image_revision: u64,
     pub source_width: u32,
     pub source_height: u32,

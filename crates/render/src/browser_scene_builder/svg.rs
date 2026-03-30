@@ -44,14 +44,15 @@ pub(super) fn build_svg_viewport_fragment(
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
     let mut svg_cx = build_cx.clone();
-    svg_cx.spatial_id = push_svg_reference_frame(
+    let viewport_spatial_id = push_svg_reference_frame(
         scene,
         build_cx.spatial_id,
         svg.base.rect,
         build_cx.containing_block_origin,
-        Some(svg.local_to_parent_transform),
+        None,
         false,
     );
+    svg_cx.spatial_id = viewport_spatial_id;
     if let Some(overflow_clip) = &svg.overflow_clip {
         let rect = Rect {
             pos: dvec2(overflow_clip.rect.origin.x as f64, overflow_clip.rect.origin.y as f64),
@@ -60,8 +61,18 @@ pub(super) fn build_svg_viewport_fragment(
         svg_cx.clip_chain_id = push_clip_chain(
             scene,
             svg_cx.clip_chain_id,
-            svg_cx.spatial_id,
+            viewport_spatial_id,
             MpClipKind::Rect { rect },
+        );
+    }
+    if !svg_transform_is_identity(svg.local_to_parent_transform) {
+        svg_cx.spatial_id = push_svg_reference_frame(
+            scene,
+            viewport_spatial_id,
+            svg.base.rect,
+            dvec2(0.0, 0.0),
+            Some(svg.local_to_parent_transform),
+            true,
         );
     }
     svg_cx.containing_block_origin = dvec2(0.0, 0.0);

@@ -48,6 +48,7 @@ pub(crate) fn paint_run_item_to_primitives(
             lower_box_primitives(
                 scene,
                 registry,
+                glyph_runs,
                 bounds,
                 &bf.base.style,
                 generation.background_images_for(item.fragment_id),
@@ -61,6 +62,7 @@ pub(crate) fn paint_run_item_to_primitives(
             lower_box_primitives(
                 scene,
                 registry,
+                glyph_runs,
                 bounds,
                 &iframe.base.style,
                 &[],
@@ -125,6 +127,7 @@ pub(crate) fn paint_run_item_to_primitives(
 fn lower_box_primitives(
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     bounds: Rect,
     computed: &ComputedValues,
     background_images: &[Option<havi_types::BackgroundImage>],
@@ -157,6 +160,8 @@ fn lower_box_primitives(
     append_box_background_primitives(
         scene,
         &mut primitives,
+        registry,
+        glyph_runs,
         computed,
         background_images,
         bounds,
@@ -166,7 +171,6 @@ fn lower_box_primitives(
         effect_id,
         owner_node_id,
         &current_abs,
-        registry,
     )?;
     append_box_border_primitives(
         &mut primitives,
