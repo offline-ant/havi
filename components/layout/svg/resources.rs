@@ -589,7 +589,11 @@ fn default_resource_for_kind(kind: SVGLayoutNodeKind) -> Option<SVGResourceNode>
                 units: SVGCoordinateUnits::ObjectBoundingBox,
                 content_units: SVGCoordinateUnits::UserSpaceOnUse,
                 pattern_transform: SVGTransform::identity(),
-                rect: SVGRect::zero(),
+                rect: havi_types::fragment_tree::SVGPatternRect::default(),
+                view_box: None,
+                preserve_aspect_ratio: havi_types::fragment_tree::SVGPreserveAspectRatio::default(),
+                source_fragment_roots: Vec::new(),
+                source_resource_dependencies: Vec::new(),
             },
         )),
         SVGLayoutNodeKind::Filter => SVGResourceKind::Filter(

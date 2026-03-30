@@ -3,7 +3,7 @@ mod box_border;
 mod box_shadow;
 mod gradient;
 mod resources;
-mod svg;
+pub(crate) mod svg;
 mod text;
 
 use std::collections::HashMap;
@@ -38,6 +38,7 @@ pub(crate) fn paint_run_item_to_primitives(
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
+    svg_paint_context: Option<&svg::SVGPaintContext>,
 ) -> Result<Vec<MpPrimitive>, String> {
     let bounds = paint_item_bounds(generation, item);
     let owner_node_id = paint_item_owner_node_id(generation, item.fragment_id).or(run_owner_node_id);
@@ -110,6 +111,7 @@ pub(crate) fn paint_run_item_to_primitives(
                 spatial_id,
                 clip_chain_id,
                 effect_id,
+                svg_paint_context,
             )
         }
         (StackingContextSection::Foreground, published::FragmentKind::SVGViewport(_)) |

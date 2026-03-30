@@ -37,7 +37,7 @@ pub(super) fn build_paint_list(
             registry,
             state,
             ids,
-            build_cx,
+            build_cx.clone(),
             scroll_nodes,
             previous_document,
         )?;
@@ -245,6 +245,7 @@ pub(super) fn push_fragment_primitives(
         build_cx.spatial_id,
         build_cx.clip_chain_id,
         build_cx.effect_id,
+        build_cx.svg_paint_context.as_ref(),
     ) {
         Ok(primitives) => primitives,
         Err(reason) => {

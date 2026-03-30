@@ -47,7 +47,7 @@ pub(super) fn build_iframe_fragment(
             fragment_id,
         },
         iframe.base.tag.map(|tag| tag.node.0),
-        build_cx,
+        build_cx.clone(),
     )?;
 
     let pipeline_id = mp_pipeline_id(iframe.pipeline_id);

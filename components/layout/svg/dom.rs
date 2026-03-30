@@ -300,6 +300,7 @@ mod tests {
             dx: Vec::new(),
             dy: Vec::new(),
             rotate: Vec::new(),
+            font_size: None,
             text_length: None,
             length_adjust: None,
             text_anchor: None,

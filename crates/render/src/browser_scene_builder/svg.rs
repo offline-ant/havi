@@ -1,19 +1,29 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use euclid::Transform2D;
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{
-    MpClipChain, MpClipKind, MpClipNode, MpEffectNode, MpFillRule, MpIsolation, MpMask,
-    MpMaskSampleMode, MpReferenceFrame, MpScene, MpSpatialKind, MpSpatialNode,
-    MpVectorMaskContent, MpVectorMaskPath, MpVectorPathCommand, ResourceRegistry,
+    MpClipChain, MpClipKind, MpClipNode, MpDocument, MpEffectNode, MpFillRule,
+    MpIsolation, MpMask, MpMaskSampleMode, MpPatternTileId, MpPatternTileSource,
+    MpPrimitive, MpPrimitiveId, MpPrimitiveKind, MpReferenceFrame, MpScene,
+    MpSpatialKind, MpSpatialNode, MpVectorDashPattern, MpVectorDraw, MpVectorMaskContent,
+    MpVectorMaskPath, MpVectorPaint, MpVectorPathCommand, MpVectorPathPrimitive,
+    MpVectorPatternPaint, MpVectorStrokeStyle, ResourceRegistry,
 };
-use makepad_widgets::{dvec2, vec2, vec3, Cx2d, Mat4f, Rect};
+use makepad_widgets::{dvec2, vec2, vec3, Cx2d, DVec2, Mat4f, Rect};
 use style_traits::CSSPixel;
 
 use super::geometry::physical_rect_to_rect;
-use super::traversal::{build_paint_list, push_fragment_primitives};
+use super::traversal::{build_fragment, build_paint_list, push_fragment_primitives};
 use super::{
     BrowserDocumentScrollNodes, BuildContext, BuildState, DirectBuilderIds,
 };
 use crate::browser_scene_builder::traversal::owner_node_id_for_fragment;
+use crate::browser_scene_primitives::svg::{
+    normalize_svg_dash_pattern, resolve_svg_pattern_resource_id, svg_leaf_vector_shapes,
+    svg_paint_context, svg_paint_phases, SVGPaintContext, SVGPaintPhase,
+};
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
 
@@ -31,7 +41,7 @@ pub(super) fn build_svg_viewport_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    let mut svg_cx = build_cx;
+    let mut svg_cx = build_cx.clone();
     svg_cx.spatial_id = push_svg_reference_frame(
         scene,
         build_cx.spatial_id,
@@ -82,7 +92,7 @@ pub(super) fn build_svg_container_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    let mut svg_cx = build_cx;
+    let mut svg_cx = build_cx.clone();
     if !svg_transform_is_identity(svg.local_transform) {
         svg_cx.spatial_id = push_svg_reference_frame(
             scene,
@@ -140,7 +150,7 @@ pub(super) fn build_svg_leaf_fragment(
     state: &mut BuildState,
     build_cx: BuildContext,
 ) -> Result<(), String> {
-    let mut leaf_cx = build_cx;
+    let mut leaf_cx = build_cx.clone();
     if !svg_transform_is_identity(svg.local_transform) {
         leaf_cx.spatial_id = push_svg_reference_frame(
             scene,
@@ -184,8 +194,688 @@ pub(super) fn build_svg_leaf_fragment(
             fragment_id,
         },
         owner_node_id_for_fragment(generation, fragment_id),
+        leaf_cx.clone(),
+    )?;
+    emit_svg_pattern_primitives(
+        cx,
+        generation,
+        fragment_id,
+        svg,
+        scene,
+        registry,
+        state,
         leaf_cx,
     )
+}
+
+fn emit_svg_pattern_primitives(
+    cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    svg: &published::SVGLeafFragment,
+    scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
+    state: &mut BuildState,
+    build_cx: BuildContext,
+) -> Result<(), String> {
+    let shapes = svg_leaf_vector_shapes(svg);
+    if shapes.is_empty() {
+        return Ok(());
+    }
+    let paint_context = build_cx
+        .svg_paint_context
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| svg_paint_context(svg));
+    let object_bounding_box = svg.bounds.object_bounding_box;
+    for phase in svg_paint_phases(svg.paint.paint_order) {
+        match phase {
+            SVGPaintPhase::Fill => {
+                let Some(pattern_resource_id) = resolve_svg_pattern_resource_id(
+                    generation,
+                    &svg.paint.fill,
+                    build_cx.svg_paint_context.as_ref(),
+                ) else {
+                    continue;
+                };
+                let Some((tile_id, uv_from_world)) = build_pattern_tile_source(
+                    cx,
+                    generation,
+                    pattern_resource_id,
+                    &object_bounding_box,
+                    &paint_context,
+                    svg.paint.fill_opacity * svg.paint.opacity,
+                    scene,
+                    registry,
+                    state,
+                    build_cx.clone(),
+                    fragment_id,
+                    0,
+                )? else {
+                    continue;
+                };
+                for shape in &shapes {
+                    scene.push_primitive(MpPrimitive {
+                        id: MpPrimitiveId(0),
+                        spatial_id: build_cx.spatial_id,
+                        clip_chain_id: build_cx.clip_chain_id,
+                        effect_id: build_cx.effect_id,
+                        bounds: svg_visual_bounds(svg),
+                        kind: MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                            commands: shape.commands.clone(),
+                            draw: MpVectorDraw::Fill {
+                                fill_rule: shape.fill_rule,
+                            },
+                            paint: MpVectorPaint::Pattern(MpVectorPatternPaint {
+                                tile_id,
+                                uv_from_world,
+                            }),
+                        }),
+                        hit_test_tag: owner_node_id_for_fragment(generation, fragment_id)
+                            .map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
+                    });
+                }
+            }
+            SVGPaintPhase::Stroke => {
+                let Some(stroke) = &svg.paint.stroke else {
+                    continue;
+                };
+                let Some(pattern_resource_id) = resolve_svg_pattern_resource_id(
+                    generation,
+                    &stroke.paint,
+                    build_cx.svg_paint_context.as_ref(),
+                ) else {
+                    continue;
+                };
+                let Some((tile_id, uv_from_world)) = build_pattern_tile_source(
+                    cx,
+                    generation,
+                    pattern_resource_id,
+                    &object_bounding_box,
+                    &paint_context,
+                    stroke.opacity * svg.paint.opacity,
+                    scene,
+                    registry,
+                    state,
+                    build_cx.clone(),
+                    fragment_id,
+                    1,
+                )? else {
+                    continue;
+                };
+                let stroke_style = MpVectorStrokeStyle {
+                    width: stroke.width.max(0.0),
+                    line_cap: match stroke.line_cap {
+                        published::SVGLineCap::Butt => makepad_browser_scene::MpVectorLineCap::Butt,
+                        published::SVGLineCap::Round => makepad_browser_scene::MpVectorLineCap::Round,
+                        published::SVGLineCap::Square => makepad_browser_scene::MpVectorLineCap::Square,
+                    },
+                    line_join: match stroke.line_join {
+                        published::SVGLineJoin::Miter => makepad_browser_scene::MpVectorLineJoin::Miter,
+                        published::SVGLineJoin::Round => makepad_browser_scene::MpVectorLineJoin::Round,
+                        published::SVGLineJoin::Bevel => makepad_browser_scene::MpVectorLineJoin::Bevel,
+                    },
+                    miter_limit: stroke.miter_limit,
+                    non_scaling: matches!(
+                        stroke.vector_effect,
+                        published::SVGVectorEffect::NonScalingStroke
+                    ),
+                    dash_pattern: normalize_svg_dash_pattern(&stroke.dash_array, stroke.dash_offset)
+                        .map(|pattern| MpVectorDashPattern {
+                            segments: pattern.segments,
+                            offset: pattern.offset,
+                        }),
+                };
+                for shape in &shapes {
+                    scene.push_primitive(MpPrimitive {
+                        id: MpPrimitiveId(0),
+                        spatial_id: build_cx.spatial_id,
+                        clip_chain_id: build_cx.clip_chain_id,
+                        effect_id: build_cx.effect_id,
+                        bounds: svg_visual_bounds(svg),
+                        kind: MpPrimitiveKind::VectorPath(MpVectorPathPrimitive {
+                            commands: shape.commands.clone(),
+                            draw: MpVectorDraw::Stroke(stroke_style.clone()),
+                            paint: MpVectorPaint::Pattern(MpVectorPatternPaint {
+                                tile_id,
+                                uv_from_world,
+                            }),
+                        }),
+                        hit_test_tag: owner_node_id_for_fragment(generation, fragment_id)
+                            .map(|id| makepad_browser_scene::MpHitTestTag(id as u64)),
+                    });
+                }
+            }
+            SVGPaintPhase::Markers => {}
+        }
+    }
+    Ok(())
+}
+
+fn build_pattern_tile_source(
+    cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    resource_id: published::SVGResourceId,
+    object_bounding_box: &published::SVGRect,
+    paint_context: &SVGPaintContext,
+    operation_opacity: f32,
+    scene: &MpScene,
+    registry: &mut ResourceRegistry,
+    state: &mut BuildState,
+    build_cx: BuildContext,
+    fragment_id: published::FragmentId,
+    phase_index: u64,
+) -> Result<Option<(MpPatternTileId, [f32; 6])>, String> {
+    let Some(resource) = generation.svg_resource(resource_id) else {
+        return Ok(None);
+    };
+    let published::SVGResourceKind::PaintServer(published::SVGPaintServerResource::Pattern(pattern)) =
+        &resource.kind
+    else {
+        return Ok(None);
+    };
+    if pattern.source_fragment_roots.is_empty() {
+        return Ok(None);
+    }
+
+    let tile_rect = resolve_pattern_tile_rect(
+        pattern,
+        object_bounding_box,
+        current_svg_viewport_rect(
+            generation,
+            fragment_id,
+            build_cx.svg_viewport_rect_override,
+        ),
+    );
+    if tile_rect.size.width <= 0.0 || tile_rect.size.height <= 0.0 {
+        return Ok(None);
+    }
+
+    let tile_size = dvec2(tile_rect.size.width as f64, tile_rect.size.height as f64);
+    let tile_id = pattern_tile_id(fragment_id, resource_id, phase_index);
+    let tile_revision = pattern_tile_revision(pattern, object_bounding_box, paint_context, operation_opacity);
+    let tile_document = build_pattern_tile_document(
+        cx,
+        generation,
+        pattern,
+        object_bounding_box,
+        tile_rect,
+        paint_context,
+        operation_opacity,
+        registry,
+        tile_size,
+        build_cx.pipeline_id,
+    )?;
+    state.pattern_tiles.insert(
+        tile_id,
+        MpPatternTileSource {
+            document: Box::new(tile_document),
+            revision: tile_revision,
+            tile_size,
+        },
+    );
+
+    let uv_from_world = resolve_pattern_uv_from_world(pattern, tile_rect, scene, build_cx.spatial_id);
+    Ok(Some((tile_id, uv_from_world)))
+}
+
+fn build_pattern_tile_document(
+    cx: &mut Cx2d,
+    generation: &published::FragmentArenaGeneration,
+    pattern: &published::SVGPatternResource,
+    object_bounding_box: &published::SVGRect,
+    tile_rect: published::SVGRect,
+    paint_context: &SVGPaintContext,
+    operation_opacity: f32,
+    registry: &mut ResourceRegistry,
+    tile_size: DVec2,
+    pipeline_id: webrender_api::PipelineId,
+) -> Result<MpDocument, String> {
+    let viewport = Rect {
+        pos: dvec2(0.0, 0.0),
+        size: tile_size,
+    };
+    let mut scene = MpScene::new(makepad_browser_scene::MpSceneId(0), viewport);
+    let clip_id = scene.push_clip(MpClipNode {
+        spatial_id: scene.root_spatial_id,
+        kind: MpClipKind::Rect { rect: viewport },
+    });
+    let clip_chain_id = scene.push_clip_chain(MpClipChain {
+        parent: Some(scene.root_clip_chain_id),
+        clips: vec![clip_id],
+    });
+    let content_affine = resolve_pattern_tile_content_transform(pattern, object_bounding_box, tile_rect);
+    let spatial_id = if content_affine == identity_affine() {
+        scene.root_spatial_id
+    } else {
+        scene.push_spatial_node(MpSpatialNode {
+            parent: Some(scene.root_spatial_id),
+            kind: MpSpatialKind::ReferenceFrame(MpReferenceFrame {
+                viewport_rect: viewport,
+                placement_origin: dvec2(0.0, 0.0),
+                transform: Some(affine_to_mat4(content_affine)),
+                perspective: None,
+                transform_style: makepad_browser_scene::MpTransformStyle::Flat,
+                backface_visibility: makepad_browser_scene::MpBackfaceVisibility::Visible,
+                flattens_descendants: true,
+            }),
+        })
+    };
+    let mut state = BuildState::default();
+    let effect_id = if operation_opacity < 0.999 {
+        Some(scene.push_effect(MpEffectNode {
+            spatial_id,
+            clip_chain_id,
+            opacity: operation_opacity,
+            filters: Vec::new(),
+            blend_mode: makepad_browser_scene::MpBlendMode::Normal,
+            isolation: MpIsolation::Isolate,
+            mask: None,
+        }))
+    } else {
+        None
+    };
+    let build_cx = BuildContext {
+        pipeline_id,
+        spatial_id,
+        clip_chain_id,
+        effect_id,
+        containing_block_origin: dvec2(0.0, 0.0),
+        svg_paint_context: Some(paint_context.clone()),
+        svg_viewport_rect_override: Some(published::SVGRect::new(
+            euclid::point2(0.0, 0.0),
+            euclid::size2(tile_rect.size.width, tile_rect.size.height),
+        )),
+    };
+    let mut scroll_nodes = BrowserDocumentScrollNodes::default();
+    let mut ids = DirectBuilderIds::default();
+    for fragment_id in &pattern.source_fragment_roots {
+        build_fragment(
+            cx,
+            generation,
+            *fragment_id,
+            &crate::ScrollState::default(),
+            &mut scene,
+            registry,
+            &mut state,
+            &mut ids,
+            build_cx.clone(),
+            &mut scroll_nodes,
+            None,
+        )?;
+    }
+    Ok(MpDocument {
+        id: ids.alloc_document_id(),
+        epoch: 0,
+        scene,
+        glyph_runs: state.glyph_runs,
+        child_documents: state.child_documents,
+        pattern_tiles: state.pattern_tiles,
+    })
+}
+
+fn pattern_tile_id(
+    fragment_id: published::FragmentId,
+    resource_id: published::SVGResourceId,
+    phase_index: u64,
+) -> MpPatternTileId {
+    MpPatternTileId(((fragment_id.0 as u64) << 32) ^ ((resource_id.0 as u64) << 1) ^ phase_index)
+}
+
+fn pattern_tile_revision(
+    pattern: &published::SVGPatternResource,
+    object_bounding_box: &published::SVGRect,
+    paint_context: &SVGPaintContext,
+    operation_opacity: f32,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    std::mem::discriminant(&pattern.units).hash(&mut hasher);
+    std::mem::discriminant(&pattern.content_units).hash(&mut hasher);
+    hash_svg_transform(pattern.pattern_transform, &mut hasher);
+    hash_svg_pattern_rect(&pattern.rect, &mut hasher);
+    if let Some(view_box) = pattern.view_box {
+        hash_svg_rect(view_box, &mut hasher);
+    }
+    std::mem::discriminant(&pattern.preserve_aspect_ratio.align).hash(&mut hasher);
+    std::mem::discriminant(&pattern.preserve_aspect_ratio.meet_or_slice).hash(&mut hasher);
+    hash_svg_rect(*object_bounding_box, &mut hasher);
+    hash_svg_paint_context(paint_context, &mut hasher);
+    operation_opacity.to_bits().hash(&mut hasher);
+    for root in &pattern.source_fragment_roots {
+        root.0.hash(&mut hasher);
+    }
+    for dependency in &pattern.source_resource_dependencies {
+        dependency.0.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_svg_paint_context(context: &SVGPaintContext, hasher: &mut impl Hasher) {
+    hash_svg_color(context.current_color, hasher);
+    hash_svg_paint(&context.fill.paint, hasher);
+    context.fill.opacity.to_bits().hash(hasher);
+    if let Some(stroke) = &context.stroke {
+        hash_svg_paint(&stroke.paint, hasher);
+        stroke.opacity.to_bits().hash(hasher);
+        stroke.width.to_bits().hash(hasher);
+    }
+}
+
+fn hash_svg_paint(paint: &published::SVGPaint, hasher: &mut impl Hasher) {
+    match paint {
+        published::SVGPaint::None => 0u8.hash(hasher),
+        published::SVGPaint::SolidColor(color) => {
+            1u8.hash(hasher);
+            hash_svg_color(*color, hasher);
+        }
+        published::SVGPaint::CurrentColor => 2u8.hash(hasher),
+        published::SVGPaint::ContextFill => 3u8.hash(hasher),
+        published::SVGPaint::ContextStroke => 4u8.hash(hasher),
+        published::SVGPaint::Server(id) => {
+            5u8.hash(hasher);
+            id.0.hash(hasher);
+        }
+    }
+}
+
+fn hash_svg_color(color: published::SVGColor, hasher: &mut impl Hasher) {
+    color.red.to_bits().hash(hasher);
+    color.green.to_bits().hash(hasher);
+    color.blue.to_bits().hash(hasher);
+    color.alpha.to_bits().hash(hasher);
+}
+
+fn hash_svg_pattern_rect(rect: &published::SVGPatternRect, hasher: &mut impl Hasher) {
+    hash_svg_length(rect.x, hasher);
+    hash_svg_length(rect.y, hasher);
+    hash_svg_length(rect.width, hasher);
+    hash_svg_length(rect.height, hasher);
+}
+
+fn hash_svg_length(length: published::SVGLength, hasher: &mut impl Hasher) {
+    length.value.to_bits().hash(hasher);
+    std::mem::discriminant(&length.unit).hash(hasher);
+}
+
+fn hash_svg_rect(rect: published::SVGRect, hasher: &mut impl Hasher) {
+    rect.origin.x.to_bits().hash(hasher);
+    rect.origin.y.to_bits().hash(hasher);
+    rect.size.width.to_bits().hash(hasher);
+    rect.size.height.to_bits().hash(hasher);
+}
+
+fn hash_svg_transform(transform: published::SVGTransform, hasher: &mut impl Hasher) {
+    transform.m11.to_bits().hash(hasher);
+    transform.m12.to_bits().hash(hasher);
+    transform.m21.to_bits().hash(hasher);
+    transform.m22.to_bits().hash(hasher);
+    transform.m31.to_bits().hash(hasher);
+    transform.m32.to_bits().hash(hasher);
+}
+
+fn svg_visual_bounds(svg: &published::SVGLeafFragment) -> Rect {
+    Rect {
+        pos: dvec2(
+            svg.bounds.decorated_bounding_box.origin.x as f64,
+            svg.bounds.decorated_bounding_box.origin.y as f64,
+        ),
+        size: dvec2(
+            svg.bounds.decorated_bounding_box.size.width as f64,
+            svg.bounds.decorated_bounding_box.size.height as f64,
+        ),
+    }
+}
+
+fn resolve_pattern_tile_rect(
+    pattern: &published::SVGPatternResource,
+    object_bounding_box: &published::SVGRect,
+    viewport_rect: Option<published::SVGRect>,
+) -> published::SVGRect {
+    let viewport_width = viewport_rect
+        .map(|rect| rect.size.width)
+        .unwrap_or(object_bounding_box.size.width);
+    let viewport_height = viewport_rect
+        .map(|rect| rect.size.height)
+        .unwrap_or(object_bounding_box.size.height);
+    match pattern.units {
+        published::SVGCoordinateUnits::UserSpaceOnUse => published::SVGRect::new(
+            euclid::point2(
+                resolve_pattern_length_user_space(pattern.rect.x, viewport_width),
+                resolve_pattern_length_user_space(pattern.rect.y, viewport_height),
+            ),
+            euclid::size2(
+                resolve_pattern_length_user_space(pattern.rect.width, viewport_width),
+                resolve_pattern_length_user_space(pattern.rect.height, viewport_height),
+            ),
+        ),
+        published::SVGCoordinateUnits::ObjectBoundingBox => published::SVGRect::new(
+            euclid::point2(
+                object_bounding_box.origin.x
+                    + resolve_pattern_length_object_bbox(pattern.rect.x, object_bounding_box.size.width),
+                object_bounding_box.origin.y
+                    + resolve_pattern_length_object_bbox(pattern.rect.y, object_bounding_box.size.height),
+            ),
+            euclid::size2(
+                resolve_pattern_length_object_bbox(pattern.rect.width, object_bounding_box.size.width),
+                resolve_pattern_length_object_bbox(pattern.rect.height, object_bounding_box.size.height),
+            ),
+        ),
+    }
+}
+
+fn current_svg_viewport_rect(
+    generation: &published::FragmentArenaGeneration,
+    fragment_id: published::FragmentId,
+    override_rect: Option<published::SVGRect>,
+) -> Option<published::SVGRect> {
+    if let Some(override_rect) = override_rect {
+        return Some(override_rect);
+    }
+    let mut current = Some(fragment_id);
+    while let Some(id) = current {
+        let node = generation.node(id);
+        if let published::FragmentKind::SVGViewport(svg) = &node.kind {
+            return Some(svg.viewport_rect);
+        }
+        current = node.parent;
+    }
+    None
+}
+
+fn resolve_pattern_tile_content_transform(
+    pattern: &published::SVGPatternResource,
+    object_bounding_box: &published::SVGRect,
+    tile_rect: published::SVGRect,
+) -> [f32; 6] {
+    if let Some(view_box) = pattern.view_box {
+        let mapper = pattern_view_box_mapper(
+            published::SVGRect::new(
+                euclid::point2(0.0, 0.0),
+                euclid::size2(tile_rect.size.width, tile_rect.size.height),
+            ),
+            view_box,
+            pattern.preserve_aspect_ratio,
+        );
+        return [
+            mapper.m11,
+            mapper.m12,
+            mapper.m21,
+            mapper.m22,
+            mapper.m31,
+            mapper.m32,
+        ];
+    }
+
+    match pattern.content_units {
+        published::SVGCoordinateUnits::UserSpaceOnUse => {
+            [1.0, 0.0, 0.0, 1.0, -tile_rect.origin.x, -tile_rect.origin.y]
+        }
+        published::SVGCoordinateUnits::ObjectBoundingBox => [
+            object_bounding_box.size.width,
+            0.0,
+            0.0,
+            object_bounding_box.size.height,
+            object_bounding_box.origin.x - tile_rect.origin.x,
+            object_bounding_box.origin.y - tile_rect.origin.y,
+        ],
+    }
+}
+
+fn resolve_pattern_uv_from_world(
+    pattern: &published::SVGPatternResource,
+    tile_rect: published::SVGRect,
+    scene: &MpScene,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+) -> [f32; 6] {
+    let tile_width = tile_rect.size.width.max(f32::EPSILON);
+    let tile_height = tile_rect.size.height.max(f32::EPSILON);
+    let pattern_transform = [
+        pattern.pattern_transform.m11,
+        pattern.pattern_transform.m12,
+        pattern.pattern_transform.m21,
+        pattern.pattern_transform.m22,
+        pattern.pattern_transform.m31,
+        pattern.pattern_transform.m32,
+    ];
+    let local_to_scene = spatial_affine(scene, spatial_id);
+    let scene_to_local = invert_affine(local_to_scene).unwrap_or(identity_affine());
+    let scene_to_pattern = multiply_affine(
+        invert_affine(pattern_transform).unwrap_or(identity_affine()),
+        scene_to_local,
+    );
+    let pattern_to_uv = [
+        1.0 / tile_width,
+        0.0,
+        0.0,
+        1.0 / tile_height,
+        -tile_rect.origin.x / tile_width,
+        -tile_rect.origin.y / tile_height,
+    ];
+    multiply_affine(pattern_to_uv, scene_to_pattern)
+}
+
+fn resolve_pattern_length_user_space(length: published::SVGLength, reference: f32) -> f32 {
+    match length.unit {
+        published::SVGLengthUnit::Percent => length.value * reference / 100.0,
+        published::SVGLengthUnit::Px | published::SVGLengthUnit::Number => length.value,
+        published::SVGLengthUnit::In => length.value * 96.0,
+        published::SVGLengthUnit::Cm => length.value * (96.0 / 2.54),
+        published::SVGLengthUnit::Mm => length.value * (96.0 / 25.4),
+        published::SVGLengthUnit::Pt => length.value * (96.0 / 72.0),
+        published::SVGLengthUnit::Pc => length.value * 16.0,
+    }
+}
+
+fn resolve_pattern_length_object_bbox(length: published::SVGLength, reference: f32) -> f32 {
+    match length.unit {
+        published::SVGLengthUnit::Percent => length.value * reference / 100.0,
+        published::SVGLengthUnit::Number => length.value * reference,
+        _ => resolve_pattern_length_user_space(length, reference),
+    }
+}
+
+fn pattern_view_box_mapper(
+    viewport_rect: published::SVGRect,
+    view_box_rect: published::SVGRect,
+    preserve_aspect_ratio: published::SVGPreserveAspectRatio,
+) -> published::SVGTransform {
+    let viewport_width = viewport_rect.size.width.max(0.0);
+    let viewport_height = viewport_rect.size.height.max(0.0);
+    let view_box_width = view_box_rect.size.width;
+    let view_box_height = view_box_rect.size.height;
+    if viewport_width <= 0.0 || viewport_height <= 0.0 || view_box_width <= 0.0 || view_box_height <= 0.0 {
+        return published::SVGTransform::identity();
+    }
+
+    let (scale_x, scale_y, extra_x, extra_y) = if matches!(
+        preserve_aspect_ratio.align,
+        published::SVGPreserveAspectRatioAlign::None
+    ) {
+        (
+            viewport_width / view_box_width,
+            viewport_height / view_box_height,
+            0.0,
+            0.0,
+        )
+    } else {
+        let uniform_scale = if matches!(preserve_aspect_ratio.meet_or_slice, published::SVGMeetOrSlice::Slice) {
+            (viewport_width / view_box_width).max(viewport_height / view_box_height)
+        } else {
+            (viewport_width / view_box_width).min(viewport_height / view_box_height)
+        };
+        let fitted_width = view_box_width * uniform_scale;
+        let fitted_height = view_box_height * uniform_scale;
+        (
+            uniform_scale,
+            uniform_scale,
+            viewport_width - fitted_width,
+            viewport_height - fitted_height,
+        )
+    };
+    let (align_x, align_y) = pattern_alignment_factors(preserve_aspect_ratio.align);
+    let tx = viewport_rect.origin.x + extra_x * align_x - view_box_rect.origin.x * scale_x;
+    let ty = viewport_rect.origin.y + extra_y * align_y - view_box_rect.origin.y * scale_y;
+    published::SVGTransform::new(scale_x, 0.0, 0.0, scale_y, tx, ty)
+}
+
+fn pattern_alignment_factors(align: published::SVGPreserveAspectRatioAlign) -> (f32, f32) {
+    match align {
+        published::SVGPreserveAspectRatioAlign::None | published::SVGPreserveAspectRatioAlign::XMinYMin => (0.0, 0.0),
+        published::SVGPreserveAspectRatioAlign::XMidYMin => (0.5, 0.0),
+        published::SVGPreserveAspectRatioAlign::XMaxYMin => (1.0, 0.0),
+        published::SVGPreserveAspectRatioAlign::XMinYMid => (0.0, 0.5),
+        published::SVGPreserveAspectRatioAlign::XMidYMid => (0.5, 0.5),
+        published::SVGPreserveAspectRatioAlign::XMaxYMid => (1.0, 0.5),
+        published::SVGPreserveAspectRatioAlign::XMinYMax => (0.0, 1.0),
+        published::SVGPreserveAspectRatioAlign::XMidYMax => (0.5, 1.0),
+        published::SVGPreserveAspectRatioAlign::XMaxYMax => (1.0, 1.0),
+    }
+}
+
+fn spatial_affine(scene: &MpScene, spatial_id: makepad_browser_scene::MpSpatialId) -> [f32; 6] {
+    let transform = scene.resolve_spatial_transform(spatial_id);
+    [transform.v[0], transform.v[1], transform.v[4], transform.v[5], transform.v[12], transform.v[13]]
+}
+
+fn affine_to_mat4(affine: [f32; 6]) -> Mat4f {
+    Mat4f {
+        v: [
+            affine[0], affine[1], 0.0, 0.0,
+            affine[2], affine[3], 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            affine[4], affine[5], 0.0, 1.0,
+        ],
+    }
+}
+
+fn identity_affine() -> [f32; 6] {
+    [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+}
+
+fn multiply_affine(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
+    [
+        a[0] * b[0] + a[2] * b[1],
+        a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3],
+        a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4],
+        a[1] * b[4] + a[3] * b[5] + a[5],
+    ]
+}
+
+fn invert_affine(affine: [f32; 6]) -> Option<[f32; 6]> {
+    let det = affine[0] * affine[3] - affine[1] * affine[2];
+    if det.abs() <= f32::EPSILON {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let a = affine[3] * inv_det;
+    let b = -affine[1] * inv_det;
+    let c = -affine[2] * inv_det;
+    let d = affine[0] * inv_det;
+    let e = -(a * affine[4] + c * affine[5]);
+    let f = -(b * affine[4] + d * affine[5]);
+    Some([a, b, c, d, e, f])
 }
 
 fn svg_rect_to_physical_rect(rect: published::SVGRect) -> havi_types::PhysicalRect<app_units::Au> {

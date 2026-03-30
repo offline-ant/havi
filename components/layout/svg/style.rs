@@ -484,6 +484,10 @@ mod tests {
             Some(SVGPaintOrder::StrokeMarkersFill)
         );
         assert_eq!(
+            layout_api::parse_svg_paint_order(Some("stroke fill")),
+            Some(SVGPaintOrder::StrokeFillMarkers)
+        );
+        assert_eq!(
             layout_api::parse_svg_dash_array(Some("1, 2 3")),
             Some(vec![1.0, 2.0, 3.0])
         );

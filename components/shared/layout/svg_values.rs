@@ -462,15 +462,47 @@ pub fn parse_svg_line_join(raw: Option<&str>) -> Option<SVGLineJoin> {
 
 pub fn parse_svg_paint_order(raw: Option<&str>) -> Option<SVGPaintOrder> {
     let raw = raw?.trim();
-    let mut parts = raw.split_whitespace();
-    match (parts.next()?, parts.next(), parts.next()) {
-        ("normal", None, None) => Some(SVGPaintOrder::Normal),
-        ("fill", Some("stroke"), Some("markers")) => Some(SVGPaintOrder::FillStrokeMarkers),
-        ("fill", Some("markers"), Some("stroke")) => Some(SVGPaintOrder::FillMarkersStroke),
-        ("stroke", Some("fill"), Some("markers")) => Some(SVGPaintOrder::StrokeFillMarkers),
-        ("stroke", Some("markers"), Some("fill")) => Some(SVGPaintOrder::StrokeMarkersFill),
-        ("markers", Some("fill"), Some("stroke")) => Some(SVGPaintOrder::MarkersFillStroke),
-        ("markers", Some("stroke"), Some("fill")) => Some(SVGPaintOrder::MarkersStrokeFill),
+    if raw == "normal" {
+        return Some(SVGPaintOrder::Normal);
+    }
+
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum Phase {
+        Fill,
+        Stroke,
+        Markers,
+    }
+
+    let mut phases = Vec::new();
+    for part in raw.split_whitespace() {
+        let phase = match part {
+            "fill" => Phase::Fill,
+            "stroke" => Phase::Stroke,
+            "markers" => Phase::Markers,
+            _ => return None,
+        };
+        if phases.contains(&phase) {
+            return None;
+        }
+        phases.push(phase);
+    }
+    if phases.is_empty() {
+        return None;
+    }
+
+    for phase in [Phase::Fill, Phase::Stroke, Phase::Markers] {
+        if !phases.contains(&phase) {
+            phases.push(phase);
+        }
+    }
+
+    match phases.as_slice() {
+        [Phase::Fill, Phase::Stroke, Phase::Markers] => Some(SVGPaintOrder::FillStrokeMarkers),
+        [Phase::Fill, Phase::Markers, Phase::Stroke] => Some(SVGPaintOrder::FillMarkersStroke),
+        [Phase::Stroke, Phase::Fill, Phase::Markers] => Some(SVGPaintOrder::StrokeFillMarkers),
+        [Phase::Stroke, Phase::Markers, Phase::Fill] => Some(SVGPaintOrder::StrokeMarkersFill),
+        [Phase::Markers, Phase::Fill, Phase::Stroke] => Some(SVGPaintOrder::MarkersFillStroke),
+        [Phase::Markers, Phase::Stroke, Phase::Fill] => Some(SVGPaintOrder::MarkersStrokeFill),
         _ => None,
     }
 }

@@ -2463,6 +2463,7 @@ impl<'dom> LayoutNodeHelpers<'dom> for LayoutDom<'dom, Node> {
                 dx: layout_api::parse_svg_length_list(attr(&local_name!("dx"))),
                 dy: layout_api::parse_svg_length_list(attr(&local_name!("dy"))),
                 rotate: layout_api::parse_svg_number_list(attr(&local_name!("rotate"))),
+                font_size: typed_length(&local_name!("font-size")),
                 text_length: typed_length(&local_name!("textLength")),
                 length_adjust: layout_api::parse_svg_length_adjust(attr(&local_name!("lengthAdjust"))),
                 text_anchor: layout_api::parse_svg_text_anchor(attr(&local_name!("text-anchor"))),

@@ -195,7 +195,7 @@ fn build_generation(
     let mut builder = ArenaBuilder::new(containing_blocks, image_resolver);
     let geometry_roots: Vec<_> = root_fragments
         .iter()
-        .filter_map(|fragment| builder.build_geometry(fragment, None, None))
+        .filter_map(|fragment| builder.build_geometry(fragment, None, None, true))
         .collect();
     builder.populate_paint_children(root_fragments);
 
@@ -263,6 +263,7 @@ impl<'a> ArenaBuilder<'a> {
         fragment: &Fragment,
         parent: Option<published::FragmentId>,
         resource_offset: Option<u32>,
+        record_mapping: bool,
     ) -> Option<published::FragmentId> {
         let key = internal_fragment_key(fragment)?;
         if let Some(id) = self.internal_to_node.get(&key).copied() {
@@ -276,7 +277,9 @@ impl<'a> ArenaBuilder<'a> {
         let id = published::FragmentId(self.nodes.len() as u32);
         self.internal_to_node.insert(key, id);
         let base = convert_fragment_base(fragment);
-        self.record_node_mapping(id, published_fragment_mapping_tag(fragment, &base));
+        if record_mapping {
+            self.record_node_mapping(id, published_fragment_mapping_tag(fragment, &base));
+        }
         self.push_derived(fragment, &base);
         if let Some(placement_id) = fragment_out_of_flow_placement_id(fragment) {
             self.placement_targets.insert(placement_id, id);
@@ -301,7 +304,9 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = box_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
+                    .filter_map(|child| {
+                        self.build_geometry(child, Some(id), resource_offset, record_mapping)
+                    })
                     .collect();
                 let specific_layout_info = convert_specific_layout_info(box_fragment.specific_layout_info());
                 let node = published::BoxFragment {
@@ -341,7 +346,9 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = positioning_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
+                    .filter_map(|child| {
+                        self.build_geometry(child, Some(id), resource_offset, record_mapping)
+                    })
                     .collect();
                 published::FragmentKind::Positioning(published::PositioningFragment {
                     base,
@@ -379,8 +386,16 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = svg_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
+                    .filter_map(|child| {
+                        self.build_geometry(child, Some(id), resource_offset, record_mapping)
+                    })
                     .collect();
+                if let Some(resource_offset) = resource_offset {
+                    self.publish_svg_resource_owned_subtrees(
+                        &svg_fragment.resource_owned_subtrees,
+                        resource_offset,
+                    );
+                }
                 published::FragmentKind::SVGViewport(published::SVGViewportFragment {
                     base,
                     identity: svg_fragment.identity.clone(),
@@ -397,7 +412,9 @@ impl<'a> ArenaBuilder<'a> {
                 let geometry_children = svg_fragment
                     .children
                     .iter()
-                    .filter_map(|child| self.build_geometry(child, Some(id), resource_offset))
+                    .filter_map(|child| {
+                        self.build_geometry(child, Some(id), resource_offset, record_mapping)
+                    })
                     .collect();
                 published::FragmentKind::SVGContainer(published::SVGContainerFragment {
                     base,
@@ -426,6 +443,36 @@ impl<'a> ArenaBuilder<'a> {
 
         self.nodes[id.0 as usize] = published::FragmentNode { parent, kind };
         Some(id)
+    }
+
+    fn publish_svg_resource_owned_subtrees(
+        &mut self,
+        subtrees: &[super::SVGResourceOwnedSubtree],
+        resource_offset: u32,
+    ) {
+        for subtree in subtrees {
+            let fragment_roots = subtree
+                .fragment_roots
+                .iter()
+                .filter_map(|fragment| self.build_geometry(fragment, None, Some(resource_offset), false))
+                .collect::<Vec<_>>();
+            let resource_id = remap_svg_resource_id(subtree.owner_resource_id, Some(resource_offset));
+            let Some(resource) = self.svg_resources.get_mut(resource_id.0 as usize) else {
+                continue;
+            };
+            let published::SVGResourceKind::PaintServer(published::SVGPaintServerResource::Pattern(pattern)) =
+                &mut resource.kind
+            else {
+                continue;
+            };
+            pattern.source_fragment_roots = fragment_roots;
+            pattern.source_resource_dependencies = subtree
+                .resource_dependencies
+                .iter()
+                .copied()
+                .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
+                .collect();
+        }
     }
 
     fn push_derived(&mut self, fragment: &Fragment, base: &published::BaseFragment) {
@@ -925,13 +972,24 @@ fn remap_svg_resource_node(
     mut node: published::SVGResourceNode,
     resource_offset: u32,
 ) -> published::SVGResourceNode {
-    if let published::SVGResourceKind::UseInstanceSource(resource) = &mut node.kind {
-        resource.source_resource_dependencies = resource
-            .source_resource_dependencies
-            .iter()
-            .copied()
-            .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
-            .collect();
+    match &mut node.kind {
+        published::SVGResourceKind::PaintServer(published::SVGPaintServerResource::Pattern(resource)) => {
+            resource.source_resource_dependencies = resource
+                .source_resource_dependencies
+                .iter()
+                .copied()
+                .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
+                .collect();
+        }
+        published::SVGResourceKind::UseInstanceSource(resource) => {
+            resource.source_resource_dependencies = resource
+                .source_resource_dependencies
+                .iter()
+                .copied()
+                .map(|id| remap_svg_resource_id(id, Some(resource_offset)))
+                .collect();
+        }
+        _ => {}
     }
     node
 }

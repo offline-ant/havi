@@ -910,9 +910,15 @@ fn segment_text_by_font(
     text: &str,
     bidi_info: &BidiInfo,
 ) -> Vec<SVGTextSegment> {
-    let font_group = layout_context
-        .font_context
-        .font_group(node.computed_style.clone_font());
+    let font_group = text_node_data(node)
+        .and_then(|text| text.font_size)
+        .and_then(layout_api::resolve_svg_length_to_user_units)
+        .map(|font_size_px| {
+            layout_context
+                .font_context
+                .font_group_with_size(node.computed_style.clone_font(), Au::from_f32_px(font_size_px))
+        })
+        .unwrap_or_else(|| layout_context.font_context.font_group(node.computed_style.clone_font()));
     let lang = node.computed_style.get_font()._x_lang.clone();
 
     let mut current: Option<SVGTextSegment> = None;
@@ -1055,7 +1061,7 @@ fn shape_svg_text_segment(
         run: SVGGlyphRun {
             text: segment_text.to_string(),
             rect: crate::geom::PhysicalRect::zero(),
-            font_size_px: segment.font.metrics.em_size.to_f32_px(),
+            font_size_px: segment.font.descriptor.pt_size.to_f32_px(),
             glyphs,
             font_data,
             font_index: font_data_and_index.map(|data_and_index| data_and_index.index).unwrap_or(0),
@@ -1168,6 +1174,7 @@ mod tests {
             dx: Vec::new(),
             dy: Vec::new(),
             rotate: Vec::new(),
+            font_size: None,
             text_length: None,
             length_adjust: None,
             text_anchor: None,

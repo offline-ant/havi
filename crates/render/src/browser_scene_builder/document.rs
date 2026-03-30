@@ -73,6 +73,7 @@ pub(super) fn build_browser_document(
     let mut state = BuildState {
         glyph_runs: Default::default(),
         child_documents: Vec::new(),
+        pattern_tiles: Default::default(),
     };
     let mut scroll_nodes = BrowserDocumentScrollNodes::default();
     scroll_nodes
@@ -93,6 +94,8 @@ pub(super) fn build_browser_document(
             clip_chain_id: root_clip_chain_id,
             effect_id: None,
             containing_block_origin: dvec2(0.0, 0.0),
+            svg_paint_context: None,
+            svg_viewport_rect_override: None,
         },
         &mut scroll_nodes,
         previous_document,
@@ -104,6 +107,7 @@ pub(super) fn build_browser_document(
             scene,
             glyph_runs: state.glyph_runs,
             child_documents: state.child_documents,
+            pattern_tiles: state.pattern_tiles,
         },
         scroll_nodes,
     })

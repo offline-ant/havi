@@ -9,22 +9,25 @@ mod traversal;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
+use havi_types::fragment_tree::SVGRect;
 use makepad_browser_scene::{
-    MpChildDocument, MpDocument, MpDocumentId, MpGlyphRunKey, MpGlyphRunResource, MpPipelineId,
-    MpSceneId,
+    MpChildDocument, MpDocument, MpDocumentId, MpGlyphRunKey, MpGlyphRunResource,
+    MpPatternTileId, MpPatternTileSource, MpPipelineId, MpSceneId,
 };
 use makepad_widgets::DVec2;
 use webrender_api::{ExternalScrollId, PipelineId};
 
 pub(crate) use document::try_build_browser_document;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct BuildContext {
     pub pipeline_id: PipelineId,
     pub spatial_id: makepad_browser_scene::MpSpatialId,
     pub clip_chain_id: makepad_browser_scene::MpClipChainId,
     pub effect_id: Option<makepad_browser_scene::MpEffectId>,
     pub containing_block_origin: DVec2,
+    pub svg_paint_context: Option<crate::browser_scene_primitives::svg::SVGPaintContext>,
+    pub svg_viewport_rect_override: Option<SVGRect>,
 }
 
 #[derive(Default)]
@@ -50,6 +53,7 @@ impl DirectBuilderIds {
 pub(super) struct BuildState {
     pub glyph_runs: HashMap<MpGlyphRunKey, MpGlyphRunResource>,
     pub child_documents: Vec<MpChildDocument>,
+    pub pattern_tiles: HashMap<MpPatternTileId, MpPatternTileSource>,
 }
 
 #[derive(Clone, Debug, Default)]

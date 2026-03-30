@@ -15,10 +15,12 @@ use style::values::CSSFloat;
 use havi_types::fragment_tree::{
     SVGBounds, SVGClipPathResource, SVGColor, SVGContainerKind, SVGCoordinateUnits,
     SVGEffectState, SVGFragmentIdentity, SVGGradientKind, SVGGradientResource,
-    SVGGradientSpreadMethod, SVGGradientStop, SVGImagePayload, SVGLeafKind,
-    SVGLinearGradient, SVGPaint, SVGPaintServerResource, SVGPaintStyle, SVGPathData,
-    SVGPathPayload, SVGPoint, SVGRect, SVGResourceId, SVGResourceKind, SVGStrokeStyle,
-    SVGTransform, SVGUseInstanceChain, SVGRadialGradient, Tag as PublishedTag,
+    SVGGradientSpreadMethod, SVGGradientStop, SVGImagePayload, SVGLeafKind, SVGLength,
+    SVGLengthUnit, SVGLinearGradient, SVGMeetOrSlice, SVGPaint, SVGPaintServerResource,
+    SVGPaintStyle, SVGPathData, SVGPathPayload, SVGPatternRect, SVGPoint,
+    SVGPreserveAspectRatio, SVGPreserveAspectRatioAlign, SVGRect, SVGResourceId,
+    SVGResourceKind, SVGStrokeStyle, SVGTransform, SVGUseInstanceChain,
+    SVGRadialGradient, Tag as PublishedTag,
 };
 use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
 use layout_api::{SVGElementData, SVGGradientData, SVGNodeKind};
@@ -43,7 +45,7 @@ use crate::context::LayoutContext;
 use crate::dom::NodeExt;
 use crate::fragment_tree::{
     BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags,
-    SVGContainerFragment, SVGLeafFragment, SVGViewportFragment, Tag,
+    SVGContainerFragment, SVGLeafFragment, SVGResourceOwnedSubtree, SVGViewportFragment, Tag,
 };
 use crate::geom::{LogicalVec2, PhysicalPoint, PhysicalRect, PhysicalSize};
 use crate::layout_box_base::{CacheableLayoutResult, LayoutBoxBase};
@@ -385,6 +387,13 @@ fn build_svg_node_fragment(
                 nodes_by_opaque,
                 SVGFragmentIdentityContext::default(),
             );
+            let resource_owned_subtrees = build_svg_resource_owned_subtrees(
+                node,
+                layout_context,
+                positioning_context,
+                &resource_graph,
+                nodes_by_opaque,
+            );
             Some(Fragment::SVGViewport(crate::cell::ArcRefCell::new(
                 SVGViewportFragment {
                     base: BaseFragment::new(base_fragment_info, style.into(), rect),
@@ -395,6 +404,7 @@ fn build_svg_node_fragment(
                     local_to_parent_transform: viewport_transform,
                     overflow_clip,
                     resource_graph: Some(resource_graph),
+                    resource_owned_subtrees,
                 },
             )))
         }
@@ -428,6 +438,65 @@ fn build_svg_children(
         children.push(fragment);
     }
     children
+}
+
+fn build_svg_resource_owned_subtrees(
+    _viewport: &SVGResolvedNode<'_>,
+    layout_context: &LayoutContext,
+    positioning_context: &mut PositioningContext,
+    resource_graph: &SVGResourceGraph,
+    nodes_by_opaque: &SVGNodeMap<'_>,
+) -> Vec<SVGResourceOwnedSubtree> {
+    resource_graph
+        .resources()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, resource)| {
+            let resource_id = SVGResourceId(index as u32);
+            let SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(_)) = &resource.kind else {
+                return None;
+            };
+            let owner = resource_graph.resource_owner(resource_id)?;
+            let owner = nodes_by_opaque.get(&owner).copied()?;
+            let owner = resolve_svg_node(owner, &layout_context.style_context)?;
+            let resolved = resolve_pattern_resource_data(
+                &owner,
+                &layout_context.style_context,
+                nodes_by_opaque,
+                resource_graph,
+                &mut Vec::new(),
+            )?;
+            let content_source = resolved.content_source_node?;
+            let mut fragment_roots = Vec::new();
+            for child in content_source.node.children() {
+                let Some(child) = resolve_svg_child_node(child, &layout_context.style_context, &content_source) else {
+                    continue;
+                };
+                let Some(fragment) = build_svg_child_fragment(
+                    &child,
+                    layout_context,
+                    positioning_context,
+                    resource_graph,
+                    nodes_by_opaque,
+                    SVGFragmentIdentityContext::default(),
+                ) else {
+                    continue;
+                };
+                fragment_roots.push(fragment);
+            }
+            if fragment_roots.is_empty() {
+                return None;
+            }
+            let mut resource_dependencies = resolved.source_resource_dependencies;
+            resource_dependencies.sort_by_key(|id| id.0);
+            resource_dependencies.dedup();
+            Some(SVGResourceOwnedSubtree {
+                owner_resource_id: resource_id,
+                fragment_roots,
+                resource_dependencies,
+            })
+        })
+        .collect()
 }
 
 fn build_svg_child_fragment(
@@ -593,7 +662,7 @@ fn build_svg_child_fragment(
         | (SVGLayoutNodeKind::Stop, _, _)
         | (SVGLayoutNodeKind::ClipPath, _, _)
         | (SVGLayoutNodeKind::Mask, _, _)
-        // Pattern, Filter, Marker: resource-only; behavior stubbed — see svg-missing.md
+        // Pattern, Filter, Marker remain resource-owned nodes rather than visible SVG fragments.
         | (SVGLayoutNodeKind::Pattern, _, _)
         | (SVGLayoutNodeKind::Filter, _, _)
         | (SVGLayoutNodeKind::Marker, _, _)
@@ -679,33 +748,27 @@ fn resolve_svg_resource_node(
                 }
             }
         }
-        SVGNodeKind::Pattern(data) => {
+        SVGNodeKind::Pattern(_) => {
             if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
-                let rect = havi_types::fragment_tree::SVGRect::new(
-                    euclid::point2(
-                        resolve_length(data.x).unwrap_or(0.0),
-                        resolve_length(data.y).unwrap_or(0.0),
-                    ),
-                    euclid::size2(
-                        resolve_length(data.width).unwrap_or(0.0),
-                        resolve_length(data.height).unwrap_or(0.0),
-                    ),
-                );
-                let units = data
-                    .pattern_units
-                    .unwrap_or(SVGCoordinateUnits::ObjectBoundingBox);
-                let content_units = data
-                    .pattern_content_units
-                    .unwrap_or(SVGCoordinateUnits::UserSpaceOnUse);
-                let pattern_transform =
-                    parse_svg_transform(&node.svg_data.common.transform);
-                if let Some(SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(resource))) =
-                    resource_graph.resource_mut(resource_id)
-                {
-                    resource.units = units;
-                    resource.content_units = content_units;
-                    resource.pattern_transform = pattern_transform;
-                    resource.rect = rect;
+                if let Some(pattern) = resolve_pattern_resource_data(
+                    node,
+                    style_context,
+                    nodes_by_opaque,
+                    resource_graph,
+                    visiting,
+                ) {
+                    if let Some(SVGResourceKind::PaintServer(SVGPaintServerResource::Pattern(resource))) =
+                        resource_graph.resource_mut(resource_id)
+                    {
+                        resource.units = pattern.units;
+                        resource.content_units = pattern.content_units;
+                        resource.pattern_transform = pattern.pattern_transform;
+                        resource.rect = pattern.rect;
+                        resource.view_box = pattern.view_box;
+                        resource.preserve_aspect_ratio = pattern.preserve_aspect_ratio;
+                        resource.source_fragment_roots.clear();
+                        resource.source_resource_dependencies = pattern.source_resource_dependencies;
+                    }
                 }
             }
         }
@@ -754,6 +817,174 @@ fn resolve_svg_resource_node(
             continue;
         };
         resolve_svg_resource_node(&child, style_context, nodes_by_opaque, resource_graph, visiting);
+    }
+}
+
+#[derive(Clone)]
+struct ResolvedPatternResourceData<'dom> {
+    units: SVGCoordinateUnits,
+    content_units: SVGCoordinateUnits,
+    pattern_transform: SVGTransform,
+    rect: SVGPatternRect,
+    view_box: Option<SVGRect>,
+    preserve_aspect_ratio: SVGPreserveAspectRatio,
+    content_source_node: Option<SVGResolvedNode<'dom>>,
+    source_resource_dependencies: Vec<SVGResourceId>,
+}
+
+fn resolve_pattern_resource_data<'dom>(
+    node: &SVGResolvedNode<'dom>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'dom>,
+    resource_graph: &SVGResourceGraph,
+    visiting: &mut Vec<OpaqueNode>,
+) -> Option<ResolvedPatternResourceData<'dom>> {
+    if visiting.contains(&node.tag.node) {
+        return None;
+    }
+    visiting.push(node.tag.node);
+
+    let template_node = pattern_template_node(node, style_context, nodes_by_opaque, resource_graph);
+    let mut pattern = template_node
+        .as_ref()
+        .and_then(|template| {
+            resolve_pattern_resource_data(template, style_context, nodes_by_opaque, resource_graph, visiting)
+        })
+        .unwrap_or_else(default_pattern_resource_data);
+
+    if let Some(template_resource_id) = template_node
+        .as_ref()
+        .and_then(|template| resource_graph.resource_id_for_node(template.tag.node))
+    {
+        pattern.source_resource_dependencies.push(template_resource_id);
+    }
+
+    let SVGNodeKind::Pattern(data) = &node.svg_data.node_kind else {
+        visiting.pop();
+        return None;
+    };
+
+    if let Some(x) = data.x {
+        pattern.rect.x = convert_svg_length_value(x);
+    }
+    if let Some(y) = data.y {
+        pattern.rect.y = convert_svg_length_value(y);
+    }
+    if let Some(width) = data.width {
+        pattern.rect.width = convert_svg_length_value(width);
+    }
+    if let Some(height) = data.height {
+        pattern.rect.height = convert_svg_length_value(height);
+    }
+    if let Some(units) = data.pattern_units {
+        pattern.units = units;
+    }
+    if let Some(content_units) = data.pattern_content_units {
+        pattern.content_units = content_units;
+    }
+    if !data.pattern_transform.is_empty() {
+        pattern.pattern_transform = parse_svg_transform(&data.pattern_transform);
+    }
+    if let Some(view_box) = data.view_box {
+        pattern.view_box = Some(svg_rect_from_view_box(view_box));
+    }
+    if pattern_preserve_aspect_ratio_is_specified(node) {
+        pattern.preserve_aspect_ratio = convert_svg_preserve_aspect_ratio(data.preserve_aspect_ratio);
+    }
+    if pattern_has_local_children(node, style_context) {
+        pattern.content_source_node = Some(node.clone());
+        pattern.source_resource_dependencies.extend(collect_pattern_content_resource_dependencies(
+            node,
+            style_context,
+            resource_graph,
+        ));
+    }
+
+    pattern.source_resource_dependencies.sort_by_key(|id| id.0);
+    pattern.source_resource_dependencies.dedup();
+    visiting.pop();
+    Some(pattern)
+}
+
+fn default_pattern_resource_data<'dom>() -> ResolvedPatternResourceData<'dom> {
+    ResolvedPatternResourceData {
+        units: SVGCoordinateUnits::ObjectBoundingBox,
+        content_units: SVGCoordinateUnits::UserSpaceOnUse,
+        pattern_transform: SVGTransform::identity(),
+        rect: SVGPatternRect::default(),
+        view_box: None,
+        preserve_aspect_ratio: SVGPreserveAspectRatio::default(),
+        content_source_node: None,
+        source_resource_dependencies: Vec::new(),
+    }
+}
+
+fn pattern_has_local_children(node: &SVGResolvedNode<'_>, style_context: &SharedStyleContext) -> bool {
+    node.node
+        .children()
+        .any(|child| resolve_svg_child_node(child, style_context, node).is_some())
+}
+
+fn collect_pattern_content_resource_dependencies(
+    node: &SVGResolvedNode<'_>,
+    style_context: &SharedStyleContext,
+    resource_graph: &SVGResourceGraph,
+) -> Vec<SVGResourceId> {
+    let mut resources = Vec::new();
+    for child in node.node.children() {
+        collect_subtree_resource_dependencies_into(child, style_context, resource_graph, &mut resources);
+    }
+    resources.sort_by_key(|id| id.0);
+    resources.dedup();
+    resources
+}
+
+fn pattern_preserve_aspect_ratio_is_specified(node: &SVGResolvedNode<'_>) -> bool {
+    node.node
+        .as_element()
+        .is_some_and(|element| element.get_attr(&ns!(), &local_name!("preserveAspectRatio")).is_some())
+}
+
+fn convert_svg_length_value(length: layout_api::SVGLengthValue) -> SVGLength {
+    let unit = match length.unit_type {
+        layout_api::SVG_LENGTHTYPE_PERCENTAGE => SVGLengthUnit::Percent,
+        layout_api::SVG_LENGTHTYPE_PX => SVGLengthUnit::Px,
+        layout_api::SVG_LENGTHTYPE_IN => SVGLengthUnit::In,
+        layout_api::SVG_LENGTHTYPE_CM => SVGLengthUnit::Cm,
+        layout_api::SVG_LENGTHTYPE_MM => SVGLengthUnit::Mm,
+        layout_api::SVG_LENGTHTYPE_PT => SVGLengthUnit::Pt,
+        layout_api::SVG_LENGTHTYPE_PC => SVGLengthUnit::Pc,
+        _ => SVGLengthUnit::Number,
+    };
+    SVGLength {
+        value: length.value,
+        unit,
+    }
+}
+
+fn convert_svg_preserve_aspect_ratio(
+    value: layout_api::SVGPreserveAspectRatioValue,
+) -> SVGPreserveAspectRatio {
+    let align = match value.align {
+        layout_api::SVG_PRESERVEASPECTRATIO_NONE => SVGPreserveAspectRatioAlign::None,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMIN => SVGPreserveAspectRatioAlign::XMinYMin,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMIN => SVGPreserveAspectRatioAlign::XMidYMin,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMIN => SVGPreserveAspectRatioAlign::XMaxYMin,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMID => SVGPreserveAspectRatioAlign::XMinYMid,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMID => SVGPreserveAspectRatioAlign::XMidYMid,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMID => SVGPreserveAspectRatioAlign::XMaxYMid,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMAX => SVGPreserveAspectRatioAlign::XMinYMax,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMAX => SVGPreserveAspectRatioAlign::XMidYMax,
+        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMAX => SVGPreserveAspectRatioAlign::XMaxYMax,
+        _ => SVGPreserveAspectRatioAlign::XMidYMid,
+    };
+    let meet_or_slice = match value.meet_or_slice {
+        layout_api::SVG_MEETORSLICE_SLICE => SVGMeetOrSlice::Slice,
+        _ => SVGMeetOrSlice::Meet,
+    };
+    SVGPreserveAspectRatio {
+        align,
+        meet_or_slice,
     }
 }
 
@@ -1012,6 +1243,23 @@ fn gradient_template_node<'dom>(
     let target = nodes_by_opaque.get(&target).copied()?;
     let target = resolve_svg_node(target, style_context)?;
     matches!(target.svg_data.node_kind, SVGNodeKind::Gradient(_)).then_some(target)
+}
+
+fn pattern_template_node<'dom>(
+    node: &SVGResolvedNode<'dom>,
+    style_context: &SharedStyleContext,
+    nodes_by_opaque: &SVGNodeMap<'dom>,
+    resource_graph: &SVGResourceGraph,
+) -> Option<SVGResolvedNode<'dom>> {
+    let href = match &node.svg_data.node_kind {
+        SVGNodeKind::Pattern(data) => data.href,
+        _ => None,
+    }?;
+    let id = href.local_reference?;
+    let target = resource_graph.node_for_element_id(id)?;
+    let target = nodes_by_opaque.get(&target).copied()?;
+    let target = resolve_svg_node(target, style_context)?;
+    matches!(target.svg_data.node_kind, SVGNodeKind::Pattern(_)).then_some(target)
 }
 
 fn collect_subtree_resource_dependencies(

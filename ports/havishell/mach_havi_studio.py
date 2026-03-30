@@ -11,7 +11,7 @@ from typing import Any
 
 # Import generic Makepad control library.
 _tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "..", "..", "..", "havi-makepad", "tools")
+                          "..", "..", "..", "makepad", "tools")
 sys.path.insert(0, _tools_dir)
 import makepad_control as mc  # ty: ignore[unresolved-import]
 

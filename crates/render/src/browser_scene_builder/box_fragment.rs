@@ -37,7 +37,7 @@ pub(super) fn build_box_fragment(
     let content_rect = physical_rect_to_rect(bf.content_rect());
     let box_origin_in_parent = build_cx.containing_block_origin + border_rect.pos;
 
-    let mut box_cx = build_cx;
+    let mut box_cx = build_cx.clone();
     let mut uses_box_local_basis = false;
     if let Some(semantics) = reference_frame_semantics(bf, box_origin_in_parent) {
         box_cx.spatial_id = scene.push_spatial_node(MpSpatialNode {
@@ -118,11 +118,11 @@ pub(super) fn build_box_fragment(
                 fragment_id,
             },
             owner_node_id_for_fragment(generation, fragment_id),
-            box_cx,
+            box_cx.clone(),
         )?;
     }
 
-    let mut child_cx = box_cx;
+    let mut child_cx = box_cx.clone();
     if needs_overflow_clip(bf) {
         let radius = resolve_border_radii(&bf.base.style).max();
         let padding_rect = physical_rect_to_rect(bf.padding_rect());

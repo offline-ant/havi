@@ -206,19 +206,22 @@ Current first-cut coverage:
 
 - tags: `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
   `polygon`, `defs`, `use`, `linearGradient`, `radialGradient`, `stop`,
-  `clipPath`, `foreignObject`, `image`, `text`, `tspan`
+  `clipPath`, `foreignObject`, `image`, `text`, `tspan`, `pattern`, and
+  `textPath`
 - properties: transforms, `viewBox`, `preserveAspectRatio`, solid fill and
-  stroke, gradients, `currentColor`, `display`, `visibility`, leaf `opacity`,
-  `fill-opacity`, `pointer-events`, `fill-rule`, `clip-rule`,
-  `vector-effect: non-scaling-stroke`, placeholder publication for
-  `paint-order`, stroke dash data, masks, filters, markers, and patterns,
-  basic text positioning attributes
+  stroke, gradients, `currentColor`, `context-fill`, `context-stroke`,
+  `display`, `visibility`, leaf `opacity`, `fill-opacity`, `pointer-events`,
+  `fill-rule`, `clip-rule`, `paint-order`, stroke dash arrays and offsets,
+  `vector-effect: non-scaling-stroke`, basic text positioning attributes,
+  `textLength`, `lengthAdjust="spacing"`, and the basic `textPath` subset
 - native resource behavior: `use` instance expansion, paint-server publication,
-  clip-path geometry publication, and simple clip-chain lowering from clip-path
-  bounds
+  clip-path geometry publication, simple clip-chain lowering from clip-path
+  bounds, execution-ready pattern resource publication, and document-owned
+  pattern tile scenes for the current path/text subset
 - renderer behavior: all SVG leaves now traverse one shared leaf builder path;
   retained text is used only for simple solid-fill SVG text and complex SVG text
-  lowers through the vector path boundary
+  lowers through the vector path boundary, including dashed strokes and pattern
+  paints in the current basic subset
 - query behavior: shape hit testing now uses SVG path geometry and SVG text run
   bounds rather than only axis-aligned fragment bounds
 
@@ -241,16 +244,15 @@ Current Phase 1 SVG DOM coverage:
 Still deferred:
 
 - full filters and masks
-- markers and patterns beyond publication
-- browser-grade SVG text shaping, `textLength`, and `textPath`
+- marker execution and long-tail marker semantics
+- long-tail pattern semantics beyond the current basic path/text subset
+- `lengthAdjust="spacingAndGlyphs"`
 - full `foreignObject` HTML formatting-context embedding
-- Phase 2 shared typed SVG attribute/value plumbing across DOM extraction,
-  layout, invalidation, and queries
 - long-tail value-object mutation semantics; many list mutations remain
   explicit `NotSupported`
 - full SVG geometry/text query semantics; several current query methods remain
   placeholder-backed
-- full DOM API parity beyond the Phase 1 spine
+- full DOM API parity beyond the current SVG spine
 
 ## Diagnostics
 

@@ -58,6 +58,87 @@ pub enum SVGGradientSpreadMethod {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGPreserveAspectRatioAlign {
+    None,
+    XMinYMin,
+    XMidYMin,
+    XMaxYMin,
+    XMinYMid,
+    XMidYMid,
+    XMaxYMid,
+    XMinYMax,
+    XMidYMax,
+    XMaxYMax,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGMeetOrSlice {
+    Meet,
+    Slice,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SVGPreserveAspectRatio {
+    pub align: SVGPreserveAspectRatioAlign,
+    pub meet_or_slice: SVGMeetOrSlice,
+}
+
+impl Default for SVGPreserveAspectRatio {
+    fn default() -> Self {
+        Self {
+            align: SVGPreserveAspectRatioAlign::XMidYMid,
+            meet_or_slice: SVGMeetOrSlice::Meet,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SVGLengthUnit {
+    Number,
+    Px,
+    Percent,
+    In,
+    Cm,
+    Mm,
+    Pt,
+    Pc,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SVGLength {
+    pub value: f32,
+    pub unit: SVGLengthUnit,
+}
+
+impl SVGLength {
+    pub fn zero() -> Self {
+        Self {
+            value: 0.0,
+            unit: SVGLengthUnit::Number,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SVGPatternRect {
+    pub x: SVGLength,
+    pub y: SVGLength,
+    pub width: SVGLength,
+    pub height: SVGLength,
+}
+
+impl Default for SVGPatternRect {
+    fn default() -> Self {
+        Self {
+            x: SVGLength::zero(),
+            y: SVGLength::zero(),
+            width: SVGLength::zero(),
+            height: SVGLength::zero(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SVGTextAnchor {
     Start,
     Middle,
@@ -393,7 +474,11 @@ pub struct SVGPatternResource {
     pub units: SVGCoordinateUnits,
     pub content_units: SVGCoordinateUnits,
     pub pattern_transform: SVGTransform,
-    pub rect: SVGRect,
+    pub rect: SVGPatternRect,
+    pub view_box: Option<SVGRect>,
+    pub preserve_aspect_ratio: SVGPreserveAspectRatio,
+    pub source_fragment_roots: Vec<FragmentId>,
+    pub source_resource_dependencies: Vec<SVGResourceId>,
 }
 
 #[derive(Clone, Debug)]

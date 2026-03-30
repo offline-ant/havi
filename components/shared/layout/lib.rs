@@ -485,6 +485,7 @@ pub struct SVGTextData {
     pub dx: SVGLengthListValue,
     pub dy: SVGLengthListValue,
     pub rotate: SVGNumberListValue,
+    pub font_size: Option<SVGLengthValue>,
     pub text_length: Option<SVGLengthValue>,
     pub length_adjust: Option<SVGLengthAdjustValue>,
     pub text_anchor: Option<SVGTextAnchor>,

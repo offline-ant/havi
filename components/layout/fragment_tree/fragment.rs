@@ -11,7 +11,7 @@ use base::print_tree::PrintTree;
 use fonts::{FontMetrics, FontRef, GlyphStore};
 use havi_types::fragment_tree::{
     SVGBounds, SVGContainerKind, SVGEffectState, SVGFragmentIdentity, SVGLeafKind,
-    SVGOverflowClip, SVGRect, SVGTransform,
+    SVGOverflowClip, SVGRect, SVGResourceId, SVGTransform,
 };
 use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
@@ -113,6 +113,15 @@ pub struct IFrameFragment {
     pub pipeline_id: PipelineId,
 }
 
+#[derive(Clone, MallocSizeOf)]
+pub struct SVGResourceOwnedSubtree {
+    #[ignore_malloc_size_of = "Resource ids are copied into published resources"]
+    pub owner_resource_id: SVGResourceId,
+    pub fragment_roots: Vec<Fragment>,
+    #[ignore_malloc_size_of = "Resource ids are copied into published resources"]
+    pub resource_dependencies: Vec<SVGResourceId>,
+}
+
 #[derive(MallocSizeOf)]
 pub struct SVGViewportFragment {
     pub base: BaseFragment,
@@ -129,6 +138,7 @@ pub struct SVGViewportFragment {
     pub overflow_clip: Option<SVGOverflowClip>,
     #[ignore_malloc_size_of = "SVG resource graphs are published separately into the fragment arena"]
     pub resource_graph: Option<crate::svg::resources::SVGResourceGraph>,
+    pub resource_owned_subtrees: Vec<SVGResourceOwnedSubtree>,
 }
 
 #[derive(MallocSizeOf)]
