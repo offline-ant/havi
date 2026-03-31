@@ -12,7 +12,6 @@ use makepad_browser_scene::{
 };
 use makepad_widgets::{DVec2, Mat4f, Rect, Vec2f, Vec4f, dvec2, vec2, vec4};
 
-use super::text::lower_svg_text_primitives;
 use crate::background::BackgroundLayerGeom;
 use crate::color::inherited_color;
 
@@ -41,19 +40,11 @@ pub(crate) fn lower_svg_leaf_primitives(
             paint_context,
         )),
         published::SVGLeafKind::Text(text) => {
-            if let Some(color) = svg_text_fast_path_color(svg, text, paint_context) {
-                return lower_svg_text_primitives(
-                    registry,
-                    glyph_runs,
-                    owner_node_id,
-                    local_origin,
-                    &text.runs,
-                    color,
-                    spatial_id,
-                    clip_chain_id,
-                    effect_id,
-                );
-            }
+            let _ = (registry, glyph_runs, local_origin);
+            // SVG text paint stays SVG-native. The browser text primitive path is
+            // an optimization only and currently does not preserve correctness for
+            // ordinary fill-only SVG text. Keep supported SVG text on the outline
+            // lowering path driven by the published SVG text payload.
             Ok(lower_svg_text_outline_primitives(
                 generation,
                 svg,
@@ -542,60 +533,6 @@ pub(crate) fn svg_leaf_vector_shapes(svg: &published::SVGLeafFragment) -> Vec<SV
     }
 }
 
-fn svg_text_payload_is_linear(text: &published::SVGTextPayload) -> bool {
-    text.runs
-        .iter()
-        .enumerate()
-        .all(|(run_index, run)| svg_text_run_is_linear(text, run_index as u32, run))
-}
-
-fn svg_text_run_is_linear(
-    text: &published::SVGTextPayload,
-    run_index: u32,
-    run: &published::SVGGlyphRun,
-) -> bool {
-    let mut run_addressings = text.addressing.iter().filter(|char| char.run_index == run_index);
-    let mut pen_x = run.rect.origin.x.to_f32_px();
-    let baseline_y = run.rect.origin.y.to_f32_px() + run.baseline_ascent.to_f32_px();
-    let epsilon = 0.01_f32;
-
-    for glyph in &run.glyphs {
-        let char_count = glyph.char_count.max(1) as usize;
-        let Some(first_char) = run_addressings.next() else {
-            return false;
-        };
-        if first_char.rotation != 0.0 {
-            return false;
-        }
-        let expected_x = pen_x + glyph.x_offset.to_f32_px();
-        let expected_y = baseline_y + glyph.y_offset.to_f32_px();
-        if (first_char.position.x - expected_x).abs() > epsilon ||
-            (first_char.position.y - expected_y).abs() > epsilon
-        {
-            return false;
-        }
-        for _ in 1..char_count {
-            let Some(char) = run_addressings.next() else {
-                return false;
-            };
-            if char.rotation != 0.0 ||
-                (char.position.x - expected_x).abs() > epsilon ||
-                (char.position.y - expected_y).abs() > epsilon
-            {
-                return false;
-            }
-        }
-        pen_x += glyph.advance.to_f32_px();
-    }
-
-    let expected_x = pen_x;
-    run_addressings.all(|char| {
-        char.rotation == 0.0 &&
-            (char.position.x - expected_x).abs() <= epsilon &&
-            (char.position.y - baseline_y).abs() <= epsilon
-    })
-}
-
 pub(crate) fn svg_text_run_outline_commands(
     text: &published::SVGTextPayload,
     run_index: u32,
@@ -853,53 +790,6 @@ fn svg_current_color(svg: &published::SVGLeafFragment) -> published::SVGColor {
         green: color.y,
         blue: color.z,
         alpha: color.w,
-    }
-}
-
-fn svg_text_fast_path_color(
-    svg: &published::SVGLeafFragment,
-    text: &published::SVGTextPayload,
-    paint_context: Option<&SVGPaintContext>,
-) -> Option<Vec4f> {
-    if svg.paint.stroke.is_some() || !svg_text_payload_is_linear(text) {
-        return None;
-    }
-    let alpha = svg.paint.fill_opacity * svg.paint.opacity;
-    if !alpha.is_finite() || alpha <= 0.0 {
-        return None;
-    }
-    svg_text_fast_path_paint_color(&svg.paint.fill, svg_current_color(svg), alpha, paint_context)
-}
-
-fn svg_text_fast_path_paint_color(
-    paint: &published::SVGPaint,
-    current_color: published::SVGColor,
-    opacity: f32,
-    paint_context: Option<&SVGPaintContext>,
-) -> Option<Vec4f> {
-    match paint {
-        published::SVGPaint::SolidColor(color) => Some(svg_color(*color, opacity)),
-        published::SVGPaint::CurrentColor => Some(svg_color(current_color, opacity)),
-        published::SVGPaint::ContextFill => {
-            let context = paint_context?;
-            svg_text_fast_path_paint_color(
-                &context.fill.paint,
-                context.current_color,
-                opacity * context.fill.opacity,
-                None,
-            )
-        }
-        published::SVGPaint::ContextStroke => {
-            let context = paint_context?;
-            let stroke = context.stroke.as_ref()?;
-            svg_text_fast_path_paint_color(
-                &stroke.paint,
-                context.current_color,
-                opacity * stroke.opacity,
-                None,
-            )
-        }
-        published::SVGPaint::None | published::SVGPaint::Server(_) => None,
     }
 }
 

@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
-use havi_types::fragment_tree::{SVGGlyphRun, TextFragment};
+use havi_types::fragment_tree::TextFragment;
 use makepad_browser_scene::{
     MpClipChainId, MpFontKey, MpGlyphRunKey, MpGlyphRunMetrics, MpGlyphRunResource, MpHitTestTag,
     MpPositionedGlyph, MpPrimitive, MpTextDecorations, MpTextShadow, ResourceRegistry,
 };
-use makepad_widgets::{DVec2, Rect};
+use makepad_widgets::Rect;
 use style::color::{AbsoluteColor, ColorSpace};
 use style::values::specified::TextDecorationLine;
 
-use super::resources::{ensure_font_resource, ensure_svg_font_resource, hash_value};
+use super::resources::{ensure_font_resource, hash_value};
 use crate::color::{inherited_color, resolve_color};
 
 pub(super) fn lower_text_primitive(
@@ -38,48 +38,6 @@ pub(super) fn lower_text_primitive(
     primitive.effect_id = effect_id;
     primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
     Ok(primitive)
-}
-
-pub(super) fn lower_svg_text_primitives(
-    registry: &mut ResourceRegistry,
-    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
-    owner_node_id: Option<usize>,
-    local_origin: DVec2,
-    runs: &[SVGGlyphRun],
-    color: makepad_widgets::Vec4f,
-    spatial_id: makepad_browser_scene::MpSpatialId,
-    clip_chain_id: MpClipChainId,
-    effect_id: Option<makepad_browser_scene::MpEffectId>,
-) -> Result<Vec<MpPrimitive>, String> {
-    let mut primitives = Vec::with_capacity(runs.len());
-    for run in runs {
-        let bounds = Rect {
-            pos: local_origin
-                + makepad_widgets::dvec2(
-                    run.rect.origin.x.to_f32_px() as f64,
-                    run.rect.origin.y.to_f32_px() as f64,
-                ),
-            size: makepad_widgets::dvec2(
-                run.rect.size.width.to_f32_px() as f64,
-                run.rect.size.height.to_f32_px() as f64,
-            ),
-        };
-        let font_key = ensure_svg_font_resource(registry, run)?;
-        let (glyph_run_key, glyph_run) = make_svg_glyph_run_resource(owner_node_id, bounds, run, font_key)?;
-        glyph_runs.entry(glyph_run_key).or_insert(glyph_run);
-        let mut primitive = MpPrimitive::text_run(
-            makepad_browser_scene::MpPrimitiveId(0),
-            spatial_id,
-            clip_chain_id,
-            bounds,
-            glyph_run_key,
-            color,
-        );
-        primitive.effect_id = effect_id;
-        primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
-        primitives.push(primitive);
-    }
-    Ok(primitives)
 }
 
 fn make_html_glyph_run_resource(
@@ -151,48 +109,6 @@ fn make_html_glyph_run_resource(
                 line_through: line.contains(TextDecorationLine::LINE_THROUGH),
                 shadows,
             },
-        },
-    ))
-}
-
-fn make_svg_glyph_run_resource(
-    owner_node_id: Option<usize>,
-    bounds: Rect,
-    run: &SVGGlyphRun,
-    font_key: MpFontKey,
-) -> Result<(MpGlyphRunKey, MpGlyphRunResource), String> {
-    if run.glyphs.is_empty() {
-        return Err("unshaped svg text not supported by browser-scene adapter yet".to_string());
-    }
-    let glyph_run_key = MpGlyphRunKey(hash_value(&(
-        owner_node_id,
-        run.text.as_str(),
-        run.rect.origin.x.0,
-        run.rect.origin.y.0,
-        run.rect.size.width.0,
-        run.rect.size.height.0,
-    )));
-    let (glyphs, advance_width) = positioned_glyphs(
-        bounds,
-        run.font_size_px,
-        run.baseline_ascent.to_f32_px(),
-        &run.glyphs,
-    )?;
-    Ok((
-        glyph_run_key,
-        MpGlyphRunResource {
-            text: run.text.clone(),
-            font_keys: vec![font_key],
-            glyphs,
-            metrics: MpGlyphRunMetrics {
-                advance_width_px: advance_width,
-                baseline_ascent_px: run.baseline_ascent.to_f32_px(),
-                underline_offset_px: 0.0,
-                underline_thickness_px: 0.0,
-                strikeout_offset_px: 0.0,
-                strikeout_thickness_px: 0.0,
-            },
-            decorations: MpTextDecorations::default(),
         },
     ))
 }

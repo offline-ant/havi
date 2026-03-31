@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use havi_types::fragment_tree::{
-    FragmentImageKey, ImageFragment, ImageSourceKind, SVGGlyphRun, TextFragment,
+    FragmentImageKey, ImageFragment, ImageSourceKind, TextFragment,
 };
 use makepad_browser_scene::{
     MpFontKey, MpFontResource, MpImageKey, MpImageSource, MpRendererImageHandle,
@@ -114,13 +114,6 @@ pub(super) fn ensure_font_resource(
     tf: &TextFragment,
 ) -> Result<MpFontKey, String> {
     ensure_font_resource_from_parts(registry, tf.font_data.as_ref(), tf.font_index, "text fragment")
-}
-
-pub(super) fn ensure_svg_font_resource(
-    registry: &mut ResourceRegistry,
-    run: &SVGGlyphRun,
-) -> Result<MpFontKey, String> {
-    ensure_font_resource_from_parts(registry, run.font_data.as_ref(), run.font_index, "svg glyph run")
 }
 
 fn ensure_font_resource_from_parts(
