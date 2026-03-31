@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use base::generic_channel::GenericSender;
-use bluetooth_traits::{BluetoothRequest, BluetoothResponse};
+use bluetooth::{BluetoothRequest, BluetoothResponse};
 use dom_struct::dom_struct;
 
 use crate::script::dom::bindings::cell::DomRefCell;

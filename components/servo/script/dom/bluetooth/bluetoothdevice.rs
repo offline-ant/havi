@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use base::generic_channel::GenericSender;
-use bluetooth_traits::{
+use bluetooth::{
     BluetoothCharacteristicMsg, BluetoothDescriptorMsg, BluetoothRequest, BluetoothResponse,
     BluetoothServiceMsg,
 };

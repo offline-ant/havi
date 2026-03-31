@@ -16,7 +16,7 @@ crate-type = ["rlib"]
 default = ["clipboard", "js_jit"]
 background_hang_monitor = ["sampler"]
 sampler = []
-bluetooth = ["bluetooth_traits", "dep:bluetooth", "script_bindings/bluetooth"]
+bluetooth = ["dep:bluetooth", "script_bindings/bluetooth"]
 clipboard = ["dep:arboard"]
 crown = ["js/crown"]
 debugmozjs = ["js/debugmozjs"]
@@ -49,7 +49,6 @@ bitflags = { workspace = true }
 byteorder = { workspace = true }
 cssparser = { workspace = true }
 bluetooth = { path = "../bluetooth", optional = true }
-bluetooth_traits = { workspace = true, optional = true }
 crossbeam-channel = { workspace = true }
 dpi = { workspace = true }
 bytes = "1"

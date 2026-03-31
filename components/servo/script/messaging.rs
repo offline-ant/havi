@@ -11,7 +11,7 @@ use std::result::Result;
 use base::generic_channel::{GenericCallback, GenericSender, RoutedReceiver};
 use base::id::{PipelineId, WebViewId};
 #[cfg(feature = "bluetooth")]
-use bluetooth_traits::BluetoothRequest;
+use bluetooth::BluetoothRequest;
 use crate::constellation::ScriptToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender, select};
 use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};

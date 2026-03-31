@@ -663,7 +663,6 @@ version = "0.0.1"
 dependencies = [
  "base",
  "bitflags 2.11.0",
- "bluetooth_traits",
  "blurdroid",
  "blurmac",
  "blurmock",
@@ -673,16 +672,6 @@ dependencies = [
  "rand 0.9.2",
  "servo_config",
  "uuid",
-]
-
-[[package]]
-name = "bluetooth_traits"
-version = "0.0.1"
-dependencies = [
- "base",
- "embedder_traits",
- "regex",
- "serde",
 ]
 
 [[package]]
@@ -4064,7 +4053,6 @@ dependencies = [
  "base64ct",
  "bitflags 2.11.0",
  "bluetooth",
- "bluetooth_traits",
  "brotli",
  "bytemuck 1.25.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -108,7 +108,7 @@ use base::id::{
 };
 use base::{Epoch, generic_channel};
 #[cfg(feature = "bluetooth")]
-use bluetooth_traits::BluetoothRequest;
+use bluetooth::BluetoothRequest;
 use crate::canvas::canvas_paint_thread::CanvasPaintThread;
 use crate::canvas::ConstellationCanvasMsg;
 use crate::canvas::{CanvasId, CanvasMsg};

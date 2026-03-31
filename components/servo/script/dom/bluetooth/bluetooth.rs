@@ -3,11 +3,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::generic_channel::{GenericCallback, GenericSender};
-use bluetooth_traits::{BluetoothError, BluetoothRequest, GATTType};
-use bluetooth_traits::{BluetoothResponse, BluetoothResponseResult};
-use bluetooth_traits::blocklist::{Blocklist, uuid_is_blocklisted};
-use bluetooth_traits::scanfilter::{BluetoothScanfilter, BluetoothScanfilterSequence};
-use bluetooth_traits::scanfilter::{RequestDeviceoptions, ServiceUUIDSequence};
+use bluetooth::{BluetoothError, BluetoothRequest, GATTType};
+use bluetooth::{BluetoothResponse, BluetoothResponseResult};
+use bluetooth::blocklist::{Blocklist, uuid_is_blocklisted};
+use bluetooth::scanfilter::{BluetoothScanfilter, BluetoothScanfilterSequence};
+use bluetooth::scanfilter::{RequestDeviceoptions, ServiceUUIDSequence};
 use js::realm::CurrentRealm;
 use script_bindings::cformat;
 use crate::script::conversions::Convert;

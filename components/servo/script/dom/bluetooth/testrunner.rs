@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::generic_channel::GenericSender;
-use bluetooth_traits::BluetoothRequest;
+use bluetooth::BluetoothRequest;
 use dom_struct::dom_struct;
 use profile_traits::generic_channel;
 

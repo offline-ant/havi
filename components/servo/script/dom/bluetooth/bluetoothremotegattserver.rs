@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use base::generic_channel::GenericSender;
-use bluetooth_traits::{BluetoothRequest, BluetoothResponse, GATTType};
+use bluetooth::{BluetoothRequest, BluetoothResponse, GATTType};
 use dom_struct::dom_struct;
 use js::realm::CurrentRealm;
 

@@ -18,7 +18,7 @@ use base::id::{
     ScriptEventLoopId, WebViewId,
 };
 #[cfg(feature = "bluetooth")]
-use bluetooth_traits::BluetoothRequest;
+use bluetooth::BluetoothRequest;
 use crate::constellation::{
     KeyboardScroll, LoadData, NavigationHistoryBehavior, ScriptToConstellationSender,
     ScrollStateUpdate, StructuredSerializedData, WindowSizeType,

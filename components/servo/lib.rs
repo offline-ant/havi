@@ -145,7 +145,7 @@ pub mod webxr_api {
 
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth_traits {
-    pub use ::bluetooth_traits::*;
+    pub use ::bluetooth::*;
 }
 
 pub mod background_hang_monitor_api {

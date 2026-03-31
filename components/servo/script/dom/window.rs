@@ -20,7 +20,7 @@ use base::generic_channel::{self, GenericCallback, GenericSender};
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use base64::Engine;
 #[cfg(feature = "bluetooth")]
-use bluetooth_traits::BluetoothRequest;
+use bluetooth::BluetoothRequest;
 
 use crate::constellation::{
     LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
