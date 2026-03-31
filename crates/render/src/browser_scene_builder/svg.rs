@@ -7,9 +7,9 @@ use makepad_browser_scene::{
     MpClipChain, MpClipKind, MpClipNode, MpDocument, MpEffectNode, MpFillRule,
     MpFilter, MpIsolation, MpMask, MpMaskSampleMode, MpPatternTileId, MpPatternTileSource,
     MpPrimitive, MpPrimitiveId, MpPrimitiveKind, MpReferenceFrame, MpScene,
-    MpSpatialKind, MpSpatialNode, MpVectorDashPattern, MpVectorDraw, MpVectorMaskContent,
-    MpVectorMaskPath, MpVectorPaint, MpVectorPathCommand, MpVectorPathPrimitive,
-    MpVectorPatternPaint, MpVectorStrokeStyle, ResourceRegistry,
+    MpSpatialKind, MpSpatialNode, MpVectorDashPattern, MpVectorDraw,
+    MpVectorMaskContent, MpVectorMaskPath, MpVectorPaint, MpVectorPathCommand,
+    MpVectorPathPrimitive, MpVectorPatternPaint, MpVectorStrokeStyle, ResourceRegistry,
 };
 use makepad_widgets::{dvec2, vec2, vec3, Cx2d, DVec2, Mat4f, Rect};
 use style_traits::CSSPixel;
@@ -1505,7 +1505,9 @@ fn pattern_alignment_factors(align: published::SVGPreserveAspectRatioAlign) -> (
 }
 
 fn spatial_affine(scene: &MpScene, spatial_id: makepad_browser_scene::MpSpatialId) -> [f32; 6] {
-    let transform = scene.resolve_spatial_transform(spatial_id);
+    let transform = makepad_compositor::MpEvaluatedBrowserSpatialScene::evaluate(scene)
+        .expect("valid browser spatial scene")
+        .resolve_spatial_transform(spatial_id);
     [transform.v[0], transform.v[1], transform.v[4], transform.v[5], transform.v[12], transform.v[13]]
 }
 

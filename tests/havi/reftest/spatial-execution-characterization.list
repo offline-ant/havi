@@ -1,0 +1,19 @@
+# Spatial execution characterization manifest for the browser-scene/compositor
+# ownership refactor.
+#
+# Run with:
+#   ./.venv/bin/python3 tests/havi/reftest.py \
+#     --manifest tests/havi/reftest/spatial-execution-characterization.list
+#
+# This manifest is intentionally separate from the default strict reftest set.
+# It carries perspective and reveal-style cases that must stay visible and must
+# be rechecked while spatial execution ownership moves into the compositor.
+
+# Perspective ancestor with flat descendant content.
+== cases/perspective-text-center.html refs/perspective-text-center-ref.html
+== cases/perspective-clip-drop.html refs/perspective-clip-drop-ref.html
+== cases/perspective-nested-overflow.html refs/perspective-nested-overflow-ref.html
+
+# Reveal-style transformed descendant characterization.
+!= cases/reveal-scale-drop.html refs/reveal-scale-drop-ref.html
+!= cases/transform-nonidentity-scale.html refs/transform-nonidentity-scale-ref.html

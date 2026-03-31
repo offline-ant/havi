@@ -4783,7 +4783,15 @@ dependencies = [
 name = "makepad-browser-scene"
 version = "0.1.0"
 dependencies = [
+ "makepad-browser-scene-types",
  "makepad-compositor",
+ "makepad-widgets",
+]
+
+[[package]]
+name = "makepad-browser-scene-types"
+version = "0.1.0"
+dependencies = [
  "makepad-widgets",
 ]
 
@@ -4795,6 +4803,7 @@ version = "0.1.0"
 name = "makepad-compositor"
 version = "0.1.0"
 dependencies = [
+ "makepad-browser-scene-types",
  "makepad-draw",
 ]
 
