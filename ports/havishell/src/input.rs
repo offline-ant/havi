@@ -164,7 +164,7 @@ pub fn makepad_modifiers_to_servo(modifiers: KeyModifiers) -> Modifiers {
     result
 }
 
-pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<servo::InputEvent> {
+pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<libhavi::InputEvent> {
     let key = makepad_key_to_servo(ke.key_code);
     let code = makepad_key_to_code(ke.key_code);
     let modifiers = makepad_modifiers_to_servo(ke.modifiers);
@@ -185,7 +185,7 @@ pub fn translate_key_event(ke: &KeyEvent, is_down: bool) -> Option<servo::InputE
         other => other,
     };
 
-    Some(servo::InputEvent::Keyboard(servo::KeyboardEvent::new(
+    Some(libhavi::InputEvent::Keyboard(libhavi::KeyboardEvent::new(
         keyboard_types::KeyboardEvent {
             state,
             key,

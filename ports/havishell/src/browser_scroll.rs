@@ -1,13 +1,13 @@
-use base::id::ScrollTreeNodeId;
+use libhavi::base::id::ScrollTreeNodeId;
 use havi_types::fragment_tree::{
     FragmentArenaGeneration, FragmentId, FragmentKind, PaintChild,
 };
-use layout_api::{
+use libhavi::layout::{
     shared_committed_scroll_offsets_for_pipeline, shared_layout_fragment_tree_for_pipeline,
     SharedLayoutFragmentTree, SharedScrollState,
 };
 use makepad_widgets::{dvec2, DVec2, Rect};
-use paint_api::scroll_tree::{
+use libhavi::paint::scroll_tree::{
     AxesScrollSensitivity, ScrollTree, ScrollType, ScrollableNodeInfo, SpatialTreeNodeInfo,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -23,7 +23,7 @@ pub struct BrowserScrollCommit {
 
 #[derive(Default)]
 pub struct BrowserScrollController {
-    webview_id: Option<base::id::WebViewId>,
+    webview_id: Option<libhavi::base::id::WebViewId>,
     root_pipeline_id: Option<PipelineId>,
     sampled_offsets: FxHashMap<ExternalScrollId, LayoutVector2D>,
     structural_tree: ScrollTree,
@@ -35,7 +35,7 @@ pub struct BrowserScrollController {
 impl BrowserScrollController {
     pub fn attach_webview(
         &mut self,
-        webview_id: base::id::WebViewId,
+        webview_id: libhavi::base::id::WebViewId,
         root_pipeline_id: Option<PipelineId>,
     ) {
         if self.webview_id == Some(webview_id) && self.root_pipeline_id == root_pipeline_id {

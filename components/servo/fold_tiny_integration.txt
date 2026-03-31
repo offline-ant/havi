@@ -1,0 +1,11 @@
+=== lib.rs additions ===
+pub mod geometry;
+pub mod pixels;
+pub mod timers;
+pub mod metrics;
+
+=== Cargo.toml dep additions ===
+app_units = { workspace = true }
+malloc_size_of = { workspace = true }
+malloc_size_of_derive = { workspace = true }
+makepad-media = { path = "../../../havi-makepad/media", features = ["avif", "dav1d"] }

@@ -6,12 +6,12 @@ This note tracks alignment with hppr-client ergonomics improvements.
 
 - WATCH endpoint parsing uses `hppr_client::parse_via`
   (`tcp+host:port` and `host:port`).
-  - File: `havi-protocols/src/watch.rs`
+  - Module: `libhavi::hppr::watch`
 - WATCH events use `hppr_client::parse_watch_event`
   instead of raw-line matching.
-  - File: `havi-protocols/src/watch.rs`
+  - Module: `libhavi::hppr::watch`
 - Sandbox fetch resolves hostnames via `ToSocketAddrs`.
-  - File: `havi-protocols/src/pages/hppr_sandbox.rs`
+  - Module: `libhavi::pages::hppr_sandbox`
 
 ## Not currently relevant in HAVI runtime
 

@@ -1,17 +1,17 @@
 use crossbeam_channel::Sender;
 use euclid::Scale;
-use havi_protocols::credentials::global_credential_store;
+use libhavi::hppr::credentials::global_credential_store;
 use makepad_widgets::event::VideoSource as PlatformVideoSource;
 use makepad_widgets::makepad_platform::makepad_micro_serde::DeJson;
 use makepad_widgets::makepad_platform::studio::StudioToApp;
 use makepad_widgets::*;
-use media::controller::{
+use libhavi::media::controller::{
     self as media_controller, MediaEvent as ThreadMediaEvent, MediaOrigin as ThreadMediaOrigin,
     VideoOp,
 };
-use media::ResolvedMediaAsset;
-use servo::protocol_handler::ProtocolRegistry;
-use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
+use libhavi::media::ResolvedMediaAsset;
+use libhavi::protocol_handler::ProtocolRegistry;
+use libhavi::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use webrender_api::PipelineId;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -63,19 +63,19 @@ script_mod! {
 // Actions
 // ---------------------------------------------------------------------------
 
-fn settings_from_wire(mode: &str) -> Option<havi_protocols::watch::WatchSettings> {
-    havi_protocols::watch::WatchSettings::from_wire(mode)
+fn settings_from_wire(mode: &str) -> Option<libhavi::hppr::watch::WatchSettings> {
+    libhavi::hppr::watch::WatchSettings::from_wire(mode)
 }
 
-fn settings_to_wire(settings: havi_protocols::watch::WatchSettings) -> String {
+fn settings_to_wire(settings: libhavi::hppr::watch::WatchSettings) -> String {
     settings.to_wire()
 }
 
-fn watch_button_text(scope: havi_protocols::watch::WatchScope) -> &'static str {
+fn watch_button_text(scope: libhavi::hppr::watch::WatchScope) -> &'static str {
     match scope {
-        havi_protocols::watch::WatchScope::None => "Watch: Off",
-        havi_protocols::watch::WatchScope::Page => "Watch: Page",
-        havi_protocols::watch::WatchScope::App => "Watch: App",
+        libhavi::hppr::watch::WatchScope::None => "Watch: Off",
+        libhavi::hppr::watch::WatchScope::Page => "Watch: Page",
+        libhavi::hppr::watch::WatchScope::App => "Watch: App",
     }
 }
 
@@ -107,7 +107,7 @@ enum PylonInitResult {
     Ready {
         hpprd_port: u16,
         pylon_port: u16,
-        pylon_events: std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>,
+        pylon_events: std::sync::mpsc::Receiver<libhavi::hppr::pylon::PylonEvent>,
     },
     Failed {
         reason: String,
@@ -139,7 +139,7 @@ fn pylon_mode_from_env() -> PylonMode {
 }
 
 fn start_hpprd_with_runtime(
-    pylon_client: &mut havi_protocols::pylon::PylonClient,
+    pylon_client: &mut libhavi::hppr::pylon::PylonClient,
     runtime: Option<&str>,
 ) -> anyhow::Result<u16> {
     if let Some(port) = pylon_client.hpprd_port() {
@@ -211,9 +211,9 @@ fn start_hpprd_with_runtime(
 
 struct ResourceReader;
 
-impl servo::resources::ResourceReaderMethods for ResourceReader {
+impl libhavi::resources::ResourceReaderMethods for ResourceReader {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    fn read(&self, file: servo::resources::Resource) -> Vec<u8> {
+    fn read(&self, file: libhavi::resources::Resource) -> Vec<u8> {
         let mut path = std::env::current_exe().unwrap().canonicalize().unwrap();
         while path.pop() {
             path.push("resources");
@@ -227,8 +227,8 @@ impl servo::resources::ResourceReaderMethods for ResourceReader {
     }
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    fn read(&self, res: servo::resources::Resource) -> Vec<u8> {
-        use servo::resources::Resource;
+    fn read(&self, res: libhavi::resources::Resource) -> Vec<u8> {
+        use libhavi::resources::Resource;
         Vec::from(match res {
             Resource::HstsPreloadList => {
                 &include_bytes!("../resources/servo/hsts_preload.fstmap")[..]
@@ -799,7 +799,7 @@ pub struct App {
     #[rust]
     clipboard_state: Option<Rc<ClipboardState>>,
     #[rust]
-    servo: Option<servo::Servo>,
+    servo: Option<libhavi::Servo>,
     #[rust]
     next_frame: NextFrame,
     #[rust]
@@ -849,7 +849,7 @@ pub struct App {
     // --- Context menu state ---
     /// Active Servo context menu awaiting user selection. Presence means menu is open.
     #[rust]
-    active_context_menu: Option<servo::ContextMenu>,
+    active_context_menu: Option<libhavi::ContextMenu>,
     #[rust]
     context_menu_pos: DVec2,
     /// Popup window handle for the context menu. None when menu is closed.
@@ -872,7 +872,7 @@ pub struct App {
     context_separator_template_source: ScriptObjectRef,
     /// Latest known element flags for context-sensitive capabilities.
     #[rust]
-    last_context_menu_flags: Option<servo::ContextMenuElementInformationFlags>,
+    last_context_menu_flags: Option<libhavi::ContextMenuElementInformationFlags>,
 
     /// True while Servo reports an active IME/editable context.
     #[rust]
@@ -897,7 +897,7 @@ pub struct App {
     /// Dedicated pylon TCP connection used for shell status refresh.
     /// The event stream connection is consumed by `subscribe()`.
     #[rust]
-    pylon_command_client: Option<havi_protocols::pylon::PylonClient>,
+    pylon_command_client: Option<libhavi::hppr::pylon::PylonClient>,
 
     /// True when tab/toolbar chrome is docked to the bottom.
     #[rust]
@@ -923,7 +923,7 @@ pub struct App {
     /// Receives pylon service events. The background reader thread keeps the
     /// TCP connection alive (preventing pylon idle shutdown).
     #[rust]
-    pylon_events: Option<std::sync::mpsc::Receiver<havi_protocols::pylon::PylonEvent>>,
+    pylon_events: Option<std::sync::mpsc::Receiver<libhavi::hppr::pylon::PylonEvent>>,
 
     /// Receiver for media-thread VideoOp commands (script thread -> makepad main thread).
     #[rust]
@@ -992,7 +992,7 @@ pub struct App {
     /// Shared HPPR watch connection pool.
     /// Field order matters: this is dropped before `havi_runtime` during App teardown.
     #[rust]
-    watch_pool: Option<havi_protocols::watch::WatchPool>,
+    watch_pool: Option<libhavi::hppr::watch::WatchPool>,
 
     /// Endpoint used when initializing watch pool lazily.
     #[rust]
@@ -1103,14 +1103,14 @@ impl App {
             })
     }
 
-    pub(super) fn current_render_fragments(&self) -> layout_api::SharedLayoutFragmentTree {
+    pub(super) fn current_render_fragments(&self) -> libhavi::layout::SharedLayoutFragmentTree {
         let tab = &self.tabs[self.active_tab_idx];
-        layout_api::shared_layout_fragment_tree_for(tab.webview_id)
+        libhavi::layout::shared_layout_fragment_tree_for(tab.webview_id)
     }
 
-    pub(super) fn current_shell_scroll_state(&self) -> layout_api::SharedScrollState {
+    pub(super) fn current_shell_scroll_state(&self) -> libhavi::layout::SharedScrollState {
         let tab = &self.tabs[self.active_tab_idx];
-        layout_api::shared_scroll_state_for(tab.webview_id)
+        libhavi::layout::shared_scroll_state_for(tab.webview_id)
     }
 
     pub(super) fn attach_active_browser_state(&self, cx: &mut Cx) {
@@ -1119,7 +1119,7 @@ impl App {
         };
         let shared = self.current_render_fragments();
         let scroll = self.current_shell_scroll_state();
-        let selection = layout_api::shared_document_selection_for(tab.webview_id);
+        let selection = libhavi::layout::shared_document_selection_for(tab.webview_id);
         let image_sources = self.servo.as_ref().unwrap().image_source_store();
         self.ui.servo_web_view(cx, ids!(web_view)).set_shared_browser_state(
             cx,

@@ -9,7 +9,7 @@ impl App {
         let Some(tab) = self.tabs.get(self.active_tab_idx) else {
             return false;
         };
-        let Ok(addr) = havi_protocols::url::HAVIAddress::parse(&tab.url) else {
+        let Ok(addr) = libhavi::hppr::url::HAVIAddress::parse(&tab.url) else {
             return false;
         };
         let parts = addr.parts();

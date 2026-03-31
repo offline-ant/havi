@@ -1,0 +1,162 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use base::id::WebViewId;
+use rustc_hash::FxHashMap;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use embedder_traits::{EmbedderMsg, EmbedderProxy};
+use image::ImageEncoder;
+use image::RgbaImage;
+use image::codecs::png::PngEncoder;
+use malloc_size_of_derive::MallocSizeOf;
+use serde_json::{Map, Value};
+
+use super::StreamId;
+use super::actor::{Actor, ActorError, ActorRegistry};
+use super::protocol::ClientRequest;
+
+#[derive(MallocSizeOf)]
+pub(crate) struct ScreenshotActor {
+    name: String,
+    #[ignore_malloc_size_of = "EmbedderProxy"]
+    embedder_proxy: EmbedderProxy,
+    #[ignore_malloc_size_of = "Mutex"]
+    active_webview: Arc<Mutex<Option<WebViewId>>>,
+    #[ignore_malloc_size_of = "Mutex"]
+    webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
+}
+
+impl ScreenshotActor {
+    pub fn new(
+        name: String,
+        embedder_proxy: EmbedderProxy,
+        active_webview: Arc<Mutex<Option<WebViewId>>>,
+        webviews_by_browser_id: Arc<Mutex<FxHashMap<u32, WebViewId>>>,
+    ) -> Self {
+        Self {
+            name,
+            embedder_proxy,
+            active_webview,
+            webviews_by_browser_id,
+        }
+    }
+
+    fn flatten_over_white(mut image: RgbaImage) -> RgbaImage {
+        for pixel in image.pixels_mut() {
+            let alpha = pixel[3] as u32;
+            if alpha == 255 {
+                continue;
+            }
+            let inv_alpha = 255 - alpha;
+            for channel in 0..3 {
+                let src = pixel[channel] as u32;
+                pixel[channel] = ((src * alpha + 255 * inv_alpha + 127) / 255) as u8;
+            }
+            pixel[3] = 255;
+        }
+        image
+    }
+}
+
+impl Actor for ScreenshotActor {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn handle_message(
+        &self,
+        request: ClientRequest,
+        _registry: &ActorRegistry,
+        msg_type: &str,
+        msg: &Map<String, Value>,
+        _id: StreamId,
+    ) -> Result<(), ActorError> {
+        match msg_type {
+            "capture" => {
+                let webview_id = if let Some(browser_id) = msg.get("browserId") {
+                    let browser_id = browser_id
+                        .as_u64()
+                        .ok_or(ActorError::BadParameterType)? as u32;
+                    let guard = self
+                        .webviews_by_browser_id
+                        .lock()
+                        .map_err(|_| ActorError::Internal)?;
+                    if let Some(id) = guard.get(&browser_id).copied() {
+                        id
+                    } else {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": "unknown browserId",
+                        });
+                        request.reply_final(&reply)?;
+                        return Ok(());
+                    }
+                } else {
+                    let guard = self.active_webview.lock().map_err(|_| ActorError::Internal)?;
+                    match *guard {
+                        Some(id) => id,
+                        None => {
+                            let reply = serde_json::json!({
+                                "from": self.name,
+                                "error": "no active webview",
+                            });
+                            request.reply_final(&reply)?;
+                            return Ok(());
+                        },
+                    }
+                };
+
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                self.embedder_proxy
+                    .send(EmbedderMsg::TakeScreenshot(webview_id, tx));
+
+                let result = rx.recv_timeout(Duration::from_secs(5));
+                match result {
+                    Ok(Ok(image)) => {
+                        let image = Self::flatten_over_white(image);
+                        let width = image.width();
+                        let height = image.height();
+                        let mut png_bytes = Vec::new();
+                        PngEncoder::new(&mut png_bytes)
+                            .write_image(
+                                image.as_raw(),
+                                width,
+                                height,
+                                image::ExtendedColorType::Rgba8,
+                            )
+                            .map_err(|_| ActorError::Internal)?;
+                        let b64 = BASE64.encode(&png_bytes);
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "data": b64,
+                            "width": width,
+                            "height": height,
+                        });
+                        request.reply_final(&reply)?;
+                    },
+                    Ok(Err(e)) => {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": format!("{e:?}"),
+                        });
+                        request.reply_final(&reply)?;
+                    },
+                    Err(_) => {
+                        let reply = serde_json::json!({
+                            "from": self.name,
+                            "error": "screenshot timeout",
+                        });
+                        request.reply_final(&reply)?;
+                    },
+                }
+            },
+            _ => return Err(ActorError::UnrecognizedPacketType),
+        }
+        Ok(())
+    }
+}

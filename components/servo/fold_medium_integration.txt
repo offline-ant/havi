@@ -1,0 +1,24 @@
+=== lib.rs additions ===
+pub mod background_hang_monitor;
+pub mod profile_impl;  // NOTE: merge into existing profile mod
+pub mod servo_url;
+pub mod servo_config;
+
+=== Cargo.toml dep additions ===
+background_hang_monitor_api = { workspace = true }
+backtrace = { workspace = true }
+encoding_rs = { workspace = true }
+libc = { workspace = true }
+mach2 = { workspace = true, optional = true }
+malloc_size_of = { workspace = true }
+malloc_size_of_derive = { workspace = true }
+nix = { workspace = true, features = ["signal"], optional = true }
+regex = { workspace = true }
+rustc-demangle = { version = "0.1", optional = true }
+servo_arc = { workspace = true }
+servo_config_macro = { path = "../config/macro" }
+stylo_static_prefs = { workspace = true }
+time = { workspace = true }
+tikv-jemalloc-sys = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+Note: servo_config/macro stays as a separate crate dep: servo_config_macro = { path = "../config/macro" }

@@ -1,11 +1,11 @@
 use super::*;
 use super::navigation::parse_navigation_url;
 
-use havi_protocols::credentials::global_credential_store;
-use havi_protocols::resolve;
-use havi_protocols::util::mime_from_path;
+use libhavi::hppr::credentials::global_credential_store;
+use libhavi::hppr::resolve;
+use libhavi::hppr::util::mime_from_path;
 
-fn composite_rgba_over_white(image: &mut servo::RgbaImage) {
+fn composite_rgba_over_white(image: &mut libhavi::RgbaImage) {
     for pixel in image.pixels_mut() {
         let alpha = pixel[3] as u32;
         if alpha == 255 {
@@ -19,49 +19,49 @@ fn composite_rgba_over_white(image: &mut servo::RgbaImage) {
     }
 }
 
-fn servo_cursor_to_makepad(cursor: servo::Cursor) -> MouseCursor {
+fn servo_cursor_to_makepad(cursor: libhavi::Cursor) -> MouseCursor {
     match cursor {
-        servo::Cursor::None => MouseCursor::Hidden,
-        servo::Cursor::Default => MouseCursor::Default,
-        servo::Cursor::Pointer => MouseCursor::Hand,
-        servo::Cursor::ContextMenu => MouseCursor::Default,
-        servo::Cursor::Help => MouseCursor::Help,
-        servo::Cursor::Progress => MouseCursor::Wait,
-        servo::Cursor::Wait => MouseCursor::Wait,
-        servo::Cursor::Cell => MouseCursor::Crosshair,
-        servo::Cursor::Crosshair => MouseCursor::Crosshair,
-        servo::Cursor::Text => MouseCursor::Text,
-        servo::Cursor::VerticalText => MouseCursor::Text,
-        servo::Cursor::Alias => MouseCursor::Default,
-        servo::Cursor::Copy => MouseCursor::Default,
-        servo::Cursor::Move => MouseCursor::Move,
-        servo::Cursor::NoDrop => MouseCursor::NotAllowed,
-        servo::Cursor::NotAllowed => MouseCursor::NotAllowed,
-        servo::Cursor::Grab => MouseCursor::Arrow,
-        servo::Cursor::Grabbing => MouseCursor::Arrow,
-        servo::Cursor::EResize => MouseCursor::EResize,
-        servo::Cursor::NResize => MouseCursor::NResize,
-        servo::Cursor::NeResize => MouseCursor::NeResize,
-        servo::Cursor::NwResize => MouseCursor::NwResize,
-        servo::Cursor::SResize => MouseCursor::SResize,
-        servo::Cursor::SeResize => MouseCursor::SeResize,
-        servo::Cursor::SwResize => MouseCursor::SwResize,
-        servo::Cursor::WResize => MouseCursor::WResize,
-        servo::Cursor::EwResize => MouseCursor::EwResize,
-        servo::Cursor::NsResize => MouseCursor::NsResize,
-        servo::Cursor::ColResize => MouseCursor::ColResize,
-        servo::Cursor::RowResize => MouseCursor::RowResize,
+        libhavi::Cursor::None => MouseCursor::Hidden,
+        libhavi::Cursor::Default => MouseCursor::Default,
+        libhavi::Cursor::Pointer => MouseCursor::Hand,
+        libhavi::Cursor::ContextMenu => MouseCursor::Default,
+        libhavi::Cursor::Help => MouseCursor::Help,
+        libhavi::Cursor::Progress => MouseCursor::Wait,
+        libhavi::Cursor::Wait => MouseCursor::Wait,
+        libhavi::Cursor::Cell => MouseCursor::Crosshair,
+        libhavi::Cursor::Crosshair => MouseCursor::Crosshair,
+        libhavi::Cursor::Text => MouseCursor::Text,
+        libhavi::Cursor::VerticalText => MouseCursor::Text,
+        libhavi::Cursor::Alias => MouseCursor::Default,
+        libhavi::Cursor::Copy => MouseCursor::Default,
+        libhavi::Cursor::Move => MouseCursor::Move,
+        libhavi::Cursor::NoDrop => MouseCursor::NotAllowed,
+        libhavi::Cursor::NotAllowed => MouseCursor::NotAllowed,
+        libhavi::Cursor::Grab => MouseCursor::Arrow,
+        libhavi::Cursor::Grabbing => MouseCursor::Arrow,
+        libhavi::Cursor::EResize => MouseCursor::EResize,
+        libhavi::Cursor::NResize => MouseCursor::NResize,
+        libhavi::Cursor::NeResize => MouseCursor::NeResize,
+        libhavi::Cursor::NwResize => MouseCursor::NwResize,
+        libhavi::Cursor::SResize => MouseCursor::SResize,
+        libhavi::Cursor::SeResize => MouseCursor::SeResize,
+        libhavi::Cursor::SwResize => MouseCursor::SwResize,
+        libhavi::Cursor::WResize => MouseCursor::WResize,
+        libhavi::Cursor::EwResize => MouseCursor::EwResize,
+        libhavi::Cursor::NsResize => MouseCursor::NsResize,
+        libhavi::Cursor::ColResize => MouseCursor::ColResize,
+        libhavi::Cursor::RowResize => MouseCursor::RowResize,
         _ => MouseCursor::Default,
     }
 }
 
 fn set_jsonqa_via(current_url: &str, via: &str) -> String {
     if !current_url.ends_with('}') {
-        return havi_protocols::url::via_url(current_url, via);
+        return libhavi::hppr::url::via_url(current_url, via);
     }
 
     let Some(start) = current_url.rfind('{') else {
-        return havi_protocols::url::via_url(current_url, via);
+        return libhavi::hppr::url::via_url(current_url, via);
     };
 
     let inner = &current_url[start + 1..current_url.len() - 1];
@@ -87,13 +87,13 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
         return current_url.to_string();
     };
 
-    let Ok(addr) = havi_protocols::url::HAVIAddress::parse(current_url) else {
+    let Ok(addr) = libhavi::hppr::url::HAVIAddress::parse(current_url) else {
         return current_url.to_string();
     };
 
     if !matches!(
         addr.scheme(),
-        havi_protocols::url::HpprScheme::Hppr | havi_protocols::url::HpprScheme::HpprBrowse
+        libhavi::hppr::url::HpprScheme::Hppr | libhavi::hppr::url::HpprScheme::HpprBrowse
     ) {
         return current_url.to_string();
     }
@@ -102,7 +102,7 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
 }
 
 fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
-    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let address = libhavi::hppr::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     if address.is_listing() {
         return Ok(());
     }
@@ -116,7 +116,7 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
     }
 
     let target = hppr_client::parse_via(endpoint).map_err(|e| e.to_string())?;
-    let client = std::sync::Arc::new(havi_protocols::client::HpprdClientAsync::new(target)?);
+    let client = std::sync::Arc::new(libhavi::hppr::client::HpprdClientAsync::new(target)?);
     let creds = global_credential_store();
     let shadow = creds.get_or_create_shadow_credential(&parts.group, &parts.app)?;
     let shadow_group = format!("~{}", parts.group);
@@ -201,23 +201,23 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
 }
 
 fn enable_shadow_mode(endpoint: &str, url: &str) -> Result<(), String> {
-    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let address = libhavi::hppr::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     let parts = address.parts();
     if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
         return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
     }
     let _ = seed_shadow_copy(endpoint, url);
-    havi_protocols::state_db::global_state_db()
+    libhavi::hppr::state_db::global_state_db()
         .set_shadow_override(&parts.group, &parts.app, true)
 }
 
 fn disable_shadow_mode(url: &str) -> Result<(), String> {
-    let address = havi_protocols::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
+    let address = libhavi::hppr::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     let parts = address.parts();
     if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
         return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
     }
-    havi_protocols::state_db::global_state_db()
+    libhavi::hppr::state_db::global_state_db()
         .set_shadow_override(&parts.group, &parts.app, false)
 }
 
@@ -226,7 +226,7 @@ impl App {
         let Some(tab) = self.tabs.get(self.active_tab_idx) else {
             return;
         };
-        let Ok(addr) = havi_protocols::url::HAVIAddress::parse(&tab.url) else {
+        let Ok(addr) = libhavi::hppr::url::HAVIAddress::parse(&tab.url) else {
             return;
         };
         let parts = addr.parts();
@@ -234,7 +234,7 @@ impl App {
             return;
         }
 
-        let enable = !havi_protocols::state_db::global_state_db()
+        let enable = !libhavi::hppr::state_db::global_state_db()
             .shadow_override_enabled(&parts.group, &parts.app)
             .unwrap_or(false);
         let url = tab.url.clone();
@@ -381,7 +381,7 @@ impl MatchEvent for App {
             if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
                 let next_scope = tab.watch.scope().next();
                 tab.watch.set_scope(next_scope);
-                if next_scope != havi_protocols::watch::WatchScope::None {
+                if next_scope != libhavi::hppr::watch::WatchScope::None {
                     self.ensure_watch_pool();
                 }
                 self.ui
@@ -593,7 +593,7 @@ impl MatchEvent for App {
 
                         let title = self.tabs[idx].title.clone();
                         if let Err(e) =
-                            havi_protocols::state_db::global_state_db().insert_history(&url, &title)
+                            libhavi::hppr::state_db::global_state_db().insert_history(&url, &title)
                         {
                             log!("[havi] failed to persist history entry: {}", e);
                         }
@@ -607,7 +607,7 @@ impl MatchEvent for App {
                         .get(self.active_tab_idx)
                         .map_or(false, |t| t.webview_id == webview_id)
                     {
-                        if status == servo::LoadStatus::Complete {
+                        if status == libhavi::LoadStatus::Complete {
                             self.focus_active_webview(cx);
                             self.maybe_start_screenshot_capture(cx);
                         } else {
@@ -854,8 +854,8 @@ impl MatchEvent for App {
                     if let Some(idx) = self.tab_index_for_webview(*webview_id) {
                         if *enabled {
                             if let Some(tab) = self.tabs.get_mut(idx) {
-                                tab.watch.set_settings(havi_protocols::watch::WatchSettings {
-                                    scope: havi_protocols::watch::WatchScope::App,
+                                tab.watch.set_settings(libhavi::hppr::watch::WatchSettings {
+                                    scope: libhavi::hppr::watch::WatchScope::App,
                                     navigate: true,
                                 });
                             }
@@ -978,7 +978,7 @@ impl AppMain for App {
                         self.pylon_events = Some(pylon_events);
                         // Create command client for interactive pylon commands.
                         if let Ok(cmd_client) =
-                            havi_protocols::pylon::PylonClient::connect(pylon_port)
+                            libhavi::hppr::pylon::PylonClient::connect(pylon_port)
                         {
                             self.pylon_command_client = Some(cmd_client);
                         }
@@ -1038,7 +1038,7 @@ impl AppMain for App {
             for result in cx.drain_capture_results() {
                 if let Some(pending) = self.pending_screenshot_callbacks.remove(&result.request_id) {
                     if let Some(mut image) =
-                        servo::RgbaImage::from_raw(result.width, result.height, result.rgba)
+                        libhavi::RgbaImage::from_raw(result.width, result.height, result.rgba)
                     {
                         composite_rgba_over_white(&mut image);
                         if let Some(servo) = &self.servo {
@@ -1087,19 +1087,19 @@ impl AppMain for App {
                     tab.watch.reconcile(&tab.url, pool);
                     tab.watch.poll()
                 } else {
-                    havi_protocols::watch::WatchAction::None
+                    libhavi::hppr::watch::WatchAction::None
                 }
             } else {
-                havi_protocols::watch::WatchAction::None
+                libhavi::hppr::watch::WatchAction::None
             };
             match watch_action {
-                havi_protocols::watch::WatchAction::Reload => {
+                libhavi::hppr::watch::WatchAction::Reload => {
                     self.recreate_active_tab_webview(cx);
                 },
-                havi_protocols::watch::WatchAction::ChangeDetected => {
+                libhavi::hppr::watch::WatchAction::ChangeDetected => {
                     cx.redraw_all();
                 },
-                havi_protocols::watch::WatchAction::None => {},
+                libhavi::hppr::watch::WatchAction::None => {},
             }
 
             self.update_servo_and_texture(cx);
@@ -1107,7 +1107,7 @@ impl AppMain for App {
             // Update primary selection (Linux middle-click paste) when text changes.
             #[cfg(target_os = "linux")]
             if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                let snapshot = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+                let snapshot = libhavi::layout::shared_document_selection_for(tab.webview_id).snapshot();
                 if snapshot.text != self.last_primary_selection {
                     if !snapshot.text.is_empty() {
                         cx.set_primary_selection(&snapshot.text);
@@ -1119,7 +1119,7 @@ impl AppMain for App {
             // Update selection handles and deferred clipboard menu on mobile.
             #[cfg(any(target_os = "android", target_os = "ios"))]
             if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-                let snapshot = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+                let snapshot = libhavi::layout::shared_document_selection_for(tab.webview_id).snapshot();
 
                 if let (Some(first), Some(last)) = (snapshot.rects.first(), snapshot.rects.last()) {
                     let start = dvec2(

@@ -6,9 +6,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use havi_protocols::client::HpprdClientAsync;
-use havi_protocols::credentials::CredentialStoreHandle;
-use servo::protocol_handler::{
+use libhavi::hppr::client::HpprdClientAsync;
+use libhavi::hppr::credentials::CredentialStoreHandle;
+use libhavi::protocol_handler::{
     DoneChannel, FetchContext, ProtocolHandler, Request, ResourceFetchTiming, Response,
 };
 
@@ -40,7 +40,7 @@ impl ProtocolHandler for HaviHandler {
         let creds = self.credential_store.clone();
 
         Box::pin(async move {
-            let page = havi_protocols::pages::havi::handle_request(&url_str, &client, &creds).await;
+            let page = libhavi::pages::havi::handle_request(&url_str, &client, &creds).await;
             super::page_response_to_servo(page, url, ResourceFetchTiming::new(timing_type))
         })
     }

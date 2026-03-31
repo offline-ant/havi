@@ -7,7 +7,7 @@ use log::warn;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
-use servo_url::BrowserUrl;
+use crate::servo_url::BrowserUrl;
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageType};
 

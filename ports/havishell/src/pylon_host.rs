@@ -19,7 +19,7 @@ pub fn ensure_pylon(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
     _host_mode: PylonHostMode,
-) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
+) -> anyhow::Result<libhavi::hppr::pylon::PylonClient> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         return ensure_pylon_inline_host(repo_dir, home_addr);
@@ -36,13 +36,13 @@ fn ensure_pylon_process_host(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
     host_mode: PylonHostMode,
-) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
+) -> anyhow::Result<libhavi::hppr::pylon::PylonClient> {
     let self_exec_fallback = match host_mode {
         PylonHostMode::External => false,
         PylonHostMode::Embedded => cfg!(feature = "embedded-services"),
     };
 
-    havi_protocols::pylon::ensure_pylon_with_self_exec_process_fallback(
+    libhavi::hppr::pylon::ensure_pylon_with_self_exec_process_fallback(
         repo_dir,
         home_addr,
         self_exec_fallback,
@@ -53,7 +53,7 @@ fn ensure_pylon_process_host(
 fn ensure_pylon_inline_host(
     repo_dir: &std::path::Path,
     home_addr: Option<&str>,
-) -> anyhow::Result<havi_protocols::pylon::PylonClient> {
+) -> anyhow::Result<libhavi::hppr::pylon::PylonClient> {
     use anyhow::Context;
     use std::sync::OnceLock;
 
@@ -62,7 +62,7 @@ fn ensure_pylon_inline_host(
 
     static INLINE_HOST_STARTED: OnceLock<()> = OnceLock::new();
 
-    if let Some(client) = havi_protocols::pylon::PylonClient::try_connect(repo_dir) {
+    if let Some(client) = libhavi::hppr::pylon::PylonClient::try_connect(repo_dir) {
         return Ok(client);
     }
 
@@ -83,7 +83,7 @@ fn ensure_pylon_inline_host(
     }
 
     for _ in 0..CONNECT_RETRIES {
-        if let Some(client) = havi_protocols::pylon::PylonClient::try_connect(repo_dir) {
+        if let Some(client) = libhavi::hppr::pylon::PylonClient::try_connect(repo_dir) {
             return Ok(client);
         }
         std::thread::sleep(std::time::Duration::from_millis(CONNECT_RETRY_DELAY_MS));

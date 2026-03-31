@@ -34,7 +34,7 @@ pub(crate) mod color {
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use base::id::WebViewId;
+use libhavi::base::id::WebViewId;
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpBrowserRenderer, MpImageKey, MpImageSource};
 use makepad_widgets::*;

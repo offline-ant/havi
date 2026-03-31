@@ -278,9 +278,9 @@ pub struct ServoWebView {
     /// Shared semantic fragment tree from layout. When set, draw_walk renders
     /// through havi-render's semantic path.
     #[rust]
-    shared_layout_fragments: Option<layout_api::SharedLayoutFragmentTree>,
+    shared_layout_fragments: Option<libhavi::layout::SharedLayoutFragmentTree>,
     #[rust]
-    shared_webview_id: Option<base::id::WebViewId>,
+    shared_webview_id: Option<libhavi::base::id::WebViewId>,
     /// Data pointer of the last rendered fragment Arc, used to detect when the
     /// fragment tree is replaced (navigation) so GPU caches can be cleared.
     #[rust]
@@ -292,18 +292,18 @@ pub struct ServoWebView {
     /// Shared shell scroll snapshot from layout. Used only for DOM-visible
     /// state bootstrap and shell UI diagnostics.
     #[rust]
-    shell_scroll_state: Option<layout_api::SharedScrollState>,
+    shell_scroll_state: Option<libhavi::layout::SharedScrollState>,
     #[rust]
     browser_scroll_controller: BrowserScrollController,
 
     /// Shared document selection rects from script thread.
     #[rust]
-    shared_selection: Option<layout_api::SharedDocumentSelection>,
+    shared_selection: Option<libhavi::layout::SharedDocumentSelection>,
 
     /// Shared image source store from Paint. Updated asynchronously with image
     /// data from the network layer and paint-owned producers.
     #[rust]
-    image_source_store: Option<paint_api::SharedImageSourceStore>,
+    image_source_store: Option<libhavi::paint::SharedImageSourceStore>,
 
     // --- Scroll indicator overlay ---
     #[live]
@@ -605,7 +605,7 @@ impl ServoWebView {
         &mut self,
         cx: &mut Cx2d,
         rect: Rect,
-        webview_id: base::id::WebViewId,
+        webview_id: libhavi::base::id::WebViewId,
         root_pipeline_id: webrender_api::PipelineId,
         cached_fragments: &havi_render::CachedFragmentSource,
         render_scroll: &havi_render::ScrollState,
@@ -693,12 +693,12 @@ impl ServoWebViewRef {
     pub fn set_shared_browser_state(
         &self,
         cx: &mut Cx,
-        webview_id: base::id::WebViewId,
+        webview_id: libhavi::base::id::WebViewId,
         root_pipeline_id: Option<webrender_api::PipelineId>,
-        shared: layout_api::SharedLayoutFragmentTree,
-        scroll_state: layout_api::SharedScrollState,
-        selection: layout_api::SharedDocumentSelection,
-        image_sources: paint_api::SharedImageSourceStore,
+        shared: libhavi::layout::SharedLayoutFragmentTree,
+        scroll_state: libhavi::layout::SharedScrollState,
+        selection: libhavi::layout::SharedDocumentSelection,
+        image_sources: libhavi::paint::SharedImageSourceStore,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_webview_id = Some(webview_id);

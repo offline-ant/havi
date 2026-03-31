@@ -100,7 +100,7 @@ impl App {
         };
 
         let now = Instant::now();
-        let load_complete = webview.load_status() == servo::LoadStatus::Complete;
+        let load_complete = webview.load_status() == libhavi::LoadStatus::Complete;
         let timed_out = now > deadline;
 
         if !load_complete && !timed_out { 

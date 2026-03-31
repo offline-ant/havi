@@ -53,7 +53,7 @@ impl SelectionCapabilities {
 impl App {
     pub(super) fn selection_capabilities_for_active_tab(
         &self,
-        selection: &layout_api::DocumentSelectionSnapshot,
+        selection: &libhavi::layout::DocumentSelectionSnapshot,
         is_editable_context: bool,
     ) -> SelectionCapabilities {
         let has_selection = !selection.rects.is_empty() || !selection.text.is_empty();

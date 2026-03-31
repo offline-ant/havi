@@ -6,7 +6,7 @@ use std::cmp::max;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
-use background_hang_monitor::HangMonitorRegister;
+use crate::background_hang_monitor::HangMonitorRegister;
 use base::generic_channel::{GenericCallback, RoutedReceiver};
 #[cfg(feature = "bluetooth")]
 use base::generic_channel::GenericSender;
@@ -24,8 +24,8 @@ use bluetooth_traits::BluetoothRequest;
     not(target_arch = "aarch64"),
     not(target_env = "ohos"),
 ))]
-use constellation::content_process_sandbox_profile;
-use constellation::{
+use crate::constellation::content_process_sandbox_profile;
+use crate::constellation::{
     Constellation, FromEmbedderLogger, FromScriptLogger, InitialConstellationState,
     NewScriptEventLoopProcessInfo, UnprivilegedContent,
 };
@@ -33,7 +33,7 @@ use constellation_traits::{EmbedderToConstellationMessage, ScriptToConstellation
 use crossbeam_channel::{Receiver, Sender, unbounded};
 pub use embedder_traits::*;
 use env_logger::Builder as EnvLoggerBuilder;
-use fonts::SystemFontService;
+use crate::fonts::SystemFontService;
 #[cfg(all(
     not(target_os = "windows"),
     not(target_os = "ios"),
@@ -44,30 +44,31 @@ use fonts::SystemFontService;
 ))]
 use gaol::sandbox::{ChildSandbox, ChildSandboxMethods};
 use ipc_channel::ipc::{self, IpcSender};
-use layout::LayoutFactoryImpl;
-use layout_api::ScriptThreadFactory;
+use crate::layout::LayoutFactoryImpl;
 use log::{Log, Metadata, Record, debug, warn};
 use servo_media::player::context::{GlApi, GlContext, NativeDisplay};
-use net::embedder::NetToEmbedderMsg;
-use net::image_cache::ImageCacheFactoryImpl;
-use net::protocols::ProtocolRegistry;
-use net::resource_thread::new_resource_threads;
+use crate::net::embedder::NetToEmbedderMsg;
+use crate::net::image_cache::ImageCacheFactoryImpl;
+use crate::net::protocols::ProtocolRegistry;
+use crate::net::resource_thread::new_resource_threads;
 use net_traits::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
-use paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
+use crate::paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
 use paint_api::{CrossProcessPaintApi, PaintMessage, PaintProxy};
-use profile::{mem as profile_mem, system_reporter, time as profile_time};
+use crate::profile::{mem as profile_mem, system_reporter, time as profile_time};
 use profile_traits::mem::{MemoryReportResult, ProfilerMsg, Reporter};
 use profile_traits::{mem, time};
 use rustc_hash::FxHashMap;
-use script::{JSEngineSetup, ServiceWorkerManager};
-use servo_config::opts::Opts;
-use servo_config::prefs::{PrefValue, Preferences};
-use servo_config::{opts, pref, prefs};
-use servo_geometry::{
+use crate::script::JSEngineSetup;
+use crate::servo_config::opts::Opts;
+use crate::servo_config::prefs::{PrefValue, Preferences};
+use crate::servo_config::{opts, prefs};
+use servo_config::pref;
+use crate::{devtools, script};
+use crate::geometry::{
     DeviceIndependentIntRect, convert_rect_to_css_pixel, convert_size_to_css_pixel,
 };
 use servo_media::ServoMedia;
-use storage::new_storage_threads;
+use crate::storage::new_storage_threads;
 use storage_traits::StorageThreads;
 use style::global_style_data::StyleThreadPool;
 use crate::clipboard_delegate::StringRequest;
@@ -1027,7 +1028,7 @@ fn create_constellation(
         hppr_home_endpoint,
     };
     let layout_factory = Arc::new(LayoutFactoryImpl());
-    Constellation::<script::ScriptThread, script::ServiceWorkerManager>::start(
+    Constellation::start(
         embedder_to_constellation_receiver,
         initial_state,
         layout_factory,
@@ -1149,7 +1150,7 @@ pub fn run_content_process(token: String) {
                 .expect("Failed to join on the fetch thread in the constellation");
         },
         UnprivilegedContent::ServiceWorker(content) => {
-            content.start::<ServiceWorkerManager>();
+            content.start();
         },
     }
 }

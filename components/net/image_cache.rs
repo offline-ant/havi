@@ -1293,8 +1293,8 @@ impl ImageCacheFactoryImpl {
     }
 }
 
-impl ImageCacheFactory for ImageCacheFactoryImpl {
-    fn create(
+impl ImageCacheFactoryImpl {
+    pub fn create(
         &self,
         webview_id: WebViewId,
         pipeline_id: PipelineId,
@@ -1314,6 +1314,17 @@ impl ImageCacheFactory for ImageCacheFactoryImpl {
             broken_image_icon_data: self.broken_image_icon_data.clone(),
             thread_pool: self.thread_pool.clone(),
         })
+    }
+}
+
+impl ImageCacheFactory for ImageCacheFactoryImpl {
+    fn create(
+        &self,
+        webview_id: WebViewId,
+        pipeline_id: PipelineId,
+        paint_api: &CrossProcessPaintApi,
+    ) -> Arc<dyn ImageCache> {
+        Self::create(self, webview_id, pipeline_id, paint_api)
     }
 }
 

@@ -12,7 +12,7 @@ const MENU_PADDING: f64 = 8.0; // top + bottom (4 each side)
 /// Build an `hppr-editor://` URL from the current page URL.
 /// Returns `None` for non-hppr URLs.
 pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
-    let url = servo::BrowserUrl::parse(url_text).ok()?;
+    let url = libhavi::BrowserUrl::parse(url_text).ok()?;
     if url.scheme() != "hppr" {
         return None;
     }
@@ -24,7 +24,7 @@ pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
 
 #[derive(Clone, Debug)]
 pub(super) enum ContextMenuEntryKind {
-    Action(servo::ContextMenuAction),
+    Action(libhavi::ContextMenuAction),
     GoToEditor,
     Separator,
 }
@@ -120,10 +120,10 @@ impl App {
         let selection_snapshot = self
             .tabs
             .get(self.active_tab_idx)
-            .map(|tab| layout_api::shared_document_selection_for(tab.webview_id).snapshot())
+            .map(|tab| libhavi::layout::shared_document_selection_for(tab.webview_id).snapshot())
             .unwrap_or_default();
         let editable_context = self.last_context_menu_flags.is_some_and(|flags| {
-            flags.contains(servo::ContextMenuElementInformationFlags::EditableText)
+            flags.contains(libhavi::ContextMenuElementInformationFlags::EditableText)
         });
         let capabilities =
             self.selection_capabilities_for_active_tab(&selection_snapshot, editable_context);
@@ -135,21 +135,21 @@ impl App {
             .unwrap_or_default();
         for item in menu_items {
             match item {
-                servo::ContextMenuItem::Item {
+                libhavi::ContextMenuItem::Item {
                     label,
                     action,
                     enabled,
                 } => {
                     let enabled = match action {
-                        servo::ContextMenuAction::Copy => capabilities.can_copy,
-                        servo::ContextMenuAction::Cut => capabilities.can_cut,
-                        servo::ContextMenuAction::Paste => capabilities.can_paste,
-                        servo::ContextMenuAction::SelectAll => capabilities.can_select_all,
+                        libhavi::ContextMenuAction::Copy => capabilities.can_copy,
+                        libhavi::ContextMenuAction::Cut => capabilities.can_cut,
+                        libhavi::ContextMenuAction::Paste => capabilities.can_paste,
+                        libhavi::ContextMenuAction::SelectAll => capabilities.can_select_all,
                         _ => enabled,
                     };
                     self.push_context_action(label, enabled, ContextMenuEntryKind::Action(action));
                 },
-                servo::ContextMenuItem::Separator => {
+                libhavi::ContextMenuItem::Separator => {
                     self.push_context_separator();
                 },
             }
@@ -238,9 +238,9 @@ impl App {
         self.rebuild_context_menu_entries(cx);
 
         if let Some(tab) = self.tabs.get(self.active_tab_idx) {
-            let selection = layout_api::shared_document_selection_for(tab.webview_id).snapshot();
+            let selection = libhavi::layout::shared_document_selection_for(tab.webview_id).snapshot();
             let editable = self.last_context_menu_flags.is_some_and(|flags| {
-                flags.contains(servo::ContextMenuElementInformationFlags::EditableText)
+                flags.contains(libhavi::ContextMenuElementInformationFlags::EditableText)
             });
             let capabilities = self.selection_capabilities_for_active_tab(&selection, editable);
             let visible_actions: Vec<&str> = self
@@ -408,7 +408,7 @@ impl App {
     pub(super) fn select_context_menu_action(
         &mut self,
         cx: &mut Cx,
-        action: servo::ContextMenuAction,
+        action: libhavi::ContextMenuAction,
     ) {
         if let Some(menu) = self.active_context_menu.take() {
             menu.select(action);

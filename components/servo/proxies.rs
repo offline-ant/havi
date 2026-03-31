@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use constellation_traits::EmbedderToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender};
 use log::warn;
-use servo_config::prefs::{PrefValue, PreferencesObserver};
+use crate::servo_config::prefs::{PrefValue, PreferencesObserver};
 
 #[derive(Clone)]
 pub(crate) struct ConstellationProxy {

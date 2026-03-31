@@ -21,7 +21,7 @@ use image::RgbaImage;
 use ipc_channel::ipc;
 use log::debug;
 use smallvec::SmallVec;
-use paint_api::{ExternalImageIdRegistry, PaintMessage, WebViewTrait};
+use paint_api::{ExternalImageIdRegistry, PaintMessage};
 use profile_traits::mem::{
     ProcessReports, ProfilerRegistration, Report, ReportKind,
 };
@@ -53,6 +53,11 @@ fn next_key_index() -> u32 {
     NEXT_KEY_INDEX.fetch_add(1, Ordering::Relaxed)
 }
 
+pub(crate) struct PaintWebViewCallbacks {
+    set_animating: Box<dyn Fn(bool)>,
+    notify_scroll_default_action: Box<dyn Fn(Option<Point2D<f32, CSSPixel>>, LayoutVector2D)>,
+}
+
 /// [`Paint`] is Servo's rendering subsystem.
 ///
 /// WebRender has been removed. Rendering is now handled by havi-render via Makepad.
@@ -62,8 +67,8 @@ pub struct Paint {
     /// Current physical viewport size per webview.
     viewport_sizes: RefCell<HashMap<WebViewId, Size2D<u32, DevicePixel>>>,
 
-    /// Embedder-facing webview handles keyed by id.
-    webviews: RefCell<HashMap<WebViewId, Box<dyn WebViewTrait>>>,
+    /// Embedder-facing webview callbacks keyed by id.
+    webviews: RefCell<HashMap<WebViewId, PaintWebViewCallbacks>>,
 
     /// Webviews with a newly generated frame pending embedder notification.
     pending_frame_notifications: RefCell<FxHashSet<WebViewId>>,
@@ -259,7 +264,7 @@ impl Paint {
                         .collect();
                     for webview_id in webview_ids {
                         if let Some(webview) = webviews.get(&webview_id) {
-                            webview.set_animating(true);
+                            (webview.set_animating)(true);
                             pending.insert(webview_id);
                         }
                     }
@@ -364,17 +369,22 @@ impl Paint {
 
     pub fn add_webview(
         &self,
-        webview: Box<dyn WebViewTrait>,
+        webview_id: WebViewId,
+        set_animating: Box<dyn Fn(bool)>,
+        notify_scroll_default_action: Box<dyn Fn(Option<Point2D<f32, CSSPixel>>, LayoutVector2D)>,
         viewport_details: ViewportDetails,
     ) {
         let physical_size = (viewport_details.size * viewport_details.hidpi_scale_factor)
             .to_u32()
             .cast_unit();
-        let webview_id = webview.id();
-        self.viewport_sizes
-            .borrow_mut()
-            .insert(webview_id, physical_size);
-        self.webviews.borrow_mut().insert(webview_id, webview);
+        self.viewport_sizes.borrow_mut().insert(webview_id, physical_size);
+        self.webviews.borrow_mut().insert(
+            webview_id,
+            PaintWebViewCallbacks {
+                set_animating,
+                notify_scroll_default_action,
+            },
+        );
         // TODO(havi-render): Register webview with Makepad renderer.
     }
 
@@ -575,7 +585,7 @@ impl Paint {
         delta: LayoutVector2D,
     ) {
         if let Some(webview) = self.webviews.borrow().get(&webview_id) {
-            webview.notify_scroll_default_action(point, delta);
+            (webview.notify_scroll_default_action)(point, delta);
         }
     }
 

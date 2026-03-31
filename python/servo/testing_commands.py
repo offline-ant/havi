@@ -216,7 +216,7 @@ class MachCommands(CommandBase):
             "hyper_serde",
             "layout",
             "layout_api",
-            "libservo",
+            "libhavi",
             "metrics",
             "net",
             "net_traits",

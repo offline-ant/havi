@@ -4,8 +4,8 @@
 
 //! HPPR protocol handler wrappers for havishell.
 //!
-//! Each handler delegates to `havi_protocols::pages::*::handle_request()` and
-//! converts the `PageResponse` to a servo `Response`.
+//! Each handler delegates to `libhavi::pages::*::handle_request()` and
+//! converts the `PageResponse` to a libhavi `Response`.
 
 pub mod file;
 pub mod havi;
@@ -16,11 +16,11 @@ pub mod hppr_join;
 pub mod hppr_sandbox;
 pub mod hppr_setup;
 
-use havi_protocols::PageResponse;
-use servo::BrowserUrl;
-use servo::protocol_handler::{HttpStatus, ResourceFetchTiming, Response, ResponseBody};
+use libhavi::hppr::PageResponse;
+use libhavi::BrowserUrl;
+use libhavi::protocol_handler::{HttpStatus, ResourceFetchTiming, Response, ResponseBody};
 
-/// Convert a `PageResponse` from havi-protocols into a servo `Response`.
+/// Convert a `PageResponse` from libhavi into a libhavi `Response`.
 fn page_response_to_servo(
     page: PageResponse,
     url: BrowserUrl,

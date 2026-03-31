@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use servo::protocol_handler::{
+use libhavi::protocol_handler::{
     DoneChannel, FetchContext, ProtocolHandler, Request, ResourceFetchTiming, Response,
 };
 
@@ -29,7 +29,7 @@ impl ProtocolHandler for HpprSandboxHandler {
         let url_str = url.as_str().to_string();
 
         Box::pin(async move {
-            let page = havi_protocols::pages::hppr_sandbox::handle_request(&url_str).await;
+            let page = libhavi::pages::hppr_sandbox::handle_request(&url_str).await;
             super::page_response_to_servo(page, url, ResourceFetchTiming::new(timing_type))
         })
     }

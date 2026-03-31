@@ -3,7 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::generic_channel::GenericSender;
-use constellation_traits::{SWManagerSenders, ServiceWorkerManagerFactory};
+use constellation_traits::SWManagerSenders;
+use script::ServiceWorkerManager;
 use ipc_channel::IpcError;
 use serde::{Deserialize, Serialize};
 use servo_config::opts::{self, Opts};
@@ -41,11 +42,8 @@ impl ServiceWorkerUnprivilegedContent {
     }
 
     /// Start the agent-cluster.
-    pub fn start<SWF>(self)
-    where
-        SWF: ServiceWorkerManagerFactory,
-    {
-        SWF::create(self.senders, self.origin);
+    pub fn start(self) {
+        ServiceWorkerManager::create(self.senders, self.origin);
     }
 
     /// Start the agent-cluster in it's own process.

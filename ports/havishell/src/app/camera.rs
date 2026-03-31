@@ -16,7 +16,7 @@ use makepad_widgets::makepad_platform::video::{
     VideoPixelFormat,
 };
 use makepad_widgets::makepad_platform::VideoQueuePolicy;
-use servo::{CameraRecordingEvent, CameraRequest, CameraStreamInfo};
+use libhavi::{CameraRecordingEvent, CameraRequest, CameraStreamInfo};
 
 /// Shared packet buffer for one active recorder.
 struct RecorderBuffer {
@@ -87,7 +87,7 @@ pub(super) struct CameraState {
     /// stream_id → active stream state.
     streams: HashMap<u64, ActiveStream>,
     /// Cached device list from last VideoInputs event.
-    devices: Option<Vec<servo::CameraDeviceInfo>>,
+    devices: Option<Vec<libhavi::CameraDeviceInfo>>,
     /// Preferred recorder-capable backend source tuple (input, format, dimensions, fps).
     default_source: Option<(VideoInputId, VideoFormatId, u32, u32, f64)>,
     /// First available backend source tuple for preview fallback.
@@ -159,13 +159,13 @@ impl CameraState {
                     }
                 }
 
-                formats.push(servo::CameraFormat {
+                formats.push(libhavi::CameraFormat {
                     width,
                     height,
                     frame_rate,
                 });
             }
-            devices.push(servo::CameraDeviceInfo {
+            devices.push(libhavi::CameraDeviceInfo {
                 device_id: desc.input_id.0 .0.to_string(),
                 label: desc.name.clone(),
                 formats,

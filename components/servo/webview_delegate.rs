@@ -23,7 +23,7 @@ use euclid::Point2D;
 use style_traits::CSSPixel;
 use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use tokio::sync::oneshot::Sender;
-use servo_url::BrowserUrl;
+use crate::servo_url::BrowserUrl;
 use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, LayoutVector2D};
 
 use crate::proxies::ConstellationProxy;

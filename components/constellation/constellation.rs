@@ -88,7 +88,6 @@ use std::borrow::ToOwned;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::marker::PhantomData;
 use std::mem::replace;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
@@ -118,7 +117,7 @@ use constellation_traits::{
     EmbedderToConstellationMessage, IFrameLoadInfo, IFrameLoadInfoWithData, IFrameSizeMsg, Job,
     LoadData, LogEntry, MessagePortMsg, NavigationHistoryBehavior, PaintMetricEvent,
     PortMessageTask, PortTransferInfo, SWManagerMsg, SWManagerSenders, ScreenshotReadinessResponse,
-    ScriptToConstellationMessage, ScrollStateUpdate, ServiceWorkerManagerFactory, ServiceWorkerMsg,
+    ScriptToConstellationMessage, ScrollStateUpdate, ServiceWorkerMsg,
     StructuredSerializedData, TraversalDirection, UserContentManagerAction, WindowSizeType,
 };
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
@@ -143,7 +142,7 @@ use fonts::SystemFontServiceProxy;
 use ipc_channel::IpcError;
 use ipc_channel::router::ROUTER;
 use keyboard_types::{Key, KeyState, Modifiers, NamedKey};
-use layout_api::{LayoutFactory, ScriptThreadFactory};
+use layout_api::LayoutFactory;
 use log::{debug, error, info, trace, warn};
 
 use net::image_cache::ImageCacheFactoryImpl;
@@ -262,12 +261,8 @@ struct BrowsingContextGroup {
 /// The constellation may be in a different process from the pipelines,
 /// and communicates using IPC.
 ///
-/// It is parameterized over a `LayoutThreadFactory` and a
-/// `ScriptThreadFactory` (which in practice are implemented by
-/// `LayoutThread` in the `layout` crate, and `ScriptThread` in
-/// the `script` crate). Script and layout communicate using a `Message`
-/// type.
-pub struct Constellation<STF, SWF> {
+/// Parameterized over `STF` (ScriptThread implementation) for script-thread spawning.
+pub struct Constellation {
     /// An ipc-sender/threaded-receiver pair
     /// to facilitate installing pipeline namespaces in threads
     /// via a per-process installer.
@@ -312,7 +307,7 @@ pub struct Constellation<STF, SWF> {
     /// dependency between script and layout.
     pub(crate) layout_factory: Arc<dyn LayoutFactory>,
 
-    /// A channel for the embedder (renderer and libservo) to send messages to the [`Constellation`].
+    /// A channel for the embedder (renderer and libhavi) to send messages to the [`Constellation`].
     embedder_to_constellation_receiver: Receiver<EmbedderToConstellationMessage>,
 
     /// A channel through which messages can be sent to the embedder.
@@ -442,7 +437,6 @@ pub struct Constellation<STF, SWF> {
     random_pipeline_closure: Option<(SmallRng, f32)>,
 
     /// Phantom data that keeps the Rust type system happy.
-    phantom: PhantomData<(STF, SWF)>,
 
     /// The XR device registry
     pub(crate) webxr_registry: Option<webxr_api::Registry>,
@@ -579,11 +573,7 @@ enum ExitPipelineMode {
 /// The number of warnings to include in each crash report.
 const WARNINGS_BUFFER_SIZE: usize = 32;
 
-impl<STF, SWF> Constellation<STF, SWF>
-where
-    STF: ScriptThreadFactory,
-    SWF: ServiceWorkerManagerFactory,
-{
+impl Constellation {
     /// Create a new constellation thread.
     #[servo_tracing::instrument(skip(state, layout_factory))]
     pub fn start(
@@ -653,7 +643,7 @@ where
 
                 let broken_image_icon_data = resources::read_bytes(Resource::BrokenImageIcon);
 
-                let mut constellation: Constellation<STF, SWF> = Constellation {
+                let mut constellation: Constellation = Constellation {
                     event_loops: Default::default(),
                     namespace_receiver,
                     namespace_ipc_sender,
@@ -694,7 +684,6 @@ where
                     next_pipeline_namespace_id: Cell::new(PipelineNamespaceId(2)),
                     time_profiler_chan: state.time_profiler_chan,
                     mem_profiler_chan: state.mem_profiler_chan.clone(),
-                    phantom: PhantomData,
                     webdriver_load_status_sender: None,
                     document_states: Default::default(),
                     #[cfg(feature = "webgpu")]
@@ -2550,7 +2539,7 @@ where
                     }
                 } else {
                     let content = ServiceWorkerUnprivilegedContent::new(sw_senders, origin, None);
-                    content.start::<SWF>();
+                    content.start();
                 }
                 entry.insert(own_sender)
             },

@@ -1,0 +1,34 @@
+=== lib.rs additions ===
+#[cfg(feature = "webgpu")]
+pub mod webgpu;
+
+#[cfg(feature = "webxr")]
+pub mod webxr;
+
+=== Cargo.toml dep additions ===
+webgpu:
+- arrayvec = { workspace = true, features = ["serde"] }
+- wgpu-core = { workspace = true, features = ["serde", "wgsl"] }
+- wgpu-types = { workspace = true }
+- target cfg(any(target_os = "ios", target_os = "macos")): wgpu-core features += ["metal"]
+- target cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))): wgpu-core features += ["gles", "vulkan"]
+- target cfg(windows): wgpu-core features += ["dx12", "vulkan"]
+
+webxr:
+- glow = { workspace = true }
+- profile_traits = { workspace = true }
+- raw-window-handle = { workspace = true }
+- openxr = { workspace = true, optional = true }
+- feature flags from webxr crate to preserve in libhavi feature wiring:
+  - glwindow = []
+  - headless = []
+  - angle = []
+  - x11 = []
+  - openxr-api = ["angle", "openxr", "winapi", "wio"]
+- target cfg(target_os = "windows"):
+  - winapi = { workspace = true, features = ["d3d11", "dxgi", "winerror"], optional = true }
+  - wio = { workspace = true, optional = true }
+
+Existing libhavi feature gates already present and need rewiring once integrated:
+- webgpu = [...]
+- webxr = [...]

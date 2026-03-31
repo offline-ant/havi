@@ -1,5 +1,5 @@
 use makepad_widgets::*;
-use servo::{
+use libhavi::{
     CompositionEvent, CompositionState, EditingActionEvent, ImeEvent, Key, KeyState, KeyboardEvent,
     MouseButton, MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent, NamedKey,
     TouchEventType, TouchId,
@@ -42,14 +42,14 @@ impl App {
                     } => {
                         if *is_right_click {
                             let pt = self.point_to_device(cx, *abs);
-                            self.send_input_event(servo::InputEvent::MouseButton(
+                            self.send_input_event(libhavi::InputEvent::MouseButton(
                                 MouseButtonEvent::new(
                                     MouseButtonAction::Down,
                                     MouseButton::Right,
                                     pt.into(),
                                 ),
                             ));
-                            self.send_input_event(servo::InputEvent::MouseButton(
+                            self.send_input_event(libhavi::InputEvent::MouseButton(
                                 MouseButtonEvent::new(
                                     MouseButtonAction::Up,
                                     MouseButton::Right,
@@ -99,10 +99,10 @@ impl App {
                             let touch_id = TouchId(*digit_id as i32);
                             if self.is_mouse_dragging {
                                 // Complete mouse drag — send final MouseMove + MouseUp
-                                self.send_input_event(servo::InputEvent::MouseMove(
-                                    servo::MouseMoveEvent::new(pt.into()),
+                                self.send_input_event(libhavi::InputEvent::MouseMove(
+                                    libhavi::MouseMoveEvent::new(pt.into()),
                                 ));
-                                self.send_input_event(servo::InputEvent::MouseButton(
+                                self.send_input_event(libhavi::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
                                         MouseButtonAction::Up,
                                         MouseButton::Left,
@@ -111,8 +111,8 @@ impl App {
                                 ));
                             } else if self.is_touch_scrolling {
                                 // Complete the touch/scroll sequence
-                                self.send_input_event(servo::InputEvent::Touch(
-                                    servo::TouchEvent::new(TouchEventType::Up, touch_id, pt.into()),
+                                self.send_input_event(libhavi::InputEvent::Touch(
+                                    libhavi::TouchEvent::new(TouchEventType::Up, touch_id, pt.into()),
                                 ));
                             } else {
                                 // TAP — send mouse click only (no touch events)
@@ -121,17 +121,17 @@ impl App {
                                     self.pending_clipboard_menu = None;
                                     cx.hide_clipboard_actions();
                                 }
-                                self.send_input_event(servo::InputEvent::MouseMove(
-                                    servo::MouseMoveEvent::new(pt.into()),
+                                self.send_input_event(libhavi::InputEvent::MouseMove(
+                                    libhavi::MouseMoveEvent::new(pt.into()),
                                 ));
-                                self.send_input_event(servo::InputEvent::MouseButton(
+                                self.send_input_event(libhavi::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
                                         MouseButtonAction::Down,
                                         MouseButton::Left,
                                         pt.into(),
                                     ),
                                 ));
-                                self.send_input_event(servo::InputEvent::MouseButton(
+                                self.send_input_event(libhavi::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
                                         MouseButtonAction::Up,
                                         MouseButton::Left,
@@ -168,7 +168,7 @@ impl App {
                                             // Mouse drag — send MouseDown at original position
                                             self.is_mouse_dragging = true;
                                             let down_pt = self.point_to_device(cx, down_pos);
-                                            self.send_input_event(servo::InputEvent::MouseButton(
+                                            self.send_input_event(libhavi::InputEvent::MouseButton(
                                                 MouseButtonEvent::new(
                                                     MouseButtonAction::Down,
                                                     MouseButton::Left,
@@ -179,8 +179,8 @@ impl App {
                                             // Touch scroll
                                             self.is_touch_scrolling = true;
                                             let down_pt = self.point_to_device(cx, down_pos);
-                                            self.send_input_event(servo::InputEvent::Touch(
-                                                servo::TouchEvent::new(
+                                            self.send_input_event(libhavi::InputEvent::Touch(
+                                                libhavi::TouchEvent::new(
                                                     TouchEventType::Down,
                                                     touch_id,
                                                     down_pt.into(),
@@ -193,13 +193,13 @@ impl App {
 
                             if self.is_mouse_dragging {
                                 let pt = self.point_to_device(cx, *abs);
-                                self.send_input_event(servo::InputEvent::MouseMove(
-                                    servo::MouseMoveEvent::new(pt.into()),
+                                self.send_input_event(libhavi::InputEvent::MouseMove(
+                                    libhavi::MouseMoveEvent::new(pt.into()),
                                 ));
                             } else if self.is_touch_scrolling {
                                 let pt = self.point_to_device(cx, *abs);
-                                self.send_input_event(servo::InputEvent::Touch(
-                                    servo::TouchEvent::new(
+                                self.send_input_event(libhavi::InputEvent::Touch(
+                                    libhavi::TouchEvent::new(
                                         TouchEventType::Move,
                                         touch_id,
                                         pt.into(),
@@ -213,13 +213,13 @@ impl App {
                     // ----- Mouse hover events -----
                     ServoWebViewAction::HoverIn { abs } | ServoWebViewAction::HoverOver { abs } => {
                         let pt = self.point_to_device(cx, *abs);
-                        self.send_input_event(servo::InputEvent::MouseMove(
-                            servo::MouseMoveEvent::new(pt.into()),
+                        self.send_input_event(libhavi::InputEvent::MouseMove(
+                            libhavi::MouseMoveEvent::new(pt.into()),
                         ));
                         handled_input = true;
                     },
                     ServoWebViewAction::HoverOut => {
-                        self.send_input_event(servo::InputEvent::MouseLeftViewport(
+                        self.send_input_event(libhavi::InputEvent::MouseLeftViewport(
                             MouseLeftViewportEvent::default(),
                         ));
                         handled_input = true;
@@ -231,13 +231,13 @@ impl App {
                         // event is not prevented, paint routes the default action
                         // back into BrowserScrollController after script handling.
                         let pt = self.point_to_device(cx, *abs);
-                        let delta = servo::WheelDelta {
+                        let delta = libhavi::WheelDelta {
                             x: scroll.x * self.dpi_factor,
                             y: scroll.y * self.dpi_factor,
                             z: 0.0,
-                            mode: servo::WheelMode::DeltaPixel,
+                            mode: libhavi::WheelMode::DeltaPixel,
                         };
-                        self.send_input_event(servo::InputEvent::Wheel(servo::WheelEvent::new(
+                        self.send_input_event(libhavi::InputEvent::Wheel(libhavi::WheelEvent::new(
                             delta,
                             pt.into(),
                         )));
@@ -320,24 +320,24 @@ impl App {
                             if let Some(ref state) = self.clipboard_state {
                                 state.set_pending_paste(input.clone());
                             }
-                            self.send_input_event(servo::InputEvent::EditingAction(
+                            self.send_input_event(libhavi::InputEvent::EditingAction(
                                 EditingActionEvent::Paste,
                             ));
                             handled_input = true;
                         } else if !input.is_empty() {
-                            self.send_input_event(servo::InputEvent::Keyboard(
+                            self.send_input_event(libhavi::InputEvent::Keyboard(
                                 KeyboardEvent::from_state_and_key(
                                     KeyState::Down,
                                     Key::Named(NamedKey::Process),
                                 ),
                             ));
-                            self.send_input_event(servo::InputEvent::Ime(ImeEvent::Composition(
+                            self.send_input_event(libhavi::InputEvent::Ime(ImeEvent::Composition(
                                 CompositionEvent {
                                     state: CompositionState::End,
                                     data: input.clone(),
                                 },
                             )));
-                            self.send_input_event(servo::InputEvent::Keyboard(
+                            self.send_input_event(libhavi::InputEvent::Keyboard(
                                 KeyboardEvent::from_state_and_key(
                                     KeyState::Up,
                                     Key::Named(NamedKey::Process),
@@ -349,13 +349,13 @@ impl App {
 
                     // ----- Clipboard actions -----
                     ServoWebViewAction::ClipboardCopyRequested => {
-                        self.send_input_event(servo::InputEvent::EditingAction(
+                        self.send_input_event(libhavi::InputEvent::EditingAction(
                             EditingActionEvent::Copy,
                         ));
                         handled_input = true;
                     },
                     ServoWebViewAction::ClipboardCutRequested => {
-                        self.send_input_event(servo::InputEvent::EditingAction(
+                        self.send_input_event(libhavi::InputEvent::EditingAction(
                             EditingActionEvent::Cut,
                         ));
                         handled_input = true;
@@ -366,18 +366,18 @@ impl App {
                     ServoWebViewAction::LongPress { abs } => {
                         // Double-click to select word at press point.
                         let pt = self.point_to_device(cx, *abs);
-                        self.send_input_event(servo::InputEvent::MouseMove(
-                            servo::MouseMoveEvent::new(pt.into()),
+                        self.send_input_event(libhavi::InputEvent::MouseMove(
+                            libhavi::MouseMoveEvent::new(pt.into()),
                         ));
                         for _ in 0..2 {
-                            self.send_input_event(servo::InputEvent::MouseButton(
+                            self.send_input_event(libhavi::InputEvent::MouseButton(
                                 MouseButtonEvent::new(
                                     MouseButtonAction::Down,
                                     MouseButton::Left,
                                     pt.into(),
                                 ),
                             ));
-                            self.send_input_event(servo::InputEvent::MouseButton(
+                            self.send_input_event(libhavi::InputEvent::MouseButton(
                                 MouseButtonEvent::new(
                                     MouseButtonAction::Up,
                                     MouseButton::Left,
@@ -391,7 +391,7 @@ impl App {
                             .tabs
                             .get(self.active_tab_idx)
                             .map(|tab| {
-                                layout_api::shared_document_selection_for(tab.webview_id)
+                                libhavi::layout::shared_document_selection_for(tab.webview_id)
                                     .snapshot()
                                     .revision
                             })
@@ -416,7 +416,7 @@ impl App {
                         match phase {
                             SelectionHandlePhase::Begin => {
                                 // Start extending selection from handle position.
-                                self.send_input_event(servo::InputEvent::MouseButton(
+                                self.send_input_event(libhavi::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
                                         MouseButtonAction::Down,
                                         MouseButton::Left,
@@ -425,12 +425,12 @@ impl App {
                                 ));
                             },
                             SelectionHandlePhase::Move => {
-                                self.send_input_event(servo::InputEvent::MouseMove(
-                                    servo::MouseMoveEvent::new(pt.into()),
+                                self.send_input_event(libhavi::InputEvent::MouseMove(
+                                    libhavi::MouseMoveEvent::new(pt.into()),
                                 ));
                             },
                             SelectionHandlePhase::End => {
-                                self.send_input_event(servo::InputEvent::MouseButton(
+                                self.send_input_event(libhavi::InputEvent::MouseButton(
                                     MouseButtonEvent::new(
                                         MouseButtonAction::Up,
                                         MouseButton::Left,
@@ -441,7 +441,7 @@ impl App {
                                 #[cfg(any(target_os = "android", target_os = "ios"))]
                                 if let Some(tab) = self.tabs.get(self.active_tab_idx) {
                                     let snapshot =
-                                        layout_api::shared_document_selection_for(tab.webview_id)
+                                        libhavi::layout::shared_document_selection_for(tab.webview_id)
                                             .snapshot();
                                     if let (Some(first), Some(last)) =
                                         (snapshot.rects.first(), snapshot.rects.last())

@@ -1,6 +1,6 @@
 use euclid::Scale;
 use makepad_widgets::*;
-use servo::{DeviceIndependentPixel, DevicePixel, WebViewId};
+use libhavi::{DeviceIndependentPixel, DevicePixel, WebViewId};
 use webrender_api::PipelineId;
 use std::rc::Rc;
 
@@ -33,13 +33,13 @@ pub(super) fn next_tab_live_id() -> LiveId {
 pub(super) struct TabInfo {
     pub(super) webview_id: WebViewId,
     pub(super) root_pipeline_id: Option<PipelineId>,
-    pub(super) webview: servo::WebView,
+    pub(super) webview: libhavi::WebView,
     pub(super) title: String,
     pub(super) url: String,
     /// LiveId used as the key in tab_bar View.children.
     pub(super) widget_id: LiveId,
     /// Per-tab HPPR watch state.
-    pub(super) watch: havi_protocols::watch::WatchHandle,
+    pub(super) watch: libhavi::hppr::watch::WatchHandle,
 }
 
 impl App {
@@ -47,14 +47,14 @@ impl App {
         let Some(tab) = self.tabs.get(self.active_tab_idx) else {
             return false;
         };
-        let Ok(addr) = havi_protocols::url::HAVIAddress::parse(&tab.url) else {
+        let Ok(addr) = libhavi::hppr::url::HAVIAddress::parse(&tab.url) else {
             return false;
         };
         let parts = addr.parts();
         if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
             return false;
         }
-        havi_protocols::state_db::global_state_db()
+        libhavi::hppr::state_db::global_state_db()
             .shadow_override_enabled(&parts.group, &parts.app)
             .unwrap_or(false)
     }
@@ -246,13 +246,13 @@ impl App {
     }
 
     /// Create a new Servo WebView for a new tab.
-    pub(super) fn create_webview(&self, url_str: &str) -> Option<servo::WebView> {
+    pub(super) fn create_webview(&self, url_str: &str) -> Option<libhavi::WebView> {
         let servo = self.servo.as_ref()?;
-        let url = servo::BrowserUrl::parse(url_str).ok()?;
+        let url = libhavi::BrowserUrl::parse(url_str).ok()?;
         let hidpi: Scale<f32, DeviceIndependentPixel, DevicePixel> =
             Scale::new(self.dpi_factor as f32);
         let viewport_size = dpi::PhysicalSize::new(self.content_size.0 as u32, self.content_size.1 as u32);
-        let webview = servo::WebViewBuilder::new(servo, viewport_size)
+        let webview = libhavi::WebViewBuilder::new(servo, viewport_size)
             .url(url)
             .hidpi_scale_factor(hidpi)
             .delegate(Rc::new(HaviWebViewDelegate))
@@ -296,7 +296,7 @@ impl App {
         };
         let webview_id = webview.id();
 
-        let mut watch = havi_protocols::watch::WatchHandle::default();
+        let mut watch = libhavi::hppr::watch::WatchHandle::default();
         watch.set_settings(watch_settings);
         self.tabs[self.active_tab_idx] = TabInfo {
             webview_id,

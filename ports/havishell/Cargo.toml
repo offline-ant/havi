@@ -16,32 +16,28 @@ path = "src/main.rs"
 [features]
 default = ["max_log_level", "embedded-services"]
 embedded-services = ["pylon/embedded-services"]
-crown = ["libservo/crown"]
-debugmozjs = ["libservo/debugmozjs"]
-jitspew = ["libservo/jitspew"]
-js_backtrace = ["libservo/js_backtrace"]
-js_jit = ["libservo/js_jit"]
+crown = ["libhavi/crown"]
+debugmozjs = ["libhavi/debugmozjs"]
+jitspew = ["libhavi/jitspew"]
+js_backtrace = ["libhavi/js_backtrace"]
+js_jit = ["libhavi/js_jit"]
 max_log_level = ["log/release_max_level_info"]
-native-bluetooth = ["libservo/native-bluetooth"]
-profilemozjs = ["libservo/profilemozjs"]
-refcell_backtrace = ["libservo/refcell_backtrace"]
+native-bluetooth = ["libhavi/native-bluetooth"]
+profilemozjs = ["libhavi/profilemozjs"]
+refcell_backtrace = ["libhavi/refcell_backtrace"]
 
 [dependencies]
 makepad-widgets = { path = "../../../makepad/widgets" }
 makepad-media = { path = "../../../havi-makepad/media", features = ["svt-av1"] }
-libservo = { path = "../../components/servo", features = ["background_hang_monitor"], default-features = false }
+libhavi = { package = "libhavi", path = "../../components/servo", features = ["background_hang_monitor"], default-features = false }
 url = "2"
 log = "0.4"
 keyboard-types = "0.8"
 dpi = "0.1"
 euclid = "0.22"
-havi-protocols = { path = "../../havi-protocols" }
 hppr-client = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
-layout_api = { path = "../../components/shared/layout" }
-base = { path = "../../components/shared/base" }
-paint_api = { path = "../../components/shared/paint" }
 pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"
 anyhow = "1"
@@ -51,7 +47,6 @@ serde_json = { workspace = true }
 image = { workspace = true }
 libc = "0.2"
 webrender_api = { workspace = true }
-media = { path = "../../components/media/media-thread" }
 rustc-hash = { workspace = true }
 app_units = { workspace = true }
 stylo = { workspace = true }
@@ -63,4 +58,4 @@ cc = "1"
 arboard = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-libservo = { path = "../../components/servo", features = ["background_hang_monitor", "no-wgl"] }
+libhavi = { package = "libhavi", path = "../../components/servo", features = ["background_hang_monitor", "no-wgl"] }

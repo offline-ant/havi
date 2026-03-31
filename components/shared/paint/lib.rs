@@ -11,7 +11,7 @@ use base::Epoch;
 use base::id::{PainterId, PipelineId, WebViewId};
 use crossbeam_channel::Sender;
 use embedder_traits::{AnimationState, EventLoopWaker};
-use euclid::{Point2D, Rect, Scale, Size2D};
+use euclid::{Rect, Scale, Size2D};
 use log::warn;
 use malloc_size_of_derive::MallocSizeOf;
 use parking_lot::RwLock;
@@ -31,7 +31,6 @@ use base::generic_channel::{
     self, GenericCallback, GenericSender, GenericSharedMemory,
 };
 use bitflags::bitflags;
-use embedder_traits::ScreenGeometry;
 use euclid::default::Size2D as UntypedSize2D;
 use profile_traits::mem::{OpaqueSender, ReportsChan};
 use serde::{Deserialize, Serialize};
@@ -664,20 +663,6 @@ impl From<SerializableImageData> for ImageData {
             SerializableImageData::External(image) => ImageData::External(image),
         }
     }
-}
-
-/// A trait that exposes the embedding layer's `WebView` to the Servo renderer.
-/// This is to prevent a dependency cycle between the renderer and the embedding
-/// layer.
-pub trait WebViewTrait {
-    fn id(&self) -> WebViewId;
-    fn screen_geometry(&self) -> Option<ScreenGeometry>;
-    fn set_animating(&self, new_value: bool);
-    fn notify_scroll_default_action(
-        &self,
-        point: Option<Point2D<f32, CSSPixel>>,
-        delta: LayoutVector2D,
-    );
 }
 
 /// What entity is reporting that a `Pipeline` has exited. Only when all have

@@ -16,16 +16,11 @@ base = { workspace = true }
 euclid = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
-makepad-media = { path = "../../../havi-makepad/media", features = ["avif", "dav1d"] }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+makepad_media = { package = "makepad-media", path = "../../../havi-makepad/media", features = ["avif"] }
+serde = { workspace = true }
 webrender_api = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "benches"
-path = "benches.rs"
-harness = false
+criterion = "0.5"

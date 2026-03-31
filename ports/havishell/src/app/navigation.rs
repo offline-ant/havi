@@ -7,8 +7,8 @@ pub(super) enum NavCommand {
     Navigate(String),
 }
 
-pub(super) fn parse_navigation_url(url_str: &str) -> Option<servo::BrowserUrl> {
-    if let Ok(url) = servo::BrowserUrl::parse(url_str) {
+pub(super) fn parse_navigation_url(url_str: &str) -> Option<libhavi::BrowserUrl> {
+    if let Ok(url) = libhavi::BrowserUrl::parse(url_str) {
         return Some(url);
     }
 
@@ -23,7 +23,7 @@ pub(super) fn parse_navigation_url(url_str: &str) -> Option<servo::BrowserUrl> {
         return None;
     }
 
-    servo::BrowserUrl::parse(&format!("hppr://{}", coord)).ok()
+    libhavi::BrowserUrl::parse(&format!("hppr://{}", coord)).ok()
 }
 
 impl App {

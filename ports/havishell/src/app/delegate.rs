@@ -1,9 +1,9 @@
 use super::*;
-use havi_protocols::client::HpprdClientAsync;
-use havi_protocols::credentials::global_credential_store;
-use havi_protocols::resolve;
+use libhavi::hppr::client::HpprdClientAsync;
+use libhavi::hppr::credentials::global_credential_store;
+use libhavi::hppr::resolve;
 use hppr_client::{Signer, parse_via};
-use servo::{
+use libhavi::{
     CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse,
     HpprEmbedResolveResponse, HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument,
     HpprResolvedMediaSource, HpprResolvedSourceRef,
@@ -41,7 +41,7 @@ pub enum MakepadServoAction {
     /// A webview load status changed.
     LoadStatusChanged {
         webview_id: WebViewId,
-        status: servo::LoadStatus,
+        status: libhavi::LoadStatus,
     },
     /// A webview has new content to paint.
     NewFrameReady {
@@ -51,7 +51,7 @@ pub enum MakepadServoAction {
     /// The cursor should change for a webview.
     CursorChanged {
         webview_id: WebViewId,
-        cursor: servo::Cursor,
+        cursor: libhavi::Cursor,
     },
     /// A webview was closed by page content (window.close()).
     WebViewClosed {
@@ -90,12 +90,12 @@ pub enum MakepadServoAction {
     /// Servo requests showing a context menu for a webview.
     ContextMenuShow {
         webview_id: WebViewId,
-        context_menu: Arc<Mutex<Option<servo::ContextMenu>>>,
+        context_menu: Arc<Mutex<Option<libhavi::ContextMenu>>>,
     },
     /// Accessibility tree update from a webview.
     AccessibilityUpdate {
         webview_id: WebViewId,
-        update: Arc<Mutex<Option<servo::accesskit::TreeUpdate>>>,
+        update: Arc<Mutex<Option<libhavi::accesskit::TreeUpdate>>>,
     },
     /// Default browser scrolling should run in the embedder.
     DefaultScrollAction {
@@ -230,7 +230,7 @@ fn home_repo_target() -> hppr_client::ViaSpec {
         .ok()
         .filter(|value| !value.is_empty())
         .and_then(|value| parse_via(&value).ok())
-        .unwrap_or_else(havi_protocols::repo_target::get)
+        .unwrap_or_else(libhavi::hppr::repo_target::get)
 }
 
 fn signer_identity_string(signer: &Signer) -> Option<String> {
@@ -381,22 +381,22 @@ fn embed_resolve_response(url: String) -> HpprControlResponse {
     )
 }
 
-impl servo::WebViewDelegate for HaviWebViewDelegate {
-    fn notify_page_title_changed(&self, webview: servo::WebView, title: Option<String>) {
+impl libhavi::WebViewDelegate for HaviWebViewDelegate {
+    fn notify_page_title_changed(&self, webview: libhavi::WebView, title: Option<String>) {
         Cx::post_action(MakepadServoAction::TitleChanged {
             webview_id: webview.id(),
             title,
         });
     }
 
-    fn notify_url_changed(&self, webview: servo::WebView, url: servo::BrowserUrl) {
+    fn notify_url_changed(&self, webview: libhavi::WebView, url: libhavi::BrowserUrl) {
         Cx::post_action(MakepadServoAction::UrlChanged {
             webview_id: webview.id(),
             url: url.to_string(),
         });
     }
 
-    fn notify_load_status_changed(&self, webview: servo::WebView, status: servo::LoadStatus) {
+    fn notify_load_status_changed(&self, webview: libhavi::WebView, status: libhavi::LoadStatus) {
         Cx::post_action(MakepadServoAction::LoadStatusChanged {
             webview_id: webview.id(),
             status,
@@ -406,7 +406,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
     fn notify_new_frame_ready(
         &self,
-        webview: servo::WebView,
+        webview: libhavi::WebView,
         pipeline_id: webrender_api::PipelineId,
     ) {
         Cx::post_action(MakepadServoAction::NewFrameReady {
@@ -415,7 +415,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         });
     }
 
-    fn notify_cursor_changed(&self, webview: servo::WebView, cursor: servo::Cursor) {
+    fn notify_cursor_changed(&self, webview: libhavi::WebView, cursor: libhavi::Cursor) {
         Cx::post_action(MakepadServoAction::CursorChanged {
             webview_id: webview.id(),
             cursor,
@@ -423,7 +423,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         SignalToUI::set_ui_signal();
     }
 
-    fn notify_closed(&self, webview: servo::WebView) {
+    fn notify_closed(&self, webview: libhavi::WebView) {
         Cx::post_action(MakepadServoAction::WebViewClosed {
             webview_id: webview.id(),
         });
@@ -431,8 +431,8 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
     fn notify_scroll_default_action(
         &self,
-        webview: servo::WebView,
-        point: Option<euclid::Point2D<f32, servo::CSSPixel>>,
+        webview: libhavi::WebView,
+        point: Option<euclid::Point2D<f32, libhavi::CSSPixel>>,
         delta: webrender_api::units::LayoutVector2D,
     ) {
         Cx::post_action(MakepadServoAction::DefaultScrollAction {
@@ -445,8 +445,8 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
     fn notify_accessibility_tree_update(
         &self,
-        webview: servo::WebView,
-        tree_update: servo::accesskit::TreeUpdate,
+        webview: libhavi::WebView,
+        tree_update: libhavi::accesskit::TreeUpdate,
     ) {
         Cx::post_action(MakepadServoAction::AccessibilityUpdate {
             webview_id: webview.id(),
@@ -457,8 +457,8 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
     fn handle_control_operation(
         &self,
-        _webview: servo::WebView,
-        request: servo::ControlOperationRequest,
+        _webview: libhavi::WebView,
+        request: libhavi::ControlOperationRequest,
     ) {
         match request.request.clone() {
             HpprControlRequest::Resolve(resolve_request) => {
@@ -485,7 +485,7 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
         }
     }
 
-    fn show_embedder_control(&self, webview: servo::WebView, embedder_control: EmbedderControl) {
+    fn show_embedder_control(&self, webview: libhavi::WebView, embedder_control: EmbedderControl) {
         match embedder_control {
             EmbedderControl::InputMethod(_) => {
                 Cx::post_action(MakepadServoAction::ImeShow {
@@ -506,8 +506,8 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
     fn hide_embedder_control(
         &self,
-        webview: servo::WebView,
-        _control_id: servo::EmbedderControlId,
+        webview: libhavi::WebView,
+        _control_id: libhavi::EmbedderControlId,
     ) {
         Cx::post_action(MakepadServoAction::ImeHide {
             webview_id: webview.id(),
@@ -523,8 +523,8 @@ impl servo::WebViewDelegate for HaviWebViewDelegate {
 
 pub(super) struct MakepadEventLoopWaker;
 
-impl servo::EventLoopWaker for MakepadEventLoopWaker {
-    fn clone_box(&self) -> Box<dyn servo::EventLoopWaker> {
+impl libhavi::EventLoopWaker for MakepadEventLoopWaker {
+    fn clone_box(&self) -> Box<dyn libhavi::EventLoopWaker> {
         Box::new(MakepadEventLoopWaker)
     }
 
@@ -539,7 +539,7 @@ impl servo::EventLoopWaker for MakepadEventLoopWaker {
 
 pub(super) struct HaviServoDelegate;
 
-impl servo::ServoDelegate for HaviServoDelegate {
+impl libhavi::ServoDelegate for HaviServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         let bind = format!("127.0.0.1:{}", port);
         set_devtools_bind(bind.clone());
@@ -552,7 +552,7 @@ impl servo::ServoDelegate for HaviServoDelegate {
         );
     }
 
-    fn request_devtools_connection(&self, request: servo::AllowOrDenyRequest) {
+    fn request_devtools_connection(&self, request: libhavi::AllowOrDenyRequest) {
         request.allow();
     }
 

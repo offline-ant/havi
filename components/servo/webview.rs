@@ -14,14 +14,13 @@ use dpi::PhysicalSize;
 use embedder_traits::{
     ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
     InputEvent, InputEventAndId, InputEventId, JSValue, JavaScriptEvaluationError, LoadStatus,
-    MediaSessionActionType, NewWebViewDetails, ScreenGeometry, ScreenshotCaptureError, Theme,
-    TraversalId, ViewportDetails, WebViewRect,
+    MediaSessionActionType, NewWebViewDetails, ScreenshotCaptureError, Theme, TraversalId,
+    ViewportDetails, WebViewRect,
 };
-use euclid::{Point2D, Scale, Size2D};
+use euclid::{Scale, Size2D};
 use image::RgbaImage;
-use paint_api::WebViewTrait;
-use servo_geometry::DeviceIndependentPixel;
-use servo_url::BrowserUrl;
+use crate::geometry::DeviceIndependentPixel;
+use crate::servo_url::BrowserUrl;
 use style_traits::CSSPixel;
 use webrender_api::units::{
     DeviceIntRect, DevicePixel, DevicePoint, DeviceSize, LayoutVector2D,
@@ -123,10 +122,19 @@ impl WebView {
         })));
 
         let viewport_details = webview.viewport_details();
+        let weak_for_animating = webview.weak_handle();
+        let weak_for_scroll = webview.weak_handle();
         servo.paint().add_webview(
-            Box::new(ServoRendererWebView {
-                weak_handle: webview.weak_handle(),
-                id,
+            id,
+            Box::new(move |new_value| {
+                if let Some(wv) = WebView::from_weak_handle(&weak_for_animating) {
+                    wv.set_animating(new_value);
+                }
+            }),
+            Box::new(move |point, delta| {
+                if let Some(wv) = WebView::from_weak_handle(&weak_for_scroll) {
+                    wv.delegate().notify_scroll_default_action(wv, point, delta);
+                }
             }),
             viewport_details,
         );
@@ -703,42 +711,6 @@ impl WebView {
 
         self.delegate()
             .show_embedder_control(self.clone(), embedder_control);
-    }
-}
-
-/// A structure used to expose a view of the [`WebView`] to the Servo
-/// renderer, without having the Servo renderer depend on the embedding layer.
-struct ServoRendererWebView {
-    id: WebViewId,
-    weak_handle: Weak<RefCell<WebViewInner>>,
-}
-
-impl WebViewTrait for ServoRendererWebView {
-    fn id(&self) -> WebViewId {
-        self.id
-    }
-
-    fn screen_geometry(&self) -> Option<ScreenGeometry> {
-        let webview = WebView::from_weak_handle(&self.weak_handle)?;
-        webview.delegate().screen_geometry(webview)
-    }
-
-    fn set_animating(&self, new_value: bool) {
-        if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
-            webview.set_animating(new_value);
-        }
-    }
-
-    fn notify_scroll_default_action(
-        &self,
-        point: Option<Point2D<f32, style_traits::CSSPixel>>,
-        delta: LayoutVector2D,
-    ) {
-        if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
-            webview
-                .delegate()
-                .notify_scroll_default_action(webview, point, delta);
-        }
     }
 }
 

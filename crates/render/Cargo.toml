@@ -6,8 +6,7 @@ publish = false
 
 [dependencies]
 havi-types = { path = "../types" }
-layout = { path = "../../components/layout" }
-pixels = { path = "../../components/pixels" }
+libhavi = { package = "libhavi", path = "../../components/servo" }
 rustybuzz = "0.20"
 ttf-parser = "0.24"
 
@@ -20,6 +19,4 @@ servo_arc = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7c
 app_units = "0.7"
 euclid = "0.22"
 style_traits = { git = "https://github.com/servo/stylo", rev = "2f131eb1909c6193a7cfae22e49f288fe9df4fbb", package = "stylo_traits" }
-layout_api = { path = "../../components/shared/layout" }
-base = { path = "../../components/shared/base" }
 webrender_api = { workspace = true }

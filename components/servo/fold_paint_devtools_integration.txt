@@ -1,0 +1,15 @@
+=== lib.rs additions ===
+pub mod paint_impl;  // NOTE: integrator should merge with existing paint mod or replace it
+pub mod devtools;
+
+=== Cargo.toml dep additions ===
+atomic_refcell
+base64
+chrono
+headers
+http
+malloc_size_of
+malloc_size_of_derive
+rand
+smallvec
+uuid

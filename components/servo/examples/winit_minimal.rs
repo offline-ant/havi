@@ -7,12 +7,12 @@ use std::error::Error;
 use std::rc::Rc;
 
 use euclid::{Scale, Size2D};
-use servo::{
+use libhavi::{
     InputEvent, Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta,
     WheelEvent, WheelMode,
 };
 use tracing::warn;
-use url::Url;
+use ::url::Url;
 use webrender_api::units::{DevicePixel, DevicePoint};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -34,7 +34,7 @@ struct AppState {
     webviews: RefCell<Vec<WebView>>,
 }
 
-impl ::servo::WebViewDelegate for AppState {
+impl ::libhavi::WebViewDelegate for AppState {
     fn notify_new_frame_ready(&self, _: WebView, _: webrender_api::PipelineId) {
         self.window.request_redraw();
     }

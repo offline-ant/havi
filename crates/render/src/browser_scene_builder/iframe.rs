@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use base::id::PipelineId;
+use libhavi::base::id::PipelineId;
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpChildDocument, MpEmbed, MpHitTestTag, MpPipelineId, MpScene, ResourceRegistry};
 use makepad_widgets::Cx2d;
@@ -51,7 +51,7 @@ pub(super) fn build_iframe_fragment(
     )?;
 
     let pipeline_id = mp_pipeline_id(iframe.pipeline_id);
-    let child_generation = layout_api::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
+    let child_generation = libhavi::layout::shared_layout_fragment_tree_for_pipeline(iframe.pipeline_id)
         .get::<published::FragmentArenaGeneration>()
         .unwrap_or_else(|| {
             Arc::new(published::FragmentArenaGeneration {

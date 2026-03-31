@@ -1,0 +1,22 @@
+=== lib.rs additions ===
+pub mod canvas;
+pub mod storage;
+
+=== Cargo.toml dep additions ===
+bytemuck
+futures-intrusive
+kurbo
+peniko
+pollster
+vello
+vello_cpu
+malloc_size_of
+malloc_size_of_derive
+libc
+postcard
+sea-query
+sea-query-rusqlite
+tempfile
+tokio-stream
+tokio-util
+uuid

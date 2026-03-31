@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use servo::{ClipboardDelegate, StringRequest, WebView};
+use libhavi::{ClipboardDelegate, StringRequest, WebView};
 
 /// Actions queued by the clipboard delegate for processing in the event loop.
 pub(super) enum ClipboardAction {

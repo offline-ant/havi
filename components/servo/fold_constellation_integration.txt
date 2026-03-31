@@ -1,0 +1,6 @@
+=== lib.rs additions ===
+pub mod constellation;
+
+=== Cargo.toml dep additions ===
+backtrace = { workspace = true }
+canvas = { path = "../canvas" }

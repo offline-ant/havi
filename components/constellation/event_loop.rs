@@ -13,12 +13,11 @@ use std::rc::Rc;
 use background_hang_monitor_api::{BackgroundHangMonitorControlMsg, HangMonitorAlert};
 use base::generic_channel::{self, GenericReceiver, GenericSender, SendError};
 use base::id::ScriptEventLoopId;
-use constellation_traits::ServiceWorkerManagerFactory;
 use embedder_traits::ScriptToEmbedderChan;
 use ipc_channel::IpcError;
-use layout_api::ScriptThreadFactory;
 use log::error;
 
+use script::ScriptThread;
 use script_traits::{InitialScriptState, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_config::opts::{self, Opts};
@@ -63,8 +62,8 @@ impl Drop for EventLoop {
 }
 
 impl EventLoop {
-    pub(crate) fn spawn<STF: ScriptThreadFactory, SWF: ServiceWorkerManagerFactory>(
-        constellation: &mut Constellation<STF, SWF>,
+    pub(crate) fn spawn(
+        constellation: &mut Constellation,
         is_private: bool,
     ) -> Result<Rc<Self>, IpcError> {
         let (script_chan, script_port) =
@@ -121,8 +120,8 @@ impl EventLoop {
         Ok(event_loop)
     }
 
-    fn spawn_in_thread<STF: ScriptThreadFactory, SWF: ServiceWorkerManagerFactory>(
-        constellation: &mut Constellation<STF, SWF>,
+    fn spawn_in_thread(
+        constellation: &mut Constellation,
         initial_script_state: InitialScriptState,
     ) -> Self {
         let script_chan = initial_script_state.constellation_to_script_sender.clone();
@@ -131,7 +130,7 @@ impl EventLoop {
             .background_monitor_register
             .clone()
             .expect("Couldn't start content, no background monitor has been initiated");
-        let join_handle = STF::create(
+        let join_handle = ScriptThread::create(
             initial_script_state,
             constellation.layout_factory.clone(),
             constellation.image_cache_factory.clone(),
@@ -147,8 +146,8 @@ impl EventLoop {
         }
     }
 
-    fn spawn_in_process<STF: ScriptThreadFactory, SWF: ServiceWorkerManagerFactory>(
-        constellation: &mut Constellation<STF, SWF>,
+    fn spawn_in_process(
+        constellation: &mut Constellation,
         initial_script_state: InitialScriptState,
     ) -> Result<Self, IpcError> {
         let script_chan = initial_script_state.constellation_to_script_sender.clone();

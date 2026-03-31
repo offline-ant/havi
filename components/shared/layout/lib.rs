@@ -21,12 +21,10 @@ use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use app_units::Au;
 use atomic_refcell::AtomicRefCell;
-use background_hang_monitor_api::BackgroundHangMonitorRegister;
 use base::Epoch;
 use base::generic_channel::GenericSender;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
@@ -42,14 +40,14 @@ pub use layout_damage::LayoutDamage;
 use libc::c_void;
 use malloc_size_of::{MallocSizeOf as MallocSizeOfTrait, MallocSizeOfOps, malloc_size_of_is_0};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::image_cache::{ImageCache, ImageCacheFactory, PendingImageId};
+use net_traits::image_cache::{ImageCache, PendingImageId};
 use paint_api::CrossProcessPaintApi;
 use parking_lot::RwLock;
 use pixels::RasterImage;
 use profile_traits::mem::Report;
 use profile_traits::time;
 use rustc_hash::FxHashMap;
-use script_traits::{InitialScriptState, Painter, ScriptThreadMessage};
+use script_traits::{Painter, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_arc::Arc as ServoArc;
 use servo_url::{BrowserUrl, ImmutableOrigin};
@@ -953,18 +951,6 @@ pub trait Layout {
     fn set_accessibility_active(&self, active: bool);
 }
 
-/// This trait is part of `layout_api` because it depends on both `script_traits`
-/// and also `LayoutFactory` from this crate. If it was in `script_traits` there would be a
-/// circular dependency.
-pub trait ScriptThreadFactory {
-    /// Create a `ScriptThread`.
-    fn create(
-        state: InitialScriptState,
-        layout_factory: Arc<dyn LayoutFactory>,
-        image_cache_factory: Arc<dyn ImageCacheFactory>,
-        background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
-    ) -> JoinHandle<()>;
-}
 
 /// Type of the area of CSS box for query.
 /// See <https://www.w3.org/TR/css-box-3/#box-model>.

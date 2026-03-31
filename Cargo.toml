@@ -2,20 +2,21 @@
 resolver = "2"
 members = [
     "components/jsonqa",
+    "components/servo",
     "components/vendored/svgtypes",
     "components/xpath",
-    "havi-protocols",
     "ports/havishell",
-    "tests/unit/*",
 ]
 default-members = ["ports/havishell"]
 exclude = [".cargo", "support/crown"]
+
 [workspace.package]
 version = "0.0.1"
 authors = ["The Servo Project Developers"]
 license = "MPL-2.0"
 edition = "2024"
 publish = false
+
 # We have yet to decide on a policy for updating the minimum supported Rust version.
 # Before increasing this, please open a discussion on Zulip explaining the reason
 # why we should consider increasing our minimum supported Rust version.
@@ -23,6 +24,7 @@ publish = false
 # bumped freely.
 # Skip 1.90 which causes mis-compilation: https://github.com/rust-lang/rust/issues/147265
 rust-version = "1.86.0"
+
 [workspace.dependencies]
 accesskit = { version = "0.24.0", features = ["serde"] }
 accountable-refcell = "0.2.2"
@@ -225,6 +227,7 @@ x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 xi-unicode = "0.3.0"
 xml5ever = "0.38"
 xpath = { path = "components/xpath" }
+
 # RSA key generation could be very slow without compilation
 # optimizations, in development mode. Without optimizations, WPT might
 # consider RSA key generation tests fail due to timeout.
@@ -233,28 +236,36 @@ xpath = { path = "components/xpath" }
 # More details: <https://docs.rs/rsa/0.9.8/rsa/index.html#example>
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
+
 # Force tikv-jemalloc-sys to build with at least -O1.
 # This can help with build environments that force _FORTIFY_SOURCE, such as Nix.
 # More details: <https://github.com/tikv/jemallocator/issues/108>
 [profile.dev.package.tikv-jemalloc-sys]
 opt-level = 1
+
 [profile.dev.package.hppr-packet]
 opt-level = 3
+
 [profile.dev.package.hsb3]
 opt-level = 3
+
 [profile.dev.package.k256]
 opt-level = 3
+
 [profile.dev.package.rust-argon2]
 opt-level = 3
+
 [profile.release]
 opt-level = 3
 debug-assertions = true
+
 # Disk-space is limited in CI, so we disabled features that are not needed for code coverage.
 # Locally using the default `dev` profile is perfectly fine.
 [profile.coverage]
 inherits = "dev"
 incremental = false
 debug = false
+
 # A profile between `dev` and `release` which aims to offer a compromise between
 # fast incremental rebuilds and runtime speed.
 [profile.medium]
@@ -262,25 +273,30 @@ inherits = "release"
 opt-level = 2
 incremental = true
 debug = "line-tables-only"
+
 [profile.production]
 inherits = "release"
 debug-assertions = false
 lto = true
 codegen-units = 1
 opt-level = "s"
+
 [profile.production-stripped]
 inherits = "production"
 strip = true
+
 [profile.profiling]
 inherits = "release"
 debug-assertions = false
 debug = true
 lto = "thin"
 codegen-units = 1
+
 [patch.crates-io]
 svgtypes = { path = "components/vendored/svgtypes" }
 mozjs = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
 mozjs_sys = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
+
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #
@@ -309,7 +325,7 @@ mozjs_sys = { git = "https://github.com/offline-ant/mozjs", branch = "main" }
 # stylo_atoms = { path = "../stylo/stylo_atoms" }
 # stylo_dom = { path = "../stylo/stylo_dom" }
 # stylo_malloc_size_of = { path = "../stylo/malloc_size_of" }
-# stylo_static_prefs = { path = "../stylo/stylo_static_prefs" }
+# stylo_static_prefs = { path = "../stylo/static_prefs" }
 # stylo_traits = { path = "../stylo/style_traits" }
 #
 # Or for WebRender:

@@ -7,9 +7,8 @@ use std::rc::Rc;
 
 use base::generic_channel::SendError;
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
-use constellation_traits::{LoadData, ServiceWorkerManagerFactory};
+use constellation_traits::LoadData;
 use embedder_traits::{AnimationState, FocusSequenceNumber};
-use layout_api::ScriptThreadFactory;
 use log::{debug, error, warn};
 use paint_api::{CompositionPipeline, PaintMessage, PaintProxy};
 use script_traits::{
@@ -72,10 +71,10 @@ pub struct Pipeline {
 
 impl Pipeline {
     /// Possibly starts a script thread, in a new process if requested.
-    pub(crate) fn spawn<STF: ScriptThreadFactory, SWF: ServiceWorkerManagerFactory>(
+    pub(crate) fn spawn(
         new_pipeline_info: NewPipelineInfo,
         event_loop: Rc<EventLoop>,
-        constellation: &Constellation<STF, SWF>,
+        constellation: &Constellation,
         throttled: bool,
     ) -> Result<Self, SendError> {
         if let Err(error) = event_loop.send(ScriptThreadMessage::SpawnPipeline(

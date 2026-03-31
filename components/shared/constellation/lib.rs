@@ -40,7 +40,7 @@ use webrender_api::units::LayoutVector2D;
 use webrender_api::{ExternalScrollId, ImageKey};
 
 /// Messages to the Constellation from the embedding layer, whether from `ServoRenderer` or
-/// from `libservo` itself.
+/// from `libhavi` itself.
 #[derive(IntoStaticStr)]
 pub enum EmbedderToConstellationMessage {
     /// Exit the constellation.

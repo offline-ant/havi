@@ -803,13 +803,39 @@ def _build_ios(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _normalized_extra(args: argparse.Namespace) -> list[str]:
+    extra = list(getattr(args, "extra", None) or [])
+    if extra[:1] == ["--"]:
+        return extra[1:]
+    return extra
+
+
+
+def _has_explicit_cargo_selection(extra: list[str] | None) -> bool:
+    if not extra:
+        return False
+
+    selection_flags = {
+        "-p",
+        "--package",
+        "--workspace",
+        "--all",
+        "--exclude",
+        "--manifest-path",
+    }
+    return any(arg in selection_flags or arg.startswith("--package=") or arg.startswith("--manifest-path=") for arg in extra)
+
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     env = setup_desktop_env()
     cmd = _cargo_makepad_desktop_cmd()
-    cmd.extend(["check", "-p", "havishell"])
+    cmd.append("check")
+    extra = _normalized_extra(args)
+    if not _has_explicit_cargo_selection(extra):
+        cmd.extend(["-p", "havishell"])
     if args.release:
         cmd.append("--release")
-    extra = getattr(args, "extra", None)
     if extra:
         cmd.extend(extra)
 
@@ -857,7 +883,7 @@ def _run_desktop(args: argparse.Namespace) -> int:
         return ret
 
     cmd = [str(binary)]
-    extra = list(getattr(args, "extra", None) or [])
+    extra = _normalized_extra(args)
     if not getattr(args, "reuse", False):
         extra = [arg for arg in extra if arg != "--foreground"]
         extra.insert(0, "--foreground")
@@ -991,6 +1017,48 @@ def _add_android_flags(p: argparse.ArgumentParser) -> None:
                    help=f"Android package name (default: {DEFAULT_PACKAGE_NAME})")
 
 
+def _extract_desktop_passthrough(argv: list[str]) -> list[str] | None:
+    if not argv:
+        return None
+
+    command = argv[0]
+    if command == "check":
+        known = {"-r", "--release"}
+        prefix = [command]
+        i = 1
+        while i < len(argv) and argv[i] in known:
+            prefix.append(argv[i])
+            i += 1
+        return prefix + ["--"] + argv[i:]
+
+    if command == "build":
+        if len(argv) > 1 and argv[1] in {"android", "ios"}:
+            return None
+        known = {"-r", "--release"}
+        prefix = [command]
+        i = 1
+        while i < len(argv) and argv[i] in known:
+            prefix.append(argv[i])
+            i += 1
+        return prefix + ["--"] + argv[i:]
+
+    if command == "run":
+        if len(argv) > 1 and argv[1] in {"android", "emulator", "ios"}:
+            return None
+        known = {"-r", "--release", "--reuse"}
+        prefix = [command]
+        i = 1
+        while i < len(argv) and argv[i] in known:
+            prefix.append(argv[i])
+            i += 1
+        return prefix + ["--"] + argv[i:]
+
+    if command == "studio":
+        return [command, "--"] + argv[1:]
+
+    return None
+
+
 def run(topdir: str) -> int:
     global HAVI_ROOT, HAVISHELL_DIR, MAKEPAD_ROOT, CARGO_MAKEPAD_DIR
     HAVI_ROOT = pathlib.Path(topdir)
@@ -1075,5 +1143,9 @@ def run(topdir: str) -> int:
         args = argparse.Namespace(command="test", func=cmd_test, extra=argv[1:])
         return args.func(args)
 
-    args = parser.parse_args()
+    desktop_passthrough = _extract_desktop_passthrough(argv)
+    if desktop_passthrough is not None:
+        argv = desktop_passthrough
+
+    args = parser.parse_args(argv)
     return args.func(args)

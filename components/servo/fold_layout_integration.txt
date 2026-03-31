@@ -1,0 +1,32 @@
+=== lib.rs additions ===
+pub mod layout_impl;  // NOTE: integrator - this replaces existing layout wrapper, see notes
+
+=== Cargo.toml dep additions ===
+[deps from components/layout/Cargo.toml NOT in components/servo/Cargo.toml]
+app_units = { workspace = true }
+atomic_refcell = { workspace = true }
+cssparser = { workspace = true }
+data-url = { workspace = true }
+havi-fonts = { path = "../../crates/fonts" }
+havi-types = { path = "../../crates/types" }
+html5ever = { workspace = true }
+icu_locid = { workspace = true }
+icu_segmenter = { workspace = true }
+itertools = { workspace = true }
+kurbo = { workspace = true }
+malloc_size_of = { workspace = true }
+malloc_size_of_derive = { workspace = true }
+rayon = { workspace = true }
+selectors = { workspace = true }
+servo_arc = { workspace = true }
+smallvec = { workspace = true }
+strum = { workspace = true }
+stylo_atoms = { workspace = true }
+taffy = { workspace = true }
+unicode-bidi = { workspace = true }
+unicode-script = { workspace = true }
+svgtypes = { workspace = true }
+xi-unicode = { workspace = true }
+xml5ever = { workspace = true }
+quickcheck = "1"
+num-traits = { workspace = true }

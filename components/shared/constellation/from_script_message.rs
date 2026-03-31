@@ -391,13 +391,6 @@ pub enum DocumentState {
     Pending,
 }
 
-/// This trait allows creating a `ServiceWorkerManager` without depending on the `script`
-/// crate.
-pub trait ServiceWorkerManagerFactory {
-    /// Create a `ServiceWorkerManager`.
-    fn create(sw_senders: SWManagerSenders, origin: ImmutableOrigin);
-}
-
 /// Specifies the information required to load an auxiliary browsing context.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AuxiliaryWebViewCreationRequest {

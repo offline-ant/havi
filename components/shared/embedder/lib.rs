@@ -5,7 +5,7 @@
 //! Types used by the embedding layer and/or exposed to the API. This crate is responsible for
 //! defining types that cross the process boundary from the embedding/rendering layer all the way
 //! to script, thus it should have very minimal dependencies on other parts of Servo. If a type
-//! is not exposed in the API or doesn't involve messages sent to the embedding/libservo layer, it
+//! is not exposed in the API or doesn't involve messages sent to the embedding/libhavi layer, it
 //! is probably a better fit for the `constellation_traits` crate.
 
 pub mod embedder_controls;

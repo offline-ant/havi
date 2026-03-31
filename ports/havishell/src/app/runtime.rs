@@ -80,7 +80,7 @@ impl App {
         );
 
         // Init resource reader
-        servo::resources::set(Box::new(ResourceReader));
+        libhavi::resources::set(Box::new(ResourceReader));
 
         // Use physical pixel dimensions for the initial texture.
         // Makepad's inner_size is in logical pixels; multiply by DPI for physical.
@@ -108,7 +108,7 @@ impl App {
         }
 
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
-        let repo_path = havi_protocols::config::repo_dir();
+        let repo_path = libhavi::hppr::config::repo_dir();
         let fallback_target = home
             .as_deref()
             .and_then(|v| hppr_client::parse_via(v).ok())
@@ -247,7 +247,7 @@ impl App {
         let hppr_handler = {
             let target = fallback_target.clone();
             Arc::new(
-                havi_protocols::client::HpprdClientAsync::new(target)
+                libhavi::hppr::client::HpprdClientAsync::new(target)
                     .expect("invalid repo endpoint"),
             )
         };
@@ -310,8 +310,8 @@ impl App {
 
         // Step 3: Create Servo instance with viewport_meta_enabled so that
         // <meta name="viewport" content="width=device-width"> tags are respected.
-        let mut preferences = servo::Preferences::default();
-        preferences.set_value("viewport_meta_enabled", servo::PrefValue::Bool(true));
+        let mut preferences = libhavi::Preferences::default();
+        preferences.set_value("viewport_meta_enabled", libhavi::PrefValue::Bool(true));
 
         // Enable devtools only when explicitly requested.
         if let Ok(devtools_addr) = std::env::var("HAVI_DEVTOOLS") {
@@ -321,7 +321,7 @@ impl App {
 
         self.clipboard_state = Some(ClipboardState::new());
 
-        let servo = servo::ServoBuilder::default()
+        let servo = libhavi::ServoBuilder::default()
             .event_loop_waker(Box::new(MakepadEventLoopWaker))
             .preferences(preferences)
             .protocol_registry(protocol_registry)
@@ -390,7 +390,7 @@ impl App {
         // Print eval-compatible environment summary.
         // PYLON= is printed later when PylonReady arrives.
         {
-            let repo_dir = havi_protocols::config::repo_dir();
+            let repo_dir = libhavi::hppr::config::repo_dir();
             println!("HPPRD_REPO={}", repo_dir.display());
             println!("HAVI_URL={}", self.start_url);
             eprintln!(
@@ -551,20 +551,20 @@ impl App {
         }
     }
 
-    pub(super) fn point_to_device(&mut self, cx: &mut Cx, pos: DVec2) -> servo::DevicePoint {
+    pub(super) fn point_to_device(&mut self, cx: &mut Cx, pos: DVec2) -> libhavi::DevicePoint {
         let rect = self.webview_host_rect(cx);
         // pos and rect are in Makepad logical pixels; Servo wants device pixels.
         let x = ((pos.x - rect.pos.x) * self.dpi_factor) as f32;
         let y = ((pos.y - rect.pos.y) * self.dpi_factor) as f32;
-        servo::DevicePoint::new(x, y)
+        libhavi::DevicePoint::new(x, y)
     }
 
     /// Get the active tab's webview, if any.
-    pub(super) fn active_webview(&self) -> Option<&servo::WebView> {
+    pub(super) fn active_webview(&self) -> Option<&libhavi::WebView> {
         self.tabs.get(self.active_tab_idx).map(|t| &t.webview)
     }
 
-    pub(super) fn send_input_event(&self, event: servo::InputEvent) {
+    pub(super) fn send_input_event(&self, event: libhavi::InputEvent) {
         if let Some(webview) = self.active_webview() {
             webview.notify_input_event(event);
             if let Some(servo) = &self.servo {
@@ -585,7 +585,7 @@ impl App {
             .expect("failed to create HAVI watch runtime");
         let handle = runtime.handle().clone();
         self.havi_runtime = Some(runtime);
-        self.watch_pool = Some(havi_protocols::watch::WatchPool::new(
+        self.watch_pool = Some(libhavi::hppr::watch::WatchPool::new(
             handle,
             self.watch_fallback_endpoint.clone(),
             SignalToUI::set_ui_signal,
