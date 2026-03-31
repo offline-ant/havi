@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use webgpu_traits::{ComputePass, ComputePassId, RenderPass, RenderPassId};
+use crate::webgpu::{ComputePass, ComputePassId, RenderPass, RenderPassId};
 use wgpu_core::id::markers::{
     Adapter, BindGroup, BindGroupLayout, Buffer, CommandEncoder, ComputePipeline, Device,
     PipelineLayout, Queue, RenderBundle, RenderPipeline, Sampler, ShaderModule, Texture,

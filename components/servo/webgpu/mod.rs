@@ -1,3 +1,8 @@
+pub mod api;
+pub mod error;
+pub mod ids;
+pub mod messages;
+pub mod render_commands;
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -6,7 +11,6 @@ use base::generic_channel::{self, GenericReceiver};
 use canvas_context::WebGpuExternalImageMap;
 pub use canvas_context::{ContextData, WebGpuExternalImages};
 use log::warn;
-use webgpu_traits::{WebGPU, WebGPUMsg};
 use wgpu_thread::WGPU;
 pub use {wgpu_core as wgc, wgpu_types as wgt};
 
@@ -22,7 +26,7 @@ pub fn start_webgpu_thread(
     paint_api: CrossProcessPaintApi,
     external_image_id_registry: ExternalImageIdRegistry,
     wgpu_image_map: WebGpuExternalImageMap,
-) -> Option<(WebGPU, GenericReceiver<WebGPUMsg>)> {
+) -> Option<(api::WebGPU, GenericReceiver<api::WebGPUMsg>)> {
     if !pref!(dom_webgpu_enabled) {
         return None;
     }
@@ -60,5 +64,8 @@ pub fn start_webgpu_thread(
         warn!("Failed to spawn WGPU thread ({})", e);
         return None;
     }
-    Some((WebGPU(sender), script_recv))
+    Some((api::WebGPU(sender), script_recv))
 }
+
+
+pub use api::*;

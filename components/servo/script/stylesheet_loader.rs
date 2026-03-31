@@ -8,9 +8,9 @@ use base::id::PipelineId;
 use crossbeam_channel::Sender;
 use cssparser::SourceLocation;
 use encoding_rs::UTF_8;
-use net_traits::mime_classifier::MimeClassifier;
-use net_traits::request::{CorsSettings, Destination, RequestId};
-use net_traits::{
+use crate::net::mime_classifier::MimeClassifier;
+use crate::net::request::{CorsSettings, Destination, RequestId};
+use crate::net::{
     FetchMetadata, FilteredMetadata, LoadContext, Metadata, NetworkError, ReferrerPolicy,
     ResourceFetchTiming,
 };

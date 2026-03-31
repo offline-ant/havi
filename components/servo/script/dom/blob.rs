@@ -13,7 +13,7 @@ use js::jsapi::JSObject;
 use js::realm::CurrentRealm;
 use js::rust::HandleObject;
 use js::typedarray::{ArrayBufferU8, Uint8};
-use net_traits::filemanager_thread::RelativePos;
+use crate::net::filemanager_thread::RelativePos;
 use rustc_hash::FxHashMap;
 use uuid::Uuid;
 

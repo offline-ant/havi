@@ -4,7 +4,7 @@
 
 use dom_struct::dom_struct;
 use js::rust::{HandleObject, HandleValue};
-use net_traits::pub_domains::is_same_site;
+use crate::net::pub_domains::is_same_site;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::script::dom::bindings::codegen::GenericBindings::OriginBinding::OriginMethods;

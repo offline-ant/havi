@@ -14,7 +14,7 @@ use hppr_client::ViaSpec;
 use hppr_client::Signer;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
-use net_traits::{HpprProtocolError, WatchDomAction, WatchNetworkEvent};
+use crate::net::{HpprProtocolError, WatchDomAction, WatchNetworkEvent};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::net::hppr_pool::{HpprAsyncState, resolve_via_to_addr};

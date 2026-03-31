@@ -9,15 +9,15 @@ use cssparser::match_ignore_ascii_case;
 use http::header::HeaderMap;
 use hyper_serde::Serde;
 use mime::Mime;
-use net_traits::fetch::headers::get_decode_and_split_header_name;
-use net_traits::mime_classifier::{MediaType, MimeClassifier};
-use net_traits::policy_container::PolicyContainer;
-use net_traits::request::{
+use crate::net::fetch::headers::get_decode_and_split_header_name;
+use crate::net::mime_classifier::{MediaType, MimeClassifier};
+use crate::net::policy_container::PolicyContainer;
+use crate::net::request::{
     CorsSettings, Destination, Initiator, InsecureRequestsPolicy, PreloadId, PreloadKey, Referrer,
     RequestBuilder, RequestClient, RequestId,
 };
-use net_traits::response::{Response, ResponseBody};
-use net_traits::{
+use crate::net::response::{Response, ResponseBody};
+use crate::net::{
     CoreResourceMsg, FetchMetadata, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
 pub use nom_rfc8288::complete::LinkDataOwned as LinkHeader;

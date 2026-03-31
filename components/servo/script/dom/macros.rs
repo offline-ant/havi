@@ -811,7 +811,7 @@ macro_rules! hppr_dispatch {
     // With extra args and can_gc in signature
     (@body $self_:ident, $can_gc:ident, ($($env:tt)*), $do_method:ident, $($do_arg:expr),* ) => {{
         use $crate::script::dom::bindings::reflector::DomGlobal;
-        use net_traits::HpprProtocolResponse;
+        use crate::net::HpprProtocolResponse;
         let global = $self_.global();
         let promise = $crate::script::dom::promise::Promise::new(&global, $can_gc);
         if $self_ $($env)* .reject_if_invalid(&promise, $can_gc) { return promise; }

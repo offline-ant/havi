@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use base::generic_channel::GenericSharedMemory;
 use dom_struct::dom_struct;
-use webgpu_traits::{WebGPU, WebGPUQueue, WebGPURequest};
+use crate::webgpu::{WebGPU, WebGPUQueue, WebGPURequest};
 
 use crate::script::conversions::{Convert, TryConvert};
 use crate::script::dom::bindings::cell::DomRefCell;

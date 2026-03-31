@@ -15,11 +15,11 @@ use js::jsval::UndefinedValue;
 use js::realm::AutoRealm;
 use js::rust::{CustomAutoRooterGuard, HandleObject};
 use js::typedarray::{ArrayBuffer, ArrayBufferView, CreateWith};
-use net_traits::request::{
+use crate::net::request::{
     CacheMode, CredentialsMode, RedirectMode, Referrer, RequestBuilder, RequestMode,
     ServiceWorkersMode,
 };
-use net_traits::{
+use crate::net::{
     CoreResourceMsg, FetchChannels, MessageData, WebSocketDomAction, WebSocketNetworkEvent,
 };
 use profile_traits::ipc as ProfiledIpc;

@@ -26,10 +26,10 @@ use js::jsval::{JSVal, NullValue};
 use js::rust::wrappers::JS_ParseJSON;
 use js::rust::{HandleObject, MutableHandleValue};
 use js::typedarray::{ArrayBufferU8, HeapArrayBuffer};
-use net_traits::fetch::headers::extract_mime_type_as_dataurl_mime;
-use net_traits::http_status::HttpStatus;
-use net_traits::request::{CredentialsMode, Referrer, RequestBuilder, RequestId, RequestMode};
-use net_traits::{
+use crate::net::fetch::headers::extract_mime_type_as_dataurl_mime;
+use crate::net::http_status::HttpStatus;
+use crate::net::request::{CredentialsMode, Referrer, RequestBuilder, RequestId, RequestMode};
+use crate::net::{
     FetchMetadata, FilteredMetadata, NetworkError, ReferrerPolicy, ResourceFetchTiming,
     trim_http_whitespace,
 };

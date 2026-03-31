@@ -18,7 +18,7 @@ use base::{read_json_from_file, write_json_to_file};
 use log::warn;
 use malloc_size_of::MallocSizeOf;
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::pub_domains::registered_domain_name;
+use crate::net::pub_domains::registered_domain_name;
 use profile_traits::mem::{
     ProcessReports, ProfilerChan as MemProfilerChan, Report, ReportKind, perform_memory_report,
 };

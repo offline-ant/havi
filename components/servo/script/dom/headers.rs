@@ -8,12 +8,12 @@ use std::str::{self, FromStr};
 use dom_struct::dom_struct;
 use http::header::{HeaderMap as HyperHeaders, HeaderName, HeaderValue};
 use js::rust::HandleObject;
-use net_traits::fetch::headers::{
+use crate::net::fetch::headers::{
     extract_mime_type, get_decode_and_split_header_value, get_value_from_header_list,
     is_forbidden_method,
 };
-use net_traits::request::is_cors_safelisted_request_header;
-use net_traits::trim_http_whitespace;
+use crate::net::request::is_cors_safelisted_request_header;
+use crate::net::trim_http_whitespace;
 use script_bindings::cformat;
 
 use crate::script::dom::bindings::cell::DomRefCell;

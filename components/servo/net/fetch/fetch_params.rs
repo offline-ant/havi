@@ -5,8 +5,8 @@
 use std::sync::{Arc, Mutex};
 
 use content_security_policy as csp;
-use net_traits::request::{PreloadEntry, PreloadId, PreloadKey, Request, RequestClient};
-use net_traits::response::Response;
+use crate::net::request::{PreloadEntry, PreloadId, PreloadKey, Request, RequestClient};
+use crate::net::response::Response;
 use rustc_hash::FxHashMap;
 use tokio::sync::oneshot::Receiver as TokioReceiver;
 

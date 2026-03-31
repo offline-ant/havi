@@ -19,7 +19,7 @@ use hppr_client::Signer;
 use hppr_packet::writer::TrailerReader;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
-use net_traits::{HpprProtocolError, StreamSubDomAction, StreamSubNetworkEvent};
+use crate::net::{HpprProtocolError, StreamSubDomAction, StreamSubNetworkEvent};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::net::hppr_pool::{HpprAsyncState, resolve_via_to_addr};

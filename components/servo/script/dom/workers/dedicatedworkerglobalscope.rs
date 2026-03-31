@@ -17,9 +17,9 @@ use js::context::JSContext;
 use js::jsapi::{Heap, JSContext as RawJSContext, JSObject};
 use js::jsval::UndefinedValue;
 use js::rust::{CustomAutoRooter, CustomAutoRooterGuard, HandleValue};
-use net_traits::image_cache::ImageCache;
-use net_traits::policy_container::{PolicyContainer, RequestPolicyContainer};
-use net_traits::request::{
+use crate::net::image_cache::ImageCache;
+use crate::net::policy_container::{PolicyContainer, RequestPolicyContainer};
+use crate::net::request::{
     CredentialsMode, Destination, InsecureRequestsPolicy, Origin, ParserMetadata,
     PreloadedResources, Referrer, RequestBuilder, RequestClient, RequestMode,
 };

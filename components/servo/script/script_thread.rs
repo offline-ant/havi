@@ -70,13 +70,13 @@ use js::jsval::UndefinedValue;
 use url::Position;
 use js::rust::ParentRuntime;
 use js::rust::wrappers2::{JS_AddInterruptCallback, SetWindowProxyClass};
-use crate::layout::{LayoutConfig, LayoutFactory, RestyleReason};
+use crate::layout::{LayoutConfig, LayoutFactoryImpl, RestyleReason};
 
 use crate::metrics::MAX_TASK_NS;
-use net_traits::image_cache::{ImageCache, ImageCacheFactory, ImageCacheResponseMessage};
-use net_traits::request::{Referrer, RequestId};
-use net_traits::response::ResponseInit;
-use net_traits::{
+use crate::net::image_cache::{ImageCache, ImageCacheFactoryImpl, ImageCacheResponseMessage};
+use crate::net::request::{Referrer, RequestId};
+use crate::net::response::ResponseInit;
+use crate::net::{
     FetchMetadata, FetchResponseMsg, Metadata, NetworkError, ResourceFetchTiming, ResourceThreads,
     ResourceTimingType,
 };
@@ -107,7 +107,7 @@ use style::thread_state::{self, ThreadState};
 use stylo_atoms::Atom;
 use crate::timers::{TimerEventRequest, TimerId, TimerScheduler};
 #[cfg(feature = "webgpu")]
-use webgpu_traits::{WebGPUDevice, WebGPUMsg};
+use crate::webgpu::{WebGPUDevice, WebGPUMsg};
 
 use crate::script::devtools::{self, DevtoolsState};
 use crate::script::document_collection::DocumentCollection;
@@ -270,10 +270,9 @@ pub struct ScriptThread {
     incomplete_loads: DomRefCell<Vec<InProgressLoad>>,
     /// A vector containing parser contexts which have not yet been fully processed
     incomplete_parser_contexts: IncompleteParserContexts,
-    /// An [`ImageCacheFactory`] to use for creating [`ImageCache`]s for all of the
-    /// child `Pipeline`s.
+    /// Shared image-cache creation state for child `Pipeline`s.
     #[no_trace]
-    image_cache_factory: Arc<dyn ImageCacheFactory>,
+    image_cache_factory: Arc<ImageCacheFactoryImpl>,
 
     /// A [`ScriptThreadReceivers`] holding all of the incoming `Receiver`s for messages
     /// to this [`ScriptThread`].
@@ -376,9 +375,9 @@ pub struct ScriptThread {
     #[cfg(feature = "webgpu")]
     gpu_id_hub: Arc<IdentityHub>,
 
-    /// A factory for making new layouts. This allows layout to depend on script.
+    /// Shared layout creation state.
     #[no_trace]
-    layout_factory: Arc<dyn LayoutFactory>,
+    layout_factory: Arc<LayoutFactoryImpl>,
 
     /// The [`TimerId`] of a ScriptThread-scheduled "update the rendering" call, if any.
     /// The ScriptThread schedules calls to "update the rendering," but the renderer can
@@ -460,8 +459,8 @@ impl Drop for ScriptMemoryFailsafe<'_> {
 impl ScriptThread {
     pub fn create(
         state: InitialScriptState,
-        layout_factory: Arc<dyn LayoutFactory>,
-        image_cache_factory: Arc<dyn ImageCacheFactory>,
+        layout_factory: Arc<LayoutFactoryImpl>,
+        image_cache_factory: Arc<ImageCacheFactoryImpl>,
         background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
     ) -> JoinHandle<()> {
         // Setup pipeline-namespace-installing for all threads in this process.
@@ -887,8 +886,8 @@ impl ScriptThread {
     /// Creates a new script thread.
     pub(crate) fn new(
         state: InitialScriptState,
-        layout_factory: Arc<dyn LayoutFactory>,
-        image_cache_factory: Arc<dyn ImageCacheFactory>,
+        layout_factory: Arc<LayoutFactoryImpl>,
+        image_cache_factory: Arc<ImageCacheFactoryImpl>,
         background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
     ) -> (Rc<ScriptThread>, js::context::JSContext) {
         let (self_sender, self_receiver) = unbounded();
@@ -3419,7 +3418,6 @@ impl ScriptThread {
         let font_context = Arc::new(FontContext::new(
             self.system_font_service.clone(),
             font_render_api_from_paint_api(self.paint_api.clone()),
-            self.resource_threads.clone(),
         ));
 
         let image_cache = self.image_cache_factory.create(

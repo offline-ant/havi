@@ -7,7 +7,7 @@ use std::rc::Rc;
 use dom_struct::dom_struct;
 use js::jsapi::{HandleObject, Heap, JSObject};
 use script_bindings::cformat;
-use webgpu_traits::{
+use crate::webgpu::{
     RequestDeviceError, WebGPU, WebGPUAdapter, WebGPUDeviceResponse, WebGPURequest,
 };
 use wgpu_types::{self, AdapterInfo, MemoryHints};

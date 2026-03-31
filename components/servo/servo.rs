@@ -51,7 +51,7 @@ use crate::net::embedder::NetToEmbedderMsg;
 use crate::net::image_cache::ImageCacheFactoryImpl;
 use crate::net::protocols::ProtocolRegistry;
 use crate::net::resource_thread::new_resource_threads;
-use net_traits::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
+use crate::net::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
 use crate::paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
 use crate::paint::{CrossProcessPaintApi, PaintMessage, PaintProxy};
 use crate::profile::{mem as profile_mem, system_reporter, time as profile_time};
@@ -985,7 +985,7 @@ fn create_constellation(
     protocols: Arc<ProtocolRegistry>,
     public_resource_threads: ResourceThreads,
     private_resource_threads: ResourceThreads,
-    async_runtime: Box<dyn net_traits::AsyncRuntime>,
+    async_runtime: Box<dyn crate::net::AsyncRuntime>,
     public_storage_threads: StorageThreads,
     private_storage_threads: StorageThreads,
     hppr_home_endpoint: String,

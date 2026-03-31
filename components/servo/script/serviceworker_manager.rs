@@ -22,7 +22,7 @@ use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use crate::fonts::{FontContext, font_render_api_from_paint_api};
 use ipc_channel::ipc;
 use ipc_channel::router::ROUTER;
-use net_traits::{CoreResourceMsg, CustomResponseMediator};
+use crate::net::{CoreResourceMsg, CustomResponseMediator};
 use servo_config::pref;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 
@@ -520,7 +520,6 @@ impl ServiceWorkerManager {
         let font_context = Arc::new(FontContext::new(
             Arc::new(system_font_service_sender.to_proxy()),
             font_render_api_from_paint_api(paint_api),
-            resource_threads,
         ));
 
         let swmanager_thread = move || {

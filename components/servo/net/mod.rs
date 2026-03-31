@@ -4,13 +4,23 @@
 
 #![deny(unsafe_code)]
 
+pub mod api;
 pub mod async_runtime;
+pub mod blob_url_store;
 pub mod connector;
 pub mod cookie;
 pub mod cookie_storage;
 mod decoder;
 pub mod embedder;
 pub mod filemanager_thread;
+pub mod filemanager_types;
+pub mod http_status;
+pub mod mime_classifier;
+pub mod policy_container;
+pub mod pub_domains;
+pub mod quality;
+pub mod request;
+pub mod response;
 mod hosts;
 pub mod hppr_chunks;
 pub mod hppr_media;
@@ -19,6 +29,7 @@ pub mod hsts;
 pub mod http_cache;
 pub mod http_loader;
 pub mod image_cache;
+pub mod image_cache_types;
 pub mod local_directory_listing;
 pub mod protocols;
 pub mod request_interceptor;
@@ -44,3 +55,6 @@ pub mod test {
     pub use super::hosts::parse_hostsfile;
     pub use super::http_loader::HttpState;
 }
+
+
+pub use api::*;

@@ -16,7 +16,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 use hyper_util::rt::tokio::TokioIo;
-use net_traits::AsyncRuntime;
+use crate::net::AsyncRuntime;
 use servo_url::BrowserUrl;
 use tokio::net::{TcpListener, TcpStream};
 

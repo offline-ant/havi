@@ -20,12 +20,13 @@ use log::{debug, warn};
 use malloc_size_of::{MallocSizeOf as MallocSizeOfTrait, MallocSizeOfOps};
 use malloc_size_of_derive::MallocSizeOf;
 use mime::Mime;
-use net_traits::image_cache::{
-    Image, ImageCache, ImageCacheFactory, ImageCacheResult, ImageLoadListener,
-    ImageOrMetadataAvailable, ImageResponse, PendingImageId, VectorImage,
+pub use crate::net::image_cache_types::{
+    Image, ImageCache, ImageCacheResponseCallback, ImageCacheResponseMessage,
+    ImageCacheResult, ImageLoadListener, ImageOrMetadataAvailable, ImageResponse,
+    PendingImageId, PendingImageResponse, VectorImage,
 };
-use net_traits::request::CorsSettings;
-use net_traits::{FetchMetadata, FetchResponseMsg, FilteredMetadata, NetworkError};
+use crate::net::request::CorsSettings;
+use crate::net::{FetchMetadata, FetchResponseMsg, FilteredMetadata, NetworkError};
 use crate::paint::{CrossProcessPaintApi, ImageUpdate, SerializableImageData};
 use parking_lot::Mutex;
 use ::pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage, load_from_memory};
@@ -1313,17 +1314,6 @@ impl ImageCacheFactoryImpl {
             broken_image_icon_data: self.broken_image_icon_data.clone(),
             thread_pool: self.thread_pool.clone(),
         })
-    }
-}
-
-impl ImageCacheFactory for ImageCacheFactoryImpl {
-    fn create(
-        &self,
-        webview_id: WebViewId,
-        pipeline_id: PipelineId,
-        paint_api: &CrossProcessPaintApi,
-    ) -> Arc<dyn ImageCache> {
-        Self::create(self, webview_id, pipeline_id, paint_api)
     }
 }
 

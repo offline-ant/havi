@@ -14,7 +14,7 @@ use dom_struct::dom_struct;
 use hppr_client::add_coords_to_pac_headers;
 use hppr_client::parse_via;
 use hppr_client::Signer;
-use net_traits::{HpprRequest, CoreResourceMsg, HpprProtocolResponse};
+use crate::net::{HpprRequest, CoreResourceMsg, HpprProtocolResponse};
 
 use script_bindings::trace::RootedTraceableBox;
 use crate::script::dom::bindings::codegen::GenericBindings::EnvelopeHpprClientBinding::EnvelopeHpprClientMethods;

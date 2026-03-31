@@ -35,7 +35,7 @@ use havi_types::fragment_tree::{
 use libc::c_void;
 use malloc_size_of::{MallocSizeOf as MallocSizeOfTrait, MallocSizeOfOps, malloc_size_of_is_0};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::image_cache::{ImageCache, PendingImageId};
+use crate::net::image_cache::{ImageCache, PendingImageId};
 use crate::paint::CrossProcessPaintApi;
 use parking_lot::RwLock;
 use pixels::RasterImage;
@@ -741,10 +741,6 @@ pub enum RegisterPropertyError {
     InvalidInitialValue,
     InitialValueNotComputationallyIndependent,
     NoInitialValue,
-}
-
-pub trait LayoutFactory: Send + Sync {
-    fn create(&self, config: LayoutConfig) -> Box<dyn Layout>;
 }
 
 pub trait Layout {

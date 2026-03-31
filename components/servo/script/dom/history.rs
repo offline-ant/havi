@@ -15,7 +15,7 @@ use js::context::JSContext;
 use js::jsapi::Heap;
 use js::jsval::{JSVal, NullValue, UndefinedValue};
 use js::rust::{HandleValue, MutableHandleValue};
-use net_traits::CoreResourceMsg;
+use crate::net::CoreResourceMsg;
 use profile_traits::{generic_channel, ipc};
 use servo_url::BrowserUrl;
 

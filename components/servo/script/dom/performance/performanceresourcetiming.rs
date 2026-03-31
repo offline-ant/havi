@@ -4,7 +4,7 @@
 
 use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
-use net_traits::ResourceFetchTiming;
+use crate::net::ResourceFetchTiming;
 use servo_url::BrowserUrl;
 use time::Duration;
 

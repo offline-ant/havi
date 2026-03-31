@@ -9,7 +9,7 @@ use std::rc::Rc;
 use dom_struct::dom_struct;
 use js::jsapi::{HandleObject, Heap, JSObject};
 use script_bindings::cformat;
-use webgpu_traits::{
+use crate::webgpu::{
     PopError, WebGPU, WebGPUComputePipeline, WebGPUComputePipelineResponse, WebGPUDevice,
     WebGPUPoppedErrorScopeResponse, WebGPUQueue, WebGPURenderPipeline,
     WebGPURenderPipelineResponse, WebGPURequest,
@@ -208,7 +208,7 @@ impl GPUDevice {
         self.droppable.channel.clone()
     }
 
-    pub(crate) fn dispatch_error(&self, error: webgpu_traits::Error) {
+    pub(crate) fn dispatch_error(&self, error: crate::webgpu::Error) {
         if let Err(e) = self.droppable.channel.0.send(WebGPURequest::DispatchError {
             device_id: self.id().0,
             error,
@@ -218,7 +218,7 @@ impl GPUDevice {
     }
 
     /// <https://gpuweb.github.io/gpuweb/#eventdef-gpudevice-uncapturederror>
-    pub(crate) fn fire_uncaptured_error(&self, error: webgpu_traits::Error) {
+    pub(crate) fn fire_uncaptured_error(&self, error: crate::webgpu::Error) {
         let this = Trusted::new(self);
 
         // Queue a global task, using the webgpu task source, to fire an event named
@@ -682,7 +682,7 @@ impl RoutedPromiseListener<WebGPUComputePipelineResponse> for GPUDevice {
                 ),
                 can_gc,
             ),
-            Err(webgpu_traits::Error::Validation(msg)) => promise.reject_native(
+            Err(crate::webgpu::Error::Validation(msg)) => promise.reject_native(
                 &GPUPipelineError::new(
                     &self.global(),
                     msg.into(),
@@ -691,7 +691,7 @@ impl RoutedPromiseListener<WebGPUComputePipelineResponse> for GPUDevice {
                 ),
                 can_gc,
             ),
-            Err(webgpu_traits::Error::OutOfMemory(msg) | webgpu_traits::Error::Internal(msg)) => {
+            Err(crate::webgpu::Error::OutOfMemory(msg) | crate::webgpu::Error::Internal(msg)) => {
                 promise.reject_native(
                     &GPUPipelineError::new(
                         &self.global(),
@@ -724,7 +724,7 @@ impl RoutedPromiseListener<WebGPURenderPipelineResponse> for GPUDevice {
                 ),
                 can_gc,
             ),
-            Err(webgpu_traits::Error::Validation(msg)) => promise.reject_native(
+            Err(crate::webgpu::Error::Validation(msg)) => promise.reject_native(
                 &GPUPipelineError::new(
                     &self.global(),
                     msg.into(),
@@ -733,7 +733,7 @@ impl RoutedPromiseListener<WebGPURenderPipelineResponse> for GPUDevice {
                 ),
                 can_gc,
             ),
-            Err(webgpu_traits::Error::OutOfMemory(msg) | webgpu_traits::Error::Internal(msg)) => {
+            Err(crate::webgpu::Error::OutOfMemory(msg) | crate::webgpu::Error::Internal(msg)) => {
                 promise.reject_native(
                     &GPUPipelineError::new(
                         &self.global(),

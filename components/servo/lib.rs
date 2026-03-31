@@ -110,10 +110,6 @@ pub mod embedder {
     pub use ::embedder_traits::*;
 }
 
-pub mod net_traits {
-    pub use ::net_traits::*;
-}
-
 pub mod script_traits {
     pub use crate::script::*;
 }
@@ -139,7 +135,7 @@ pub mod canvas_traits {
 }
 
 pub mod webgpu_traits {
-    pub use ::webgpu_traits::*;
+    pub use crate::webgpu::*;
 }
 
 #[cfg(feature = "webxr")]
@@ -244,7 +240,7 @@ pub use servo_media::player::context::{
 };
 // This API should probably not be exposed in this way. Instead there should be a fully
 // fleshed out public domains API if we want to expose it.
-pub use net_traits::pub_domains::is_reg_domain;
+pub use crate::net::pub_domains::is_reg_domain;
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
 pub use resources;
@@ -288,11 +284,11 @@ pub mod protocol_handler {
     pub use crate::net::hppr_chunks::{batch_reassemble_chunks, fetch_chunk_blobs, parse_exchange_into_blobs};
     pub use crate::net::hppr_pool::HpprAsyncState;
     pub use crate::net::protocols::{FileProtocolHander, ProtocolHandler, ProtocolRegistry};
-    pub use net_traits::filemanager_thread::RelativePos;
-    pub use net_traits::http_status::HttpStatus;
-    pub use net_traits::request::Request;
-    pub use net_traits::response::{Response, ResponseBody};
-    pub use net_traits::{NetworkError, ResourceFetchTiming};
+    pub use crate::net::filemanager_thread::RelativePos;
+    pub use crate::net::http_status::HttpStatus;
+    pub use crate::net::request::Request;
+    pub use crate::net::response::{Response, ResponseBody};
+    pub use crate::net::{NetworkError, ResourceFetchTiming};
 
     pub use crate::webview_delegate::ProtocolHandlerRegistration;
 }

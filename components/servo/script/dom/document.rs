@@ -40,15 +40,15 @@ use crate::layout::{
     ScrollContainerQueryFlags, TrustedNodeAddress,
 };
 use crate::metrics::{InteractiveFlag, InteractiveWindow, ProgressiveWebMetrics};
-use net_traits::CookieSource::NonHTTP;
-use net_traits::CoreResourceMsg::{GetCookiesForUrl, SetCookiesForUrl};
-use net_traits::ReferrerPolicy;
-use net_traits::policy_container::PolicyContainer;
-use net_traits::pub_domains::is_pub_domain;
-use net_traits::request::{
+use crate::net::CookieSource::NonHTTP;
+use crate::net::CoreResourceMsg::{GetCookiesForUrl, SetCookiesForUrl};
+use crate::net::ReferrerPolicy;
+use crate::net::policy_container::PolicyContainer;
+use crate::net::pub_domains::is_pub_domain;
+use crate::net::request::{
     InsecureRequestsPolicy, PreloadId, PreloadKey, PreloadedResources, RequestBuilder,
 };
-use net_traits::response::HttpsState;
+use crate::net::response::HttpsState;
 use percent_encoding::percent_decode;
 use profile_traits::ipc as profile_ipc;
 use profile_traits::time::TimerMetadataFrameType;

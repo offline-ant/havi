@@ -17,13 +17,13 @@ use js::context::JSContext;
 use js::realm::AutoRealm;
 use js::rust::HandleObject;
 use mime::{self, Mime};
-use net_traits::http_status::HttpStatus;
-use net_traits::image_cache::{
+use crate::net::http_status::HttpStatus;
+use crate::net::image_cache::{
     Image, ImageCache, ImageCacheResult, ImageLoadListener, ImageOrMetadataAvailable,
     ImageResponse, PendingImageId,
 };
-use net_traits::request::{CorsSettings, Destination, Initiator, RequestId};
-use net_traits::{
+use crate::net::request::{CorsSettings, Destination, Initiator, RequestId};
+use crate::net::{
     FetchMetadata, FetchResponseMsg, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
 use num_traits::ToPrimitive;

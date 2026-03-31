@@ -75,5 +75,5 @@ pub(crate) fn AppVersion() -> DOMString {
 
 #[expect(non_snake_case)]
 pub(crate) fn Language() -> DOMString {
-    DOMString::from(net_traits::get_current_locale().0.clone())
+    DOMString::from(crate::net::get_current_locale().0.clone())
 }

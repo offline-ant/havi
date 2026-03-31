@@ -14,8 +14,8 @@ use embedder_traits::{
 };
 use euclid::{Point2D, Rect, Size2D};
 use ipc_channel::router::ROUTER;
-use net_traits::CoreResourceMsg;
-use net_traits::filemanager_thread::FileManagerThreadMsg;
+use crate::net::CoreResourceMsg;
+use crate::net::filemanager_thread::FileManagerThreadMsg;
 use rustc_hash::FxHashMap;
 use script_bindings::codegen::GenericBindings::HTMLAnchorElementBinding::HTMLAnchorElementMethods;
 use script_bindings::codegen::GenericBindings::HTMLImageElementBinding::HTMLImageElementMethods;

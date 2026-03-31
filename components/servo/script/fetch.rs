@@ -12,11 +12,11 @@ use js::jsapi::{ExceptionStackBehavior, JS_IsExceptionPending};
 use js::jsval::UndefinedValue;
 use js::rust::HandleValue;
 use js::rust::wrappers::JS_SetPendingException;
-use net_traits::request::{
+use crate::net::request::{
     CorsSettings, CredentialsMode, Destination, Referrer, Request as NetTraitsRequest,
     RequestBuilder, RequestId, RequestMode, ServiceWorkersMode,
 };
-use net_traits::{
+use crate::net::{
     CoreResourceMsg, CoreResourceThread, FetchChannels, FetchMetadata, FetchResponseMsg,
     FilteredMetadata, Metadata, NetworkError, ResourceFetchTiming, cancel_async_fetch,
 };

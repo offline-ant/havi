@@ -11,7 +11,7 @@ use html5ever::local_name;
 use crate::layout::wrapper_traits::ThreadSafeLayoutNode;
 use crate::layout::{IFrameSize, LayoutImageDestination};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::image_cache::{Image, ImageOrMetadataAvailable};
+use crate::net::image_cache::{Image, ImageOrMetadataAvailable};
 use crate::script::layout_dom::ServoThreadSafeLayoutNode;
 use selectors::Element;
 use servo_arc::Arc as ServoArc;

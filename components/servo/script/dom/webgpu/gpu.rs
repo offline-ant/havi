@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::constellation::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
 use js::jsapi::HandleObject;
-use webgpu_traits::WebGPUAdapterResponse;
+use crate::webgpu::WebGPUAdapterResponse;
 use wgpu_types::PowerPreference;
 
 use super::wgsllanguagefeatures::WGSLLanguageFeatures;

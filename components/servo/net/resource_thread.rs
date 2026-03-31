@@ -19,12 +19,12 @@ use embedder_traits::GenericEmbedderProxy;
 use hyper_serde::Serde;
 use ipc_channel::ipc::IpcSender;
 use log::{debug, warn};
-use net_traits::blob_url_store::parse_blob_url;
-use net_traits::filemanager_thread::FileTokenCheck;
-use net_traits::pub_domains::public_suffix_list_size_of;
-use net_traits::request::{Destination, PreloadEntry, PreloadId, RequestBuilder, RequestId};
-use net_traits::response::{Response, ResponseInit};
-use net_traits::{
+use crate::net::blob_url_store::parse_blob_url;
+use crate::net::filemanager_thread::FileTokenCheck;
+use crate::net::pub_domains::public_suffix_list_size_of;
+use crate::net::request::{Destination, PreloadEntry, PreloadId, RequestBuilder, RequestId};
+use crate::net::response::{Response, ResponseInit};
+use crate::net::{
     AsyncRuntime, CookieAsyncResponse, CookieData, CookieSource, CoreResourceMsg,
     CoreResourceThread, CustomResponseMediator, DiscardFetch, FetchChannels, FetchTaskTarget,
     HpprProtocolError, HpprViaSpec, ResourceFetchTiming, ResourceThreads, ResourceTimingType,

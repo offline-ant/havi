@@ -42,12 +42,12 @@ use js::rust::{
     transform_str_to_source_text,
 };
 use mime::Mime;
-use net_traits::http_status::HttpStatus;
-use net_traits::mime_classifier::MimeClassifier;
-use net_traits::request::{
+use crate::net::http_status::HttpStatus;
+use crate::net::mime_classifier::MimeClassifier;
+use crate::net::request::{
     CredentialsMode, Destination, ParserMetadata, Referrer, RequestBuilder, RequestId, RequestMode,
 };
-use net_traits::{FetchMetadata, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming};
+use crate::net::{FetchMetadata, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming};
 use script_bindings::cformat;
 use script_bindings::domstring::BytesView;
 use script_bindings::error::Fallible;

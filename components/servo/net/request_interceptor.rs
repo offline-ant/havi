@@ -5,10 +5,10 @@
 use content_security_policy::Destination;
 use embedder_traits::{GenericEmbedderProxy, WebResourceRequest, WebResourceResponseMsg};
 use log::error;
-use net_traits::NetworkError;
-use net_traits::http_status::HttpStatus;
-use net_traits::request::Request;
-use net_traits::response::{Response, ResponseBody};
+use crate::net::NetworkError;
+use crate::net::http_status::HttpStatus;
+use crate::net::request::Request;
+use crate::net::response::{Response, ResponseBody};
 
 use super::embedder::NetToEmbedderMsg;
 use crate::net::fetch::methods::FetchContext;

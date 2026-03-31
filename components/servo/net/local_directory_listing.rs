@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use chrono::{DateTime, Local};
 use embedder_traits::resources::{Resource, read_string};
 use headers::{ContentType, HeaderMapExt};
-use net_traits::request::Request;
-use net_traits::response::{Response, ResponseBody};
-use net_traits::{NetworkError, ResourceFetchTiming};
+use crate::net::request::Request;
+use crate::net::response::{Response, ResponseBody};
+use crate::net::{NetworkError, ResourceFetchTiming};
 use ::servo_url::BrowserUrl;
 use url::Url;
 

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use data_url::mime::Mime;
 use dom_struct::dom_struct;
-use net_traits::request::InsecureRequestsPolicy;
+use crate::net::request::InsecureRequestsPolicy;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use crate::script::DocumentActivity;
 use servo_url::{MutableOrigin, BrowserUrl};

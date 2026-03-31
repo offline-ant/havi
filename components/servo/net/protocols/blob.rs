@@ -8,11 +8,11 @@ use std::pin::Pin;
 use headers::{HeaderMapExt, Range};
 use http::Method;
 use log::debug;
-use net_traits::blob_url_store::{BlobURLStoreError, parse_blob_url};
-use net_traits::http_status::HttpStatus;
-use net_traits::request::Request;
-use net_traits::response::{Response, ResponseBody};
-use net_traits::{NetworkError, ResourceFetchTiming};
+use crate::net::blob_url_store::{BlobURLStoreError, parse_blob_url};
+use crate::net::http_status::HttpStatus;
+use crate::net::request::Request;
+use crate::net::response::{Response, ResponseBody};
+use crate::net::{NetworkError, ResourceFetchTiming};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::net::fetch::methods::{Data, DoneChannel, FetchContext};

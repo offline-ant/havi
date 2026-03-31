@@ -12,7 +12,7 @@ use std::rc::Rc;
 use dom_struct::dom_struct;
 use hppr_client::Signer;
 use js::jsval::UndefinedValue;
-use net_traits::HpprProtocolResponse;
+use crate::net::HpprProtocolResponse;
 
 use crate::script::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods, HpprRepoOptions};
 use crate::script::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;

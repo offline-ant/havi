@@ -14,11 +14,11 @@ use embedder_traits::{EmbedderMsg, ProtocolHandlerUpdateRegistration, RegisterOr
 use headers::HeaderMap;
 use http::header::{self, HeaderValue};
 use js::rust::MutableHandleValue;
-use net_traits::request::{
+use crate::net::request::{
     CredentialsMode, Destination, RequestBuilder, RequestId, RequestMode,
     is_cors_safelisted_request_content_type,
 };
-use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
+use crate::net::{FetchMetadata, NetworkError, ResourceFetchTiming};
 use regex::Regex;
 use servo_config::pref;
 use servo_url::BrowserUrl;

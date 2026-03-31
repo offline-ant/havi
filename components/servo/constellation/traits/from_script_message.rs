@@ -27,9 +27,9 @@ use crate::fonts::SystemFontServiceProxySender;
 use http::{HeaderMap, Method};
 use ipc_channel::ipc::IpcSender;
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::policy_container::PolicyContainer;
-use net_traits::request::{Destination, InsecureRequestsPolicy, Referrer, RequestBody};
-use net_traits::{ReferrerPolicy, ResourceThreads};
+use crate::net::policy_container::PolicyContainer;
+use crate::net::request::{Destination, InsecureRequestsPolicy, Referrer, RequestBody};
+use crate::net::{ReferrerPolicy, ResourceThreads};
 use crate::paint::CrossProcessPaintApi;
 use profile_traits::mem::MemoryReportResult;
 use profile_traits::{mem, time as profile_time};
@@ -40,7 +40,7 @@ use crate::storage::StorageThreads;
 use crate::storage::api::webstorage_thread::WebStorageType;
 use strum::IntoStaticStr;
 #[cfg(feature = "webgpu")]
-use webgpu_traits::{WebGPU, WebGPUAdapterResponse};
+use crate::webgpu::{WebGPU, WebGPUAdapterResponse};
 
 use super::structured_data::{BroadcastChannelMsg, StructuredSerializedData};
 use super::{

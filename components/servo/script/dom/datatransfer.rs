@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use dom_struct::dom_struct;
 use js::rust::{HandleObject, MutableHandleValue};
-use net_traits::image_cache::Image;
+use crate::net::image_cache::Image;
 use script_bindings::match_domstring_ascii;
 
 use crate::script::dom::bindings::cell::DomRefCell;

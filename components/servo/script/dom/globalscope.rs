@@ -46,17 +46,17 @@ use js::rust::{
     Runtime, get_object_class,
 };
 use js::{JSCLASS_IS_DOMJSCLASS, JSCLASS_IS_GLOBAL};
-use net_traits::blob_url_store::BlobBuf;
-use net_traits::filemanager_thread::{
+use crate::net::blob_url_store::BlobBuf;
+use crate::net::filemanager_thread::{
     FileManagerResult, FileManagerThreadMsg, ReadFileProgress, RelativePos,
 };
-use net_traits::image_cache::ImageCache;
-use net_traits::policy_container::{PolicyContainer, RequestPolicyContainer};
-use net_traits::request::{
+use crate::net::image_cache::ImageCache;
+use crate::net::policy_container::{PolicyContainer, RequestPolicyContainer};
+use crate::net::request::{
     InsecureRequestsPolicy, Origin as RequestOrigin, Referrer, RequestBuilder, RequestClient,
 };
-use net_traits::response::HttpsState;
-use net_traits::{
+use crate::net::response::HttpsState;
+use crate::net::{
     CoreResourceMsg, CoreResourceThread, ReferrerPolicy, ResourceThreads, fetch_async,
 };
 use profile_traits::{ipc as profile_ipc, mem as profile_mem, time as profile_time};
@@ -69,7 +69,7 @@ use strum::VariantArray;
 use crate::timers::{TimerEventRequest, TimerId};
 use uuid::Uuid;
 #[cfg(feature = "webgpu")]
-use webgpu_traits::{DeviceLostReason, WebGPUDevice};
+use crate::webgpu::{DeviceLostReason, WebGPUDevice};
 
 use super::bindings::codegen::Bindings::MessagePortBinding::StructuredSerializeOptions;
 #[cfg(feature = "webgpu")]
@@ -3230,7 +3230,7 @@ impl GlobalScope {
     pub(crate) fn handle_uncaptured_gpu_error(
         &self,
         device: WebGPUDevice,
-        error: webgpu_traits::Error,
+        error: crate::webgpu::Error,
     ) {
         if let Some(gpu_device) = self
             .gpu_devices

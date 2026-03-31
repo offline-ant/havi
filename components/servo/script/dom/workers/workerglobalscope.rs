@@ -22,11 +22,11 @@ use headers::{HeaderMapExt, ReferrerPolicy as ReferrerPolicyHeader};
 use js::realm::CurrentRealm;
 use js::rust::{HandleValue, MutableHandleValue, ParentRuntime};
 use mime::Mime;
-use net_traits::policy_container::PolicyContainer;
-use net_traits::request::{
+use crate::net::policy_container::PolicyContainer;
+use crate::net::request::{
     CredentialsMode, Destination, InsecureRequestsPolicy, ParserMetadata, RequestBuilder, RequestId,
 };
-use net_traits::{FetchMetadata, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming};
+use crate::net::{FetchMetadata, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming};
 use profile_traits::mem::{ProcessReports, perform_memory_report};
 use servo_url::{MutableOrigin, BrowserUrl};
 use crate::timers::TimerScheduler;

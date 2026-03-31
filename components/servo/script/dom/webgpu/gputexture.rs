@@ -5,7 +5,7 @@
 use std::string::String;
 
 use dom_struct::dom_struct;
-use webgpu_traits::{WebGPU, WebGPURequest, WebGPUTexture, WebGPUTextureView};
+use crate::webgpu::{WebGPU, WebGPURequest, WebGPUTexture, WebGPUTextureView};
 use wgpu_core::resource;
 
 use super::gpuconvert::convert_texture_descriptor;
@@ -208,7 +208,7 @@ impl GPUTextureMethods<crate::DomTypeHolder> for GPUTexture {
             })
         } else {
             self.device
-                .dispatch_error(webgpu_traits::Error::Validation(String::from(
+                .dispatch_error(crate::webgpu::Error::Validation(String::from(
                     "arrayLayerCount and mipLevelCount cannot be 0",
                 )));
             None

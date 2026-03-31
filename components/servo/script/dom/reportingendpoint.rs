@@ -8,11 +8,11 @@ use headers::{ContentType, HeaderMapExt};
 use http::HeaderMap;
 use hyper_serde::Serde;
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::request::{
+use crate::net::request::{
     CredentialsMode, Destination, RequestBody, RequestId, RequestMode,
     create_request_body_with_content,
 };
-use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
+use crate::net::{FetchMetadata, NetworkError, ResourceFetchTiming};
 use script_bindings::str::DOMString;
 use serde::Serialize;
 use servo_url::{ImmutableOrigin, BrowserUrl};

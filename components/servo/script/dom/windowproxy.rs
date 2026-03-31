@@ -37,7 +37,7 @@ use js::realm::{AutoRealm, CurrentRealm};
 use js::rust::wrappers::{JS_TransplantObject, NewWindowProxy, SetWindowProxy};
 use js::rust::{Handle, MutableHandle, MutableHandleValue, get_object_class};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
-use net_traits::request::Referrer;
+use crate::net::request::Referrer;
 use script_bindings::reflector::MutDomObject;
 use crate::script::NewPipelineInfo;
 use serde::{Deserialize, Serialize};

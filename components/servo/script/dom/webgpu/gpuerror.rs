@@ -4,7 +4,7 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use webgpu_traits::{Error, ErrorFilter};
+use crate::webgpu::{Error, ErrorFilter};
 
 use crate::script::conversions::Convert;
 use crate::script::dom::bindings::codegen::Bindings::WebGPUBinding::{GPUErrorFilter, GPUErrorMethods};

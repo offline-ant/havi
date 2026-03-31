@@ -8,7 +8,7 @@ use content_security_policy::{Policy, PolicyDisposition, PolicySource};
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
-use net_traits::ReferrerPolicy;
+use crate::net::ReferrerPolicy;
 use crate::paint::viewport_description::ViewportDescription;
 use servo_config::pref;
 use style::str::HTML_SPACE_CHARACTERS;

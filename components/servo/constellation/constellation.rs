@@ -142,12 +142,12 @@ use crate::fonts::SystemFontServiceProxy;
 use ipc_channel::IpcError;
 use ipc_channel::router::ROUTER;
 use keyboard_types::{Key, KeyState, Modifiers, NamedKey};
-use crate::layout::LayoutFactory;
+use crate::layout::LayoutFactoryImpl;
 use log::{debug, error, info, trace, warn};
 
 use crate::net::image_cache::ImageCacheFactoryImpl;
-use net_traits::pub_domains::registered_domain_name;
-use net_traits::{self, AsyncRuntime, ResourceThreads, exit_fetch_thread, start_fetch_thread};
+use crate::net::pub_domains::registered_domain_name;
+use crate::net::{AsyncRuntime, ResourceThreads, exit_fetch_thread, start_fetch_thread};
 use crate::paint::{
     ExternalImageIdRegistry, PaintMessage, PaintProxy, PinchZoomInfos, PipelineExitSource,
     SendableFrameTree,
@@ -172,7 +172,7 @@ use style::global_style_data::StyleThreadPool;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;
 #[cfg(feature = "webgpu")]
-use webgpu_traits::{WebGPU, WebGPURequest};
+use crate::webgpu::{WebGPU, WebGPURequest};
 
 use super::broadcastchannel::BroadcastChannels;
 use super::browsingcontext::{
@@ -302,10 +302,8 @@ pub struct Constellation {
     /// from the background hang monitor.
     background_hang_monitor_receiver: RoutedReceiver<HangMonitorAlert>,
 
-    /// A factory for creating layouts. This allows customizing the kind
-    /// of layout created for a [`Constellation`] and prevents a circular crate
-    /// dependency between script and layout.
-    pub(crate) layout_factory: Arc<dyn LayoutFactory>,
+    /// Shared layout creation state used for all script threads.
+    pub(crate) layout_factory: Arc<LayoutFactoryImpl>,
 
     /// A channel for the embedder (renderer and libhavi) to send messages to the [`Constellation`].
     embedder_to_constellation_receiver: Receiver<EmbedderToConstellationMessage>,
@@ -579,7 +577,7 @@ impl Constellation {
     pub fn start(
         embedder_to_constellation_receiver: Receiver<EmbedderToConstellationMessage>,
         state: InitialConstellationState,
-        layout_factory: Arc<dyn LayoutFactory>,
+        layout_factory: Arc<LayoutFactoryImpl>,
         random_pipeline_closure_probability: Option<f32>,
         random_pipeline_closure_seed: Option<usize>,
         hard_fail: bool,
@@ -2681,7 +2679,7 @@ impl Constellation {
         debug!("Exiting core resource threads.");
         if let Err(e) = self
             .public_resource_threads
-            .send(net_traits::CoreResourceMsg::Exit(core_ipc_sender))
+            .send(crate::net::CoreResourceMsg::Exit(core_ipc_sender))
         {
             warn!("Exit resource thread failed ({})", e);
         }

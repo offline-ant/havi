@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use net_traits::ResourceThreads;
+use crate::net::ResourceThreads;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CacheEntry {

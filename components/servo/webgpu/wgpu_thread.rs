@@ -14,7 +14,7 @@ use log::{info, warn};
 use crate::paint::{CrossProcessPaintApi, ExternalImageHandlerType, ExternalImageIdRegistry};
 use rustc_hash::FxHashMap;
 use servo_config::pref;
-use webgpu_traits::{
+use crate::webgpu::{
     Adapter, ComputePassId, DeviceLostReason, Error, ErrorScope, Mapping, Pipeline, PopError,
     RenderPassId, ShaderCompilationInfo, WebGPU, WebGPUAdapter, WebGPUContextId, WebGPUDevice,
     WebGPUMsg, WebGPUQueue, WebGPURequest, apply_render_command,

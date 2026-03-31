@@ -8,7 +8,7 @@ use base::id::ServiceWorkerRegistrationId;
 use crate::constellation::{ScopeThings, WorkerScriptLoadOrigin};
 use crate::devtools::WorkerId;
 use dom_struct::dom_struct;
-use net_traits::request::Referrer;
+use crate::net::request::Referrer;
 use servo_url::BrowserUrl;
 use uuid::Uuid;
 

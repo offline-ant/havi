@@ -21,7 +21,7 @@ use js::rust::wrappers2::{
     GetRequestedModulesCount, JS_GetModulePrivate, ModuleEvaluate, ModuleLink,
 };
 use js::rust::{HandleValue, IntoHandle};
-use net_traits::request::{Destination, Referrer};
+use crate::net::request::{Destination, Referrer};
 use script_bindings::settings_stack::run_a_callback;
 use servo_url::BrowserUrl;
 

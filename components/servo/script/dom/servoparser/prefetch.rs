@@ -15,12 +15,12 @@ use html5ever::tokenizer::{
 use html5ever::{Attribute, LocalName, local_name};
 use js::jsapi::JSTracer;
 use markup5ever::TokenizerResult;
-use net_traits::policy_container::PolicyContainer;
-use net_traits::request::{
+use crate::net::policy_container::PolicyContainer;
+use crate::net::request::{
     CorsSettings, CredentialsMode, Destination, InsecureRequestsPolicy, ParserMetadata, Referrer,
     RequestClient,
 };
-use net_traits::{CoreResourceMsg, FetchChannels, ReferrerPolicy, ResourceThreads};
+use crate::net::{CoreResourceMsg, FetchChannels, ReferrerPolicy, ResourceThreads};
 use servo_url::{ImmutableOrigin, BrowserUrl};
 
 use crate::script::dom::bindings::reflector::DomGlobal;

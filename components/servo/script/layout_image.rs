@@ -8,9 +8,9 @@
 
 use std::sync::Arc;
 
-use net_traits::image_cache::{ImageCache, PendingImageId};
-use net_traits::request::{Destination, RequestBuilder, RequestId};
-use net_traits::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
+use crate::net::image_cache::{ImageCache, PendingImageId};
+use crate::net::request::{Destination, RequestBuilder, RequestId};
+use crate::net::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
 use servo_url::BrowserUrl;
 
 use crate::script::dom::bindings::refcounted::Trusted;

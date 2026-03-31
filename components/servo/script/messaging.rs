@@ -16,8 +16,8 @@ use crate::constellation::ScriptToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender, select};
 use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
 use embedder_traits::{EmbedderControlId, EmbedderControlResponse, ScriptToEmbedderChan};
-use net_traits::FetchResponseMsg;
-use net_traits::image_cache::ImageCacheResponseMessage;
+use crate::net::FetchResponseMsg;
+use crate::net::image_cache::ImageCacheResponseMessage;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time};
 use rustc_hash::FxHashSet;
@@ -25,7 +25,7 @@ use crate::script::{Painter, ScriptThreadMessage};
 use stylo_atoms::Atom;
 use crate::timers::TimerScheduler;
 #[cfg(feature = "webgpu")]
-use webgpu_traits::WebGPUMsg;
+use crate::webgpu::WebGPUMsg;
 
 use crate::script::dom::abstractworker::WorkerScriptMsg;
 use crate::script::dom::bindings::trace::CustomTraceable;

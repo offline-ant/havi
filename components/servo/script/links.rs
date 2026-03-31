@@ -7,7 +7,7 @@
 use crate::constellation::{LoadData, LoadOrigin, NavigationHistoryBehavior};
 use html5ever::{local_name, ns};
 use malloc_size_of::malloc_size_of_is_0;
-use net_traits::request::Referrer;
+use crate::net::request::Referrer;
 use style::str::HTML_SPACE_CHARACTERS;
 
 use crate::script::dom::bindings::codegen::GenericBindings::AttrBinding::Attr_Binding::AttrMethods;

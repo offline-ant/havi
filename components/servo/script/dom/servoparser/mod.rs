@@ -23,10 +23,10 @@ use html5ever::{Attribute, ExpandedName, LocalName, QualName, local_name, ns};
 use hyper_serde::Serde;
 use markup5ever::TokenizerResult;
 use mime::{self, Mime};
-use net_traits::mime_classifier::{ApacheBugFlag, MediaType, MimeClassifier, NoSniffFlag};
-use net_traits::policy_container::PolicyContainer;
-use net_traits::request::RequestId;
-use net_traits::{
+use crate::net::mime_classifier::{ApacheBugFlag, MediaType, MimeClassifier, NoSniffFlag};
+use crate::net::policy_container::PolicyContainer;
+use crate::net::request::RequestId;
+use crate::net::{
     FetchMetadata, LoadContext, Metadata, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
 use profile_traits::time::{
@@ -1337,7 +1337,7 @@ impl FetchResponseListener for ParserContext {
                     let page = page.replace("${reason}", &reason);
                     let encoded_bytes = general_purpose::STANDARD_NO_PAD.encode(bytes);
                     let page = page.replace("${bytes}", encoded_bytes.as_str());
-                    page.replace("${secret}", &net_traits::PRIVILEGED_SECRET.to_string())
+                    page.replace("${secret}", &crate::net::PRIVILEGED_SECRET.to_string())
                 },
                 NetworkError::BlobURLStoreError(reason) |
                 NetworkError::WebsocketConnectionFailure(reason) |
@@ -1418,7 +1418,7 @@ impl FetchResponseListener for ParserContext {
 
     // This method is called via script_thread::handle_fetch_eof, so we must call
     // submit_resource_timing in this function
-    // Resource listeners are called via net_traits::Action::process, which handles submission for them
+    // Resource listeners are called via crate::net::Action::process, which handles submission for them
     fn process_response_eof(
         mut self,
         cx: &mut js::context::JSContext,

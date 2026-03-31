@@ -23,8 +23,8 @@ use js::realm::{AutoRealm, CurrentRealm};
 use crate::layout::MediaFrame;
 use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
 use crate::net::hppr_media::ResolvedHpprMediaAsset;
-use net_traits::request::{Destination, RequestId};
-use net_traits::{
+use crate::net::request::{Destination, RequestId};
+use crate::net::{
     CoreResourceThread, FetchMetadata, FilteredMetadata, NetworkError, ResourceFetchTiming,
 };
 use pixels::RasterImage;

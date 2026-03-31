@@ -10,7 +10,7 @@ use crate::fonts::FontContext;
 use crate::layout::{
     AnimatingImages, IFrameSizes, LayoutImageDestination, PendingImage, PendingImageState,
 };
-use net_traits::image_cache::{
+use crate::net::image_cache::{
     Image as CachedImage, ImageCache, ImageCacheResult, ImageOrMetadataAvailable, PendingImageId,
 };
 use parking_lot::{Mutex, RwLock};

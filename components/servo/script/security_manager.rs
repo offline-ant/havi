@@ -4,10 +4,10 @@
 
 use content_security_policy as csp;
 use headers::{ContentType, HeaderMap, HeaderMapExt};
-use net_traits::request::{
+use crate::net::request::{
     CredentialsMode, Destination, RequestBody, RequestId, create_request_body_with_content,
 };
-use net_traits::{FetchMetadata, NetworkError, ResourceFetchTiming};
+use crate::net::{FetchMetadata, NetworkError, ResourceFetchTiming};
 use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 

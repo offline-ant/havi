@@ -22,7 +22,7 @@ use js::jsapi::{
 use js::jsval::{JSVal, ObjectValue, UndefinedValue};
 use js::rust::HandleValue;
 use js::rust::wrappers::{Call, Construct1};
-use net_traits::image_cache::ImageCache;
+use crate::net::image_cache::ImageCache;
 use pixels::PixelFormat;
 use crate::script::{DrawAPaintImageResult, PaintWorkletError, Painter};
 use servo_config::pref;

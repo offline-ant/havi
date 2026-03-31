@@ -14,13 +14,13 @@ use embedder_traits::{
 use js::jsapi::Heap;
 use js::jsval::JSVal;
 use js::rust::{HandleObject, MutableHandleValue};
-use net_traits::http_status::HttpStatus;
-use net_traits::image_cache::{
+use crate::net::http_status::HttpStatus;
+use crate::net::image_cache::{
     ImageCache, ImageCacheResponseMessage, ImageCacheResult, ImageLoadListener,
     ImageOrMetadataAvailable, ImageResponse, PendingImageId,
 };
-use net_traits::request::{Destination, RequestBuilder, RequestId};
-use net_traits::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
+use crate::net::request::{Destination, RequestBuilder, RequestId};
+use crate::net::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
 use pixels::RasterImage;
 use rustc_hash::FxHashSet;
 use servo_url::{ImmutableOrigin, BrowserUrl};

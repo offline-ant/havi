@@ -18,8 +18,8 @@ use dom_struct::dom_struct;
 use crate::fonts::FontContext;
 use js::jsapi::{JS_AddInterruptCallback, JSContext};
 use js::jsval::UndefinedValue;
-use net_traits::CustomResponseMediator;
-use net_traits::request::{
+use crate::net::CustomResponseMediator;
+use crate::net::request::{
     CredentialsMode, Destination, InsecureRequestsPolicy, ParserMetadata, Referrer, RequestBuilder,
 };
 use rand::random;

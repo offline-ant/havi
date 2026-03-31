@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 
 use dom_struct::dom_struct;
-use webgpu_traits::{WebGPU, WebGPUBindGroup, WebGPUDevice, WebGPURequest};
+use crate::webgpu::{WebGPU, WebGPUBindGroup, WebGPUDevice, WebGPURequest};
 use wgpu_core::binding_model::BindGroupDescriptor;
 
 use crate::script::conversions::Convert;

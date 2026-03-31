@@ -11,10 +11,10 @@ use std::pin::Pin;
 use headers::Range;
 use http::StatusCode;
 use log::error;
-use net_traits::filemanager_thread::RelativePos;
-use net_traits::request::Request;
-use net_traits::response::Response;
-use net_traits::{DiscardFetch, NetworkError};
+use crate::net::filemanager_thread::RelativePos;
+use crate::net::request::Request;
+use crate::net::response::Response;
+use crate::net::{DiscardFetch, NetworkError};
 use rustc_hash::FxHashMap;
 use servo_url::BrowserUrl;
 

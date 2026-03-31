@@ -18,17 +18,17 @@ use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use log::{debug, trace, warn};
 use malloc_size_of_derive::MallocSizeOf;
 use mime::{self, Mime};
-use net_traits::fetch::headers::{determine_nosniff, extract_mime_type_as_mime};
-use net_traits::filemanager_thread::{FileTokenCheck, RelativePos};
-use net_traits::http_status::HttpStatus;
-use net_traits::policy_container::{PolicyContainer, RequestPolicyContainer};
-use net_traits::request::{
+use crate::net::fetch::headers::{determine_nosniff, extract_mime_type_as_mime};
+use crate::net::filemanager_thread::{FileTokenCheck, RelativePos};
+use crate::net::http_status::HttpStatus;
+use crate::net::policy_container::{PolicyContainer, RequestPolicyContainer};
+use crate::net::request::{
     CredentialsMode, Destination, Initiator,
     InsecureRequestsPolicy, Origin, ParserMetadata, RedirectMode, Referrer, Request, RequestId,
     RequestMode, ResponseTainting, is_cors_safelisted_method, is_cors_safelisted_request_header,
 };
-use net_traits::response::{Response, ResponseBody, ResponseType, TerminationReason};
-use net_traits::{
+use crate::net::response::{Response, ResponseBody, ResponseType, TerminationReason};
+use crate::net::{
     FetchTaskTarget, NetworkError, ReferrerPolicy, ResourceAttribute, ResourceFetchTiming,
     ResourceTimeValue, ResourceTimingType, WebSocketDomAction, WebSocketNetworkEvent,
     set_default_accept_language,

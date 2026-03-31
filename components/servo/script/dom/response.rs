@@ -10,7 +10,7 @@ use dom_struct::dom_struct;
 use http::header::HeaderMap as HyperHeaders;
 use hyper_serde::Serde;
 use js::rust::{HandleObject, HandleValue};
-use net_traits::http_status::HttpStatus;
+use crate::net::http_status::HttpStatus;
 use script_bindings::cformat;
 use servo_url::BrowserUrl;
 

@@ -17,7 +17,7 @@ use hppr_client::ViaSpec;
 use hppr_client::tokio::connect_via;
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
-use net_traits::{HpprProtocolError, StreamPubDomAction, StreamPubNetworkEvent, StreamPubParams};
+use crate::net::{HpprProtocolError, StreamPubDomAction, StreamPubNetworkEvent, StreamPubParams};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::net::hppr_pool::HpprAsyncState;

@@ -11,12 +11,12 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
 use crate::net::image_cache::rasterize_svg_bytes_sync;
-use net_traits::image_cache::{
+use crate::net::image_cache::{
     Image, ImageCache, ImageCacheResponseCallback, ImageCacheResult, ImageLoadListener,
     ImageOrMetadataAvailable, ImageResponse, PendingImageId,
 };
-use net_traits::request::{Destination, Initiator, RequestBuilder, RequestId};
-use net_traits::{
+use crate::net::request::{Destination, Initiator, RequestBuilder, RequestId};
+use crate::net::{
     FetchMetadata, FetchResponseMsg, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
 use pixels::PixelFormat;

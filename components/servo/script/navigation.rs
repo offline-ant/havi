@@ -15,13 +15,13 @@ use crossbeam_channel::Sender;
 use embedder_traits::user_contents::UserContentManagerId;
 use embedder_traits::{Theme, ViewportDetails};
 use http::header;
-use net_traits::policy_container::RequestPolicyContainer;
-use net_traits::request::{
+use crate::net::policy_container::RequestPolicyContainer;
+use crate::net::request::{
     CredentialsMode, InsecureRequestsPolicy, Origin, PreloadedResources, RedirectMode,
     RequestBuilder, RequestClient, RequestMode,
 };
-use net_traits::response::ResponseInit;
-use net_traits::{
+use crate::net::response::ResponseInit;
+use crate::net::{
     BoxedFetchCallback, CoreResourceThread, DOCUMENT_ACCEPT_HEADER_VALUE, FetchResponseMsg,
     Metadata, fetch_async, set_default_accept_language,
 };

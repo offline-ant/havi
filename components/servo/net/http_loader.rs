@@ -41,22 +41,22 @@ use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use log::{debug, error, info, log_enabled, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
-use net_traits::fetch::headers::get_value_from_header_list;
-use net_traits::http_status::HttpStatus;
-use net_traits::policy_container::RequestPolicyContainer;
-use net_traits::pub_domains::{is_same_site, reg_suffix};
-use net_traits::request::Origin::Origin as SpecificOrigin;
-use net_traits::request::{
+use crate::net::fetch::headers::get_value_from_header_list;
+use crate::net::http_status::HttpStatus;
+use crate::net::policy_container::RequestPolicyContainer;
+use crate::net::pub_domains::{is_same_site, reg_suffix};
+use crate::net::request::Origin::Origin as SpecificOrigin;
+use crate::net::request::{
     BodyChunkRequest, BodyChunkResponse, CacheMode, CredentialsMode, Destination, Initiator,
     Origin, RedirectMode, Referrer, Request, RequestBuilder, RequestMode, ResponseTainting,
     ServiceWorkersMode, TraversableForUserPrompts, get_cors_unsafe_header_names,
     is_cors_non_wildcard_request_header_name, is_cors_safelisted_method,
     is_cors_safelisted_request_header,
 };
-use net_traits::response::{
+use crate::net::response::{
     CacheState, HttpsState, RedirectTaint, Response, ResponseBody, ResponseType,
 };
-use net_traits::{
+use crate::net::{
     CookieSource, DOCUMENT_ACCEPT_HEADER_VALUE, DebugVec, FetchMetadata, NetworkError,
     RedirectEndValue, RedirectStartValue, ReferrerPolicy, ResourceAttribute, ResourceFetchTiming,
     ResourceTimeValue,

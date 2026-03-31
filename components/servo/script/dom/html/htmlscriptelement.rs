@@ -15,11 +15,11 @@ use encoding_rs::Encoding;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::{HandleObject, Stencil};
-use net_traits::http_status::HttpStatus;
-use net_traits::request::{
+use crate::net::http_status::HttpStatus;
+use crate::net::request::{
     CorsSettings, CredentialsMode, Destination, ParserMetadata, RequestBuilder, RequestId,
 };
-use net_traits::{FetchMetadata, Metadata, NetworkError, ResourceFetchTiming};
+use crate::net::{FetchMetadata, Metadata, NetworkError, ResourceFetchTiming};
 use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 use style::str::{HTML_SPACE_CHARACTERS, StaticStringVec};

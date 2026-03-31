@@ -17,7 +17,7 @@ use crate::paint::{
 };
 use pixels::{SharedSnapshot, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use rustc_hash::FxHashMap;
-use webgpu_traits::{
+use crate::webgpu::{
     ContextConfiguration, PRESENTATION_BUFFER_COUNT, PendingTexture, WebGPUContextId, WebGPUMsg,
 };
 use webrender_api::units::DeviceIntSize;

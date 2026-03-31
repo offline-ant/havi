@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use base64::Engine;
 use generic_array::ArrayLength;
-use net_traits::response::{Response, ResponseBody, ResponseType};
+use crate::net::response::{Response, ResponseBody, ResponseType};
 use parking_lot::MutexGuard;
 use regex::Regex;
 use sha2::{Digest, Sha256, Sha384, Sha512};

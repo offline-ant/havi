@@ -4,7 +4,7 @@
 
 use crate::constellation::{LoadData, LoadOrigin, NavigationHistoryBehavior};
 use dom_struct::dom_struct;
-use net_traits::request::Referrer;
+use crate::net::request::Referrer;
 use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::script::dom::bindings::codegen::GenericBindings::LocationBinding::LocationMethods;

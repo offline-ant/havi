@@ -4,8 +4,8 @@
 
 use bitflags::bitflags;
 use log::warn;
-use net_traits::pub_domains::registered_domain_name;
-use net_traits::{ResourceThreads, SiteDescriptor};
+use crate::net::pub_domains::registered_domain_name;
+use crate::net::{ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
 use crate::servo_url::BrowserUrl;
 use crate::storage::StorageThreads;

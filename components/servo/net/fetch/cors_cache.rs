@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use http::Method;
 use http::header::HeaderName;
-use net_traits::request::{CredentialsMode, Origin, Request};
+use crate::net::request::{CredentialsMode, Origin, Request};
 use servo_url::BrowserUrl;
 
 /// Union type for CORS cache entries

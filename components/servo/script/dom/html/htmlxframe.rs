@@ -20,7 +20,7 @@ use embedder_traits::{
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use net_traits::request::Destination;
+use crate::net::request::Destination;
 use profile_traits::ipc as ProfiledIpc;
 use crate::script::{NewPipelineInfo, UpdatePipelineIdReason};
 use servo_url::BrowserUrl;

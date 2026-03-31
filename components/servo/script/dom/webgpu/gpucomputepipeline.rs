@@ -4,7 +4,7 @@
 
 use base::generic_channel::GenericCallback;
 use dom_struct::dom_struct;
-use webgpu_traits::{
+use crate::webgpu::{
     WebGPU, WebGPUBindGroupLayout, WebGPUComputePipeline, WebGPUComputePipelineResponse,
     WebGPURequest,
 };

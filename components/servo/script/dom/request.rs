@@ -11,9 +11,9 @@ use http::Method as HttpMethod;
 use http::header::{HeaderName, HeaderValue};
 use http::method::InvalidMethod;
 use js::rust::HandleObject;
-use net_traits::ReferrerPolicy as MsgReferrerPolicy;
-use net_traits::fetch::headers::is_forbidden_method;
-use net_traits::request::{
+use crate::net::ReferrerPolicy as MsgReferrerPolicy;
+use crate::net::fetch::headers::is_forbidden_method;
+use crate::net::request::{
     CacheMode as NetTraitsRequestCache, CredentialsMode as NetTraitsRequestCredentials,
     Destination as NetTraitsRequestDestination, Origin, RedirectMode as NetTraitsRequestRedirect,
     Referrer as NetTraitsRequestReferrer, Request as NetTraitsRequest, RequestBuilder,
@@ -419,7 +419,7 @@ impl Request {
         }
 
         // Step 33.5 depending on how we got here
-        // Copy the headers list onto the headers of net_traits::Request
+        // Copy the headers list onto the headers of crate::net::Request
         r.request.borrow_mut().headers = r.Headers(can_gc).get_headers_list();
 
         // Step 34. Let inputBody be input’s request’s body if input is a Request object; otherwise null.

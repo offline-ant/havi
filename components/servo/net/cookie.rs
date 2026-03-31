@@ -11,8 +11,8 @@ use std::time::SystemTime;
 
 use cookie::Cookie;
 use log::{Level, debug, log_enabled};
-use net_traits::CookieSource;
-use net_traits::pub_domains::is_pub_domain;
+use crate::net::CookieSource;
+use crate::net::pub_domains::is_pub_domain;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take, take_while_m_n};
 use nom::combinator::{opt, recognize};

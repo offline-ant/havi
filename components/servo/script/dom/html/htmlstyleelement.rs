@@ -9,7 +9,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use net_traits::ReferrerPolicy;
+use crate::net::ReferrerPolicy;
 use script_bindings::root::Dom;
 use servo_arc::Arc;
 use style::media_queries::MediaList as StyleMediaList;

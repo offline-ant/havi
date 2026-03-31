@@ -15,7 +15,7 @@ use dom_struct::dom_struct;
 use stylo_atoms::Atom;
 use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
-use net_traits::{
+use crate::net::{
     CoreResourceMsg, HpprProtocolError, StreamSubDomAction, StreamSubNetworkEvent,
 };
 use hppr_client::parse_via;

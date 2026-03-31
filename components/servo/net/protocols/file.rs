@@ -9,9 +9,9 @@ use std::pin::Pin;
 
 use headers::{ContentType, HeaderMapExt, Range};
 use http::Method;
-use net_traits::request::Request;
-use net_traits::response::{Response, ResponseBody};
-use net_traits::{NetworkError, ResourceFetchTiming};
+use crate::net::request::Request;
+use crate::net::response::{Response, ResponseBody};
+use crate::net::{NetworkError, ResourceFetchTiming};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::net::fetch::methods::{DoneChannel, FetchContext};

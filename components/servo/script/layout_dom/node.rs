@@ -17,7 +17,7 @@ use crate::layout::{
     GenericLayoutData, HTMLCanvasData, HTMLMediaData, LayoutElementType, LayoutNodeType,
     SVGElementData, StyleData, TrustedNodeAddress,
 };
-use net_traits::image_cache::Image;
+use crate::net::image_cache::Image;
 use ::pixels::ImageMetadata;
 use selectors::Element as _;
 use servo_arc::Arc;

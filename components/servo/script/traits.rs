@@ -35,7 +35,7 @@ use euclid::{Scale, Size2D};
 use crate::fonts::SystemFontServiceProxySender;
 use keyboard_types::Modifiers;
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::ResourceThreads;
+use crate::net::ResourceThreads;
 use crate::paint::{CrossProcessPaintApi, PinchZoomInfos};
 use pixels::PixelFormat;
 use profile_traits::mem;
@@ -49,7 +49,7 @@ use strum::IntoStaticStr;
 use style_traits::{CSSPixel, SpeculativePainter};
 use stylo_atoms::Atom;
 #[cfg(feature = "webgpu")]
-use webgpu_traits::WebGPUMsg;
+use crate::webgpu::WebGPUMsg;
 use webrender_api::ImageKey;
 use webrender_api::units::DevicePixel;
 

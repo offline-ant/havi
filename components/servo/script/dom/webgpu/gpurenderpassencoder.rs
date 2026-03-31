@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use webgpu_traits::{RenderCommand, WebGPU, WebGPURenderPass, WebGPURequest};
+use crate::webgpu::{RenderCommand, WebGPU, WebGPURenderPass, WebGPURequest};
 
 use crate::script::conversions::TryConvert;
 use crate::script::dom::bindings::cell::DomRefCell;

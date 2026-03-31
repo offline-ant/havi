@@ -13,7 +13,7 @@ use base::id::{BrowsingContextId, PipelineId};
 use fonts::TextByteRange;
 use html5ever::{LocalName, Namespace};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::image_cache::Image;
+use crate::net::image_cache::Image;
 use pixels::ImageMetadata;
 use servo_arc::Arc;
 use servo_url::BrowserUrl;

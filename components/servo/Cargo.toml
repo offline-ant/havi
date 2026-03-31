@@ -28,7 +28,7 @@ jitspew = ["js/jitspew"]
 js_backtrace = []
 js_jit = ["js/jit"]
 native-bluetooth = ["bluetooth/native-bluetooth"]
-no-wgl = ["paint_api/no-wgl"]
+no-wgl = []
 openxr-api = []
 profilemozjs = ["js/profilemozjs"]
 refcell_backtrace = []
@@ -138,7 +138,6 @@ ml-dsa = { workspace = true }
 nom = { workspace = true }
 ml-kem = { workspace = true }
 nom_rfc8288 = { package = "nom-rfc8288", version = "0.4" }
-net_traits = { workspace = true }
 num-bigint-dig = { workspace = true }
 num-traits = { workspace = true }
 num_cpus = { workspace = true }
@@ -147,7 +146,6 @@ p384 = { workspace = true }
 ocb3 = { workspace = true }
 p521 = { workspace = true }
 argon2 = { workspace = true }
-paint_api = { workspace = true }
 parking_lot = { workspace = true }
 pixels = { path = "../pixels" }
 peniko = { workspace = true }
@@ -194,6 +192,7 @@ stylo_malloc_size_of = { workspace = true }
 stylo_static_prefs = { workspace = true }
 stylo_traits = { workspace = true }
 strum = { workspace = true }
+sys-locale = "0.3"
 tendril = { workspace = true }
 svgtypes = { workspace = true }
 swapper = "0.1"
@@ -213,11 +212,10 @@ url = { workspace = true }
 urlpattern = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 vello_cpu = { workspace = true }
-webgpu_traits = { workspace = true }
 webdriver = { workspace = true }
 webrender_api = { workspace = true }
-wgpu-core = { workspace = true }
-wgpu-types = { workspace = true }
+wgpu-core = { workspace = true, features = ["serde", "wgsl"] }
+wgpu-types = { workspace = true, features = ["serde"] }
 webxr-api = { workspace = true }
 x25519-dalek = { workspace = true }
 xml5ever = { workspace = true }

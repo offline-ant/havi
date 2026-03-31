@@ -6,8 +6,8 @@
 //!
 //! <https://html.spec.whatwg.org/multipage/#the-end>
 
-use net_traits::request::RequestBuilder;
-use net_traits::{BoxedFetchCallback, ResourceThreads, fetch_async};
+use crate::net::request::RequestBuilder;
+use crate::net::{BoxedFetchCallback, ResourceThreads, fetch_async};
 use script_bindings::script_runtime::temp_cx;
 use servo_url::BrowserUrl;
 

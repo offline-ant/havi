@@ -11,7 +11,7 @@ use dom_struct::dom_struct;
 use pixels::Snapshot;
 use script_bindings::cformat;
 use script_bindings::codegen::GenericBindings::WebGPUBinding::GPUTextureFormat;
-use webgpu_traits::{
+use crate::webgpu::{
     ContextConfiguration, PRESENTATION_BUFFER_COUNT, PendingTexture, WebGPU, WebGPUContextId,
     WebGPURequest,
 };

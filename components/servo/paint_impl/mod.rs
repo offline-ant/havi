@@ -7,7 +7,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-pub use paint_api::*;
+pub mod api;
+pub use api::*;
 
 use base::generic_channel::RoutedReceiver;
 use crate::constellation::EmbedderToConstellationMessage;
@@ -23,10 +24,13 @@ pub use self::paint::Paint;
 #[macro_use]
 mod tracing;
 
+pub mod largest_contentful_paint_candidate;
 mod paint;
 mod screenshot;
+pub mod scroll_tree;
 pub mod src_bridge;
 mod touch;
+pub mod viewport_description;
 
 /// Data used to initialize the `Paint` subsystem.
 pub struct InitialPaintState {

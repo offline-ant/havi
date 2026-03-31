@@ -5,8 +5,8 @@
 use std::sync::{Arc, Mutex};
 
 use content_security_policy::Violation;
-use net_traits::request::RequestId;
-use net_traits::{
+use crate::net::request::RequestId;
+use crate::net::{
     BoxedFetchCallback, FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming,
     ResourceTimingType,
 };

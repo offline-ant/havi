@@ -21,7 +21,7 @@ use js::rust::wrappers::{JS_GetPendingException, JS_ParseJSON};
 use js::typedarray::{ArrayBufferU8, Uint8};
 use mime::{self, Mime};
 use mime_multipart_hyper1::{Node, read_multipart_body};
-use net_traits::request::{
+use crate::net::request::{
     BodyChunkRequest, BodyChunkResponse, BodySource as NetBodySource, RequestBody,
 };
 use url::form_urlencoded;

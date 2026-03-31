@@ -7,10 +7,10 @@ use std::pin::Pin;
 
 use data_url::DataUrl;
 use headers::HeaderValue;
-use net_traits::http_status::HttpStatus;
-use net_traits::request::Request;
-use net_traits::response::{Response, ResponseBody};
-use net_traits::{NetworkError, ResourceFetchTiming};
+use crate::net::http_status::HttpStatus;
+use crate::net::request::Request;
+use crate::net::response::{Response, ResponseBody};
+use crate::net::{NetworkError, ResourceFetchTiming};
 
 use crate::net::fetch::methods::{DoneChannel, FetchContext};
 use super::ProtocolHandler;

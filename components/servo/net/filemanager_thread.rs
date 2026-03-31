@@ -18,13 +18,14 @@ use http::header::{self, HeaderValue};
 use ipc_channel::ipc::IpcSender;
 use log::warn;
 use mime::{self, Mime};
-use net_traits::blob_url_store::{BlobBuf, BlobURLStoreError};
-use net_traits::filemanager_thread::{
+pub use crate::net::filemanager_types::{
     FileManagerResult, FileManagerThreadError, FileManagerThreadMsg, FileTokenCheck,
     ReadFileProgress, RelativePos,
 };
-use net_traits::http_percent_encode;
-use net_traits::response::{Response, ResponseBody};
+
+use crate::net::blob_url_store::{BlobBuf, BlobURLStoreError};
+use crate::net::http_percent_encode;
+use crate::net::response::{Response, ResponseBody};
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::{FxHashMap, FxHashSet};
 use servo_arc::Arc as ServoArc;
@@ -599,7 +600,7 @@ impl FileManagerStore {
         file_path: &Path,
         origin: ImmutableOrigin,
     ) -> Result<SelectedFile, FileManagerThreadError> {
-        use net_traits::filemanager_thread::FileManagerThreadError::FileSystemError;
+        use crate::net::filemanager_thread::FileManagerThreadError::FileSystemError;
 
         let file = File::open(file_path).map_err(|e| FileSystemError(e.to_string()))?;
         let metadata = file

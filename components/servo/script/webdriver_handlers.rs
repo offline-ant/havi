@@ -27,8 +27,8 @@ use js::jsval::UndefinedValue;
 use js::realm::CurrentRealm;
 use js::rust::wrappers::{JS_CallFunctionName, JS_GetProperty, JS_HasOwnProperty, JS_TypeOfValue};
 use js::rust::{Handle, HandleObject, HandleValue, IdVector, ToString};
-use net_traits::CookieSource::{HTTP, NonHTTP};
-use net_traits::CoreResourceMsg::{
+use crate::net::CookieSource::{HTTP, NonHTTP};
+use crate::net::CoreResourceMsg::{
     DeleteCookie, DeleteCookies, GetCookiesDataForUrl, SetCookieForUrl,
 };
 use script_bindings::codegen::GenericBindings::ShadowRootBinding::ShadowRootMethods;

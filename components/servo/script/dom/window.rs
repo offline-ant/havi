@@ -27,7 +27,6 @@ use crate::constellation::{
     ScriptToConstellationChan, ScriptToConstellationMessage, StructuredSerializedData,
     WindowSizeType,
 };
-use content_security_policy::Violation;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use crossbeam_channel::{Sender, unbounded};
 use cssparser::SourceLocation;
@@ -42,7 +41,7 @@ use embedder_traits::{
 };
 use euclid::default::Rect as UntypedRect;
 use euclid::{Point2D, Rect, Scale, Size2D, Vector2D};
-use crate::fonts::{CspViolationHandler, FontContext, NetworkTimingHandler, WebFontDocumentContext};
+use crate::fonts::{FontContext, WebFontDocumentContext, WebFontLoader};
 use js::context::JSContext;
 use js::glue::DumpJSStack;
 use js::jsapi::{
@@ -65,12 +64,16 @@ use crate::layout::{
 };
 use malloc_size_of::MallocSizeOf;
 
-use net_traits::image_cache::{
+use crate::net::image_cache::{
     ImageCache, ImageCacheResponseCallback, ImageCacheResponseMessage, ImageLoadListener,
     ImageResponse, PendingImageId, PendingImageResponse,
 };
-use net_traits::request::Referrer;
-use net_traits::{ResourceFetchTiming, ResourceThreads};
+use crate::net::request::{
+    CredentialsMode, Destination, InsecureRequestsPolicy, Referrer, RequestBuilder, RequestClient,
+    RequestMode, ServiceWorkersMode,
+};
+use crate::net::policy_container::PolicyContainer;
+use crate::net::{FetchResponseMsg, ResourceThreads};
 use num_traits::ToPrimitive;
 use crate::paint::{CrossProcessPaintApi, PinchZoomInfos};
 use profile_traits::generic_channel as ProfiledGenericChannel;
@@ -899,24 +902,18 @@ impl Window {
     pub(crate) fn web_font_context(&self) -> WebFontDocumentContext {
         let global = self.as_global_scope();
         WebFontDocumentContext {
-            policy_container: global.policy_container(),
-            request_client: global.request_client(),
-            document_url: global.api_base_url(),
-            has_trustworthy_ancestor_origin: global.has_trustworthy_ancestor_origin(),
-            insecure_requests_policy: global.insecure_requests_policy(),
-            csp_handler: Box::new(FontCspHandler {
+            loader: Arc::new(FontWebFontLoader {
                 global: Trusted::new(global),
                 task_source: global
                     .task_manager()
                     .dom_manipulation_task_source()
                     .to_sendable(),
-            }),
-            network_timing_handler: Box::new(FontNetworkTimingHandler {
-                global: Trusted::new(global),
-                task_source: global
-                    .task_manager()
-                    .dom_manipulation_task_source()
-                    .to_sendable(),
+                resource_threads: global.resource_threads().clone(),
+                policy_container: global.policy_container(),
+                request_client: global.request_client(),
+                document_url: global.api_base_url(),
+                has_trustworthy_ancestor_origin: global.has_trustworthy_ancestor_origin(),
+                insecure_requests_policy: global.insecure_requests_policy(),
             }),
         }
     }
@@ -930,54 +927,87 @@ impl Window {
 }
 
 #[derive(Debug)]
-struct FontCspHandler {
+struct FontWebFontLoader {
     global: Trusted<GlobalScope>,
     task_source: SendableTaskSource,
+    resource_threads: ResourceThreads,
+    policy_container: PolicyContainer,
+    request_client: RequestClient,
+    document_url: BrowserUrl,
+    has_trustworthy_ancestor_origin: bool,
+    insecure_requests_policy: InsecureRequestsPolicy,
 }
 
-impl CspViolationHandler for FontCspHandler {
-    fn process_violations(&self, violations: Vec<Violation>) {
+impl WebFontLoader for FontWebFontLoader {
+    fn load(
+        &self,
+        webview_id: Option<WebViewId>,
+        url: BrowserUrl,
+        callback: crate::fonts::WebFontLoadCallback,
+    ) {
+        let request = RequestBuilder::new(
+            webview_id,
+            url.clone(),
+            Referrer::ReferrerUrl(self.document_url.clone()),
+        )
+        .destination(Destination::Font)
+        .mode(RequestMode::CorsMode)
+        .credentials_mode(CredentialsMode::CredentialsSameOrigin)
+        .service_workers_mode(ServiceWorkersMode::All)
+        .policy_container(self.policy_container.clone())
+        .client(self.request_client.clone())
+        .insecure_requests_policy(self.insecure_requests_policy)
+        .has_trustworthy_ancestor_origin(self.has_trustworthy_ancestor_origin);
+
         let global = self.global.clone();
-        self.task_source.queue(task!(csp_violation: move || {
-            global.root().report_csp_violations(violations, None, None);
-        }));
-    }
-
-    fn clone(&self) -> Box<dyn CspViolationHandler> {
-        Box::new(Self {
-            global: self.global.clone(),
-            task_source: self.task_source.clone(),
-        })
-    }
-}
-
-#[derive(Debug)]
-struct FontNetworkTimingHandler {
-    global: Trusted<GlobalScope>,
-    task_source: SendableTaskSource,
-}
-
-impl NetworkTimingHandler for FontNetworkTimingHandler {
-    fn submit_timing(&self, url: BrowserUrl, response: ResourceFetchTiming) {
-        let global = self.global.clone();
-        self.task_source.queue(task!(network_timing: move || {
-            submit_timing(
-                &FontFetchListener {
-                    url,
-                    global
+        let task_source = self.task_source.clone();
+        let mut response_valid = false;
+        let mut response_data = Vec::new();
+        let mut callback = Some(callback);
+        crate::net::fetch_async(
+            &self.resource_threads.core_thread,
+            request,
+            None,
+            Box::new(move |response_message| match response_message {
+                FetchResponseMsg::ProcessRequestBody(..) | FetchResponseMsg::ProcessRequestEOF(..) => {},
+                FetchResponseMsg::ProcessCspViolations(_, violations) => {
+                    let global = global.clone();
+                    task_source.queue(task!(csp_violation: move || {
+                        global.root().report_csp_violations(violations, None, None);
+                    }));
                 },
-                &Ok(()),
-                &response,
-                CanGc::note(),
-            );
-        }));
-    }
-
-    fn clone(&self) -> Box<dyn NetworkTimingHandler> {
-        Box::new(Self {
-            global: self.global.clone(),
-            task_source: self.task_source.clone(),
-        })
+                FetchResponseMsg::ProcessResponse(_, meta_result) => {
+                    response_valid = meta_result.is_ok();
+                },
+                FetchResponseMsg::ProcessResponseChunk(_, new_bytes) => {
+                    if response_valid {
+                        response_data.extend(new_bytes.0);
+                    }
+                },
+                FetchResponseMsg::ProcessResponseEOF(_, response, timing) => {
+                    if response.is_err() || !response_valid {
+                        callback.take().expect("font callback already used")(Err(()));
+                        return;
+                    }
+                    let timing_global = global.clone();
+                    let timing_url = url.clone();
+                    task_source.queue(task!(network_timing: move || {
+                        submit_timing(
+                            &FontFetchListener {
+                                url: timing_url,
+                                global: timing_global,
+                            },
+                            &Ok(()),
+                            &timing,
+                            CanGc::note(),
+                        );
+                    }));
+                    callback
+                        .take()
+                        .expect("font callback already used")(Ok(std::mem::take(&mut response_data)));
+                },
+            }),
+        );
     }
 }
 

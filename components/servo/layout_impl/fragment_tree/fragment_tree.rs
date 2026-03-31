@@ -801,7 +801,7 @@ fn resolve_background_images_for_base(
                     continue;
                 };
                 match cached {
-                    net_traits::image_cache::Image::Raster(raster_image) => {
+                    crate::net::image_cache::Image::Raster(raster_image) => {
                         let (width, height, byte_range, data) = match raster_image.frames.first() {
                             Some(frame) => (
                                 frame.width,
@@ -830,7 +830,7 @@ fn resolve_background_images_for_base(
                             svg_generation: None,
                         }));
                     }
-                    net_traits::image_cache::Image::Vector(vector_image) => {
+                    crate::net::image_cache::Image::Vector(vector_image) => {
                         let Some(svg_bytes) = image_resolver.vector_image_bytes(vector_image.id) else {
                             images.push(None);
                             continue;

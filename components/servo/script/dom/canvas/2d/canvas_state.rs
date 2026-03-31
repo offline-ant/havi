@@ -25,8 +25,8 @@ use crate::fonts::{
     LAST_RESORT_GLYPH_ADVANCE, ShapingFlags, ShapingOptions,
 };
 use js::context::JSContext;
-use net_traits::image_cache::{ImageCache, ImageResponse};
-use net_traits::request::CorsSettings;
+use crate::net::image_cache::{ImageCache, ImageResponse};
+use crate::net::request::CorsSettings;
 use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use servo_arc::Arc as ServoArc;
 use servo_url::{ImmutableOrigin, BrowserUrl};

@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 
 use dom_struct::dom_struct;
-use webgpu_traits::{WebGPU, WebGPURenderBundle, WebGPURequest};
+use crate::webgpu::{WebGPU, WebGPURenderBundle, WebGPURequest};
 use wgpu_core::command::{
     RenderBundleEncoder, RenderBundleEncoderDescriptor, bundle_ffi as wgpu_bundle,
 };

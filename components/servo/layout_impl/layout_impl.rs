@@ -24,14 +24,14 @@ use crate::fonts::StylesheetWebFontLoadFinishedCallback;
 use crate::layout::wrapper_traits::LayoutNode;
 use crate::layout::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig,
-    LayoutFactory, OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
+    OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
     ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
     RegisterPropertyError, ScrollContainerQueryFlags, ScrollContainerResponse, TrustedNodeAddress,
     with_layout_state,
 };
 use log::{debug, error};
 use malloc_size_of::{MallocConditionalSizeOf, MallocSizeOf, MallocSizeOfOps};
-use net_traits::image_cache::ImageCache;
+use crate::net::image_cache::ImageCache;
 
 use parking_lot::{Mutex, RwLock};
 use profile_traits::mem::{Report, ReportKind};
@@ -227,8 +227,8 @@ pub struct LayoutThread {
 
 pub struct LayoutFactoryImpl();
 
-impl LayoutFactory for LayoutFactoryImpl {
-    fn create(&self, config: LayoutConfig) -> Box<dyn Layout> {
+impl LayoutFactoryImpl {
+    pub fn create(&self, config: LayoutConfig) -> Box<dyn Layout> {
         Box::new(LayoutThread::new(config))
     }
 }

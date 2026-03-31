@@ -13,6 +13,7 @@ mod font_store;
 mod font_template;
 mod glyph;
 mod system_font_service_proxy;
+mod web_font_loader;
 #[expect(unsafe_code)]
 pub mod platform; // Public because integration tests need this
 mod shapers;
@@ -34,10 +35,7 @@ pub use font::{
     FontBaseline, FontGroup, FontMetrics, FontRef, LAST_RESORT_GLYPH_ADVANCE, ShapingFlags,
     ShapingOptions,
 };
-pub use font_context::{
-    CspViolationHandler, FontContext, FontContextWebFontMethods, NetworkTimingHandler,
-    WebFontDocumentContext,
-};
+pub use font_context::{FontContext, FontContextWebFontMethods};
 pub use font_descriptor::*;
 pub use font_identifier::*;
 pub use font_render_api::{FontRenderApi, FontRenderBackend};
@@ -50,6 +48,7 @@ pub use platform::font_list::fallback_font_families;
 pub(crate) use shapers::*;
 use style::values::computed::XLang;
 pub use system_font_service::SystemFontService;
+pub use web_font_loader::{WebFontDocumentContext, WebFontLoadCallback, WebFontLoader};
 use unicode_properties::{EmojiStatus, UnicodeEmoji, emoji};
 
 #[derive(

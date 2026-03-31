@@ -17,7 +17,7 @@ use embedder_traits::resources::{self, Resource};
 use js::context::JSContext;
 use js::jsval::UndefinedValue;
 use js::rust::wrappers2::JS_DefineDebuggerObject;
-use net_traits::ResourceThreads;
+use crate::net::ResourceThreads;
 use profile_traits::{mem, time};
 use script_bindings::codegen::GenericBindings::DebuggerEvalEventBinding::EvalResultValue;
 use script_bindings::codegen::GenericBindings::DebuggerGetPossibleBreakpointsEventBinding::RecommendedBreakpointLocation;

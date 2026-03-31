@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use futures::Future;
-use net_traits::AsyncRuntime;
+use crate::net::AsyncRuntime;
 use tokio::runtime::{Builder, Handle, Runtime};
 
 /// The actual runtime,

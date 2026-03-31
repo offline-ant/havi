@@ -15,7 +15,7 @@ use js::context::JSContext;
 use js::jsapi::{Heap, JSObject};
 use js::jsval::UndefinedValue;
 use js::rust::{CustomAutoRooter, CustomAutoRooterGuard, HandleObject, HandleValue};
-use net_traits::request::Referrer;
+use crate::net::request::Referrer;
 use uuid::Uuid;
 
 use crate::script::dom::abstractworker::{MessageData, SimpleWorkerErrorHandler, WorkerScriptMsg};
