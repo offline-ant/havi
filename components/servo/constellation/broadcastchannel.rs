@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use base::id::BroadcastChannelRouterId;
-use constellation_traits::BroadcastChannelMsg;
+use crate::constellation::BroadcastChannelMsg;
 use ipc_channel::ipc::IpcSender;
 use log::warn;
 use rustc_hash::FxHashMap;

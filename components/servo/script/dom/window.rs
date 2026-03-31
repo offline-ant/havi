@@ -22,7 +22,7 @@ use base64::Engine;
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
 
-use constellation_traits::{
+use crate::constellation::{
     LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
     ScriptToConstellationChan, ScriptToConstellationMessage, StructuredSerializedData,
     WindowSizeType,
@@ -55,7 +55,7 @@ use js::rust::{
     CustomAutoRooter, CustomAutoRooterGuard, HandleObject, HandleValue, MutableHandleObject,
     MutableHandleValue,
 };
-use layout_api::{
+use crate::layout::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, ElementsFromPointFlags,
     ElementsFromPointResult, FragmentType, Layout, LayoutImageDestination, PendingImage,
     PendingImageState, PhysicalSides, QueryMsg, ReflowGoal, SVGBoundingBoxOptionsData,
@@ -82,7 +82,7 @@ use script_bindings::conversions::SafeToJSValConvertible;
 use script_bindings::cformat;
 use script_bindings::interfaces::WindowHelpers;
 use script_bindings::root::Root;
-use script_traits::{ConstellationInputEvent, ScriptThreadMessage};
+use crate::script::{ConstellationInputEvent, ScriptThreadMessage};
 use selectors::attr::CaseSensitivity;
 use servo_arc::Arc as ServoArc;
 use servo_config::pref;
@@ -2786,7 +2786,7 @@ impl Window {
                     }
                 }
 
-                Some(layout_api::DocumentSelection {
+                Some(crate::layout::DocumentSelection {
                     start: (start_node.to_opaque(), start_offset),
                     end: (end_node.to_opaque(), end_offset),
                     interior_nodes,

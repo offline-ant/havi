@@ -7,7 +7,7 @@
 
 use app_units::{Au, MAX_AU};
 use inline::InlineFormattingContext;
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use crate::layout::wrapper_traits::ThreadSafeLayoutNode;
 use malloc_size_of_derive::MallocSizeOf;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use crate::script::layout_dom::ServoThreadSafeLayoutNode;

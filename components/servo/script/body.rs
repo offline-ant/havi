@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::{fs, ptr, slice, str};
 
 use base::generic_channel::GenericSharedMemory;
-use constellation_traits::BlobImpl;
+use crate::constellation::BlobImpl;
 use encoding_rs::{Encoding, UTF_8};
 use http::HeaderMap;
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};

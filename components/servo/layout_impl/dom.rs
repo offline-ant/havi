@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 
 use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use html5ever::{local_name, ns};
-use layout_api::wrapper_traits::{LayoutDataTrait, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
-use layout_api::{
+use crate::layout::wrapper_traits::{LayoutDataTrait, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use crate::layout::{
     GenericLayoutDataTrait, LayoutElementType, LayoutNodeType as ScriptLayoutNodeType,
     SVGElementData,
 };

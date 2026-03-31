@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use base::generic_channel;
-use constellation_traits::{StructuredSerializedData, WorkerScriptLoadOrigin};
+use crate::constellation::{StructuredSerializedData, WorkerScriptLoadOrigin};
 use crossbeam_channel::{Sender, unbounded};
 use devtools_traits::{DevtoolsPageInfo, ScriptToDevtoolsControlMsg, WorkerId};
 use dom_struct::dom_struct;

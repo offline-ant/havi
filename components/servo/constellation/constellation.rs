@@ -112,7 +112,7 @@ use bluetooth_traits::BluetoothRequest;
 use crate::canvas::canvas_paint_thread::CanvasPaintThread;
 use canvas_traits::ConstellationCanvasMsg;
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
-use constellation_traits::{
+use crate::constellation::{
     AuxiliaryWebViewCreationRequest, AuxiliaryWebViewCreationResponse, DocumentState,
     EmbedderToConstellationMessage, IFrameLoadInfo, IFrameLoadInfoWithData, IFrameSizeMsg, Job,
     LoadData, LogEntry, MessagePortMsg, NavigationHistoryBehavior, PaintMetricEvent,
@@ -142,7 +142,7 @@ use crate::fonts::SystemFontServiceProxy;
 use ipc_channel::IpcError;
 use ipc_channel::router::ROUTER;
 use keyboard_types::{Key, KeyState, Modifiers, NamedKey};
-use layout_api::LayoutFactory;
+use crate::layout::LayoutFactory;
 use log::{debug, error, info, trace, warn};
 
 use crate::net::image_cache::ImageCacheFactoryImpl;
@@ -158,7 +158,7 @@ use rand::rngs::SmallRng;
 use rand::seq::IndexedRandom;
 use rand::{Rng, SeedableRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use script_traits::{
+use crate::script::{
     ConstellationInputEvent, DiscardBrowsingContext, DocumentActivity, NewPipelineInfo,
     ProgressiveWebMetricType, ScriptThreadMessage, UpdatePipelineIdReason,
 };

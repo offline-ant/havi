@@ -7,11 +7,11 @@ use std::rc::Rc;
 
 use base::generic_channel::SendError;
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
-use constellation_traits::LoadData;
+use crate::constellation::LoadData;
 use embedder_traits::{AnimationState, FocusSequenceNumber};
 use log::{debug, error, warn};
 use crate::paint::{CompositionPipeline, PaintMessage, PaintProxy};
-use script_traits::{
+use crate::script::{
     DiscardBrowsingContext, DocumentActivity, NewPipelineInfo, ScriptThreadMessage,
 };
 use servo_url::BrowserUrl;

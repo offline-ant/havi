@@ -13,7 +13,7 @@ use base::id::{
     ImageDataId, Index, MessagePortId, NamespaceIndex, OffscreenCanvasId, PipelineNamespaceId,
     QuotaExceededErrorId,
 };
-use constellation_traits::{
+use crate::constellation::{
     BlobImpl, DomException, DomMatrix, DomPoint, DomQuad, DomRect, MessagePortImpl,
     Serializable as SerializableInterface, SerializableImageBitmap, SerializableImageData,
     SerializableQuotaExceededError, StructuredSerializedData, TransferableOffscreenCanvas,

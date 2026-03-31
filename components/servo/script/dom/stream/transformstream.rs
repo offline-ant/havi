@@ -7,7 +7,7 @@ use std::ptr::{self};
 use std::rc::Rc;
 
 use base::id::{MessagePortId, MessagePortIndex};
-use constellation_traits::TransformStreamData;
+use crate::constellation::TransformStreamData;
 use dom_struct::dom_struct;
 use js::jsapi::{Heap, IsPromiseObject, JSObject};
 use js::jsval::{JSVal, ObjectValue, UndefinedValue};

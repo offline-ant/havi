@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use base::id::PainterId;
 use crate::fonts::FontContext;
-use layout_api::{
+use crate::layout::{
     AnimatingImages, IFrameSizes, LayoutImageDestination, PendingImage, PendingImageState,
 };
 use net_traits::image_cache::{

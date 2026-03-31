@@ -7,7 +7,7 @@ use std::vec::Vec;
 
 use base::generic_channel::GenericSharedMemory;
 use base::id::{ImageDataId, ImageDataIndex};
-use constellation_traits::SerializableImageData;
+use crate::constellation::SerializableImageData;
 use dom_struct::dom_struct;
 use euclid::default::{Rect, Size2D};
 use js::gc::CustomAutoRooterGuard;

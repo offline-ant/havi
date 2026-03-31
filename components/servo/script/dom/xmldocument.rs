@@ -8,7 +8,7 @@ use data_url::mime::Mime;
 use dom_struct::dom_struct;
 use net_traits::request::InsecureRequestsPolicy;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
-use script_traits::DocumentActivity;
+use crate::script::DocumentActivity;
 use servo_url::{MutableOrigin, BrowserUrl};
 
 use crate::script::document_loader::DocumentLoader;

@@ -7,6 +7,7 @@
 //! Layout. Performs layout on the DOM, builds display lists and sends them to be
 //! painted.
 
+mod api;
 pub(crate) mod cell;
 pub(crate) mod context;
 pub(crate) mod dom;
@@ -31,10 +32,14 @@ pub(crate) mod style_ext;
 pub mod svg;
 pub mod table;
 mod traversal;
+pub mod wrapper_traits;
+mod layout_damage;
+mod svg_parse;
+mod svg_values;
 
 use app_units::Au;
 pub use cell::ArcRefCell;
-pub use layout_api::*;
+pub use self::api::*;
 pub(crate) use flow::BoxTree;
 pub(crate) use fragment_tree::FragmentTree;
 pub use layout_impl::LayoutFactoryImpl;

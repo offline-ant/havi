@@ -29,11 +29,11 @@ use crate::constellation::{
     Constellation, FromEmbedderLogger, FromScriptLogger, InitialConstellationState,
     NewScriptEventLoopProcessInfo, UnprivilegedContent,
 };
-use constellation_traits::{EmbedderToConstellationMessage, ScriptToConstellationSender};
+use crate::constellation::{EmbedderToConstellationMessage, ScriptToConstellationSender};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 pub use embedder_traits::*;
 use env_logger::Builder as EnvLoggerBuilder;
-use crate::fonts::SystemFontService;
+use crate::fonts::{SystemFontService, font_render_api_from_paint_api};
 #[cfg(all(
     not(target_os = "windows"),
     not(target_os = "ios"),
@@ -998,7 +998,7 @@ fn create_constellation(
     let privileged_urls = protocols.privileged_urls();
     let system_font_service = Arc::new(
         SystemFontService::spawn(
-            paint_proxy.cross_process_paint_api.clone(),
+            font_render_api_from_paint_api(paint_proxy.cross_process_paint_api.clone()),
             mem_profiler_chan.clone(),
         )
         .to_proxy(),

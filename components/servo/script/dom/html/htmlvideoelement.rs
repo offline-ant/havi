@@ -8,7 +8,7 @@ use std::sync::Arc;
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
-use layout_api::{HTMLMediaData, MediaMetadata};
+use crate::layout::{HTMLMediaData, MediaMetadata};
 use net_traits::image_cache::{
     ImageCache, ImageCacheResult, ImageLoadListener, ImageOrMetadataAvailable, ImageResponse,
     PendingImageId,

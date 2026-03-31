@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 
-use layout_api::AnimatingImages;
+use crate::layout::AnimatingImages;
 use malloc_size_of::MallocSizeOf;
 use crate::paint::ImageUpdate;
 use parking_lot::RwLock;

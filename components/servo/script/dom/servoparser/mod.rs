@@ -34,7 +34,7 @@ use profile_traits::time::{
 };
 use profile_traits::time_profile;
 use script_bindings::script_runtime::temp_cx;
-use script_traits::DocumentActivity;
+use crate::script::DocumentActivity;
 use servo_config::pref;
 use servo_url::BrowserUrl;
 use style::context::QuirksMode as ServoQuirksMode;

@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::{QuotaExceededErrorId, QuotaExceededErrorIndex};
-use constellation_traits::SerializableQuotaExceededError;
+use crate::constellation::SerializableQuotaExceededError;
 use dom_struct::dom_struct;
 use js::gc::HandleObject;
 use rustc_hash::FxHashMap;

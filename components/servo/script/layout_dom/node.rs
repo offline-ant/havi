@@ -9,11 +9,11 @@ use std::fmt;
 use std::iter::FusedIterator;
 
 use base::id::{BrowsingContextId, PipelineId};
-use layout_api::wrapper_traits::{
+use crate::layout::wrapper_traits::{
     LayoutDataTrait, LayoutNode, PseudoElementChain, SharedSelection, ThreadSafeLayoutElement,
     ThreadSafeLayoutNode,
 };
-use layout_api::{
+use crate::layout::{
     GenericLayoutData, HTMLCanvasData, HTMLMediaData, LayoutElementType, LayoutNodeType,
     SVGElementData, StyleData, TrustedNodeAddress,
 };

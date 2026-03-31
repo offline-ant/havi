@@ -24,7 +24,7 @@ use js::rust::HandleValue;
 use js::rust::wrappers::{Call, Construct1};
 use net_traits::image_cache::ImageCache;
 use pixels::PixelFormat;
-use script_traits::{DrawAPaintImageResult, PaintWorkletError, Painter};
+use crate::script::{DrawAPaintImageResult, PaintWorkletError, Painter};
 use servo_config::pref;
 use servo_url::BrowserUrl;
 use style_traits::{CSSPixel, SpeculativePainter};

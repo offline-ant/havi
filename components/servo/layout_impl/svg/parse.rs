@@ -16,7 +16,7 @@ pub enum SVGParseError {
 
 #[derive(Clone, Debug)]
 pub struct SVGRootMetadata {
-    pub viewport: layout_api::SVGViewportData,
+    pub viewport: crate::layout::SVGViewportData,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -27,15 +27,15 @@ pub struct SVGImageIntrinsicSizes {
 }
 
 pub fn compute_svg_image_intrinsic_sizes(
-    viewport: &layout_api::SVGViewportData,
+    viewport: &crate::layout::SVGViewportData,
 ) -> SVGImageIntrinsicSizes {
     let width = viewport
         .width
-        .and_then(layout_api::resolve_svg_length_to_user_units)
+        .and_then(crate::layout::resolve_svg_length_to_user_units)
         .filter(|value| *value > 0.0);
     let height = viewport
         .height
-        .and_then(layout_api::resolve_svg_length_to_user_units)
+        .and_then(crate::layout::resolve_svg_length_to_user_units)
         .filter(|value| *value > 0.0);
     let ratio = match (width, height) {
         (Some(width), Some(height)) => Some(width / height),
@@ -111,14 +111,14 @@ impl TokenSink for SVGMetadataSink {
                 }
                 let attrs = SVGAttributeMap::from_tag(&tag);
                 *self.metadata.borrow_mut() = Some(SVGRootMetadata {
-                    viewport: layout_api::SVGViewportData {
+                    viewport: crate::layout::SVGViewportData {
                         width: attrs.typed_length("width"),
                         height: attrs.typed_length("height"),
-                        view_box: layout_api::parse_svg_optional_view_box(attrs.attr("viewBox")),
-                        preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(
+                        view_box: crate::layout::parse_svg_optional_view_box(attrs.attr("viewBox")),
+                        preserve_aspect_ratio: crate::layout::parse_svg_preserve_aspect_ratio(
                             attrs.attr("preserveAspectRatio"),
                         ),
-                        overflow_hidden: layout_api::parse_svg_overflow_hidden(attrs.attr("overflow")),
+                        overflow_hidden: crate::layout::parse_svg_overflow_hidden(attrs.attr("overflow")),
                     },
                 });
                 ProcessResult::Done
@@ -371,57 +371,57 @@ impl SVGAttributeMap {
         self.attr(name).or_else(|| self.style_property(name))
     }
 
-    fn typed_length(&self, name: &str) -> Option<layout_api::SVGLengthValue> {
-        self.attr(name).map(|raw| layout_api::parse_svg_length(Some(raw)))
+    fn typed_length(&self, name: &str) -> Option<crate::layout::SVGLengthValue> {
+        self.attr(name).map(|raw| crate::layout::parse_svg_length(Some(raw)))
     }
 
-    fn typed_reference(&self) -> Option<layout_api::SVGReferenceValue<'_>> {
+    fn typed_reference(&self) -> Option<crate::layout::SVGReferenceValue<'_>> {
         self.attr("href")
             .or_else(|| self.attr("xlink:href"))
-            .and_then(|raw| layout_api::parse_svg_reference(Some(raw)))
+            .and_then(|raw| crate::layout::parse_svg_reference(Some(raw)))
     }
 
-    fn typed_text(&self) -> layout_api::SVGTextData {
-        layout_api::SVGTextData {
-            x: layout_api::parse_svg_length_list(self.attr("x")),
-            y: layout_api::parse_svg_length_list(self.attr("y")),
-            dx: layout_api::parse_svg_length_list(self.attr("dx")),
-            dy: layout_api::parse_svg_length_list(self.attr("dy")),
-            rotate: layout_api::parse_svg_number_list(self.attr("rotate")),
+    fn typed_text(&self) -> crate::layout::SVGTextData {
+        crate::layout::SVGTextData {
+            x: crate::layout::parse_svg_length_list(self.attr("x")),
+            y: crate::layout::parse_svg_length_list(self.attr("y")),
+            dx: crate::layout::parse_svg_length_list(self.attr("dx")),
+            dy: crate::layout::parse_svg_length_list(self.attr("dy")),
+            rotate: crate::layout::parse_svg_number_list(self.attr("rotate")),
             font_size: self.typed_length("font-size"),
             text_length: self.typed_length("textLength"),
-            length_adjust: layout_api::parse_svg_length_adjust(self.attr("lengthAdjust")),
-            text_anchor: layout_api::parse_svg_text_anchor(self.attr("text-anchor")),
-            alignment_baseline: layout_api::parse_svg_baseline(self.attr("alignment-baseline")),
-            dominant_baseline: layout_api::parse_svg_baseline(self.attr("dominant-baseline")),
+            length_adjust: crate::layout::parse_svg_length_adjust(self.attr("lengthAdjust")),
+            text_anchor: crate::layout::parse_svg_text_anchor(self.attr("text-anchor")),
+            alignment_baseline: crate::layout::parse_svg_baseline(self.attr("alignment-baseline")),
+            dominant_baseline: crate::layout::parse_svg_baseline(self.attr("dominant-baseline")),
         }
     }
 
-    fn paint_data(&self) -> layout_api::SVGPaintData<'_> {
-        layout_api::SVGPaintData {
+    fn paint_data(&self) -> crate::layout::SVGPaintData<'_> {
+        crate::layout::SVGPaintData {
             color: self.attr_or_style("color"),
             fill: self.attr_or_style("fill"),
-            fill_opacity: layout_api::parse_svg_unit_interval(self.attr_or_style("fill-opacity")),
-            fill_rule: layout_api::parse_svg_fill_rule(self.attr_or_style("fill-rule")),
+            fill_opacity: crate::layout::parse_svg_unit_interval(self.attr_or_style("fill-opacity")),
+            fill_rule: crate::layout::parse_svg_fill_rule(self.attr_or_style("fill-rule")),
             stroke: self.attr_or_style("stroke"),
-            stroke_opacity: layout_api::parse_svg_unit_interval(self.attr_or_style("stroke-opacity")),
+            stroke_opacity: crate::layout::parse_svg_unit_interval(self.attr_or_style("stroke-opacity")),
             stroke_width: self.typed_length("stroke-width"),
-            stroke_linejoin: layout_api::parse_svg_line_join(self.attr_or_style("stroke-linejoin")),
-            stroke_linecap: layout_api::parse_svg_line_cap(self.attr_or_style("stroke-linecap")),
-            stroke_miterlimit: layout_api::parse_svg_non_negative_number(self.attr_or_style("stroke-miterlimit")),
-            stroke_dasharray: layout_api::parse_svg_dash_array(self.attr_or_style("stroke-dasharray")),
-            stroke_dashoffset: layout_api::parse_svg_optional_number(self.attr_or_style("stroke-dashoffset")),
-            paint_order: layout_api::parse_svg_paint_order(self.attr_or_style("paint-order")),
-            opacity: layout_api::parse_svg_unit_interval(self.attr_or_style("opacity")),
-            pointer_events: layout_api::parse_svg_pointer_events(self.attr_or_style("pointer-events")),
-            vector_effect: layout_api::parse_svg_vector_effect(self.attr_or_style("vector-effect")),
-            clip_rule: layout_api::parse_svg_fill_rule(self.attr_or_style("clip-rule")),
-            clip_path: layout_api::parse_svg_reference(self.attr_or_style("clip-path")),
-            mask: layout_api::parse_svg_reference(self.attr_or_style("mask")),
-            filter: layout_api::parse_svg_reference(self.attr_or_style("filter")),
-            marker_start: layout_api::parse_svg_reference(self.attr_or_style("marker-start")),
-            marker_mid: layout_api::parse_svg_reference(self.attr_or_style("marker-mid")),
-            marker_end: layout_api::parse_svg_reference(self.attr_or_style("marker-end")),
+            stroke_linejoin: crate::layout::parse_svg_line_join(self.attr_or_style("stroke-linejoin")),
+            stroke_linecap: crate::layout::parse_svg_line_cap(self.attr_or_style("stroke-linecap")),
+            stroke_miterlimit: crate::layout::parse_svg_non_negative_number(self.attr_or_style("stroke-miterlimit")),
+            stroke_dasharray: crate::layout::parse_svg_dash_array(self.attr_or_style("stroke-dasharray")),
+            stroke_dashoffset: crate::layout::parse_svg_optional_number(self.attr_or_style("stroke-dashoffset")),
+            paint_order: crate::layout::parse_svg_paint_order(self.attr_or_style("paint-order")),
+            opacity: crate::layout::parse_svg_unit_interval(self.attr_or_style("opacity")),
+            pointer_events: crate::layout::parse_svg_pointer_events(self.attr_or_style("pointer-events")),
+            vector_effect: crate::layout::parse_svg_vector_effect(self.attr_or_style("vector-effect")),
+            clip_rule: crate::layout::parse_svg_fill_rule(self.attr_or_style("clip-rule")),
+            clip_path: crate::layout::parse_svg_reference(self.attr_or_style("clip-path")),
+            mask: crate::layout::parse_svg_reference(self.attr_or_style("mask")),
+            filter: crate::layout::parse_svg_reference(self.attr_or_style("filter")),
+            marker_start: crate::layout::parse_svg_reference(self.attr_or_style("marker-start")),
+            marker_mid: crate::layout::parse_svg_reference(self.attr_or_style("marker-mid")),
+            marker_end: crate::layout::parse_svg_reference(self.attr_or_style("marker-end")),
         }
     }
 }
@@ -438,27 +438,27 @@ fn parse_svg_node_if_supported(
 }
 
 fn parse_svg_node(id: SVGNodeId, local_name: &str, attrs: &SVGAttributeMap) -> SVGTreeNode {
-    let common = layout_api::SVGCommonData {
+    let common = crate::layout::SVGCommonData {
         element_id: attrs.attr("id"),
-        transform: layout_api::parse_svg_transform_list(attrs.attr("transform")),
+        transform: crate::layout::parse_svg_transform_list(attrs.attr("transform")),
     };
     let paint = attrs.paint_data();
     let node_kind = match local_name {
-        "svg" => layout_api::SVGNodeKind::Viewport(layout_api::SVGViewportData {
+        "svg" => crate::layout::SVGNodeKind::Viewport(crate::layout::SVGViewportData {
             width: attrs.typed_length("width"),
             height: attrs.typed_length("height"),
-            view_box: layout_api::parse_svg_optional_view_box(attrs.attr("viewBox")),
-            preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(
+            view_box: crate::layout::parse_svg_optional_view_box(attrs.attr("viewBox")),
+            preserve_aspect_ratio: crate::layout::parse_svg_preserve_aspect_ratio(
                 attrs.attr("preserveAspectRatio"),
             ),
-            overflow_hidden: layout_api::parse_svg_overflow_hidden(attrs.attr("overflow")),
+            overflow_hidden: crate::layout::parse_svg_overflow_hidden(attrs.attr("overflow")),
         }),
-        "g" => layout_api::SVGNodeKind::Group,
-        "defs" => layout_api::SVGNodeKind::Defs,
-        "path" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Path {
+        "g" => crate::layout::SVGNodeKind::Group,
+        "defs" => crate::layout::SVGNodeKind::Defs,
+        "path" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Path {
             d: attrs.attr("d"),
         }),
-        "rect" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Rect {
+        "rect" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Rect {
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
             width: attrs.typed_length("width"),
@@ -466,32 +466,32 @@ fn parse_svg_node(id: SVGNodeId, local_name: &str, attrs: &SVGAttributeMap) -> S
             rx: attrs.typed_length("rx"),
             ry: attrs.typed_length("ry"),
         }),
-        "circle" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Circle {
+        "circle" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Circle {
             cx: attrs.typed_length("cx"),
             cy: attrs.typed_length("cy"),
             r: attrs.typed_length("r"),
         }),
-        "ellipse" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Ellipse {
+        "ellipse" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Ellipse {
             cx: attrs.typed_length("cx"),
             cy: attrs.typed_length("cy"),
             rx: attrs.typed_length("rx"),
             ry: attrs.typed_length("ry"),
         }),
-        "line" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Line {
+        "line" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Line {
             x1: attrs.typed_length("x1"),
             y1: attrs.typed_length("y1"),
             x2: attrs.typed_length("x2"),
             y2: attrs.typed_length("y2"),
         }),
-        "polyline" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Polyline {
+        "polyline" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Polyline {
             points: attrs.attr("points"),
         }),
-        "polygon" => layout_api::SVGNodeKind::Geometry(layout_api::SVGGeometryData::Polygon {
+        "polygon" => crate::layout::SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Polygon {
             points: attrs.attr("points"),
         }),
-        "text" => layout_api::SVGNodeKind::Text(attrs.typed_text()),
-        "tspan" => layout_api::SVGNodeKind::TSpan(attrs.typed_text()),
-        "use" => layout_api::SVGNodeKind::Use(layout_api::SVGUseData {
+        "text" => crate::layout::SVGNodeKind::Text(attrs.typed_text()),
+        "tspan" => crate::layout::SVGNodeKind::TSpan(attrs.typed_text()),
+        "use" => crate::layout::SVGNodeKind::Use(crate::layout::SVGUseData {
             href: attrs.typed_reference(),
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
@@ -499,24 +499,24 @@ fn parse_svg_node(id: SVGNodeId, local_name: &str, attrs: &SVGAttributeMap) -> S
             height: attrs.typed_length("height"),
         }),
         "foreignObject" => {
-            layout_api::SVGNodeKind::ForeignObject(layout_api::SVGForeignObjectData {
+            crate::layout::SVGNodeKind::ForeignObject(crate::layout::SVGForeignObjectData {
                 x: attrs.typed_length("x"),
                 y: attrs.typed_length("y"),
                 width: attrs.typed_length("width"),
                 height: attrs.typed_length("height"),
             })
         }
-        "linearGradient" => layout_api::SVGNodeKind::Gradient(layout_api::SVGGradientData::Linear {
+        "linearGradient" => crate::layout::SVGNodeKind::Gradient(crate::layout::SVGGradientData::Linear {
             href: attrs.typed_reference(),
             x1: attrs.typed_length("x1"),
             y1: attrs.typed_length("y1"),
             x2: attrs.typed_length("x2"),
             y2: attrs.typed_length("y2"),
-            gradient_units: layout_api::parse_svg_coordinate_units(attrs.attr("gradientUnits")),
-            gradient_transform: layout_api::parse_svg_transform_list(attrs.attr("gradientTransform")),
-            spread_method: layout_api::parse_svg_spread_method(attrs.attr("spreadMethod")),
+            gradient_units: crate::layout::parse_svg_coordinate_units(attrs.attr("gradientUnits")),
+            gradient_transform: crate::layout::parse_svg_transform_list(attrs.attr("gradientTransform")),
+            spread_method: crate::layout::parse_svg_spread_method(attrs.attr("spreadMethod")),
         }),
-        "radialGradient" => layout_api::SVGNodeKind::Gradient(layout_api::SVGGradientData::Radial {
+        "radialGradient" => crate::layout::SVGNodeKind::Gradient(crate::layout::SVGGradientData::Radial {
             href: attrs.typed_reference(),
             cx: attrs.typed_length("cx"),
             cy: attrs.typed_length("cy"),
@@ -524,85 +524,85 @@ fn parse_svg_node(id: SVGNodeId, local_name: &str, attrs: &SVGAttributeMap) -> S
             fx: attrs.typed_length("fx"),
             fy: attrs.typed_length("fy"),
             fr: attrs.typed_length("fr"),
-            gradient_units: layout_api::parse_svg_coordinate_units(attrs.attr("gradientUnits")),
-            gradient_transform: layout_api::parse_svg_transform_list(attrs.attr("gradientTransform")),
-            spread_method: layout_api::parse_svg_spread_method(attrs.attr("spreadMethod")),
+            gradient_units: crate::layout::parse_svg_coordinate_units(attrs.attr("gradientUnits")),
+            gradient_transform: crate::layout::parse_svg_transform_list(attrs.attr("gradientTransform")),
+            spread_method: crate::layout::parse_svg_spread_method(attrs.attr("spreadMethod")),
         }),
-        "stop" => layout_api::SVGNodeKind::Stop(layout_api::SVGStopData {
-            offset: layout_api::parse_svg_stop_offset(attrs.attr("offset")),
+        "stop" => crate::layout::SVGNodeKind::Stop(crate::layout::SVGStopData {
+            offset: crate::layout::parse_svg_stop_offset(attrs.attr("offset")),
             stop_color: attrs.attr_or_style("stop-color"),
             stop_opacity: attrs.attr_or_style("stop-opacity"),
         }),
-        "clipPath" => layout_api::SVGNodeKind::ClipPath(layout_api::SVGClipPathData {
-            clip_path_units: layout_api::parse_svg_coordinate_units(attrs.attr("clipPathUnits")),
+        "clipPath" => crate::layout::SVGNodeKind::ClipPath(crate::layout::SVGClipPathData {
+            clip_path_units: crate::layout::parse_svg_coordinate_units(attrs.attr("clipPathUnits")),
         }),
-        "mask" => layout_api::SVGNodeKind::Mask(layout_api::SVGMaskData {
+        "mask" => crate::layout::SVGNodeKind::Mask(crate::layout::SVGMaskData {
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
             width: attrs.typed_length("width"),
             height: attrs.typed_length("height"),
-            mask_units: layout_api::parse_svg_coordinate_units(attrs.attr("maskUnits")),
-            mask_content_units: layout_api::parse_svg_coordinate_units(attrs.attr("maskContentUnits")),
+            mask_units: crate::layout::parse_svg_coordinate_units(attrs.attr("maskUnits")),
+            mask_content_units: crate::layout::parse_svg_coordinate_units(attrs.attr("maskContentUnits")),
         }),
-        "image" => layout_api::SVGNodeKind::Image(layout_api::SVGImageData {
+        "image" => crate::layout::SVGNodeKind::Image(crate::layout::SVGImageData {
             href: attrs.typed_reference(),
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
             width: attrs.typed_length("width"),
             height: attrs.typed_length("height"),
-            preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(
+            preserve_aspect_ratio: crate::layout::parse_svg_preserve_aspect_ratio(
                 attrs.attr("preserveAspectRatio"),
             ),
         }),
-        "pattern" => layout_api::SVGNodeKind::Pattern(layout_api::SVGPatternData {
+        "pattern" => crate::layout::SVGNodeKind::Pattern(crate::layout::SVGPatternData {
             href: attrs.typed_reference(),
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
             width: attrs.typed_length("width"),
             height: attrs.typed_length("height"),
-            pattern_units: layout_api::parse_svg_coordinate_units(attrs.attr("patternUnits")),
-            pattern_content_units: layout_api::parse_svg_coordinate_units(attrs.attr("patternContentUnits")),
-            pattern_transform: layout_api::parse_svg_transform_list(attrs.attr("patternTransform")),
-            view_box: layout_api::parse_svg_optional_view_box(attrs.attr("viewBox")),
-            preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(
+            pattern_units: crate::layout::parse_svg_coordinate_units(attrs.attr("patternUnits")),
+            pattern_content_units: crate::layout::parse_svg_coordinate_units(attrs.attr("patternContentUnits")),
+            pattern_transform: crate::layout::parse_svg_transform_list(attrs.attr("patternTransform")),
+            view_box: crate::layout::parse_svg_optional_view_box(attrs.attr("viewBox")),
+            preserve_aspect_ratio: crate::layout::parse_svg_preserve_aspect_ratio(
                 attrs.attr("preserveAspectRatio"),
             ),
         }),
-        "filter" => layout_api::SVGNodeKind::Filter(layout_api::SVGFilterData {
+        "filter" => crate::layout::SVGNodeKind::Filter(crate::layout::SVGFilterData {
             x: attrs.typed_length("x"),
             y: attrs.typed_length("y"),
             width: attrs.typed_length("width"),
             height: attrs.typed_length("height"),
-            filter_units: layout_api::parse_svg_coordinate_units(attrs.attr("filterUnits")),
-            primitive_units: layout_api::parse_svg_coordinate_units(attrs.attr("primitiveUnits")),
+            filter_units: crate::layout::parse_svg_coordinate_units(attrs.attr("filterUnits")),
+            primitive_units: crate::layout::parse_svg_coordinate_units(attrs.attr("primitiveUnits")),
         }),
-        "marker" => layout_api::SVGNodeKind::Marker(layout_api::SVGMarkerData {
+        "marker" => crate::layout::SVGNodeKind::Marker(crate::layout::SVGMarkerData {
             ref_x: attrs.typed_length("refX"),
             ref_y: attrs.typed_length("refY"),
             marker_width: attrs.typed_length("markerWidth"),
             marker_height: attrs.typed_length("markerHeight"),
-            marker_units: layout_api::parse_svg_marker_units(attrs.attr("markerUnits")),
+            marker_units: crate::layout::parse_svg_marker_units(attrs.attr("markerUnits")),
             orient_auto: attrs.attr("orient").is_some_and(|raw| raw.trim().starts_with("auto")),
-            view_box: layout_api::parse_svg_optional_view_box(attrs.attr("viewBox")),
-            preserve_aspect_ratio: layout_api::parse_svg_preserve_aspect_ratio(
+            view_box: crate::layout::parse_svg_optional_view_box(attrs.attr("viewBox")),
+            preserve_aspect_ratio: crate::layout::parse_svg_preserve_aspect_ratio(
                 attrs.attr("preserveAspectRatio"),
             ),
         }),
-        "textPath" => layout_api::SVGNodeKind::TextPath(layout_api::SVGTextPathData {
+        "textPath" => crate::layout::SVGNodeKind::TextPath(crate::layout::SVGTextPathData {
             href: attrs.typed_reference(),
-            start_offset: attrs.attr("startOffset").map(|raw| layout_api::parse_svg_length(Some(raw))),
+            start_offset: attrs.attr("startOffset").map(|raw| crate::layout::parse_svg_length(Some(raw))),
             text: attrs.typed_text(),
         }),
-        _ => return SVGTreeNode::new(id, SVGNodeData::from(layout_api::SVGElementData {
+        _ => return SVGTreeNode::new(id, SVGNodeData::from(crate::layout::SVGElementData {
             common,
-            node_kind: layout_api::SVGNodeKind::Defs,
+            node_kind: crate::layout::SVGNodeKind::Defs,
             paint,
         }), Vec::new()),
     };
 
     SVGTreeNode::new(
         id,
-        SVGNodeData::from(layout_api::SVGElementData {
+        SVGNodeData::from(crate::layout::SVGElementData {
             common,
             node_kind,
             paint,
@@ -674,7 +674,7 @@ mod tests {
         let child = resolved.element_children().next().expect("leaf child");
         let svg_data = child.svg_data();
         let (geometry, style) = match (&svg_data.node_kind, &child.resolved_style) {
-            (layout_api::SVGNodeKind::Geometry(geometry), SVGNodeResolvedStyle::Geometry(style)) => {
+            (crate::layout::SVGNodeKind::Geometry(geometry), SVGNodeResolvedStyle::Geometry(style)) => {
                 (geometry, style)
             }
             other => panic!("expected geometry leaf, got {other:?}"),
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(metadata.viewport.height, None);
         assert_eq!(
             metadata.viewport.view_box,
-            Some(layout_api::SVGRectValue {
+            Some(crate::layout::SVGRectValue {
                 x: 0.0,
                 y: 0.0,
                 width: 60.0,
@@ -715,10 +715,10 @@ mod tests {
 
     #[test]
     fn image_intrinsic_sizes_use_only_explicit_root_dimensions() {
-        let viewbox_only = compute_svg_image_intrinsic_sizes(&layout_api::SVGViewportData {
+        let viewbox_only = compute_svg_image_intrinsic_sizes(&crate::layout::SVGViewportData {
             width: None,
             height: None,
-            view_box: Some(layout_api::SVGRectValue {
+            view_box: Some(crate::layout::SVGRectValue {
                 x: 0.0,
                 y: 0.0,
                 width: 60.0,
@@ -736,10 +736,10 @@ mod tests {
             }
         );
 
-        let explicit_size = compute_svg_image_intrinsic_sizes(&layout_api::SVGViewportData {
-            width: Some(layout_api::parse_svg_length(Some("80"))),
-            height: Some(layout_api::parse_svg_length(Some("40"))),
-            view_box: Some(layout_api::SVGRectValue {
+        let explicit_size = compute_svg_image_intrinsic_sizes(&crate::layout::SVGViewportData {
+            width: Some(crate::layout::parse_svg_length(Some("80"))),
+            height: Some(crate::layout::parse_svg_length(Some("40"))),
+            view_box: Some(crate::layout::SVGRectValue {
                 x: 0.0,
                 y: 0.0,
                 width: 20.0,

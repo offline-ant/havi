@@ -12,7 +12,7 @@ use js::rust::HandleObject;
 use keyboard_types::Modifiers;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use script_bindings::match_domstring_ascii;
-use script_traits::ConstellationInputEvent;
+use crate::script::ConstellationInputEvent;
 use style_traits::CSSPixel;
 
 use crate::script::dom::bindings::codegen::GenericBindings::EventBinding::Event_Binding::EventMethods;

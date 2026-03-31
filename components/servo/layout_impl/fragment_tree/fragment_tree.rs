@@ -795,7 +795,7 @@ fn resolve_background_images_for_base(
                 let Ok(cached) = image_resolver.get_cached_image_for_url(
                     base.tag.map(|tag| tag.node).unwrap_or(style::dom::OpaqueNode(0)),
                     url.clone().into(),
-                    layout_api::LayoutImageDestination::DisplayListBuilding,
+                    crate::layout::LayoutImageDestination::DisplayListBuilding,
                 ) else {
                     images.push(None);
                     continue;

@@ -33,7 +33,7 @@ use std::{mem, ptr};
 use js::context::NoGC;
 use js::jsapi::{Heap, JSObject, JSTracer, Value};
 use js::rust::HandleValue;
-use layout_api::TrustedNodeAddress;
+use crate::layout::TrustedNodeAddress;
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 pub(crate) use script_bindings::root::*;
 use style::thread_state;

@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::char::{ToLowercase, ToUppercase};
 
 use icu_segmenter::WordSegmenter;
-use layout_api::wrapper_traits::{SharedSelection, ThreadSafeLayoutNode};
+use crate::layout::wrapper_traits::{SharedSelection, ThreadSafeLayoutNode};
 use style::computed_values::_webkit_text_security::T as WebKitTextSecurity;
 use style::computed_values::white_space_collapse::T as WhiteSpaceCollapse;
 use style::selector_parser::PseudoElement;

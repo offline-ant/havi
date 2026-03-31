@@ -25,7 +25,7 @@ use net_traits::request::{
 use net_traits::{
     CoreResourceThread, FetchResponseMsg, ResourceFetchTiming, ResourceThreads, fetch_async,
 };
-use paint_api::CrossProcessPaintApi;
+use crate::FontRenderApi;
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashSet;
 use servo_arc::Arc as ServoArc;
@@ -75,7 +75,8 @@ pub struct FontContext {
     resource_threads: Mutex<CoreResourceThread>,
 
     /// A sender that can send messages and receive replies from `Paint`.
-    paint_api: Mutex<CrossProcessPaintApi>,
+    #[ignore_malloc_size_of = "Font render backend is process-global plumbing"]
+    paint_api: Mutex<FontRenderApi>,
 
     /// The actual instances of fonts ie a [`FontTemplate`] combined with a size and
     /// other font properties, along with the font data and a platform font instance.
@@ -148,7 +149,7 @@ impl Clone for WebFontDocumentContext {
 impl FontContext {
     pub fn new(
         system_font_service_proxy: Arc<SystemFontServiceProxy>,
-        paint_api: CrossProcessPaintApi,
+        paint_api: FontRenderApi,
         resource_threads: ResourceThreads,
     ) -> Self {
         Self {

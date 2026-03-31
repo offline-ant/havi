@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::{DomRectId, DomRectIndex};
-use constellation_traits::DomRect;
+use crate::constellation::DomRect;
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
 use rustc_hash::FxHashMap;

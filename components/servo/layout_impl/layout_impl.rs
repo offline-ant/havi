@@ -21,8 +21,8 @@ use euclid::{Point2D, Rect, Scale, Size2D};
 use crate::fonts::{FontContext, FontContextWebFontMethods};
 use ::fonts::WebFontDocumentContext;
 use fonts_traits::StylesheetWebFontLoadFinishedCallback;
-use layout_api::wrapper_traits::LayoutNode;
-use layout_api::{
+use crate::layout::wrapper_traits::LayoutNode;
+use crate::layout::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig,
     LayoutFactory, OffsetParentResponse, PhysicalSides, PropertyRegistration, QueryMsg, ReflowGoal,
     ReflowPhasesRun, ReflowRequest, ReflowRequestRestyle, ReflowResult,
@@ -41,7 +41,7 @@ use profile_traits::time::{
 use profile_traits::{path, time_profile};
 use rustc_hash::FxHashMap;
 use crate::script::layout_dom::{ServoLayoutDocument, ServoLayoutElement, ServoLayoutNode};
-use script_traits::{DrawAPaintImageResult, PaintWorkletError, Painter, ScriptThreadMessage};
+use crate::script::{DrawAPaintImageResult, PaintWorkletError, Painter, ScriptThreadMessage};
 use servo_arc::Arc as ServoArc;
 use servo_config::opts::{self, DiagnosticsLogging};
 use servo_config::pref;
@@ -192,10 +192,10 @@ pub struct LayoutThread {
     published_layout_fragments: Option<Arc<havi_types::FragmentArenaGeneration>>,
 
     /// Shared container for exposing layout fragments to the embedding layer.
-    shared_layout_fragments: layout_api::SharedLayoutFragmentTree,
+    shared_layout_fragments: crate::layout::SharedLayoutFragmentTree,
 
     /// Shared container for exposing layout fragments by pipeline to the embedding layer.
-    shared_layout_fragments_by_pipeline: layout_api::SharedLayoutFragmentTree,
+    shared_layout_fragments_by_pipeline: crate::layout::SharedLayoutFragmentTree,
 
     // A cache that maps image resources specified in CSS (e.g as the `url()` value
     // for `background-image` or `content` properties) to either the final resolved
@@ -215,10 +215,10 @@ pub struct LayoutThread {
     scroll_offsets: RefCell<FxHashMap<ExternalScrollId, LayoutVector2D>>,
 
     /// Shared scroll state for the embedding layer (Makepad).
-    shared_scroll_state: layout_api::SharedScrollState,
+    shared_scroll_state: crate::layout::SharedScrollState,
 
     /// Shared scroll state by pipeline for direct render consumers.
-    shared_scroll_state_by_pipeline: layout_api::SharedScrollState,
+    shared_scroll_state_by_pipeline: crate::layout::SharedScrollState,
 
     /// Whether accessibility is active in this layout.
     /// (Note: this is a temporary field which will be replaced with an optional accessibility tree member.)
@@ -406,7 +406,7 @@ impl Layout for LayoutThread {
     }
 
     #[servo_tracing::instrument(skip_all)]
-    fn query_element_inner_outer_text(&self, node: layout_api::TrustedNodeAddress) -> String {
+    fn query_element_inner_outer_text(&self, node: crate::layout::TrustedNodeAddress) -> String {
         let node = unsafe { ServoLayoutNode::new(&node) };
         get_the_text_steps(node)
     }
@@ -569,7 +569,7 @@ impl Layout for LayoutThread {
     fn query_svg_bbox(
         &self,
         node: TrustedNodeAddress,
-        options: layout_api::SVGBoundingBoxOptionsData,
+        options: crate::layout::SVGBoundingBoxOptionsData,
     ) -> Option<Rect<f32, CSSPixel>> {
         let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
         let fragment_tree = self.fragment_tree.borrow();
@@ -661,7 +661,7 @@ impl Layout for LayoutThread {
         &self,
         node: TrustedNodeAddress,
         charnum: u32,
-    ) -> Option<layout_api::SVGTextCharGeometry> {
+    ) -> Option<crate::layout::SVGTextCharGeometry> {
         let node = unsafe { ServoLayoutNode::new(&node).to_threadsafe() };
         let fragment_tree = self.fragment_tree.borrow();
         let fragment_tree = fragment_tree.as_ref()?;
@@ -697,8 +697,8 @@ impl Layout for LayoutThread {
     fn query_elements_from_point(
         &self,
         point: webrender_api::units::LayoutPoint,
-        flags: layout_api::ElementsFromPointFlags,
-    ) -> Vec<layout_api::ElementsFromPointResult> {
+        flags: crate::layout::ElementsFromPointFlags,
+    ) -> Vec<crate::layout::ElementsFromPointResult> {
         let fragment_tree = self.fragment_tree.borrow();
         let Some(fragment_tree) = fragment_tree.as_ref() else {
             return Vec::new();
@@ -937,7 +937,7 @@ impl LayoutThread {
         let viewport_size = self.stylist.device().au_viewport_size();
         let viewport_h = viewport_size.height.to_f64_px();
         let content_h = self.content_height();
-        let shared = layout_api::ScrollStateData {
+        let shared = crate::layout::ScrollStateData {
             scroll_y,
             content_height: content_h,
             viewport_height: viewport_h,
@@ -947,7 +947,7 @@ impl LayoutThread {
     }
 
     fn publish_shared_committed_scroll_offsets(&self) {
-        layout_api::shared_committed_scroll_offsets_for_pipeline(self.id)
+        crate::layout::shared_committed_scroll_offsets_for_pipeline(self.id)
             .set(self.scroll_offsets.borrow().clone());
     }
 

@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use base::generic_channel::GenericCallback;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
-use constellation_traits::{
+use crate::constellation::{
     IFrameLoadInfo, IFrameLoadInfoWithData, JsEvalResult, LoadData, LoadOrigin,
     NavigationHistoryBehavior, ScriptToConstellationMessage,
 };
@@ -22,7 +22,7 @@ use js::context::JSContext;
 use js::rust::HandleObject;
 use net_traits::request::Destination;
 use profile_traits::ipc as ProfiledIpc;
-use script_traits::{NewPipelineInfo, UpdatePipelineIdReason};
+use crate::script::{NewPipelineInfo, UpdatePipelineIdReason};
 use servo_url::BrowserUrl;
 use style::attr::AttrValue;
 

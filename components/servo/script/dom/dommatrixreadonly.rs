@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::{f64, ptr};
 
 use base::id::{DomMatrixId, DomMatrixIndex};
-use constellation_traits::DomMatrix;
+use crate::constellation::DomMatrix;
 use cssparser::{Parser, ParserInput};
 use dom_struct::dom_struct;
 use euclid::Angle;

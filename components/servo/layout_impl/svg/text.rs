@@ -7,7 +7,7 @@ use base::text::is_bidi_control;
 use crate::fonts::{
     FontContext, FontMetrics, FontRef, LAST_RESORT_GLYPH_ADVANCE, ShapingFlags, ShapingOptions,
 };
-use layout_api::{SVGNodeKind, SVGTextBaselineValue};
+use crate::layout::{SVGNodeKind, SVGTextBaselineValue};
 use style::Zero;
 use style::computed_values::text_rendering::T as TextRendering;
 use style::dom::OpaqueNode;
@@ -154,10 +154,10 @@ struct SVGTextSegmentPlan {
 
 #[derive(Clone, Debug)]
 struct SVGTextPositioningContext {
-    x: Vec<layout_api::SVGLengthValue>,
-    y: Vec<layout_api::SVGLengthValue>,
-    dx: Vec<layout_api::SVGLengthValue>,
-    dy: Vec<layout_api::SVGLengthValue>,
+    x: Vec<crate::layout::SVGLengthValue>,
+    y: Vec<crate::layout::SVGLengthValue>,
+    dx: Vec<crate::layout::SVGLengthValue>,
+    dy: Vec<crate::layout::SVGLengthValue>,
     rotate: Vec<f32>,
     x_index: usize,
     y_index: usize,
@@ -167,7 +167,7 @@ struct SVGTextPositioningContext {
 }
 
 impl SVGTextPositioningContext {
-    fn new(text: &layout_api::SVGTextData) -> Self {
+    fn new(text: &crate::layout::SVGTextData) -> Self {
         Self {
             x: text.x.clone(),
             y: text.y.clone(),
@@ -535,8 +535,8 @@ fn apply_text_length_adjustment(
         return;
     }
 
-    match text_data.length_adjust.unwrap_or(layout_api::SVGLengthAdjustValue::Spacing) {
-        layout_api::SVGLengthAdjustValue::Spacing => {
+    match text_data.length_adjust.unwrap_or(crate::layout::SVGLengthAdjustValue::Spacing) {
+        crate::layout::SVGLengthAdjustValue::Spacing => {
             let count = range.end_address.saturating_sub(range.start_address);
             if count <= 1 {
                 return;
@@ -552,7 +552,7 @@ fn apply_text_length_adjustment(
             state.cursor.x += delta;
             recompute_run_bounds_for_range(range, state);
         }
-        layout_api::SVGLengthAdjustValue::SpacingAndGlyphs => {
+        crate::layout::SVGLengthAdjustValue::SpacingAndGlyphs => {
             // Phase 5 subset: spacingAndGlyphs remains explicitly unsupported for now.
         }
     }
@@ -922,7 +922,7 @@ fn segment_text_by_font(
 ) -> Vec<SVGTextSegment> {
     let font_group = text_node_data(node)
         .and_then(|text| text.font_size)
-        .and_then(layout_api::resolve_svg_length_to_user_units)
+        .and_then(crate::layout::resolve_svg_length_to_user_units)
         .map(|font_size_px| {
             text_layout_context
                 .font_context
@@ -1080,7 +1080,7 @@ fn shape_svg_text_segment(
     })
 }
 
-fn text_node_data(node: &SVGResolvedNode) -> Option<&layout_api::SVGTextData> {
+fn text_node_data(node: &SVGResolvedNode) -> Option<&crate::layout::SVGTextData> {
     match &node.node_data.node_kind {
         SVGOwnedNodeKind::Text(data) | SVGOwnedNodeKind::TSpan(data) => Some(data),
         // TextPath contributes its inline text positioning; path-following is stubbed (svg-missing.md).
@@ -1176,8 +1176,8 @@ fn char_does_not_change_font(character: char) -> bool {
 mod tests {
     use super::*;
 
-    fn text_data() -> layout_api::SVGTextData {
-        layout_api::SVGTextData {
+    fn text_data() -> crate::layout::SVGTextData {
+        crate::layout::SVGTextData {
             x: Vec::new(),
             y: Vec::new(),
             dx: Vec::new(),
@@ -1195,20 +1195,20 @@ mod tests {
     #[test]
     fn directives_use_nearest_positioning_context_and_repeat_rotate() {
         let mut parent = text_data();
-        parent.x = vec![layout_api::SVGLengthValue {
-            unit_type: layout_api::SVG_LENGTHTYPE_NUMBER,
+        parent.x = vec![crate::layout::SVGLengthValue {
+            unit_type: crate::layout::SVG_LENGTHTYPE_NUMBER,
             value: 10.0,
         }];
         parent.rotate = vec![15.0];
 
         let mut child = text_data();
         child.dx = vec![
-            layout_api::SVGLengthValue {
-                unit_type: layout_api::SVG_LENGTHTYPE_NUMBER,
+            crate::layout::SVGLengthValue {
+                unit_type: crate::layout::SVG_LENGTHTYPE_NUMBER,
                 value: 2.0,
             },
-            layout_api::SVGLengthValue {
-                unit_type: layout_api::SVG_LENGTHTYPE_NUMBER,
+            crate::layout::SVGLengthValue {
+                unit_type: crate::layout::SVG_LENGTHTYPE_NUMBER,
                 value: 3.0,
             },
         ];

@@ -7,7 +7,7 @@
 use std::cell::Cell;
 
 use base::id::PipelineId;
-use constellation_traits::ScriptToConstellationMessage;
+use crate::constellation::ScriptToConstellationMessage;
 use cssparser::ToCss;
 use embedder_traits::{AnimationState as AnimationsPresentState, UntrustedNodeAddress};
 use libc::c_void;

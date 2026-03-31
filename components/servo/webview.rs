@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use base::generic_channel::GenericSender;
 use base::id::{PainterId, WebViewId};
-use constellation_traits::{EmbedderToConstellationMessage, TraversalDirection};
+use crate::constellation::{EmbedderToConstellationMessage, TraversalDirection};
 use dpi::PhysicalSize;
 use embedder_traits::{
     ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
@@ -499,7 +499,7 @@ impl WebView {
         self.inner().servo.constellation_proxy().send(
             EmbedderToConstellationMessage::SetScrollStates(
                 scrolled_node.1.into(),
-                constellation_traits::ScrollStateUpdate {
+                crate::constellation::ScrollStateUpdate {
                     scrolled_node,
                     offsets,
                 },

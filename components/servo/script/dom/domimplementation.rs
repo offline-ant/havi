@@ -6,7 +6,7 @@ use dom_struct::dom_struct;
 use html5ever::{QualName, local_name, ns};
 use js::context::JSContext;
 use script_bindings::error::Error;
-use script_traits::DocumentActivity;
+use crate::script::DocumentActivity;
 
 use crate::script::document_loader::DocumentLoader;
 use crate::script::dom::bindings::codegen::GenericBindings::DOMImplementationBinding::DOMImplementationMethods;

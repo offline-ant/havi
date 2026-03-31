@@ -4,7 +4,7 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use script_traits::DocumentActivity;
+use crate::script::DocumentActivity;
 
 use crate::script::document_loader::DocumentLoader;
 use crate::script::dom::bindings::codegen::Bindings::DOMParserBinding;

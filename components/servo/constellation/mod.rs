@@ -7,6 +7,7 @@
 #[macro_use]
 mod tracing;
 
+pub mod traits;
 mod broadcastchannel;
 mod browsingcontext;
 mod constellation;
@@ -23,3 +24,4 @@ pub use self::constellation::{Constellation, InitialConstellationState};
 pub use self::event_loop::{EventLoop, NewScriptEventLoopProcessInfo};
 pub use self::logging::{FromEmbedderLogger, FromScriptLogger};
 pub use self::sandboxing::{UnprivilegedContent, content_process_sandbox_profile};
+pub use self::traits::*;

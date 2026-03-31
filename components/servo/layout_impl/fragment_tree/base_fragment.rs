@@ -8,7 +8,7 @@ use app_units::Au;
 use atomic_refcell::AtomicRef;
 use bitflags::bitflags;
 use html5ever::local_name;
-use layout_api::wrapper_traits::{
+use crate::layout::wrapper_traits::{
     PseudoElementChain, ThreadSafeLayoutElement, ThreadSafeLayoutNode,
 };
 use malloc_size_of::malloc_size_of_is_0;

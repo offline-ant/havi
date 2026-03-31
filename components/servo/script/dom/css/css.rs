@@ -4,7 +4,7 @@
 
 use cssparser::{Parser, ParserInput, serialize_identifier};
 use dom_struct::dom_struct;
-use layout_api::{PropertyRegistration, RegisterPropertyError};
+use crate::layout::{PropertyRegistration, RegisterPropertyError};
 use script_bindings::codegen::GenericBindings::CSSBinding::PropertyDefinition;
 use style::stylesheets::supports_rule::{Declaration, parse_condition_or_declaration};
 use style::stylesheets::{CssRuleType, UrlExtraData};

@@ -6,7 +6,7 @@ use std::default::Default;
 use std::rc::Rc;
 
 use base::generic_channel::GenericCallback;
-use constellation_traits::{
+use crate::constellation::{
     Job, JobError, JobResult, JobResultValue, JobType, ScriptToConstellationMessage,
 };
 use dom_struct::dom_struct;

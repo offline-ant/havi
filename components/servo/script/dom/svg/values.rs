@@ -4,7 +4,7 @@
 
 use html5ever::{LocalName, ns};
 
-pub(crate) use layout_api::{
+pub(crate) use crate::layout::{
     SVGLengthValue, SVGPreserveAspectRatioValue, SVGTransformValue,
     SVG_LENGTHTYPE_NUMBER, SVG_LENGTHTYPE_UNKNOWN, SVG_MEETORSLICE_MEET,
     SVG_PRESERVEASPECTRATIO_XMIDYMID, SVG_TRANSFORM_MATRIX, SVG_TRANSFORM_ROTATE,

@@ -5,10 +5,10 @@
 use std::borrow::Cow;
 
 use html5ever::LocalName;
-use layout_api::wrapper_traits::{
+use crate::layout::wrapper_traits::{
     PseudoElementChain, ThreadSafeLayoutElement, ThreadSafeLayoutNode,
 };
-use layout_api::{LayoutElementType, LayoutNodeType};
+use crate::layout::{LayoutElementType, LayoutNodeType};
 use crate::script::layout_dom::ServoThreadSafeLayoutNode;
 use selectors::Element as SelectorsElement;
 use servo_arc::Arc as ServoArc;

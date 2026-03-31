@@ -46,7 +46,7 @@ mod from_embedder {
         };
     }
 
-    impl LogTarget for constellation_traits::EmbedderToConstellationMessage {
+    impl LogTarget for crate::constellation::EmbedderToConstellationMessage {
         fn log_target(&self) -> &'static str {
             match self {
                 Self::Exit => target!("Exit"),
@@ -120,7 +120,7 @@ mod from_script {
         };
     }
 
-    impl LogTarget for constellation_traits::ScriptToConstellationMessage {
+    impl LogTarget for crate::constellation::ScriptToConstellationMessage {
         fn log_target(&self) -> &'static str {
             match self {
                 Self::CompleteMessagePortTransfer(..) => target!("CompleteMessagePortTransfer"),

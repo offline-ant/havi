@@ -12,7 +12,7 @@ use std::time::Duration;
 use base::cross_process_instant::CrossProcessInstant;
 use base::generic_channel::{GenericSend, GenericSender, RoutedReceiver};
 use base::id::{PipelineId, PipelineNamespace};
-use constellation_traits::WorkerGlobalScopeInit;
+use crate::constellation::WorkerGlobalScopeInit;
 use content_security_policy::CspList;
 use devtools_traits::{DevtoolScriptControlMsg, WorkerId};
 use dom_struct::dom_struct;

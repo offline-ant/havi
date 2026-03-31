@@ -4,7 +4,7 @@
 
 use base::cross_process_instant::CrossProcessInstant;
 use dom_struct::dom_struct;
-use script_traits::ProgressiveWebMetricType;
+use crate::script::ProgressiveWebMetricType;
 use time::Duration;
 
 use super::performanceentry::{EntryType, PerformanceEntry};

@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use base::generic_channel::GenericCallback;
-use constellation_traits::{KeyboardScroll, ScriptToConstellationMessage};
+use crate::constellation::{KeyboardScroll, ScriptToConstellationMessage};
 use embedder_traits::{
     Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventId,
     InputEventOutcome, InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton,
@@ -26,7 +26,7 @@ use embedder_traits::{
 use euclid::{Point2D, Vector2D};
 use js::jsapi::JSAutoRealm;
 use keyboard_types::{Code, Key, KeyState, Modifiers, NamedKey};
-use layout_api::{ScrollContainerQueryFlags, node_id_from_scroll_id};
+use crate::layout::{ScrollContainerQueryFlags, node_id_from_scroll_id};
 use rustc_hash::FxHashMap;
 use script_bindings::codegen::GenericBindings::DocumentBinding::DocumentMethods;
 use script_bindings::codegen::GenericBindings::ElementBinding::ScrollLogicalPosition;
@@ -43,7 +43,7 @@ use script_bindings::reflector::DomObject;
 use script_bindings::root::{Dom, DomRoot, DomSlice};
 use script_bindings::script_runtime::CanGc;
 use script_bindings::str::DOMString;
-use script_traits::ConstellationInputEvent;
+use crate::script::ConstellationInputEvent;
 use servo_config::pref;
 use style_traits::CSSPixel;
 use webrender_api::ExternalScrollId;

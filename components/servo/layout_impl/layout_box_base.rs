@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use app_units::Au;
 use atomic_refcell::AtomicRefCell;
-use layout_api::LayoutDamage;
+use crate::layout::LayoutDamage;
 use malloc_size_of_derive::MallocSizeOf;
 use servo_arc::Arc;
 use style::properties::ComputedValues;

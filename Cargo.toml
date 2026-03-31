@@ -55,7 +55,6 @@ chacha20poly1305 = "0.10"
 chardetng = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 cipher = { version = "0.4.4", features = ["alloc"] }
-constellation_traits = { path = "components/shared/constellation" }
 content-security-policy = { version = "0.6.0", features = ["serde"] }
 cookie = { package = "cookie", version = "0.18" }
 crossbeam-channel = "0.5"
@@ -112,7 +111,6 @@ itertools = "0.14"
 js = { package = "mozjs", version = "=0.15.2", default-features = false, features = ["libz-sys", "intl"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 kurbo = { version = "0.12", features = ["euclid"] }
-layout_api = { path = "components/shared/layout" }
 libc = "0.2"
 log = "0.4.29"
 mach2 = "0.6"
@@ -160,7 +158,6 @@ regex = "1.12"
 ring = "0.17"
 rsa = { version = "0.9.10", features = ["sha1", "sha2"] }
 rustc-hash = "2.1.1"
-script_traits = { path = "components/shared/script" }
 sea-query = { version = "1.0.0-rc.31", default-features = false, features = ["backend-sqlite", "derive"] }
 sea-query-rusqlite = { version = "0.8.0-rc.15" }
 sec1 = "0.7"

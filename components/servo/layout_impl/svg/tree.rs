@@ -5,8 +5,8 @@ use style::properties::ComputedValues;
 
 use havi_types::fragment_tree::SVGCoordinateUnits;
 use crate::layout::fragment_tree::Tag;
-use layout_api::wrapper_traits::PseudoElementChain;
-use layout_api::{
+use crate::layout::wrapper_traits::PseudoElementChain;
+use crate::layout::{
     SVGClipPathData, SVGCommonData, SVGElementData, SVGFilterData, SVGForeignObjectData,
     SVGGeometryData, SVGGradientData, SVGImageData, SVGMarkerData, SVGMaskData, SVGNodeKind,
     SVGPaintData, SVGPatternData, SVGReferenceValue, SVGStopData, SVGTextData, SVGTextPathData,
@@ -57,29 +57,29 @@ pub enum SVGOwnedGeometryData {
         d: Option<String>,
     },
     Rect {
-        x: Option<layout_api::SVGLengthValue>,
-        y: Option<layout_api::SVGLengthValue>,
-        width: Option<layout_api::SVGLengthValue>,
-        height: Option<layout_api::SVGLengthValue>,
-        rx: Option<layout_api::SVGLengthValue>,
-        ry: Option<layout_api::SVGLengthValue>,
+        x: Option<crate::layout::SVGLengthValue>,
+        y: Option<crate::layout::SVGLengthValue>,
+        width: Option<crate::layout::SVGLengthValue>,
+        height: Option<crate::layout::SVGLengthValue>,
+        rx: Option<crate::layout::SVGLengthValue>,
+        ry: Option<crate::layout::SVGLengthValue>,
     },
     Circle {
-        cx: Option<layout_api::SVGLengthValue>,
-        cy: Option<layout_api::SVGLengthValue>,
-        r: Option<layout_api::SVGLengthValue>,
+        cx: Option<crate::layout::SVGLengthValue>,
+        cy: Option<crate::layout::SVGLengthValue>,
+        r: Option<crate::layout::SVGLengthValue>,
     },
     Ellipse {
-        cx: Option<layout_api::SVGLengthValue>,
-        cy: Option<layout_api::SVGLengthValue>,
-        rx: Option<layout_api::SVGLengthValue>,
-        ry: Option<layout_api::SVGLengthValue>,
+        cx: Option<crate::layout::SVGLengthValue>,
+        cy: Option<crate::layout::SVGLengthValue>,
+        rx: Option<crate::layout::SVGLengthValue>,
+        ry: Option<crate::layout::SVGLengthValue>,
     },
     Line {
-        x1: Option<layout_api::SVGLengthValue>,
-        y1: Option<layout_api::SVGLengthValue>,
-        x2: Option<layout_api::SVGLengthValue>,
-        y2: Option<layout_api::SVGLengthValue>,
+        x1: Option<crate::layout::SVGLengthValue>,
+        y1: Option<crate::layout::SVGLengthValue>,
+        x2: Option<crate::layout::SVGLengthValue>,
+        y2: Option<crate::layout::SVGLengthValue>,
     },
     Polyline {
         points: Option<String>,
@@ -191,7 +191,7 @@ pub struct SVGOwnedPaintData {
     pub fill_rule: Option<havi_types::fragment_tree::SVGFillRule>,
     pub stroke: Option<String>,
     pub stroke_opacity: Option<f32>,
-    pub stroke_width: Option<layout_api::SVGLengthValue>,
+    pub stroke_width: Option<crate::layout::SVGLengthValue>,
     pub stroke_linejoin: Option<havi_types::fragment_tree::SVGLineJoin>,
     pub stroke_linecap: Option<havi_types::fragment_tree::SVGLineCap>,
     pub stroke_miterlimit: Option<f32>,
@@ -199,7 +199,7 @@ pub struct SVGOwnedPaintData {
     pub stroke_dashoffset: Option<f32>,
     pub paint_order: Option<havi_types::fragment_tree::SVGPaintOrder>,
     pub opacity: Option<f32>,
-    pub pointer_events: Option<layout_api::SVGPointerEventsValue>,
+    pub pointer_events: Option<crate::layout::SVGPointerEventsValue>,
     pub vector_effect: Option<havi_types::fragment_tree::SVGVectorEffect>,
     pub clip_rule: Option<havi_types::fragment_tree::SVGFillRule>,
     pub clip_path: Option<SVGOwnedReferenceValue>,
@@ -276,10 +276,10 @@ impl From<&SVGPaintData<'_>> for SVGOwnedPaintData {
 #[derive(Clone, Debug)]
 pub struct SVGOwnedUseData {
     pub href: Option<SVGOwnedReferenceValue>,
-    pub x: Option<layout_api::SVGLengthValue>,
-    pub y: Option<layout_api::SVGLengthValue>,
-    pub width: Option<layout_api::SVGLengthValue>,
-    pub height: Option<layout_api::SVGLengthValue>,
+    pub x: Option<crate::layout::SVGLengthValue>,
+    pub y: Option<crate::layout::SVGLengthValue>,
+    pub width: Option<crate::layout::SVGLengthValue>,
+    pub height: Option<crate::layout::SVGLengthValue>,
 }
 
 impl SVGOwnedUseData {
@@ -310,24 +310,24 @@ impl From<&SVGUseData<'_>> for SVGOwnedUseData {
 pub enum SVGOwnedGradientData {
     Linear {
         href: Option<SVGOwnedReferenceValue>,
-        x1: Option<layout_api::SVGLengthValue>,
-        y1: Option<layout_api::SVGLengthValue>,
-        x2: Option<layout_api::SVGLengthValue>,
-        y2: Option<layout_api::SVGLengthValue>,
+        x1: Option<crate::layout::SVGLengthValue>,
+        y1: Option<crate::layout::SVGLengthValue>,
+        x2: Option<crate::layout::SVGLengthValue>,
+        y2: Option<crate::layout::SVGLengthValue>,
         gradient_units: Option<SVGCoordinateUnits>,
-        gradient_transform: layout_api::SVGTransformListValue,
+        gradient_transform: crate::layout::SVGTransformListValue,
         spread_method: Option<havi_types::fragment_tree::SVGGradientSpreadMethod>,
     },
     Radial {
         href: Option<SVGOwnedReferenceValue>,
-        cx: Option<layout_api::SVGLengthValue>,
-        cy: Option<layout_api::SVGLengthValue>,
-        r: Option<layout_api::SVGLengthValue>,
-        fx: Option<layout_api::SVGLengthValue>,
-        fy: Option<layout_api::SVGLengthValue>,
-        fr: Option<layout_api::SVGLengthValue>,
+        cx: Option<crate::layout::SVGLengthValue>,
+        cy: Option<crate::layout::SVGLengthValue>,
+        r: Option<crate::layout::SVGLengthValue>,
+        fx: Option<crate::layout::SVGLengthValue>,
+        fy: Option<crate::layout::SVGLengthValue>,
+        fr: Option<crate::layout::SVGLengthValue>,
         gradient_units: Option<SVGCoordinateUnits>,
-        gradient_transform: layout_api::SVGTransformListValue,
+        gradient_transform: crate::layout::SVGTransformListValue,
         spread_method: Option<havi_types::fragment_tree::SVGGradientSpreadMethod>,
     },
 }
@@ -460,15 +460,15 @@ impl From<&SVGStopData<'_>> for SVGOwnedStopData {
 #[derive(Clone, Debug)]
 pub struct SVGOwnedPatternData {
     pub href: Option<SVGOwnedReferenceValue>,
-    pub x: Option<layout_api::SVGLengthValue>,
-    pub y: Option<layout_api::SVGLengthValue>,
-    pub width: Option<layout_api::SVGLengthValue>,
-    pub height: Option<layout_api::SVGLengthValue>,
+    pub x: Option<crate::layout::SVGLengthValue>,
+    pub y: Option<crate::layout::SVGLengthValue>,
+    pub width: Option<crate::layout::SVGLengthValue>,
+    pub height: Option<crate::layout::SVGLengthValue>,
     pub pattern_units: Option<SVGCoordinateUnits>,
     pub pattern_content_units: Option<SVGCoordinateUnits>,
-    pub pattern_transform: layout_api::SVGTransformListValue,
-    pub view_box: Option<layout_api::SVGRectValue>,
-    pub preserve_aspect_ratio: layout_api::SVGPreserveAspectRatioValue,
+    pub pattern_transform: crate::layout::SVGTransformListValue,
+    pub view_box: Option<crate::layout::SVGRectValue>,
+    pub preserve_aspect_ratio: crate::layout::SVGPreserveAspectRatioValue,
 }
 
 impl SVGOwnedPatternData {
@@ -508,7 +508,7 @@ impl From<&SVGPatternData<'_>> for SVGOwnedPatternData {
 #[derive(Clone, Debug)]
 pub struct SVGOwnedTextPathData {
     pub href: Option<SVGOwnedReferenceValue>,
-    pub start_offset: Option<layout_api::SVGLengthValue>,
+    pub start_offset: Option<crate::layout::SVGLengthValue>,
     pub text: SVGTextData,
 }
 
@@ -535,11 +535,11 @@ impl From<&SVGTextPathData<'_>> for SVGOwnedTextPathData {
 #[derive(Clone, Debug)]
 pub struct SVGOwnedImageData {
     pub href: Option<SVGOwnedReferenceValue>,
-    pub x: Option<layout_api::SVGLengthValue>,
-    pub y: Option<layout_api::SVGLengthValue>,
-    pub width: Option<layout_api::SVGLengthValue>,
-    pub height: Option<layout_api::SVGLengthValue>,
-    pub preserve_aspect_ratio: layout_api::SVGPreserveAspectRatioValue,
+    pub x: Option<crate::layout::SVGLengthValue>,
+    pub y: Option<crate::layout::SVGLengthValue>,
+    pub width: Option<crate::layout::SVGLengthValue>,
+    pub height: Option<crate::layout::SVGLengthValue>,
+    pub preserve_aspect_ratio: crate::layout::SVGPreserveAspectRatioValue,
 }
 
 impl SVGOwnedImageData {
@@ -571,7 +571,7 @@ impl From<&SVGImageData<'_>> for SVGOwnedImageData {
 #[derive(Clone, Debug)]
 pub struct SVGOwnedCommonData {
     pub element_id: Option<String>,
-    pub transform: layout_api::SVGTransformListValue,
+    pub transform: crate::layout::SVGTransformListValue,
 }
 
 impl SVGOwnedCommonData {

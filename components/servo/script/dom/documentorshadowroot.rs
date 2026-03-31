@@ -8,7 +8,7 @@ use std::fmt;
 
 use embedder_traits::UntrustedNodeAddress;
 use js::rust::HandleValue;
-use layout_api::ElementsFromPointFlags;
+use crate::layout::ElementsFromPointFlags;
 use rustc_hash::FxBuildHasher;
 use script_bindings::error::{Error, ErrorResult};
 use script_bindings::script_runtime::{CanGc, JSContext};

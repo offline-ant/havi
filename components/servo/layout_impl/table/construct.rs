@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::iter::repeat_n;
 
 use atomic_refcell::AtomicRef;
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use crate::layout::wrapper_traits::ThreadSafeLayoutNode;
 use log::warn;
 use servo_arc::Arc;
 use style::properties::ComputedValues;

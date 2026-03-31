@@ -6,8 +6,8 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use bitflags::Flags;
-use layout_api::LayoutDamage;
-use layout_api::wrapper_traits::{LayoutNode, ThreadSafeLayoutNode};
+use crate::layout::LayoutDamage;
+use crate::layout::wrapper_traits::{LayoutNode, ThreadSafeLayoutNode};
 use crate::script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use style::context::{SharedStyleContext, StyleContext};
 use style::data::ElementData;

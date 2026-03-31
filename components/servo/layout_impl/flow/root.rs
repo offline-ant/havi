@@ -5,8 +5,8 @@
 use app_units::Au;
 use euclid::Rect;
 use euclid::default::Size2D as UntypedSize2D;
-use layout_api::AxesOverflow;
-use layout_api::wrapper_traits::{LayoutNode, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use crate::layout::AxesOverflow;
+use crate::layout::wrapper_traits::{LayoutNode, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
 use malloc_size_of_derive::MallocSizeOf;
 use crate::script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 use style::values::computed::Overflow;

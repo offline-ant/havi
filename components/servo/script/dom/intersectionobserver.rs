@@ -12,7 +12,7 @@ use cssparser::{Parser, ParserInput};
 use dom_struct::dom_struct;
 use euclid::{Rect, SideOffsets2D, Size2D};
 use js::rust::{HandleObject, MutableHandleValue};
-use layout_api::BoxAreaType;
+use crate::layout::BoxAreaType;
 use style::parser::Parse;
 use style::stylesheets::CssRuleType;
 use style::values::computed::Overflow;

@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::{DomMatrixId, DomMatrixIndex};
-use constellation_traits::DomMatrix;
+use crate::constellation::DomMatrix;
 use dom_struct::dom_struct;
 use euclid::default::Transform3D;
 use js::rust::{CustomAutoRooterGuard, HandleObject};

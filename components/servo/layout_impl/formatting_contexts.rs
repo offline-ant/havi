@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
+use crate::layout::wrapper_traits::ThreadSafeLayoutNode;
 use malloc_size_of_derive::MallocSizeOf;
 use crate::script::layout_dom::{ServoLayoutElement, ServoThreadSafeLayoutNode};
 use servo_arc::Arc;

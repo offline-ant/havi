@@ -20,7 +20,7 @@ use html5ever::{LocalName, Prefix, QualName, local_name, ns};
 use http::StatusCode;
 use http::header::{self, HeaderMap, HeaderValue};
 use js::realm::{AutoRealm, CurrentRealm};
-use layout_api::MediaFrame;
+use crate::layout::MediaFrame;
 use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
 use crate::net::hppr_media::ResolvedHpprMediaAsset;
 use net_traits::request::{Destination, RequestId};

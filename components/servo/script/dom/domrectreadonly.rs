@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use base::id::{DomRectId, DomRectIndex};
-use constellation_traits::DomRect;
+use crate::constellation::DomRect;
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
 use rustc_hash::FxHashMap;

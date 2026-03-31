@@ -12,7 +12,7 @@ use std::{mem, thread};
 use base::id::{PipelineId, WebViewId};
 use base::threadpool::ThreadPool;
 use imsz::imsz_from_reader;
-use layout_api::{
+use crate::layout::{
     extract_svg_root_metadata, parse_svg_length, parse_svg_optional_number,
     parse_svg_transform_list, resolve_svg_length_to_user_units,
 };
@@ -238,7 +238,7 @@ fn color_with_opacity(color: [u8; 4], opacity: f32) -> AlphaColor<Srgb> {
 }
 
 fn compute_favicon_root_transform(
-    viewport: &layout_api::SVGViewportData,
+    viewport: &crate::layout::SVGViewportData,
     requested_width: f64,
     requested_height: f64,
 ) -> Option<Affine> {
@@ -257,10 +257,10 @@ fn compute_favicon_root_transform(
     let preserve = viewport.preserve_aspect_ratio;
     let scale_x = requested_width / view_box_width;
     let scale_y = requested_height / view_box_height;
-    let (scale_x, scale_y, align_x, align_y) = if preserve.align == layout_api::SVG_PRESERVEASPECTRATIO_NONE {
+    let (scale_x, scale_y, align_x, align_y) = if preserve.align == crate::layout::SVG_PRESERVEASPECTRATIO_NONE {
         (scale_x, scale_y, 0.0, 0.0)
     } else {
-        let uniform = if preserve.meet_or_slice == layout_api::SVG_MEETORSLICE_SLICE {
+        let uniform = if preserve.meet_or_slice == crate::layout::SVG_MEETORSLICE_SLICE {
             scale_x.max(scale_y)
         } else {
             scale_x.min(scale_y)
@@ -268,15 +268,15 @@ fn compute_favicon_root_transform(
         let extra_x = requested_width - view_box_width * uniform;
         let extra_y = requested_height - view_box_height * uniform;
         let (align_x_factor, align_y_factor) = match preserve.align {
-            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMIN => (0.0, 0.0),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMIN => (0.5, 0.0),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMIN => (1.0, 0.0),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMID => (0.0, 0.5),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMID => (0.5, 0.5),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMID => (1.0, 0.5),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMINYMAX => (0.0, 1.0),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMAX => (0.5, 1.0),
-            layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMAX => (1.0, 1.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMIN => (0.0, 0.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMIN => (0.5, 0.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMIN => (1.0, 0.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMID => (0.0, 0.5),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMID => (0.5, 0.5),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMID => (1.0, 0.5),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMAX => (0.0, 1.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMAX => (0.5, 1.0),
+            crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMAX => (1.0, 1.0),
             _ => (0.5, 0.5),
         };
         (
@@ -637,7 +637,7 @@ fn parse_svg_color_components(args: &str, has_alpha: bool) -> Option<[u8; 4]> {
 }
 
 fn parse_svg_favicon_transform(raw: Option<&str>) -> Affine {
-    let transform = layout_api::compose_svg_transform_list(&parse_svg_transform_list(raw));
+    let transform = crate::layout::compose_svg_transform_list(&parse_svg_transform_list(raw));
     Affine::new([
         transform.m11 as f64,
         transform.m12 as f64,
@@ -736,14 +736,14 @@ fn decode_bytes_sync(
             let width = metadata
                 .viewport
                 .width
-                .and_then(layout_api::resolve_svg_length_to_user_units)
+                .and_then(crate::layout::resolve_svg_length_to_user_units)
                 .filter(|value| *value > 0.0)
                 .or_else(|| metadata.viewport.view_box.map(|view_box| view_box.width.max(0.0)))
                 .unwrap_or(0.0) as u32;
             let height = metadata
                 .viewport
                 .height
-                .and_then(layout_api::resolve_svg_length_to_user_units)
+                .and_then(crate::layout::resolve_svg_length_to_user_units)
                 .filter(|value| *value > 0.0)
                 .or_else(|| metadata.viewport.view_box.map(|view_box| view_box.height.max(0.0)))
                 .unwrap_or(0.0) as u32;

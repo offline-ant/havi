@@ -6,16 +6,16 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use base::Epoch;
-use constellation_traits::BlobImpl;
+use crate::constellation::BlobImpl;
 #[cfg(feature = "webgpu")]
-use constellation_traits::ScriptToConstellationMessage;
+use crate::constellation::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
 use html5ever::{LocalName, Prefix, local_name, ns};
 #[cfg(feature = "webgpu")]
 use ipc_channel::ipc::{self as ipcchan};
 use js::rust::{HandleObject, HandleValue};
-use layout_api::HTMLCanvasData;
+use crate::layout::HTMLCanvasData;
 use pixels::{EncodedImageType, Snapshot};
 use rustc_hash::FxHashMap;
 use script_bindings::weakref::WeakRef;

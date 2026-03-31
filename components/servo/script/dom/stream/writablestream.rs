@@ -9,7 +9,7 @@ use std::ptr::{self};
 use std::rc::Rc;
 
 use base::id::{MessagePortId, MessagePortIndex};
-use constellation_traits::MessagePortImpl;
+use crate::constellation::MessagePortImpl;
 use dom_struct::dom_struct;
 use js::jsapi::{Heap, JSObject};
 use js::jsval::{JSVal, ObjectValue, UndefinedValue};

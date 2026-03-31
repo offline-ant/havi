@@ -6,7 +6,7 @@ use std::cell::{Cell, Ref};
 use std::rc::Rc;
 
 use base::id::{ImageBitmapId, ImageBitmapIndex};
-use constellation_traits::SerializableImageBitmap;
+use crate::constellation::SerializableImageBitmap;
 use dom_struct::dom_struct;
 use euclid::default::{Point2D, Rect, Size2D};
 use js::realm::CurrentRealm;

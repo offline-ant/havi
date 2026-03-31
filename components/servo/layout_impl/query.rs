@@ -8,8 +8,8 @@ use std::rc::Rc;
 use app_units::Au;
 use euclid::{Point2D, Rect, SideOffsets2D, Size2D};
 use itertools::Itertools;
-use layout_api::wrapper_traits::{LayoutNode, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
-use layout_api::{
+use crate::layout::wrapper_traits::{LayoutNode, ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use crate::layout::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, LayoutElementType, LayoutNodeType,
     OffsetParentResponse, PhysicalSides, SVGBoundingBoxOptionsData, SVGTextCharGeometry,
     ScrollContainerQueryFlags, ScrollContainerResponse,
@@ -2384,9 +2384,9 @@ where
 pub fn query_elements_from_point(
     fragment_tree: &FragmentTree,
     point: webrender_api::units::LayoutPoint,
-    _flags: layout_api::ElementsFromPointFlags,
+    _flags: crate::layout::ElementsFromPointFlags,
     scroll_offsets: &ScrollOffsets<'_>,
-) -> Vec<layout_api::ElementsFromPointResult> {
+) -> Vec<crate::layout::ElementsFromPointResult> {
     use embedder_traits::Cursor;
     use style::computed_values::pointer_events::T as PointerEvents;
     use style::values::specified::ui::CursorKind;
@@ -2436,9 +2436,9 @@ pub fn query_elements_from_point(
         point: Point2D<f32, CSSPixel>,
         rect: Rect<f32, CSSPixel>,
         style: &ComputedValues,
-        results: &mut Vec<layout_api::ElementsFromPointResult>,
+        results: &mut Vec<crate::layout::ElementsFromPointResult>,
     ) {
-        results.push(layout_api::ElementsFromPointResult {
+        results.push(crate::layout::ElementsFromPointResult {
             node: identity.source_tag.node,
             point_in_target: Point2D::new(
                 point.x - rect.origin.x,
@@ -2501,7 +2501,7 @@ pub fn query_elements_from_point(
         child: &published::PaintChild,
         point: Point2D<f32, CSSPixel>,
         root_scroll_offset: euclid::Vector2D<Au, CSSPixel>,
-        results: &mut Vec<layout_api::ElementsFromPointResult>,
+        results: &mut Vec<crate::layout::ElementsFromPointResult>,
     ) {
         match child {
             published::PaintChild::Fragment(fragment_id) => {
@@ -2524,7 +2524,7 @@ pub fn query_elements_from_point(
         fragment_id: published::FragmentId,
         point: Point2D<f32, CSSPixel>,
         root_scroll_offset: euclid::Vector2D<Au, CSSPixel>,
-        results: &mut Vec<layout_api::ElementsFromPointResult>,
+        results: &mut Vec<crate::layout::ElementsFromPointResult>,
     ) {
         let base = generation.base(fragment_id);
         if base.style.get_inherited_ui().pointer_events == PointerEvents::None {
@@ -2550,7 +2550,7 @@ pub fn query_elements_from_point(
                     hit_test_paint_child(generation, child, point, root_scroll_offset, results);
                 }
                 if let Some(tag) = box_fragment.base.tag {
-                    results.push(layout_api::ElementsFromPointResult {
+                    results.push(crate::layout::ElementsFromPointResult {
                         node: tag.node,
                         point_in_target: Point2D::new(
                             point.x - border_rect.origin.x,
@@ -2613,7 +2613,7 @@ pub fn query_elements_from_point(
                     point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
                 {
                     if let Some(tag) = text_fragment.base.tag {
-                        results.push(layout_api::ElementsFromPointResult {
+                        results.push(crate::layout::ElementsFromPointResult {
                             node: tag.node,
                             point_in_target: Point2D::new(
                                 point.x - rect.origin.x,
@@ -2699,7 +2699,7 @@ pub fn query_elements_from_point(
                     point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
                 {
                     if let Some(tag) = image_fragment.base.tag {
-                        results.push(layout_api::ElementsFromPointResult {
+                        results.push(crate::layout::ElementsFromPointResult {
                             node: tag.node,
                             point_in_target: Point2D::new(
                                 point.x - rect.origin.x,
@@ -2718,7 +2718,7 @@ pub fn query_elements_from_point(
                     point.y >= rect.origin.y && point.y <= rect.origin.y + rect.size.height
                 {
                     if let Some(tag) = iframe_fragment.base.tag {
-                        results.push(layout_api::ElementsFromPointResult {
+                        results.push(crate::layout::ElementsFromPointResult {
                             node: tag.node,
                             point_in_target: Point2D::new(
                                 point.x - rect.origin.x,
@@ -2880,7 +2880,7 @@ mod tests {
             },
         ]);
 
-        let rect = box_area_rect(&generation, published::FragmentId(2), layout_api::BoxAreaType::Border)
+        let rect = box_area_rect(&generation, published::FragmentId(2), crate::layout::BoxAreaType::Border)
             .expect("svg leaf should have a border box");
         assert_eq!(rect.origin.x, Au::from_px(60));
         assert_eq!(rect.origin.y, Au::from_px(0));
@@ -2929,7 +2929,7 @@ mod tests {
             },
         ]);
 
-        let rect = box_area_rect(&generation, published::FragmentId(1), layout_api::BoxAreaType::Border)
+        let rect = box_area_rect(&generation, published::FragmentId(1), crate::layout::BoxAreaType::Border)
             .expect("svg leaf should have a border box");
         assert_eq!(rect.origin.x, Au::from_px(50));
         assert_eq!(rect.origin.y, Au::from_px(0));

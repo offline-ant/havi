@@ -3,7 +3,7 @@ use havi_types::fragment_tree::{
     SVGRect,
 };
 
-use layout_api::{SVGGeometryData, SVGLengthValue, resolve_svg_length_to_user_units};
+use crate::layout::{SVGGeometryData, SVGLengthValue, resolve_svg_length_to_user_units};
 use super::style::SVGResolvedStroke;
 use super::transform::transform_svg_point;
 

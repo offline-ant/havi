@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::{PipelineId, WebViewId};
-use constellation_traits::{ScriptToConstellationChan, ScriptToConstellationMessage};
+use crate::constellation::{ScriptToConstellationChan, ScriptToConstellationMessage};
 use crossbeam_channel::Sender;
 use devtools_traits::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
@@ -16,7 +16,7 @@ use js::jsval::UndefinedValue;
 use net_traits::ResourceThreads;
 use net_traits::image_cache::ImageCache;
 use profile_traits::{mem, time};
-use script_traits::Painter;
+use crate::script::Painter;
 use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
 use storage_traits::StorageThreads;
 use stylo_atoms::Atom;

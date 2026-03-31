@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use app_units::Au;
 use euclid::{Rect, Vector2D};
-use layout_api::{AxesOverflow, ScrollContainerQueryFlags};
+use crate::layout::{AxesOverflow, ScrollContainerQueryFlags};
 use script_bindings::codegen::GenericBindings::WindowBinding::ScrollBehavior;
 use script_bindings::inheritance::Castable;
 use script_bindings::root::DomRoot;

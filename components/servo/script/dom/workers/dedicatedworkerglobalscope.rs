@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 
 use base::generic_channel::{GenericReceiver, RoutedReceiver};
 use base::id::{BrowsingContextId, PipelineId, ScriptEventLoopId, WebViewId};
-use constellation_traits::{WorkerGlobalScopeInit, WorkerScriptLoadOrigin};
+use crate::constellation::{WorkerGlobalScopeInit, WorkerScriptLoadOrigin};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use devtools_traits::DevtoolScriptControlMsg;
 use dom_struct::dom_struct;

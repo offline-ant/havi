@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use base::generic_channel::{GenericReceiver, GenericSend, GenericSender, RoutedReceiver};
 use base::id::PipelineId;
-use constellation_traits::{
+use crate::constellation::{
     ScopeThings, ServiceWorkerMsg, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
 };
 use crossbeam_channel::{Receiver, Sender, after};

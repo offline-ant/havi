@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::WebViewId;
-use constellation_traits::EmbedderToConstellationMessage;
+use crate::constellation::EmbedderToConstellationMessage;
 use embedder_traits::{JSValue, JavaScriptEvaluationError, JavaScriptEvaluationId};
 use rustc_hash::FxHashMap;
 

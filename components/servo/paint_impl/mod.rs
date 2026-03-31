@@ -10,7 +10,7 @@ use std::rc::Rc;
 pub use paint_api::*;
 
 use base::generic_channel::RoutedReceiver;
-use constellation_traits::EmbedderToConstellationMessage;
+use crate::constellation::EmbedderToConstellationMessage;
 use crossbeam_channel::Sender;
 use embedder_traits::{EventLoopWaker, ShutdownState};
 use self::src_bridge::ScreenshotBridge;

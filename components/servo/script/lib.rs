@@ -9,6 +9,7 @@
 #![cfg_attr(crown, register_tool(crown))]
 
 mod animation_timeline;
+mod traits;
 mod animations;
 mod css;
 mod script_window_proxies;
@@ -65,6 +66,7 @@ mod drag_data_store;
 mod links;
 
 pub use init::init;
+pub use traits::*;
 pub(crate) use script_bindings::DomTypes;
 pub use script_runtime::JSEngineSetup;
 pub use script_thread::ScriptThread;

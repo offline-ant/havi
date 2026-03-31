@@ -1163,41 +1163,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
-name = "constellation_traits"
-version = "0.0.1"
-dependencies = [
- "base",
- "canvas_traits",
- "content-security-policy",
- "devtools_traits",
- "embedder_traits",
- "encoding_rs",
- "euclid",
- "fonts_traits",
- "http 1.4.0",
- "hyper_serde",
- "ipc-channel",
- "log",
- "malloc_size_of_derive",
- "net_traits",
- "paint_api",
- "pixels",
- "profile_traits",
- "rustc-hash 2.1.1",
- "serde",
- "servo_config",
- "servo_malloc_size_of",
- "servo_url",
- "storage_traits",
- "strum",
- "stylo_traits",
- "uuid",
- "webgpu_traits",
- "webrender_api",
- "wgpu-core",
-]
-
-[[package]]
 name = "content-security-policy"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2245,7 +2210,6 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-core-text",
- "paint_api",
  "parking_lot",
  "profile_traits",
  "read-fonts",
@@ -4134,41 +4098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "layout_api"
-version = "0.0.1"
-dependencies = [
- "app_units",
- "atomic_refcell",
- "background_hang_monitor_api",
- "base",
- "bitflags 2.11.0",
- "embedder_traits",
- "euclid",
- "fonts",
- "fonts_traits",
- "havi-types",
- "html5ever",
- "libc",
- "malloc_size_of_derive",
- "net_traits",
- "paint_api",
- "parking_lot",
- "pixels",
- "profile_traits",
- "rustc-hash 2.1.1",
- "script_traits",
- "selectors",
- "serde",
- "servo_arc",
- "servo_malloc_size_of",
- "servo_url",
- "stylo",
- "stylo_traits",
- "webrender_api",
- "xml5ever",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4248,7 +4177,6 @@ dependencies = [
  "chardetng",
  "chrono",
  "cipher",
- "constellation_traits",
  "content-security-policy",
  "cookie 0.18.1",
  "crossbeam-channel",
@@ -4305,7 +4233,6 @@ dependencies = [
  "jstraceable_derive",
  "keyboard-types",
  "kurbo 0.12.0",
- "layout_api",
  "libc",
  "log",
  "makepad-media",
@@ -4349,7 +4276,6 @@ dependencies = [
  "rusqlite",
  "rustc-hash 2.1.1",
  "script_bindings",
- "script_traits",
  "sea-query",
  "sea-query-rusqlite",
  "sec1",
@@ -7059,43 +6985,6 @@ dependencies = [
  "tracing",
  "webxr-api",
  "xml5ever",
-]
-
-[[package]]
-name = "script_traits"
-version = "0.0.1"
-dependencies = [
- "accesskit",
- "background_hang_monitor_api",
- "base",
- "bluetooth_traits",
- "canvas_traits",
- "constellation_traits",
- "content-security-policy",
- "crossbeam-channel",
- "devtools_traits",
- "embedder_traits",
- "euclid",
- "fonts_traits",
- "keyboard-types",
- "log",
- "malloc_size_of_derive",
- "net_traits",
- "paint_api",
- "pixels",
- "profile_traits",
- "rustc-hash 2.1.1",
- "serde",
- "servo_config",
- "servo_malloc_size_of",
- "servo_url",
- "storage_traits",
- "strum",
- "stylo_atoms",
- "stylo_traits",
- "webgpu_traits",
- "webrender_api",
- "webxr-api",
 ]
 
 [[package]]

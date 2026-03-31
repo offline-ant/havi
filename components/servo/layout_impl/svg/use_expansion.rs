@@ -29,7 +29,7 @@ pub fn expand_use_node<'a>(
 
     result.instance_transform = use_instance_transform(
         match &use_node.svg_data().node_kind {
-            layout_api::SVGNodeKind::Use(data) => Some(data),
+            crate::layout::SVGNodeKind::Use(data) => Some(data),
             _ => None,
         },
         &use_node.svg_data().common.transform,
@@ -38,8 +38,8 @@ pub fn expand_use_node<'a>(
 }
 
 fn use_instance_transform(
-    use_data: Option<&layout_api::SVGUseData<'_>>,
-    transform: &[layout_api::SVGTransformValue],
+    use_data: Option<&crate::layout::SVGUseData<'_>>,
+    transform: &[crate::layout::SVGTransformValue],
 ) -> SVGTransform {
     let translation = use_data.map_or(SVGTransform::identity(), |data| {
         translate_svg_transform(
@@ -58,14 +58,14 @@ mod tests {
     #[test]
     fn combines_use_translation_and_transform() {
         let transform = use_instance_transform(
-            Some(&layout_api::SVGUseData {
-                href: layout_api::parse_svg_reference(Some("#shape")),
-                x: Some(layout_api::parse_svg_length(Some("10"))),
-                y: Some(layout_api::parse_svg_length(Some("20"))),
+            Some(&crate::layout::SVGUseData {
+                href: crate::layout::parse_svg_reference(Some("#shape")),
+                x: Some(crate::layout::parse_svg_length(Some("10"))),
+                y: Some(crate::layout::parse_svg_length(Some("20"))),
                 width: None,
                 height: None,
             }),
-            &layout_api::parse_svg_transform_list(Some("scale(2)")),
+            &crate::layout::parse_svg_transform_list(Some("scale(2)")),
         );
         let point = super::super::transform::transform_svg_point(
             transform,

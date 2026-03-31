@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 
 use base::generic_channel::GenericSend;
 use base::id::HistoryStateId;
-use constellation_traits::{
+use crate::constellation::{
     ScriptToConstellationMessage, StructuredSerializedData, TraversalDirection,
 };
 use dom_struct::dom_struct;

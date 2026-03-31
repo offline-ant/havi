@@ -9,8 +9,8 @@
 //! modifying upstream Servo collection logic.
 
 use base::id::{BrowsingContextId, PipelineId};
-use constellation_traits::{LoadData, NavigationHistoryBehavior};
-use script_traits::UpdatePipelineIdReason;
+use crate::constellation::{LoadData, NavigationHistoryBehavior};
+use crate::script::UpdatePipelineIdReason;
 
 use crate::script::dom::bindings::codegen::GenericBindings::HTMLIFrameElementBinding::HTMLIFrameElementMethods;
 use crate::script::dom::bindings::codegen::GenericBindings::HTMLXFrameBinding::HTMLXFrameMethods;

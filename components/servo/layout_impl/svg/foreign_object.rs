@@ -1,6 +1,6 @@
 use app_units::Au;
 use havi_types::fragment_tree::{SVGRect, SVGTransform};
-use layout_api::SVGNodeKind;
+use crate::layout::SVGNodeKind;
 use crate::script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc as ServoArc;
 use style::properties::ComputedValues;

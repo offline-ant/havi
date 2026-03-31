@@ -250,7 +250,7 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
             .unwrap_or("application/octet-stream")
             .to_string();
 
-        let blob_impl = constellation_traits::BlobImpl::new_from_bytes(data, content_type);
+        let blob_impl = crate::constellation::BlobImpl::new_from_bytes(data, content_type);
         Blob::new(&global, blob_impl, CanGc::note())
     }
 

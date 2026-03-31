@@ -40,7 +40,7 @@ use base::id::{
 };
 
 use chrono::{DateTime, Local};
-use constellation_traits::{
+use crate::constellation::{
     JsEvalResult, LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
     ScriptToConstellationChan, ScriptToConstellationMessage, ScrollStateUpdate,
     StructuredSerializedData, TraversalDirection, WindowSizeType,
@@ -58,7 +58,7 @@ use embedder_traits::{
     Theme, ViewportDetails, WebDriverScriptCommand,
 };
 use encoding_rs::Encoding;
-use crate::fonts::{FontContext, SystemFontServiceProxy};
+use crate::fonts::{FontContext, SystemFontServiceProxy, font_render_api_from_paint_api};
 use headers::{HeaderMapExt, LastModified, ReferrerPolicy as ReferrerPolicyHeader};
 use http::header::REFRESH;
 use hyper_serde::Serde;
@@ -70,7 +70,7 @@ use js::jsval::UndefinedValue;
 use url::Position;
 use js::rust::ParentRuntime;
 use js::rust::wrappers2::{JS_AddInterruptCallback, SetWindowProxyClass};
-use layout_api::{LayoutConfig, LayoutFactory, RestyleReason};
+use crate::layout::{LayoutConfig, LayoutFactory, RestyleReason};
 
 use crate::metrics::MAX_TASK_NS;
 use net_traits::image_cache::{ImageCache, ImageCacheFactory, ImageCacheResponseMessage};
@@ -88,7 +88,7 @@ use profile_traits::time_profile;
 use rustc_hash::{FxHashMap, FxHashSet};
 use script_bindings::script_runtime::{JSContext, temp_cx};
 use script_bindings::settings_stack::run_a_script;
-use script_traits::{
+use crate::script::{
     ConstellationInputEvent, DiscardBrowsingContext, DocumentActivity, InitialScriptState,
     NewPipelineInfo, Painter, ProgressiveWebMetricType, ScriptThreadMessage,
     UpdatePipelineIdReason,
@@ -3252,9 +3252,9 @@ impl ScriptThread {
         self.paint_api
             .pipeline_exited(webview_id, pipeline_id, PipelineExitSource::Script);
 
-        layout_api::remove_shared_layout_fragment_tree_for_pipeline(pipeline_id);
-        layout_api::remove_shared_scroll_state_for_pipeline(pipeline_id);
-        layout_api::remove_shared_committed_scroll_offsets_for_pipeline(pipeline_id);
+        crate::layout::remove_shared_layout_fragment_tree_for_pipeline(pipeline_id);
+        crate::layout::remove_shared_scroll_state_for_pipeline(pipeline_id);
+        crate::layout::remove_shared_committed_scroll_offsets_for_pipeline(pipeline_id);
 
         self.devtools_state.notify_pipeline_exited(pipeline_id);
 
@@ -3418,7 +3418,7 @@ impl ScriptThread {
 
         let font_context = Arc::new(FontContext::new(
             self.system_font_service.clone(),
-            self.paint_api.clone(),
+            font_render_api_from_paint_api(self.paint_api.clone()),
             self.resource_threads.clone(),
         ));
 
@@ -3457,12 +3457,12 @@ impl ScriptThread {
             user_stylesheets,
             theme: incomplete.theme,
             accessibility_active: self.accessibility_active.get(),
-            shared_layout_fragments: layout_api::shared_layout_fragment_tree_for(incomplete.webview_id),
-            shared_layout_fragments_by_pipeline: layout_api::shared_layout_fragment_tree_for_pipeline(
+            shared_layout_fragments: crate::layout::shared_layout_fragment_tree_for(incomplete.webview_id),
+            shared_layout_fragments_by_pipeline: crate::layout::shared_layout_fragment_tree_for_pipeline(
                 incomplete.pipeline_id,
             ),
-            shared_scroll_state: layout_api::shared_scroll_state_for(incomplete.webview_id),
-            shared_scroll_state_by_pipeline: layout_api::shared_scroll_state_for_pipeline(
+            shared_scroll_state: crate::layout::shared_scroll_state_for(incomplete.webview_id),
+            shared_scroll_state_by_pipeline: crate::layout::shared_scroll_state_for_pipeline(
                 incomplete.pipeline_id,
             ),
         };

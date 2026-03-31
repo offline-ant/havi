@@ -12,7 +12,7 @@ use profile_traits::time::{
     ProfilerCategory, ProfilerChan, TimerMetadata, TimerMetadataFrameType, TimerMetadataReflowType,
     send_profile_data,
 };
-use script_traits::ProgressiveWebMetricType;
+use crate::script::ProgressiveWebMetricType;
 use servo_config::opts;
 use servo_url::BrowserUrl;
 

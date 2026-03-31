@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 use base::generic_channel::{GenericSend, SendResult};
 use base::id::WebViewId;
-use constellation_traits::ScriptToConstellationMessage;
+use crate::constellation::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
 use profile_traits::generic_channel;
 use servo_url::BrowserUrl;

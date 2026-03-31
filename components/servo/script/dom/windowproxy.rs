@@ -9,7 +9,7 @@ use std::rc::Rc;
 use base::generic_channel;
 use base::generic_channel::GenericSend;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
-use constellation_traits::{
+use crate::constellation::{
     AuxiliaryWebViewCreationRequest, LoadData, LoadOrigin, NavigationHistoryBehavior,
     ScriptToConstellationMessage,
 };
@@ -39,7 +39,7 @@ use js::rust::{Handle, MutableHandle, MutableHandleValue, get_object_class};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use net_traits::request::Referrer;
 use script_bindings::reflector::MutDomObject;
-use script_traits::NewPipelineInfo;
+use crate::script::NewPipelineInfo;
 use serde::{Deserialize, Serialize};
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use storage_traits::webstorage_thread::WebStorageThreadMsg;

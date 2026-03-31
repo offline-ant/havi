@@ -10,7 +10,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, QualName, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use layout_api::{QueryMsg, ScrollContainerQueryFlags, ScrollContainerResponse};
+use crate::layout::{QueryMsg, ScrollContainerQueryFlags, ScrollContainerResponse};
 use script_bindings::codegen::GenericBindings::DocumentBinding::DocumentMethods;
 use style::attr::AttrValue;
 use stylo_dom::ElementState;

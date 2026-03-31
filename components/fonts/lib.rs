@@ -6,6 +6,7 @@
 
 mod font;
 mod font_context;
+mod font_render_api;
 mod font_store;
 mod glyph;
 #[expect(unsafe_code)]
@@ -24,6 +25,7 @@ pub use font_context::{
     CspViolationHandler, FontContext, FontContextWebFontMethods, NetworkTimingHandler,
     WebFontDocumentContext,
 };
+pub use font_render_api::{FontRenderApi, FontRenderBackend};
 pub use font_store::FontTemplates;
 pub use fonts_traits::*;
 pub(crate) use glyph::*;

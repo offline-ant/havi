@@ -21,8 +21,8 @@ use havi_types::fragment_tree::{
     SVGResourceKind, SVGStrokeStyle, SVGTransform, SVGUseInstanceChain,
     SVGRadialGradient, Tag as PublishedTag,
 };
-use layout_api::wrapper_traits::ThreadSafeLayoutNode;
-use layout_api::{SVGElementData, SVGGradientData, SVGNodeKind};
+use crate::layout::wrapper_traits::ThreadSafeLayoutNode;
+use crate::layout::{SVGElementData, SVGGradientData, SVGNodeKind};
 use crate::script::layout_dom::{ServoLayoutNode, ServoThreadSafeLayoutNode};
 
 use super::dom::{build_dom_svg_tree, SVGLayoutNodeKind, SVGNodeResolvedStyle};
@@ -463,9 +463,9 @@ fn build_svg_node_fragment(
             let viewport_rect = svg_rect_from_physical_rect(rect);
             let view_box_rect = viewport.view_box.map(svg_rect_from_view_box);
             let preserve_aspect_ratio = if standalone_viewbox_fill && viewport.width.is_none() && viewport.height.is_none() {
-                layout_api::SVGPreserveAspectRatioValue {
-                    align: layout_api::SVG_PRESERVEASPECTRATIO_NONE,
-                    meet_or_slice: layout_api::SVG_MEETORSLICE_MEET,
+                crate::layout::SVGPreserveAspectRatioValue {
+                    align: crate::layout::SVG_PRESERVEASPECTRATIO_NONE,
+                    meet_or_slice: crate::layout::SVG_MEETORSLICE_MEET,
                 }
             } else {
                 viewport_style.preserve_aspect_ratio
@@ -952,7 +952,7 @@ fn resolve_svg_resource_node(
             if let Some(resource_id) = resource_graph.resource_id_for_node(node.tag.node) {
                 let view_box = data.view_box.map(svg_rect_from_view_box);
                 let marker_units = match data.marker_units {
-                    Some(layout_api::SVGMarkerUnitsValue::UserSpaceOnUse) => {
+                    Some(crate::layout::SVGMarkerUnitsValue::UserSpaceOnUse) => {
                         SVGCoordinateUnits::UserSpaceOnUse
                     }
                     _ => SVGCoordinateUnits::UserSpaceOnUse,
@@ -1101,15 +1101,15 @@ fn pattern_preserve_aspect_ratio_is_specified(node: &SVGResolvedNode) -> bool {
     node.metadata.preserve_aspect_ratio_specified
 }
 
-fn convert_svg_length_value(length: layout_api::SVGLengthValue) -> SVGLength {
+fn convert_svg_length_value(length: crate::layout::SVGLengthValue) -> SVGLength {
     let unit = match length.unit_type {
-        layout_api::SVG_LENGTHTYPE_PERCENTAGE => SVGLengthUnit::Percent,
-        layout_api::SVG_LENGTHTYPE_PX => SVGLengthUnit::Px,
-        layout_api::SVG_LENGTHTYPE_IN => SVGLengthUnit::In,
-        layout_api::SVG_LENGTHTYPE_CM => SVGLengthUnit::Cm,
-        layout_api::SVG_LENGTHTYPE_MM => SVGLengthUnit::Mm,
-        layout_api::SVG_LENGTHTYPE_PT => SVGLengthUnit::Pt,
-        layout_api::SVG_LENGTHTYPE_PC => SVGLengthUnit::Pc,
+        crate::layout::SVG_LENGTHTYPE_PERCENTAGE => SVGLengthUnit::Percent,
+        crate::layout::SVG_LENGTHTYPE_PX => SVGLengthUnit::Px,
+        crate::layout::SVG_LENGTHTYPE_IN => SVGLengthUnit::In,
+        crate::layout::SVG_LENGTHTYPE_CM => SVGLengthUnit::Cm,
+        crate::layout::SVG_LENGTHTYPE_MM => SVGLengthUnit::Mm,
+        crate::layout::SVG_LENGTHTYPE_PT => SVGLengthUnit::Pt,
+        crate::layout::SVG_LENGTHTYPE_PC => SVGLengthUnit::Pc,
         _ => SVGLengthUnit::Number,
     };
     SVGLength {
@@ -1119,23 +1119,23 @@ fn convert_svg_length_value(length: layout_api::SVGLengthValue) -> SVGLength {
 }
 
 fn convert_svg_preserve_aspect_ratio(
-    value: layout_api::SVGPreserveAspectRatioValue,
+    value: crate::layout::SVGPreserveAspectRatioValue,
 ) -> SVGPreserveAspectRatio {
     let align = match value.align {
-        layout_api::SVG_PRESERVEASPECTRATIO_NONE => SVGPreserveAspectRatioAlign::None,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMIN => SVGPreserveAspectRatioAlign::XMinYMin,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMIN => SVGPreserveAspectRatioAlign::XMidYMin,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMIN => SVGPreserveAspectRatioAlign::XMaxYMin,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMID => SVGPreserveAspectRatioAlign::XMinYMid,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMID => SVGPreserveAspectRatioAlign::XMidYMid,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMID => SVGPreserveAspectRatioAlign::XMaxYMid,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMINYMAX => SVGPreserveAspectRatioAlign::XMinYMax,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMIDYMAX => SVGPreserveAspectRatioAlign::XMidYMax,
-        layout_api::SVG_PRESERVEASPECTRATIO_XMAXYMAX => SVGPreserveAspectRatioAlign::XMaxYMax,
+        crate::layout::SVG_PRESERVEASPECTRATIO_NONE => SVGPreserveAspectRatioAlign::None,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMIN => SVGPreserveAspectRatioAlign::XMinYMin,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMIN => SVGPreserveAspectRatioAlign::XMidYMin,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMIN => SVGPreserveAspectRatioAlign::XMaxYMin,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMID => SVGPreserveAspectRatioAlign::XMinYMid,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMID => SVGPreserveAspectRatioAlign::XMidYMid,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMID => SVGPreserveAspectRatioAlign::XMaxYMid,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMINYMAX => SVGPreserveAspectRatioAlign::XMinYMax,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMIDYMAX => SVGPreserveAspectRatioAlign::XMidYMax,
+        crate::layout::SVG_PRESERVEASPECTRATIO_XMAXYMAX => SVGPreserveAspectRatioAlign::XMaxYMax,
         _ => SVGPreserveAspectRatioAlign::XMidYMid,
     };
     let meet_or_slice = match value.meet_or_slice {
-        layout_api::SVG_MEETORSLICE_SLICE => SVGMeetOrSlice::Slice,
+        crate::layout::SVG_MEETORSLICE_SLICE => SVGMeetOrSlice::Slice,
         _ => SVGMeetOrSlice::Meet,
     };
     SVGPreserveAspectRatio {
@@ -1424,7 +1424,7 @@ fn collect_gradient_stops(node: &SVGResolvedNode) -> Vec<SVGGradientStop> {
 }
 
 fn resolve_gradient_stop(
-    stop: &layout_api::SVGStopData<'_>,
+    stop: &crate::layout::SVGStopData<'_>,
     node: &SVGResolvedNode,
 ) -> SVGGradientStop {
     let color = match &node.resolved_style {
@@ -1444,7 +1444,7 @@ fn resolve_gradient_stop(
             .stop_opacity
             .map(str::to_owned)
             .as_deref()
-            .and_then(|raw| layout_api::parse_svg_unit_interval(Some(raw)))
+            .and_then(|raw| crate::layout::parse_svg_unit_interval(Some(raw)))
             .unwrap_or(1.0),
     }
 }
@@ -1707,14 +1707,14 @@ fn physical_rect_from_svg_rect(rect: SVGRect) -> PhysicalRect<Au> {
     )
 }
 
-fn svg_rect_from_view_box(view_box: layout_api::SVGRectValue) -> SVGRect {
+fn svg_rect_from_view_box(view_box: crate::layout::SVGRectValue) -> SVGRect {
     SVGRect::new(
         euclid::point2(view_box.x, view_box.y),
         euclid::size2(view_box.width, view_box.height),
     )
 }
 
-fn image_viewport(image: &layout_api::SVGImageData<'_>) -> SVGRect {
+fn image_viewport(image: &crate::layout::SVGImageData<'_>) -> SVGRect {
     SVGRect::new(
         euclid::point2(
             resolve_length(image.x).unwrap_or(0.0),
@@ -1751,10 +1751,10 @@ fn union_fragment_rects(fragments: &[Fragment]) -> PhysicalRect<Au> {
 }
 
 fn svg_resource_rect(
-    x: Option<layout_api::SVGLengthValue>,
-    y: Option<layout_api::SVGLengthValue>,
-    width: Option<layout_api::SVGLengthValue>,
-    height: Option<layout_api::SVGLengthValue>,
+    x: Option<crate::layout::SVGLengthValue>,
+    y: Option<crate::layout::SVGLengthValue>,
+    width: Option<crate::layout::SVGLengthValue>,
+    height: Option<crate::layout::SVGLengthValue>,
     default_x: f32,
     default_y: f32,
     default_width: f32,
@@ -1772,12 +1772,12 @@ fn svg_resource_rect(
     )
 }
 
-fn parse_resource_rect_length(length: Option<layout_api::SVGLengthValue>, default: f32) -> f32 {
+fn parse_resource_rect_length(length: Option<crate::layout::SVGLengthValue>, default: f32) -> f32 {
     let Some(length) = length else {
         return default;
     };
     let value = match length.unit_type {
-        layout_api::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
+        crate::layout::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
         _ => resolve_length(Some(length)).unwrap_or(default),
     };
     if value.is_finite() { value } else { default }
@@ -1796,12 +1796,12 @@ fn default_gradient_resource() -> SVGGradientResource {
     }
 }
 
-fn parse_gradient_length(length: Option<layout_api::SVGLengthValue>, default: f32) -> f32 {
+fn parse_gradient_length(length: Option<crate::layout::SVGLengthValue>, default: f32) -> f32 {
     let Some(length) = length else {
         return default;
     };
     let value = match length.unit_type {
-        layout_api::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
+        crate::layout::SVG_LENGTHTYPE_PERCENTAGE => length.value / 100.0,
         _ => resolve_length(Some(length)).unwrap_or(default),
     };
     if value.is_finite() { value } else { default }
@@ -1822,7 +1822,7 @@ fn parse_svg_color(raw: &str) -> Option<SVGColor> {
 mod tests {
     use super::*;
     use havi_types::fragment_tree::{SVGGradientResource, SVGLinearGradient, SVGResourceNode};
-    use layout_api::wrapper_traits::PseudoElementChain;
+    use crate::layout::wrapper_traits::PseudoElementChain;
     use style::properties::ComputedValues;
     use style::properties::style_structs::Font;
 
@@ -1907,29 +1907,29 @@ mod tests {
         ComputedValues::initial_values_with_font_override(Font::initial_values()).to_arc()
     }
 
-    fn number_length(value: f32) -> layout_api::SVGLengthValue {
-        layout_api::SVGLengthValue {
-            unit_type: layout_api::SVG_LENGTHTYPE_NUMBER,
+    fn number_length(value: f32) -> crate::layout::SVGLengthValue {
+        crate::layout::SVGLengthValue {
+            unit_type: crate::layout::SVG_LENGTHTYPE_NUMBER,
             value,
         }
     }
 
-    fn viewport_node(id: usize, width: Option<f32>, height: Option<f32>, view_box: Option<layout_api::SVGRectValue>, children: Vec<SVGTreeChild>) -> SVGTreeNode {
+    fn viewport_node(id: usize, width: Option<f32>, height: Option<f32>, view_box: Option<crate::layout::SVGRectValue>, children: Vec<SVGTreeChild>) -> SVGTreeNode {
         SVGTreeNode::new(
             SVGNodeId(id),
-            SVGNodeData::from(layout_api::SVGElementData {
-                common: layout_api::SVGCommonData {
+            SVGNodeData::from(crate::layout::SVGElementData {
+                common: crate::layout::SVGCommonData {
                     element_id: None,
                     transform: Vec::new(),
                 },
-                node_kind: SVGNodeKind::Viewport(layout_api::SVGViewportData {
+                node_kind: SVGNodeKind::Viewport(crate::layout::SVGViewportData {
                     width: width.map(number_length),
                     height: height.map(number_length),
                     view_box,
                     preserve_aspect_ratio: Default::default(),
                     overflow_hidden: false,
                 }),
-                paint: layout_api::SVGPaintData {
+                paint: crate::layout::SVGPaintData {
                     color: None,
                     fill: None,
                     fill_opacity: None,
@@ -1959,16 +1959,16 @@ mod tests {
         )
     }
 
-    fn group_node(id: usize, transform: &[layout_api::SVGTransformValue], children: Vec<SVGTreeChild>) -> SVGTreeNode {
+    fn group_node(id: usize, transform: &[crate::layout::SVGTransformValue], children: Vec<SVGTreeChild>) -> SVGTreeNode {
         SVGTreeNode::new(
             SVGNodeId(id),
-            SVGNodeData::from(layout_api::SVGElementData {
-                common: layout_api::SVGCommonData {
+            SVGNodeData::from(crate::layout::SVGElementData {
+                common: crate::layout::SVGCommonData {
                     element_id: None,
                     transform: transform.to_vec(),
                 },
                 node_kind: SVGNodeKind::Group,
-                paint: layout_api::SVGPaintData {
+                paint: crate::layout::SVGPaintData {
                     color: None,
                     fill: None,
                     fill_opacity: None,
@@ -1998,15 +1998,15 @@ mod tests {
         )
     }
 
-    fn rect_node(id: usize, width: f32, height: f32, transform: &[layout_api::SVGTransformValue]) -> SVGTreeNode {
+    fn rect_node(id: usize, width: f32, height: f32, transform: &[crate::layout::SVGTransformValue]) -> SVGTreeNode {
         SVGTreeNode::new(
             SVGNodeId(id),
-            SVGNodeData::from(layout_api::SVGElementData {
-                common: layout_api::SVGCommonData {
+            SVGNodeData::from(crate::layout::SVGElementData {
+                common: crate::layout::SVGCommonData {
                     element_id: None,
                     transform: transform.to_vec(),
                 },
-                node_kind: SVGNodeKind::Geometry(layout_api::SVGGeometryData::Rect {
+                node_kind: SVGNodeKind::Geometry(crate::layout::SVGGeometryData::Rect {
                     x: None,
                     y: None,
                     width: Some(number_length(width)),
@@ -2014,7 +2014,7 @@ mod tests {
                     rx: None,
                     ry: None,
                 }),
-                paint: layout_api::SVGPaintData {
+                paint: crate::layout::SVGPaintData {
                     color: None,
                     fill: Some("green"),
                     fill_opacity: None,
@@ -2184,7 +2184,7 @@ mod tests {
             0,
             Some(120.0),
             Some(80.0),
-            Some(layout_api::SVGRectValue {
+            Some(crate::layout::SVGRectValue {
                 x: 0.0,
                 y: 0.0,
                 width: 120.0,
@@ -2194,7 +2194,7 @@ mod tests {
                 1,
                 40.0,
                 30.0,
-                &layout_api::parse_svg_transform_list(Some("translate(20 10)")),
+                &crate::layout::parse_svg_transform_list(Some("translate(20 10)")),
             ))],
         ));
         let fragment = build_basic_standalone_fragment(
@@ -2222,7 +2222,7 @@ mod tests {
             0,
             Some(100.0),
             Some(100.0),
-            Some(layout_api::SVGRectValue {
+            Some(crate::layout::SVGRectValue {
                 x: 0.0,
                 y: 0.0,
                 width: 100.0,
@@ -2230,7 +2230,7 @@ mod tests {
             }),
             vec![SVGTreeChild::Node(group_node(
                 1,
-                &layout_api::parse_svg_transform_list(Some("translate(5 7)")),
+                &crate::layout::parse_svg_transform_list(Some("translate(5 7)")),
                 vec![SVGTreeChild::Node(rect_node(2, 10.0, 12.0, &[]))],
             ))],
         ));
@@ -2296,15 +2296,15 @@ mod tests {
 
     #[test]
     fn intrinsic_sizes_fall_back_to_viewbox_dimensions() {
-        let svg_data = layout_api::SVGElementData {
-            common: layout_api::SVGCommonData {
+        let svg_data = crate::layout::SVGElementData {
+            common: crate::layout::SVGCommonData {
                 element_id: None,
                 transform: Vec::new(),
             },
-            node_kind: SVGNodeKind::Viewport(layout_api::SVGViewportData {
+            node_kind: SVGNodeKind::Viewport(crate::layout::SVGViewportData {
                 width: None,
                 height: None,
-                view_box: Some(layout_api::SVGRectValue {
+                view_box: Some(crate::layout::SVGRectValue {
                     x: 0.0,
                     y: 0.0,
                     width: 60.0,
@@ -2313,7 +2313,7 @@ mod tests {
                 preserve_aspect_ratio: Default::default(),
                 overflow_hidden: false,
             }),
-            paint: layout_api::SVGPaintData {
+            paint: crate::layout::SVGPaintData {
                 color: None,
                 fill: None,
                 fill_opacity: None,

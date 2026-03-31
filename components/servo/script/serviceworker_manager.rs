@@ -14,12 +14,12 @@ use std::thread::{self, JoinHandle};
 
 use base::generic_channel::{self, GenericSender, ReceiveError, RoutedReceiver};
 use base::id::{PipelineNamespace, ServiceWorkerId, ServiceWorkerRegistrationId};
-use constellation_traits::{
+use crate::constellation::{
     DOMMessage, Job, JobError, JobResult, JobResultValue, JobType, SWManagerMsg, SWManagerSenders,
     ScopeThings, ServiceWorkerMsg,
 };
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
-use crate::fonts::FontContext;
+use crate::fonts::{FontContext, font_render_api_from_paint_api};
 use ipc_channel::ipc;
 use ipc_channel::router::ROUTER;
 use net_traits::{CoreResourceMsg, CustomResponseMediator};
@@ -519,7 +519,7 @@ impl ServiceWorkerManager {
 
         let font_context = Arc::new(FontContext::new(
             Arc::new(system_font_service_sender.to_proxy()),
-            paint_api,
+            font_render_api_from_paint_api(paint_api),
             resource_threads,
         ));
 

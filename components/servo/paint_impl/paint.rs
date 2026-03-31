@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use base::generic_channel::{GenericSender, RoutedReceiver};
 use base::id::{PainterId, PipelineId, WebViewId};
-use constellation_traits::{EmbedderToConstellationMessage, WindowSizeType};
+use crate::constellation::{EmbedderToConstellationMessage, WindowSizeType};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
 use embedder_traits::{

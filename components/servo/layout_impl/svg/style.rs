@@ -9,7 +9,7 @@ use havi_types::fragment_tree::{
     SVGColor, SVGFillRule, SVGLineCap, SVGLineJoin, SVGPaintOrder, SVGTextAnchor,
     SVGVectorEffect,
 };
-use layout_api::{
+use crate::layout::{
     SVGElementData, SVGNodeKind, SVGPaintData, SVGPointerEventsValue as SVGPointerEvents,
     SVGPreserveAspectRatioValue, SVGTextBaselineValue, resolve_svg_length_to_user_units,
 };
@@ -480,15 +480,15 @@ mod tests {
     #[test]
     fn phase2_uses_shared_dash_and_paint_order_parsers() {
         assert_eq!(
-            layout_api::parse_svg_paint_order(Some("stroke markers fill")),
+            crate::layout::parse_svg_paint_order(Some("stroke markers fill")),
             Some(SVGPaintOrder::StrokeMarkersFill)
         );
         assert_eq!(
-            layout_api::parse_svg_paint_order(Some("stroke fill")),
+            crate::layout::parse_svg_paint_order(Some("stroke fill")),
             Some(SVGPaintOrder::StrokeFillMarkers)
         );
         assert_eq!(
-            layout_api::parse_svg_dash_array(Some("1, 2 3")),
+            crate::layout::parse_svg_dash_array(Some("1, 2 3")),
             Some(vec![1.0, 2.0, 3.0])
         );
     }

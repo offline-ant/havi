@@ -6,7 +6,7 @@
 
 use backtrace::Backtrace;
 use dom_struct::dom_struct;
-use layout_api::ReflowPhasesRun;
+use crate::layout::ReflowPhasesRun;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use script_bindings::domstring::DOMString;
 use script_bindings::reflector::Reflector;

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::PipelineId;
-use constellation_traits::EmbedderToConstellationMessage;
+use crate::constellation::EmbedderToConstellationMessage;
 #[cfg(feature = "gamepad")]
 use embedder_traits::GamepadHapticEffectType;
 use embedder_traits::{

@@ -23,7 +23,7 @@ mod font_context {
         SystemFontServiceProxySender, fallback_font_families,
     };
     use net_traits::{ResourceThreads, start_fetch_thread};
-    use paint_api::CrossProcessPaintApi;
+    use crate::FontRenderApi;
     use parking_lot::Mutex;
     use servo_arc::Arc as ServoArc;
     use style::ArcSlice;
@@ -51,7 +51,7 @@ mod font_context {
             let (system_font_service, system_font_service_proxy) = MockSystemFontService::spawn();
             let (core_sender, _) = generic_channel::channel().unwrap();
             let mock_resource_threads = ResourceThreads::new(core_sender);
-            let mock_paint_api = CrossProcessPaintApi::dummy();
+            let mock_paint_api = FontRenderApi::dummy();
 
             let proxy_clone = Arc::new(system_font_service_proxy.to_sender().to_proxy());
             INIT.call_once(|| {

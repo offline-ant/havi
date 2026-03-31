@@ -6,7 +6,7 @@ use std::ptr;
 use std::rc::Rc;
 
 use base::id::{BlobId, BlobIndex};
-use constellation_traits::{BlobData, BlobImpl};
+use crate::constellation::{BlobData, BlobImpl};
 use dom_struct::dom_struct;
 use encoding_rs::UTF_8;
 use js::jsapi::JSObject;

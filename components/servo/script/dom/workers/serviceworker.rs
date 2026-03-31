@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use base::id::ServiceWorkerId;
-use constellation_traits::{DOMMessage, ScriptToConstellationMessage};
+use crate::constellation::{DOMMessage, ScriptToConstellationMessage};
 use dom_struct::dom_struct;
 use js::context::JSContext;
 use js::jsapi::{Heap, JSObject};

@@ -86,7 +86,7 @@ use construct::InlineFormattingContextBuilder;
 use crate::fonts::{FontMetrics, FontRef, GlyphStore};
 use icu_segmenter::{LineBreakOptions, LineBreakStrictness, LineBreakWordOption};
 use inline_box::{InlineBox, InlineBoxContainerState, InlineBoxIdentifier, InlineBoxes};
-use layout_api::wrapper_traits::SharedSelection;
+use crate::layout::wrapper_traits::SharedSelection;
 use line::{
     AbsolutelyPositionedLineItem, AtomicLineItem, FloatLineItem, LineItem, LineItemLayout,
     TextRunLineItem,

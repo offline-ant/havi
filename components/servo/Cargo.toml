@@ -16,7 +16,7 @@ crate-type = ["rlib"]
 default = ["clipboard", "js_jit"]
 background_hang_monitor = ["sampler"]
 sampler = []
-bluetooth = ["bluetooth_traits", "dep:bluetooth", "constellation_traits/bluetooth", "script_traits/bluetooth", "script_bindings/bluetooth"]
+bluetooth = ["bluetooth_traits", "dep:bluetooth", "script_bindings/bluetooth"]
 clipboard = ["dep:arboard"]
 crown = ["js/crown"]
 debugmozjs = ["js/debugmozjs"]
@@ -36,7 +36,7 @@ test-util = []
 testbinding = ["script_bindings/testbinding"]
 tracing = ["dep:tracing", "profile_traits/tracing", "script_bindings/tracing"]
 vello = []
-webgpu = ["constellation_traits/webgpu", "script_bindings/webgpu"]
+webgpu = ["script_bindings/webgpu"]
 webxr = ["glwindow", "headless", "openxr-api", "script_bindings/webxr"]
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(crown)'] }
@@ -52,7 +52,6 @@ cssparser = { workspace = true }
 bluetooth = { path = "../bluetooth", optional = true }
 bluetooth_traits = { workspace = true, optional = true }
 canvas_traits = { workspace = true }
-constellation_traits = { workspace = true }
 crossbeam-channel = { workspace = true }
 devtools_traits = { workspace = true }
 dpi = { workspace = true }
@@ -128,7 +127,6 @@ icu_locid = { workspace = true }
 icu_properties = { workspace = true }
 icu_segmenter = { workspace = true }
 kurbo = { workspace = true }
-layout_api = { workspace = true }
 libc = { workspace = true }
 markup5ever = { workspace = true }
 log = { workspace = true }
@@ -175,7 +173,6 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 rustc-hash = { workspace = true }
 read-fonts = { workspace = true }
 script_bindings = { path = "../script_bindings" }
-script_traits = { workspace = true }
 servo_config = { path = "../config" }
 servo_geometry = { path = "../geometry" }
 servo_url = { path = "../url" }

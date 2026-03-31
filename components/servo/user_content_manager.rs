@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use constellation_traits::{EmbedderToConstellationMessage, UserContentManagerAction};
+use crate::constellation::{EmbedderToConstellationMessage, UserContentManagerAction};
 use embedder_traits::user_contents::{UserContentManagerId, UserScript, UserStyleSheet};
 
 use crate::Servo;

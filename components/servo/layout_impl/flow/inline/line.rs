@@ -9,7 +9,7 @@ use app_units::Au;
 use bitflags::bitflags;
 use crate::fonts::{FontMetrics, FontRef, GlyphStore};
 use itertools::Either;
-use layout_api::wrapper_traits::SharedSelection;
+use crate::layout::wrapper_traits::SharedSelection;
 use malloc_size_of_derive::MallocSizeOf;
 use style::Zero;
 use style::computed_values::position::T as Position;

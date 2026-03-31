@@ -6,7 +6,7 @@ use std::cmp::PartialEq;
 use std::fmt;
 
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
-use constellation_traits::LoadData;
+use crate::constellation::LoadData;
 use embedder_traits::ViewportDetails;
 use log::debug;
 use servo_url::BrowserUrl;

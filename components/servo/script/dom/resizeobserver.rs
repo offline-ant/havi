@@ -10,7 +10,7 @@ use euclid::num::Zero;
 use euclid::{Rect, Size2D};
 use html5ever::ns;
 use js::rust::HandleObject;
-use layout_api::BoxAreaType;
+use crate::layout::BoxAreaType;
 use style_traits::CSSPixel;
 
 use crate::script::dom::bindings::callback::ExceptionHandling;

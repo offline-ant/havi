@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use constellation_traits::NavigationHistoryBehavior;
+use crate::constellation::NavigationHistoryBehavior;
 use dom_struct::dom_struct;
 use hppr_packet::urc::URC as HpprURC;
 use js::jsapi::JSObject;

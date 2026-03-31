@@ -6,7 +6,7 @@ use std::cell::RefCell;
 
 use base::generic_channel::{GenericCallback, GenericSender, channel};
 use base::id::{Index, PipelineId, PipelineNamespaceId};
-use constellation_traits::ScriptToConstellationChan;
+use crate::constellation::ScriptToConstellationChan;
 use devtools_traits::{
     DevtoolScriptControlMsg, EvaluateJSReply, EvaluateJSReplyValue, ScriptToDevtoolsControlMsg,
     SourceInfo, WorkerId,

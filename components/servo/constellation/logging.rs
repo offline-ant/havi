@@ -12,7 +12,7 @@ use std::thread;
 
 use backtrace::Backtrace;
 use base::id::{ScriptEventLoopId, TEST_PIPELINE_ID, TEST_WEBVIEW_ID};
-use constellation_traits::{
+use crate::constellation::{
     EmbedderToConstellationMessage, LogEntry, ScriptToConstellationMessage,
     ScriptToConstellationSender,
 };

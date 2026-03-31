@@ -115,11 +115,11 @@ pub mod net_traits {
 }
 
 pub mod script_traits {
-    pub use ::script_traits::*;
+    pub use crate::script::*;
 }
 
 pub mod constellation_traits {
-    pub use ::constellation_traits::*;
+    pub use crate::constellation::*;
 }
 
 pub mod fonts_traits {

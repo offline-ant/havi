@@ -10,10 +10,10 @@ use atomic_refcell::{AtomicRef, AtomicRefMut};
 use embedder_traits::UntrustedNodeAddress;
 use html5ever::{LocalName, Namespace, local_name, ns};
 use js::jsapi::JSObject;
-use layout_api::wrapper_traits::{
+use crate::layout::wrapper_traits::{
     LayoutNode, PseudoElementChain, ThreadSafeLayoutElement, ThreadSafeLayoutNode,
 };
-use layout_api::{LayoutDamage, LayoutNodeType, StyleData};
+use crate::layout::{LayoutDamage, LayoutNodeType, StyleData};
 use selectors::Element as _;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::bloom::{BLOOM_HASH_MASK, BloomFilter};

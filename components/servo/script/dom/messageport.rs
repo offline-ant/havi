@@ -7,7 +7,7 @@ use std::ptr;
 use std::rc::Rc;
 
 use base::id::{MessagePortId, MessagePortIndex};
-use constellation_traits::{MessagePortImpl, PortMessageTask};
+use crate::constellation::{MessagePortImpl, PortMessageTask};
 use dom_struct::dom_struct;
 use js::context::JSContext;
 use js::jsapi::{Heap, JS_NewObject, JSObject};

@@ -18,7 +18,7 @@ use ipc_channel::IpcError;
 use log::error;
 
 use crate::script::ScriptThread;
-use script_traits::{InitialScriptState, ScriptThreadMessage};
+use crate::script::{InitialScriptState, ScriptThreadMessage};
 use serde::{Deserialize, Serialize};
 use servo_config::opts::{self, Opts};
 use servo_config::prefs::{self, Preferences};

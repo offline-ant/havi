@@ -19,7 +19,7 @@ use base::id::WebViewId;
 use base::{Epoch, generic_channel};
 use bitflags::bitflags;
 use chrono::Local;
-use constellation_traits::{NavigationHistoryBehavior, ScriptToConstellationMessage};
+use crate::constellation::{NavigationHistoryBehavior, ScriptToConstellationMessage};
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use content_security_policy::{CspList, Policy as CspPolicy, PolicyDisposition};
 use cookie::Cookie;
@@ -35,7 +35,7 @@ use crate::fonts::WebFontDocumentContext;
 use html5ever::{LocalName, Namespace, QualName, local_name, ns};
 use hyper_serde::Serde;
 use js::rust::{HandleObject, HandleValue, MutableHandleValue};
-use layout_api::{
+use crate::layout::{
     PendingRestyle, ReflowGoal, ReflowPhasesRun, ReflowStatistics, RestyleReason,
     ScrollContainerQueryFlags, TrustedNodeAddress,
 };
@@ -56,7 +56,7 @@ use regex::bytes::Regex;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use script_bindings::interfaces::DocumentHelpers;
 use script_bindings::script_runtime::JSContext;
-use script_traits::{DocumentActivity, ProgressiveWebMetricType};
+use crate::script::{DocumentActivity, ProgressiveWebMetricType};
 use servo_arc::Arc;
 use servo_config::pref;
 use servo_media::{ClientContextId, ServoMedia};
@@ -3284,7 +3284,7 @@ impl Document {
         use script_bindings::codegen::GenericBindings::DOMRectBinding::DOMRectMethods;
         use script_bindings::codegen::GenericBindings::SelectionBinding::SelectionMethods;
 
-        let shared = layout_api::shared_document_selection_for(self.webview_id());
+        let shared = crate::layout::shared_document_selection_for(self.webview_id());
 
         let Some(selection) = self.GetSelection(can_gc) else {
             shared.set_snapshot(Vec::new(), String::new());

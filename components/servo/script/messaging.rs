@@ -12,7 +12,7 @@ use base::generic_channel::{GenericCallback, GenericSender, RoutedReceiver};
 use base::id::{PipelineId, WebViewId};
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
-use constellation_traits::ScriptToConstellationMessage;
+use crate::constellation::ScriptToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender, select};
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
 use embedder_traits::{EmbedderControlId, EmbedderControlResponse, ScriptToEmbedderChan};
@@ -21,7 +21,7 @@ use net_traits::image_cache::ImageCacheResponseMessage;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time};
 use rustc_hash::FxHashSet;
-use script_traits::{Painter, ScriptThreadMessage};
+use crate::script::{Painter, ScriptThreadMessage};
 use stylo_atoms::Atom;
 use crate::timers::TimerScheduler;
 #[cfg(feature = "webgpu")]

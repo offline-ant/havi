@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use atomic_refcell::AtomicRefCell;
-use constellation_traits::BlobImpl;
+use crate::constellation::BlobImpl;
 use data_url::mime::Mime;
 use dom_struct::dom_struct;
 use encoding_rs::{Encoding, UTF_8};
@@ -36,7 +36,7 @@ use net_traits::{
 use script_bindings::conversions::SafeToJSValConvertible;
 use script_bindings::num::Finite;
 use script_bindings::trace::RootedTraceableBox;
-use script_traits::DocumentActivity;
+use crate::script::DocumentActivity;
 use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 

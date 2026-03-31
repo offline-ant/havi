@@ -12,7 +12,7 @@ use crate::fonts::{ByteIndex, TextByteRange};
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use layout_api::wrapper_traits::{ScriptSelection, SharedSelection};
+use crate::layout::wrapper_traits::{ScriptSelection, SharedSelection};
 use script_bindings::codegen::GenericBindings::CharacterDataBinding::CharacterDataMethods;
 use script_bindings::root::Dom;
 use style::attr::AttrValue;

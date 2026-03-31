@@ -8,7 +8,7 @@ use embedder_traits::{InputEvent, MouseLeftViewportEvent, Theme};
 use euclid::Point2D;
 use log::warn;
 use rustc_hash::FxHashMap;
-use script_traits::{ConstellationInputEvent, ScriptThreadMessage};
+use crate::script::{ConstellationInputEvent, ScriptThreadMessage};
 use style_traits::CSSPixel;
 
 use super::browsingcontext::BrowsingContext;

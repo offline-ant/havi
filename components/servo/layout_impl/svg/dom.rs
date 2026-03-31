@@ -1,6 +1,6 @@
 use html5ever::{local_name, ns};
-use layout_api::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
-use layout_api::SVGNodeKind;
+use crate::layout::wrapper_traits::{ThreadSafeLayoutElement, ThreadSafeLayoutNode};
+use crate::layout::SVGNodeKind;
 use rustc_hash::FxHashMap;
 use crate::script::layout_dom::ServoThreadSafeLayoutNode;
 use servo_arc::Arc as ServoArc;
@@ -282,7 +282,7 @@ pub fn summarize_node_kind(node_kind: &SVGNodeKind<'_>) -> SVGLayoutNodeSummary 
 
 #[cfg(test)]
 mod tests {
-    use layout_api::{
+    use crate::layout::{
         SVGFilterData, SVGNodeKind, SVGPatternData, SVGPreserveAspectRatioValue, SVGTextData,
         SVGTextPathData,
     };
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(filter.kind, SVGLayoutNodeKind::Filter);
         assert!(!filter.participates_in_paint);
 
-        let marker = summarize_node_kind(&SVGNodeKind::Marker(layout_api::SVGMarkerData {
+        let marker = summarize_node_kind(&SVGNodeKind::Marker(crate::layout::SVGMarkerData {
             ref_x: None,
             ref_y: None,
             marker_width: None,
