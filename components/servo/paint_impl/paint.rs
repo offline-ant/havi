@@ -21,7 +21,7 @@ use image::RgbaImage;
 use ipc_channel::ipc;
 use log::debug;
 use smallvec::SmallVec;
-use paint_api::{ExternalImageIdRegistry, PaintMessage};
+use crate::paint::{ExternalImageIdRegistry, PaintMessage};
 use profile_traits::mem::{
     ProcessReports, ProfilerRegistration, Report, ReportKind,
 };
@@ -123,7 +123,7 @@ pub struct Paint {
     pub(crate) touch_handler: RefCell<TouchHandler>,
 
     /// Shared image source store for forwarding image updates to the render layer.
-    pub(crate) image_source_store: paint_api::SharedImageSourceStore,
+    pub(crate) image_source_store: crate::paint::SharedImageSourceStore,
 }
 
 #[derive(Clone, Copy)]
@@ -174,12 +174,12 @@ impl Paint {
             pending_wheel_events: Default::default(),
             webview_pipelines: Default::default(),
             touch_handler: RefCell::new(TouchHandler::new()),
-            image_source_store: paint_api::SharedImageSourceStore::new(),
+            image_source_store: crate::paint::SharedImageSourceStore::new(),
         }))
     }
 
     /// Get a clone of the shared image source store handle for the render layer.
-    pub fn image_source_store(&self) -> paint_api::SharedImageSourceStore {
+    pub fn image_source_store(&self) -> crate::paint::SharedImageSourceStore {
         self.image_source_store.clone()
     }
 
@@ -630,11 +630,11 @@ impl Paint {
         let _ = result_sender.send((font_keys, font_instance_keys));
     }
 
-    fn handle_image_updates(&self, updates: SmallVec<[paint_api::ImageUpdate; 1]>) {
+    fn handle_image_updates(&self, updates: SmallVec<[crate::paint::ImageUpdate; 1]>) {
         for update in updates {
             match update {
-                paint_api::ImageUpdate::AddImage(key, desc, data, _is_animated) => {
-                    if let paint_api::SerializableImageData::Raw(mem) = data {
+                crate::paint::ImageUpdate::AddImage(key, desc, data, _is_animated) => {
+                    if let crate::paint::SerializableImageData::Raw(mem) = data {
                         self.image_source_store.add_image(
                             key,
                             desc.size.width as u32,
@@ -643,8 +643,8 @@ impl Paint {
                         );
                     }
                 },
-                paint_api::ImageUpdate::UpdateImage(key, desc, data, _epoch) => {
-                    if let paint_api::SerializableImageData::Raw(mem) = data {
+                crate::paint::ImageUpdate::UpdateImage(key, desc, data, _epoch) => {
+                    if let crate::paint::SerializableImageData::Raw(mem) = data {
                         self.image_source_store.update_image(
                             key,
                             desc.size.width as u32,
@@ -653,10 +653,10 @@ impl Paint {
                         );
                     }
                 },
-                paint_api::ImageUpdate::UpdateImageForAnimation(key, desc) => {
+                crate::paint::ImageUpdate::UpdateImageForAnimation(key, desc) => {
                     self.image_source_store.update_frame_offset(key, desc.offset as usize);
                 },
-                paint_api::ImageUpdate::DeleteImage(key) => {
+                crate::paint::ImageUpdate::DeleteImage(key) => {
                     self.image_source_store.delete_image(key);
                 },
             }

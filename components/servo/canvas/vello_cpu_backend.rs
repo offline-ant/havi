@@ -14,7 +14,7 @@ use canvas_traits::canvas::{
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::fonts::FontIdentifier;
 use kurbo::Shape;
-use paint_api::SerializableImageData;
+use crate::paint::SerializableImageData;
 use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use vello_cpu::{kurbo, peniko};
 use webrender_api::{ImageDescriptor, ImageDescriptorFlags};

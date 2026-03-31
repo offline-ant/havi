@@ -53,7 +53,7 @@ use crate::net::protocols::ProtocolRegistry;
 use crate::net::resource_thread::new_resource_threads;
 use net_traits::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
 use crate::paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
-use paint_api::{CrossProcessPaintApi, PaintMessage, PaintProxy};
+use crate::paint::{CrossProcessPaintApi, PaintMessage, PaintProxy};
 use crate::profile::{mem as profile_mem, system_reporter, time as profile_time};
 use profile_traits::mem::{MemoryReportResult, ProfilerMsg, Reporter};
 use profile_traits::{mem, time};
@@ -905,7 +905,7 @@ impl Servo {
             ));
     }
     /// Get a clone of the shared image store handle for the render layer.
-    pub fn image_source_store(&self) -> paint_api::SharedImageSourceStore {
+    pub fn image_source_store(&self) -> crate::paint::SharedImageSourceStore {
         self.0.paint.borrow().image_source_store()
     }
     pub(crate) fn paint<'a>(&'a self) -> Ref<'a, Paint> {

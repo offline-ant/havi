@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use layout_api::AnimatingImages;
 use malloc_size_of::MallocSizeOf;
-use paint_api::ImageUpdate;
+use crate::paint::ImageUpdate;
 use parking_lot::RwLock;
 use script_bindings::codegen::GenericBindings::WindowBinding::WindowMethods;
 use crate::timers::{TimerEventRequest, TimerId};

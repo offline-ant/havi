@@ -148,7 +148,7 @@ use log::{debug, error, info, trace, warn};
 use crate::net::image_cache::ImageCacheFactoryImpl;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{self, AsyncRuntime, ResourceThreads, exit_fetch_thread, start_fetch_thread};
-use paint_api::{
+use crate::paint::{
     ExternalImageIdRegistry, PaintMessage, PaintProxy, PinchZoomInfos, PipelineExitSource,
     SendableFrameTree,
 };

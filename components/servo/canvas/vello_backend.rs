@@ -24,7 +24,7 @@ use canvas_traits::canvas::{
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::fonts::FontIdentifier;
 use kurbo::Shape as _;
-use paint_api::SerializableImageData;
+use crate::paint::SerializableImageData;
 use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use vello::wgpu::{
     BackendOptions, Backends, Buffer, BufferDescriptor, BufferUsages, COPY_BYTES_PER_ROW_ALIGNMENT,

@@ -13,7 +13,7 @@ pub use {wgpu_core as wgc, wgpu_types as wgt};
 mod poll_thread;
 mod wgpu_thread;
 
-use paint_api::{CrossProcessPaintApi, ExternalImageIdRegistry};
+use crate::paint::{CrossProcessPaintApi, ExternalImageIdRegistry};
 use servo_config::pref;
 
 pub mod canvas_context;

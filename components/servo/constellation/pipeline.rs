@@ -10,7 +10,7 @@ use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
 use constellation_traits::LoadData;
 use embedder_traits::{AnimationState, FocusSequenceNumber};
 use log::{debug, error, warn};
-use paint_api::{CompositionPipeline, PaintMessage, PaintProxy};
+use crate::paint::{CompositionPipeline, PaintMessage, PaintProxy};
 use script_traits::{
     DiscardBrowsingContext, DocumentActivity, NewPipelineInfo, ScriptThreadMessage,
 };

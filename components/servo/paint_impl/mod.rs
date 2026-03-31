@@ -13,7 +13,6 @@ use base::generic_channel::RoutedReceiver;
 use constellation_traits::EmbedderToConstellationMessage;
 use crossbeam_channel::Sender;
 use embedder_traits::{EventLoopWaker, ShutdownState};
-use paint_api::{PaintMessage as InternalPaintMessage, PaintProxy as InternalPaintProxy};
 use self::src_bridge::ScreenshotBridge;
 use profile_traits::{mem, time};
 #[cfg(feature = "webxr")]
@@ -32,9 +31,9 @@ mod touch;
 /// Data used to initialize the `Paint` subsystem.
 pub struct InitialPaintState {
     /// A channel to `Paint`.
-    pub paint_proxy: InternalPaintProxy,
+    pub paint_proxy: PaintProxy,
     /// A port on which messages inbound to `Paint` can be received.
-    pub receiver: RoutedReceiver<InternalPaintMessage>,
+    pub receiver: RoutedReceiver<PaintMessage>,
     /// A channel to the constellation.
     pub embedder_to_constellation_sender: Sender<EmbedderToConstellationMessage>,
     /// A channel to the time profiler thread.

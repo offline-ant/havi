@@ -12,7 +12,7 @@ use canvas_traits::canvas::*;
 use crossbeam_channel::{Sender, select, unbounded};
 use euclid::default::{Rect, Size2D, Transform2D};
 use log::warn;
-use paint_api::CrossProcessPaintApi;
+use crate::paint::CrossProcessPaintApi;
 use pixels::Snapshot;
 use rustc_hash::FxHashMap;
 use webrender_api::ImageKey;

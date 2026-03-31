@@ -12,7 +12,7 @@ use base::Epoch;
 use base::generic_channel::GenericSender;
 use euclid::default::Size2D;
 use log::warn;
-use paint_api::{
+use crate::paint::{
     CrossProcessPaintApi, ExternalImageProvider, ExternalImageSource, SerializableImageData,
 };
 use pixels::{SharedSnapshot, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};

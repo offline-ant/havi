@@ -72,7 +72,7 @@ use net_traits::image_cache::{
 use net_traits::request::Referrer;
 use net_traits::{ResourceFetchTiming, ResourceThreads};
 use num_traits::ToPrimitive;
-use paint_api::{CrossProcessPaintApi, PinchZoomInfos};
+use crate::paint::{CrossProcessPaintApi, PinchZoomInfos};
 use profile_traits::generic_channel as ProfiledGenericChannel;
 use profile_traits::mem::ProfilerChan as MemProfilerChan;
 use profile_traits::time::ProfilerChan as TimeProfilerChan;
