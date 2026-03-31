@@ -95,7 +95,7 @@ use std::thread::JoinHandle;
 use std::{process, thread};
 
 use crate::background_hang_monitor::HangMonitorRegister;
-use background_hang_monitor_api::{
+use crate::background_hang_monitor::{
     BackgroundHangMonitorControlMsg, BackgroundHangMonitorRegister, HangMonitorAlert,
 };
 use base::generic_channel::{

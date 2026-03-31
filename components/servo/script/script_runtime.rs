@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use std::{os, ptr, thread};
 
-use background_hang_monitor_api::ScriptHangAnnotation;
+use crate::background_hang_monitor::ScriptHangAnnotation;
 use js::conversions::jsstr_to_string;
 use js::gc::StackGCVector;
 use js::glue::{

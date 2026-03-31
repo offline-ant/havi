@@ -443,14 +443,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "background_hang_monitor_api"
-version = "0.0.1"
-dependencies = [
- "base",
- "serde",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4102,7 +4094,6 @@ dependencies = [
  "async-compression",
  "async-recursion",
  "atomic_refcell",
- "background_hang_monitor_api",
  "backtrace",
  "base",
  "base64 0.22.1",

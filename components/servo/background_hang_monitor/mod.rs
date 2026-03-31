@@ -4,6 +4,7 @@
 
 #![deny(unsafe_code)]
 
+mod api;
 pub mod background_hang_monitor;
 mod sampler;
 #[cfg(all(
@@ -24,6 +25,7 @@ mod sampler_mac;
 #[cfg(all(feature = "sampler", target_os = "windows"))]
 mod sampler_windows;
 
+pub use self::api::*;
 pub use self::background_hang_monitor::*;
 #[cfg(any(
     not(feature = "sampler"),

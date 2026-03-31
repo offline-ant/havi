@@ -153,7 +153,7 @@ pub mod bluetooth_traits {
 }
 
 pub mod background_hang_monitor_api {
-    pub use ::background_hang_monitor_api::*;
+    pub use crate::background_hang_monitor::*;
 }
 
 /// Response from a protocol page handler.

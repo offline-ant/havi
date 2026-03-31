@@ -5,7 +5,7 @@
 use std::marker::PhantomData;
 use std::ptr;
 
-use background_hang_monitor_api::{HangProfile, HangProfileSymbol};
+use crate::background_hang_monitor::{HangProfile, HangProfileSymbol};
 
 const MAX_NATIVE_FRAMES: usize = 1024;
 

@@ -10,7 +10,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use background_hang_monitor_api::{BackgroundHangMonitorControlMsg, HangMonitorAlert};
+use crate::background_hang_monitor::{BackgroundHangMonitorControlMsg, HangMonitorAlert};
 use base::generic_channel::{self, GenericReceiver, GenericSender, SendError};
 use base::id::ScriptEventLoopId;
 use embedder_traits::ScriptToEmbedderChan;

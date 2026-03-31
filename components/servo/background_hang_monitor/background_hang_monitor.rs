@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::{Duration, Instant};
 
-use background_hang_monitor_api::{
+use crate::background_hang_monitor::{
     BackgroundHangMonitor, BackgroundHangMonitorClone, BackgroundHangMonitorControlMsg,
     BackgroundHangMonitorExitSignal, BackgroundHangMonitorRegister, HangAlert, HangAnnotation,
     HangMonitorAlert, MonitoredComponentId,

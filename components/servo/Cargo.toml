@@ -44,7 +44,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(crown)'] }
 [dependencies]
 accesskit = { workspace = true }
 app_units = { workspace = true }
-background_hang_monitor_api = { workspace = true }
 base = { workspace = true }
 bitflags = { workspace = true }
 byteorder = { workspace = true }
