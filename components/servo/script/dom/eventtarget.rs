@@ -11,7 +11,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use deny_public_fields::DenyPublicFields;
-use devtools_traits::EventListenerInfo;
+use crate::devtools::EventListenerInfo;
 use dom_struct::dom_struct;
 use js::jsapi::JS::CompileFunction;
 use js::jsapi::{JS_GetFunctionObject, SupportUnscopables};

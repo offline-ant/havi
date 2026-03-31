@@ -42,7 +42,7 @@ use script_bindings::reflector::MutDomObject;
 use crate::script::NewPipelineInfo;
 use serde::{Deserialize, Serialize};
 use servo_url::{ImmutableOrigin, BrowserUrl};
-use storage_traits::webstorage_thread::WebStorageThreadMsg;
+use crate::storage::api::webstorage_thread::WebStorageThreadMsg;
 use style::attr::parse_integer;
 
 use crate::script::dom::bindings::cell::DomRefCell;

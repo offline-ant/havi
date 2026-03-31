@@ -681,11 +681,11 @@ impl<'dom> LayoutShadowRootHelpers<'dom> for LayoutDom<'dom, ShadowRoot> {
     }
 }
 
-impl Convert<devtools_traits::ShadowRootMode> for ShadowRootMode {
-    fn convert(self) -> devtools_traits::ShadowRootMode {
+impl Convert<crate::devtools::ShadowRootMode> for ShadowRootMode {
+    fn convert(self) -> crate::devtools::ShadowRootMode {
         match self {
-            ShadowRootMode::Open => devtools_traits::ShadowRootMode::Open,
-            ShadowRootMode::Closed => devtools_traits::ShadowRootMode::Closed,
+            ShadowRootMode::Open => crate::devtools::ShadowRootMode::Open,
+            ShadowRootMode::Closed => crate::devtools::ShadowRootMode::Closed,
         }
     }
 }

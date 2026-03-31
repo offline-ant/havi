@@ -4,7 +4,7 @@
 
 use atomic_refcell::AtomicRefCell;
 use base::generic_channel::channel;
-use devtools_traits::{DevtoolScriptControlMsg, FrameInfo};
+use crate::devtools::{DevtoolScriptControlMsg, FrameInfo};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};

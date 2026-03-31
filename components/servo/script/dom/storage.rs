@@ -7,7 +7,7 @@ use crate::constellation::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
 use profile_traits::generic_channel;
 use servo_url::BrowserUrl;
-use storage_traits::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
+use crate::storage::api::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
 
 use crate::script::dom::bindings::codegen::GenericBindings::StorageBinding::StorageMethods;
 use crate::script::dom::bindings::error::{Error, ErrorResult};

@@ -14,7 +14,7 @@ use base::generic_channel::{self, GenericReceiver, GenericReceiverSet, GenericSe
 use base::id::CookieStoreId;
 use cookie::Cookie;
 use crossbeam_channel::Sender;
-use devtools_traits::DevtoolsControlMsg;
+use crate::devtools::DevtoolsControlMsg;
 use embedder_traits::GenericEmbedderProxy;
 use hyper_serde::Serde;
 use ipc_channel::ipc::IpcSender;

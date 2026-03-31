@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::ptr::{self, NonNull};
 use std::slice;
 
-use devtools_traits::{
+use crate::devtools::{
     ConsoleArgument, ConsoleArgumentObject, ConsoleArgumentPropertyValue, ConsoleLogLevel,
     ConsoleMessage, ConsoleMessageFields, ScriptToDevtoolsControlMsg, StackFrame, get_time_stamp,
 };

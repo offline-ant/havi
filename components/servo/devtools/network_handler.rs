@@ -5,7 +5,7 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use devtools_traits::NetworkEvent;
+use crate::devtools::NetworkEvent;
 use serde::Serialize;
 
 use super::actor::{ActorEncode, ActorRegistry};

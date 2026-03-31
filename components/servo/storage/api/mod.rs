@@ -6,9 +6,9 @@ use base::generic_channel::{self, GenericSend, GenericSender, SendResult};
 use malloc_size_of::malloc_size_of_is_0;
 use serde::{Deserialize, Serialize};
 
-use crate::client_storage::ClientStorageThreadMessage;
-use crate::indexeddb::IndexedDBThreadMsg;
-use crate::webstorage_thread::{OriginDescriptor, WebStorageThreadMsg, WebStorageType};
+use self::client_storage::ClientStorageThreadMessage;
+use self::indexeddb::IndexedDBThreadMsg;
+use self::webstorage_thread::{OriginDescriptor, WebStorageThreadMsg, WebStorageType};
 
 pub mod client_storage;
 pub mod indexeddb;

@@ -14,7 +14,7 @@ use base::generic_channel::{GenericSend, GenericSender, RoutedReceiver};
 use base::id::{PipelineId, PipelineNamespace};
 use crate::constellation::WorkerGlobalScopeInit;
 use content_security_policy::CspList;
-use devtools_traits::{DevtoolScriptControlMsg, WorkerId};
+use crate::devtools::{DevtoolScriptControlMsg, WorkerId};
 use dom_struct::dom_struct;
 use encoding_rs::UTF_8;
 use crate::fonts::FontContext;

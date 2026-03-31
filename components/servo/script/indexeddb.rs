@@ -18,7 +18,7 @@ use js::rust::wrappers2::{
     JS_IsIdentifier, JS_NewObject, NewDateObject,
 };
 use js::rust::{HandleValue, MutableHandleValue};
-use storage_traits::indexeddb::{BackendError, IndexedDBKeyRange, IndexedDBKeyType};
+use crate::storage::api::indexeddb::{BackendError, IndexedDBKeyRange, IndexedDBKeyType};
 
 use crate::script::dom::bindings::codegen::GenericBindings::BlobBinding::BlobMethods;
 use crate::script::dom::bindings::codegen::GenericBindings::FileBinding::FileMethods;

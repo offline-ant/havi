@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use base::generic_channel::{GenericCallback, GenericSender, channel};
 use base::id::{Index, PipelineId, PipelineNamespaceId};
 use crate::constellation::ScriptToConstellationChan;
-use devtools_traits::{
+use crate::devtools::{
     DevtoolScriptControlMsg, EvaluateJSReply, EvaluateJSReplyValue, ScriptToDevtoolsControlMsg,
     SourceInfo, WorkerId,
 };
@@ -27,7 +27,7 @@ use script_bindings::codegen::GenericBindings::DebuggerGlobalScopeBinding::{
 use script_bindings::reflector::DomObject;
 use script_bindings::str::DOMString;
 use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
-use storage_traits::StorageThreads;
+use crate::storage::StorageThreads;
 
 use crate::script::dom::bindings::codegen::Bindings::DebuggerGetEnvironmentEventBinding::EnvironmentInfo;
 use crate::script::dom::bindings::codegen::Bindings::DebuggerGlobalScopeBinding;
@@ -63,7 +63,7 @@ pub(crate) struct DebuggerGlobalScope {
     devtools_to_script_sender: GenericSender<DevtoolScriptControlMsg>,
     #[no_trace]
     get_possible_breakpoints_result_sender:
-        RefCell<Option<GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>>>,
+        RefCell<Option<GenericSender<Vec<crate::devtools::RecommendedBreakpointLocation>>>>,
     #[no_trace]
     eval_result_sender: RefCell<Option<GenericSender<EvaluateJSReply>>>,
     #[no_trace]
@@ -209,7 +209,7 @@ impl DebuggerGlobalScope {
         &self,
         can_gc: CanGc,
         spidermonkey_id: u32,
-        result_sender: GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>,
+        result_sender: GenericSender<Vec<crate::devtools::RecommendedBreakpointLocation>>,
     ) {
         assert!(
             self.get_possible_breakpoints_result_sender
@@ -456,7 +456,7 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         let _ = sender.send(
             result
                 .into_iter()
-                .map(|entry| devtools_traits::RecommendedBreakpointLocation {
+                .map(|entry| crate::devtools::RecommendedBreakpointLocation {
                     script_id: entry.scriptId,
                     offset: entry.offset,
                     line_number: entry.lineNumber,
@@ -537,13 +537,13 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
             index: Index::new(pipeline_id.index).expect("`pipelineId.index` must not be zero"),
         };
 
-        let frame_offset = devtools_traits::FrameOffset {
+        let frame_offset = crate::devtools::FrameOffset {
             actor: frame_offset.frameActorId.clone().into(),
             column: frame_offset.column,
             line: frame_offset.line,
         };
 
-        let pause_reason = devtools_traits::PauseReason {
+        let pause_reason = crate::devtools::PauseReason {
             type_: pause_reason.type_.clone().into(),
             on_next: pause_reason.onNext,
         };
@@ -572,7 +572,7 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         let chan = self.upcast::<GlobalScope>().devtools_chan()?;
         let (tx, rx) = channel::<String>().unwrap();
 
-        let frame = devtools_traits::FrameInfo {
+        let frame = crate::devtools::FrameInfo {
             display_name: result.displayName.clone().into(),
             on_stack: result.onStack,
             oldest: result.oldest,
@@ -604,7 +604,7 @@ impl DebuggerGlobalScopeMethods<crate::DomTypeHolder> for DebuggerGlobalScope {
         let chan = self.upcast::<GlobalScope>().devtools_chan()?;
         let (tx, rx) = channel::<String>().unwrap();
 
-        let environment = devtools_traits::EnvironmentInfo {
+        let environment = crate::devtools::EnvironmentInfo {
             type_: environment.type_.clone().map(String::from),
             scope_kind: environment.scopeKind.clone().map(String::from),
             function_display_name: environment.functionDisplayName.clone().map(String::from),

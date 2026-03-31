@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use app_units::Au;
 use base::id::{PainterId, WebViewId};
 use content_security_policy::Violation;
-use fonts_traits::{
+use crate::{
     CSSFontFaceDescriptors, FontDescriptor, FontIdentifier, FontTemplate, FontTemplateRef,
     FontTemplateRefMethods, StylesheetWebFontLoadFinishedCallback,
 };

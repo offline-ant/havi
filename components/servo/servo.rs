@@ -69,7 +69,7 @@ use crate::geometry::{
 };
 use servo_media::ServoMedia;
 use crate::storage::new_storage_threads;
-use storage_traits::StorageThreads;
+use crate::storage::StorageThreads;
 use style::global_style_data::StyleThreadPool;
 use crate::clipboard_delegate::StringRequest;
 #[cfg(feature = "gamepad")]
@@ -981,7 +981,7 @@ fn create_constellation(
     paint_proxy: PaintProxy,
     time_profiler_chan: time::ProfilerChan,
     mem_profiler_chan: mem::ProfilerChan,
-    devtools_sender: Option<Sender<devtools_traits::DevtoolsControlMsg>>,
+    devtools_sender: Option<Sender<crate::devtools::DevtoolsControlMsg>>,
     protocols: Arc<ProtocolRegistry>,
     public_resource_threads: ResourceThreads,
     private_resource_threads: ResourceThreads,

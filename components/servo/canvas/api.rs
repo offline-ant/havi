@@ -10,7 +10,7 @@ use base::generic_channel::GenericSender;
 use euclid::Angle;
 use euclid::approxeq::ApproxEq;
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
-use fonts_traits::{FontDataAndIndex, FontIdentifier};
+use crate::fonts::{FontDataAndIndex, FontIdentifier};
 use kurbo::{BezPath, ParamCurveNearest as _, PathEl, Point, Shape, Triangle};
 use malloc_size_of::MallocSizeOf;
 use malloc_size_of_derive::MallocSizeOf;

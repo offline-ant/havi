@@ -12,8 +12,6 @@
 //! supported either. For JSON serialization it is preferred to use a wrapper
 //! struct in the devtools crate instead.
 
-#![crate_name = "devtools_traits"]
-#![crate_type = "rlib"]
 #![deny(unsafe_code)]
 
 use core::fmt;
@@ -30,9 +28,9 @@ pub use embedder_traits::ConsoleLogLevel;
 use embedder_traits::Theme;
 use http::{HeaderMap, Method};
 use malloc_size_of_derive::MallocSizeOf;
-use net_traits::http_status::HttpStatus;
-use net_traits::request::Destination;
-use net_traits::{DebugVec, TlsSecurityInfo};
+use crate::net_traits::http_status::HttpStatus;
+use crate::net_traits::request::Destination;
+use crate::net_traits::{DebugVec, TlsSecurityInfo};
 use profile_traits::mem::ReportsChan;
 use serde::{Deserialize, Serialize};
 use servo_url::BrowserUrl;

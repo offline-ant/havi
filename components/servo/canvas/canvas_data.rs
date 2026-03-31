@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::Epoch;
-use canvas_traits::canvas::*;
+use crate::canvas::*;
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::paint::CrossProcessPaintApi;
 use pixels::Snapshot;

@@ -123,19 +123,19 @@ pub mod constellation_traits {
 }
 
 pub mod fonts_traits {
-    pub use ::fonts_traits::*;
+    pub use crate::fonts::*;
 }
 
 pub mod storage_traits {
-    pub use ::storage_traits::*;
+    pub use crate::storage::*;
 }
 
 pub mod devtools_traits {
-    pub use ::devtools_traits::*;
+    pub use crate::devtools::*;
 }
 
 pub mod canvas_traits {
-    pub use ::canvas_traits::*;
+    pub use crate::canvas::*;
 }
 
 pub mod webgpu_traits {

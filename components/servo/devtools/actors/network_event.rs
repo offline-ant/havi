@@ -11,7 +11,7 @@ use atomic_refcell::AtomicRefCell;
 use base64::engine::Engine;
 use base64::engine::general_purpose::STANDARD;
 use chrono::{Local, LocalResult, TimeZone};
-use devtools_traits::{HttpRequest, HttpResponse};
+use crate::devtools::{HttpRequest, HttpResponse};
 use headers::{ContentLength, HeaderMapExt};
 use http::HeaderMap;
 use malloc_size_of_derive::MallocSizeOf;

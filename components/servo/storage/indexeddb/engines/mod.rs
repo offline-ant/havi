@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 
 use malloc_size_of::MallocSizeOf;
 use malloc_size_of_derive::MallocSizeOf;
-use storage_traits::indexeddb::{
+use crate::storage::api::indexeddb::{
     AsyncOperation, CreateObjectResult, IndexedDBIndex, IndexedDBTxnMode, KeyPath,
 };
 

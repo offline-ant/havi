@@ -20,7 +20,7 @@ use embedder_traits::{Theme, ViewportDetails};
 use euclid::{Point2D, Rect, Scale, Size2D};
 use crate::fonts::{FontContext, FontContextWebFontMethods};
 use ::fonts::WebFontDocumentContext;
-use fonts_traits::StylesheetWebFontLoadFinishedCallback;
+use crate::fonts::StylesheetWebFontLoadFinishedCallback;
 use crate::layout::wrapper_traits::LayoutNode;
 use crate::layout::{
     AxesOverflow, BoxAreaType, CSSPixelRectIterator, IFrameSizes, Layout, LayoutConfig,

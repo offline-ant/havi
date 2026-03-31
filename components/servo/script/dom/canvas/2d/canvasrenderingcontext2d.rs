@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::{Epoch, generic_channel};
-use canvas_traits::canvas::{Canvas2dMsg, CanvasId};
+use crate::canvas::{Canvas2dMsg, CanvasId};
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
 use js::context::JSContext;

@@ -6,10 +6,10 @@ use std::path::PathBuf;
 
 use base::generic_channel::GenericSender;
 use profile_traits::mem::ProfilerChan as MemProfilerChan;
-use storage_traits::StorageThreads;
-use storage_traits::client_storage::ClientStorageThreadMessage;
-use storage_traits::indexeddb::IndexedDBThreadMsg;
-use storage_traits::webstorage_thread::WebStorageThreadMsg;
+use crate::storage::StorageThreads;
+use crate::storage::api::client_storage::ClientStorageThreadMessage;
+use crate::storage::api::indexeddb::IndexedDBThreadMsg;
+use crate::storage::api::webstorage_thread::WebStorageThreadMsg;
 
 use super::{ClientStorageThreadFactory, IndexedDBThreadFactory, WebStorageThreadFactory};
 

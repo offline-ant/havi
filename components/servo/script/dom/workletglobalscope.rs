@@ -9,7 +9,7 @@ use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::{PipelineId, WebViewId};
 use crate::constellation::{ScriptToConstellationChan, ScriptToConstellationMessage};
 use crossbeam_channel::Sender;
-use devtools_traits::ScriptToDevtoolsControlMsg;
+use crate::devtools::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
 use embedder_traits::{JavaScriptEvaluationError, ScriptToEmbedderChan};
 use js::jsval::UndefinedValue;
@@ -18,7 +18,7 @@ use net_traits::image_cache::ImageCache;
 use profile_traits::{mem, time};
 use crate::script::Painter;
 use servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
-use storage_traits::StorageThreads;
+use crate::storage::StorageThreads;
 use stylo_atoms::Atom;
 
 use crate::script::dom::bindings::inheritance::Castable;

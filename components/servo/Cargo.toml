@@ -51,15 +51,12 @@ byteorder = { workspace = true }
 cssparser = { workspace = true }
 bluetooth = { path = "../bluetooth", optional = true }
 bluetooth_traits = { workspace = true, optional = true }
-canvas_traits = { workspace = true }
 crossbeam-channel = { workspace = true }
-devtools_traits = { workspace = true }
 dpi = { workspace = true }
 bytes = "1"
 embedder_traits = { workspace = true }
 env_logger = { workspace = true }
 euclid = { workspace = true }
-fonts_traits = { workspace = true }
 fonts = { path = "../fonts" }
 html5ever = { workspace = true }
 hppr-client = { workspace = true }
@@ -126,7 +123,7 @@ hkdf = { workspace = true }
 icu_locid = { workspace = true }
 icu_properties = { workspace = true }
 icu_segmenter = { workspace = true }
-kurbo = { workspace = true }
+kurbo = { workspace = true, features = ["serde"] }
 libc = { workspace = true }
 markup5ever = { workspace = true }
 log = { workspace = true }
@@ -189,7 +186,6 @@ servo-media = { workspace = true }
 servo-media-dummy = { workspace = true }
 servo-tracing = { workspace = true }
 servo_allocator = { path = "../allocator" }
-storage_traits = { workspace = true }
 servo_config_macro = { path = "../config/macro" }
 servo_arc = { workspace = true }
 stylo = { workspace = true }

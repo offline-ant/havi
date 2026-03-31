@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use crossbeam_channel::{Receiver, select};
-use devtools_traits::DevtoolScriptControlMsg;
+use crate::devtools::DevtoolScriptControlMsg;
 use rustc_hash::FxHashSet;
 
 use crate::script::dom::bindings::conversions::DerivedFrom;

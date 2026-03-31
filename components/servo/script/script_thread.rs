@@ -47,7 +47,7 @@ use crate::constellation::{
 };
 use crossbeam_channel::unbounded;
 use data_url::mime::Mime;
-use devtools_traits::{
+use crate::devtools::{
     CSSError, DevtoolScriptControlMsg, DevtoolsPageInfo, NavigationState,
     ScriptToDevtoolsControlMsg, WorkerId,
 };
@@ -96,8 +96,8 @@ use crate::script::{
 use servo_arc::Arc as ServoArc;
 use servo_config::{opts, pref, prefs};
 use servo_url::{ImmutableOrigin, MutableOrigin, OriginSnapshot, BrowserUrl};
-use storage_traits::StorageThreads;
-use storage_traits::webstorage_thread::WebStorageType;
+use crate::storage::StorageThreads;
+use crate::storage::api::webstorage_thread::WebStorageType;
 use style::context::QuirksMode;
 use style::error_reporting::RustLogReporter;
 use style::global_style_data::GLOBAL_STYLE_DATA;

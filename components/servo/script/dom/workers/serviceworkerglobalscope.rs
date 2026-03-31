@@ -13,7 +13,7 @@ use crate::constellation::{
     ScopeThings, ServiceWorkerMsg, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
 };
 use crossbeam_channel::{Receiver, Sender, after};
-use devtools_traits::DevtoolScriptControlMsg;
+use crate::devtools::DevtoolScriptControlMsg;
 use dom_struct::dom_struct;
 use crate::fonts::FontContext;
 use js::jsapi::{JS_AddInterruptCallback, JSContext};

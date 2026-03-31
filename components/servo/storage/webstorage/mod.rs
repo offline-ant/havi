@@ -27,7 +27,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_config::pref;
 use servo_url::{ImmutableOrigin, BrowserUrl};
-use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageThreadMsg, WebStorageType};
+use crate::storage::api::webstorage_thread::{OriginDescriptor, WebStorageThreadMsg, WebStorageType};
 use uuid::Uuid;
 
 use crate::storage::webstorage::engines::sqlite::SqliteEngine;

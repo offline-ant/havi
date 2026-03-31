@@ -16,7 +16,7 @@ use std::{cmp, fmt, iter};
 use app_units::Au;
 use base::id::{BrowsingContextId, PipelineId};
 use bitflags::bitflags;
-use devtools_traits::NodeInfo;
+use crate::devtools::NodeInfo;
 use dom_struct::dom_struct;
 use embedder_traits::UntrustedNodeAddress;
 use euclid::default::Size2D;

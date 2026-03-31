@@ -9,7 +9,7 @@ use js::rust::HandleValue;
 use script_bindings::codegen::GenericBindings::IDBKeyRangeBinding::IDBKeyRangeMethods;
 use script_bindings::root::DomRoot;
 use script_bindings::script_runtime::CanGc;
-use storage_traits::indexeddb::IndexedDBKeyRange;
+use crate::storage::api::indexeddb::IndexedDBKeyRange;
 
 use crate::script::dom::bindings::error::{Error, Fallible};
 use crate::script::dom::bindings::reflector::{Reflector, reflect_dom_object};

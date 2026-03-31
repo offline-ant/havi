@@ -8,6 +8,10 @@
 //! [code](https://searchfox.org/mozilla-central/source/devtools/server).
 
 #![deny(unsafe_code)]
+#![allow(hidden_glob_reexports)]
+
+mod traits;
+pub use self::traits::*;
 
 use std::borrow::ToOwned;
 use std::collections::HashMap;
@@ -20,12 +24,6 @@ use std::thread;
 use base::generic_channel::{self, GenericSender};
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use devtools_traits::{
-    ChromeToDevtoolsControlMsg, ConsoleLogLevel, ConsoleMessage, ConsoleMessageFields,
-    DevtoolScriptControlMsg, DevtoolsControlMsg, DevtoolsPageInfo, DomMutation, EnvironmentInfo,
-    FrameInfo, FrameOffset, NavigationState, NetworkEvent, PauseReason, ScriptToDevtoolsControlMsg,
-    SourceInfo, WorkerId, get_time_stamp,
-};
 use embedder_traits::{AllowOrDeny, EmbedderMsg, EmbedderProxy};
 use log::{trace, warn};
 use malloc_size_of::MallocSizeOf;
@@ -36,6 +34,13 @@ use resource::{ResourceArrayType, ResourceAvailable};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 use servo_config::pref;
+
+pub(crate) use self::traits::{
+    ChromeToDevtoolsControlMsg, ConsoleLogLevel, ConsoleMessage, ConsoleMessageFields,
+    DevtoolScriptControlMsg, DevtoolsControlMsg, DevtoolsPageInfo, DomMutation, EnvironmentInfo,
+    FrameInfo, FrameOffset, NavigationState, NetworkEvent, PauseReason,
+    ScriptToDevtoolsControlMsg, SourceInfo, WorkerId, get_time_stamp,
+};
 
 use self::actor::{Actor, ActorEncode, ActorError, ActorRegistry};
 use self::actors::browsing_context::BrowsingContextActor;

@@ -12,7 +12,7 @@ use js::rust::HandleValue;
 use profile_traits::generic_callback::GenericCallback;
 use script_bindings::inheritance::Castable;
 use servo_url::origin::ImmutableOrigin;
-use storage_traits::indexeddb::{
+use crate::storage::api::indexeddb::{
     BackendResult, ConnectionMsg, DatabaseInfo, IndexedDBThreadMsg, SyncOperation,
 };
 use stylo_atoms::Atom;

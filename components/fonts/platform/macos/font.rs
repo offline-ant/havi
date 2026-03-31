@@ -12,7 +12,7 @@ use std::{fmt, ptr};
 use app_units::Au;
 use byteorder::{BigEndian, ByteOrder};
 use euclid::default::{Point2D, Rect, Size2D};
-use fonts_traits::{FontIdentifier, FontTemplateRef, LocalFontIdentifier};
+use crate::{FontIdentifier, FontTemplateRef, LocalFontIdentifier};
 use log::debug;
 use objc2_core_foundation::{
     CFData, CFDictionary, CFIndex, CFNumber, CFRange, CFRetained, CFString, CFType,

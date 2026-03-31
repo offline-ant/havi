@@ -25,7 +25,7 @@ use rusqlite::Error as RusqliteError;
 use rustc_hash::{FxHashMap, FxHashSet};
 use servo_config::pref;
 use servo_url::origin::ImmutableOrigin;
-use storage_traits::indexeddb::{
+use crate::storage::api::indexeddb::{
     AsyncOperation, BackendError, BackendResult, ConnectionMsg, CreateObjectResult, DatabaseInfo,
     DbResult, IndexedDBIndex, IndexedDBObjectStore, IndexedDBThreadMsg, IndexedDBTxnMode, KeyPath,
     SyncOperation, TxnCompleteMsg,
@@ -2039,7 +2039,7 @@ impl IndexedDBManager {
                 }
                 for callback in pending_commit_callbacks {
                     if callback
-                        .send(storage_traits::indexeddb::TxnCompleteMsg {
+                        .send(crate::storage::api::indexeddb::TxnCompleteMsg {
                             origin: origin.clone(),
                             db_name: db_name.clone(),
                             txn,
@@ -2054,7 +2054,7 @@ impl IndexedDBManager {
                     }
                 }
                 if abort_callback
-                    .send(storage_traits::indexeddb::TxnCompleteMsg {
+                    .send(crate::storage::api::indexeddb::TxnCompleteMsg {
                         origin: origin.clone(),
                         db_name: db_name.clone(),
                         txn,

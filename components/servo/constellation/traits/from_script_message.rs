@@ -13,9 +13,9 @@ use base::id::{
     MessagePortRouterId, PipelineId, ScriptEventLoopId, ServiceWorkerId,
     ServiceWorkerRegistrationId, WebViewId,
 };
-use canvas_traits::canvas::{CanvasId, CanvasMsg};
+use crate::canvas::{CanvasId, CanvasMsg};
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
-use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
+use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
 use embedder_traits::user_contents::UserContentManagerId;
 use embedder_traits::{
     AnimationState, FocusSequenceNumber, JSValue, JavaScriptEvaluationError,
@@ -23,7 +23,7 @@ use embedder_traits::{
 };
 use encoding_rs::Encoding;
 use euclid::default::Size2D as UntypedSize2D;
-use fonts_traits::SystemFontServiceProxySender;
+use crate::fonts::SystemFontServiceProxySender;
 use http::{HeaderMap, Method};
 use ipc_channel::ipc::IpcSender;
 use malloc_size_of_derive::MallocSizeOf;
@@ -36,8 +36,8 @@ use profile_traits::{mem, time as profile_time};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_url::{ImmutableOrigin, OriginSnapshot, BrowserUrl};
-use storage_traits::StorageThreads;
-use storage_traits::webstorage_thread::WebStorageType;
+use crate::storage::StorageThreads;
+use crate::storage::api::webstorage_thread::WebStorageType;
 use strum::IntoStaticStr;
 #[cfg(feature = "webgpu")]
 use webgpu_traits::{WebGPU, WebGPUAdapterResponse};

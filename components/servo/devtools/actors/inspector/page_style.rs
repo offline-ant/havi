@@ -10,8 +10,8 @@ use std::collections::hash_map::Entry;
 use std::iter::once;
 
 use base::generic_channel::{self};
-use devtools_traits::DevtoolScriptControlMsg::{GetLayout, GetSelectors};
-use devtools_traits::{AutoMargins, ComputedNodeLayout};
+use crate::devtools::DevtoolScriptControlMsg::{GetLayout, GetSelectors};
+use crate::devtools::{AutoMargins, ComputedNodeLayout};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{self, Map, Value};

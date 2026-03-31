@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use atomic_refcell::AtomicRefCell;
 use base::generic_channel::{self, GenericSender};
 use base::id::TEST_PIPELINE_ID;
-use devtools_traits::EvaluateJSReplyValue::{
+use crate::devtools::EvaluateJSReplyValue::{
     ActorValue, BooleanValue, NullValue, NumberValue, StringValue, VoidValue,
 };
-use devtools_traits::{
+use crate::devtools::{
     ConsoleArgument, ConsoleMessage, ConsoleMessageFields, DevtoolScriptControlMsg, PageError,
     StackFrame, get_time_stamp,
 };

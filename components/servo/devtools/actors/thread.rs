@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use atomic_refcell::AtomicRefCell;
 use base::generic_channel::GenericSender;
-use devtools_traits::{DevtoolScriptControlMsg, PauseReason};
+use crate::devtools::{DevtoolScriptControlMsg, PauseReason};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

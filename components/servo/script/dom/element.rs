@@ -16,7 +16,7 @@ use std::{fmt, mem};
 use app_units::Au;
 use bitflags::bitflags;
 use cssparser::match_ignore_ascii_case;
-use devtools_traits::{AttrInfo, DomMutation, ScriptToDevtoolsControlMsg};
+use crate::devtools::{AttrInfo, DomMutation, ScriptToDevtoolsControlMsg};
 use dom_struct::dom_struct;
 use euclid::Rect;
 use html5ever::serialize::TraversalScope;

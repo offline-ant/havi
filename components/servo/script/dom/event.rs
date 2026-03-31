@@ -7,7 +7,7 @@ use std::default::Default;
 
 use base::cross_process_instant::CrossProcessInstant;
 use bitflags::bitflags;
-use devtools_traits::{TimelineMarker, TimelineMarkerType};
+use crate::devtools::{TimelineMarker, TimelineMarkerType};
 use dom_struct::dom_struct;
 use embedder_traits::InputEventResult;
 use js::rust::HandleObject;

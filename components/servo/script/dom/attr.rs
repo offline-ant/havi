@@ -6,7 +6,7 @@ use std::borrow::ToOwned;
 use std::mem;
 use std::sync::LazyLock;
 
-use devtools_traits::AttrInfo;
+use crate::devtools::AttrInfo;
 use dom_struct::dom_struct;
 use html5ever::{LocalName, Namespace, Prefix, local_name, ns};
 use style::attr::{AttrIdentifier, AttrValue};

@@ -10,7 +10,7 @@ use base::generic_channel::{GenericReceiver, RoutedReceiver};
 use base::id::{BrowsingContextId, PipelineId, ScriptEventLoopId, WebViewId};
 use crate::constellation::{WorkerGlobalScopeInit, WorkerScriptLoadOrigin};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use devtools_traits::DevtoolScriptControlMsg;
+use crate::devtools::DevtoolScriptControlMsg;
 use dom_struct::dom_struct;
 use crate::fonts::FontContext;
 use js::context::JSContext;

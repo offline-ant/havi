@@ -24,7 +24,7 @@ use crate::constellation::{
     ScrollStateUpdate, StructuredSerializedData, WindowSizeType,
 };
 use crossbeam_channel::RecvTimeoutError;
-use devtools_traits::ScriptToDevtoolsControlMsg;
+use crate::devtools::ScriptToDevtoolsControlMsg;
 use embedder_traits::user_contents::{UserContentManagerId, UserContents};
 use embedder_traits::{
     EmbedderControlId, EmbedderControlResponse, FocusSequenceNumber, InputEventAndId,
@@ -32,7 +32,7 @@ use embedder_traits::{
     Theme, ViewportDetails, WebDriverScriptCommand,
 };
 use euclid::{Scale, Size2D};
-use fonts_traits::SystemFontServiceProxySender;
+use crate::fonts::SystemFontServiceProxySender;
 use keyboard_types::Modifiers;
 use malloc_size_of_derive::MallocSizeOf;
 use net_traits::ResourceThreads;
@@ -43,8 +43,8 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_config::prefs::PrefValue;
 use servo_url::{ImmutableOrigin, BrowserUrl};
-use storage_traits::StorageThreads;
-use storage_traits::webstorage_thread::WebStorageType;
+use crate::storage::StorageThreads;
+use crate::storage::api::webstorage_thread::WebStorageType;
 use strum::IntoStaticStr;
 use style_traits::{CSSPixel, SpeculativePainter};
 use stylo_atoms::Atom;

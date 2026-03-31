@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::thread;
 
 use base::generic_channel::{self, GenericReceiver, GenericSender};
-use storage_traits::client_storage::ClientStorageThreadMessage;
+use crate::storage::api::client_storage::ClientStorageThreadMessage;
 
 pub trait ClientStorageThreadFactory {
     fn new(config_dir: Option<PathBuf>) -> Self;

@@ -9,7 +9,7 @@ use std::{io, mem, str};
 use base::id::PipelineId;
 use content_security_policy as csp;
 use crossbeam_channel::Sender;
-use devtools_traits::DevtoolsControlMsg;
+use crate::devtools::DevtoolsControlMsg;
 use embedder_traits::resources::{self, Resource};
 use headers::{AccessControlExposeHeaders, ContentType, HeaderMapExt};
 use http::header::{self, HeaderMap, HeaderName, RANGE};

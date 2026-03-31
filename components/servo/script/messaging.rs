@@ -14,7 +14,7 @@ use base::id::{PipelineId, WebViewId};
 use bluetooth_traits::BluetoothRequest;
 use crate::constellation::ScriptToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender, select};
-use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
+use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
 use embedder_traits::{EmbedderControlId, EmbedderControlResponse, ScriptToEmbedderChan};
 use net_traits::FetchResponseMsg;
 use net_traits::image_cache::ImageCacheResponseMessage;

@@ -8,7 +8,7 @@ use std::str;
 
 use base::generic_channel::GenericSender;
 use base::id::PipelineId;
-use devtools_traits::{
+use crate::devtools::{
     AttrModification, AutoMargins, ComputedNodeLayout, CssDatabaseProperty, EvaluateJSReply,
     EvaluateJSReplyValue, EventListenerInfo, NodeInfo, NodeStyle, RuleModification, TimelineMarker,
     TimelineMarkerType,

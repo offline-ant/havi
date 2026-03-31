@@ -28,7 +28,7 @@ use crate::constellation::{
 };
 use content_security_policy::CspList;
 use crossbeam_channel::Sender;
-use devtools_traits::{PageError, ScriptToDevtoolsControlMsg, get_time_stamp};
+use crate::devtools::{PageError, ScriptToDevtoolsControlMsg, get_time_stamp};
 use dom_struct::dom_struct;
 use embedder_traits::{EmbedderMsg, JavaScriptEvaluationError, ScriptToEmbedderChan};
 use crate::fonts::FontContext;
@@ -64,7 +64,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 use script_bindings::interfaces::GlobalScopeHelpers;
 use script_bindings::settings_stack::run_a_script;
 use ::servo_url::{ImmutableOrigin, MutableOrigin, BrowserUrl};
-use storage_traits::StorageThreads;
+use crate::storage::StorageThreads;
 use strum::VariantArray;
 use crate::timers::{TimerEventRequest, TimerId};
 use uuid::Uuid;

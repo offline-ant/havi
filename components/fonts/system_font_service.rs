@@ -10,7 +10,7 @@ use std::thread;
 use app_units::Au;
 use base::generic_channel::{self, GenericReceiver};
 use base::id::PainterId;
-use fonts_traits::{
+use crate::{
     FontDescriptor, FontIdentifier, FontTemplate, FontTemplateRef, LowercaseFontFamilyName,
     SystemFontServiceMessage, SystemFontServiceProxySender,
 };

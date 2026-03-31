@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use base::generic_channel;
-use devtools_traits::DevtoolScriptControlMsg::{
+use crate::devtools::DevtoolScriptControlMsg::{
     GetAttributeStyle, GetComputedStyle, GetDocumentElement, GetStylesheetStyle, ModifyRule,
 };
 use malloc_size_of_derive::MallocSizeOf;

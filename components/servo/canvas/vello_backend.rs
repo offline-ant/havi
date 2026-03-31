@@ -17,7 +17,7 @@ use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use base::generic_channel::GenericSharedMemory;
-use canvas_traits::canvas::{
+use crate::canvas::{
     CompositionOptions, CompositionOrBlending, CompositionStyle, FillOrStrokeStyle, FillRule,
     LineOptions, Path, ShadowOptions, TextRun,
 };

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use atomic_refcell::AtomicRefCell;
 use base::generic_channel::{self, GenericSender};
 use base::id::PipelineId;
-use devtools_traits::{
+use crate::devtools::{
     AttrModification, DevtoolScriptControlMsg, EventListenerInfo, NodeInfo, ShadowRootMode,
 };
 use malloc_size_of_derive::MallocSizeOf;

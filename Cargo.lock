@@ -854,24 +854,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "canvas_traits"
-version = "0.0.1"
-dependencies = [
- "base",
- "crossbeam-channel",
- "euclid",
- "fonts_traits",
- "kurbo 0.12.0",
- "malloc_size_of_derive",
- "pixels",
- "serde",
- "servo_malloc_size_of",
- "strum",
- "stylo",
- "webrender_api",
-]
-
-[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1612,24 +1594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "devtools_traits"
-version = "0.0.1"
-dependencies = [
- "base",
- "bitflags 2.11.0",
- "embedder_traits",
- "http 1.4.0",
- "log",
- "malloc_size_of_derive",
- "net_traits",
- "profile_traits",
- "serde",
- "servo_malloc_size_of",
- "servo_url",
- "uuid",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2189,13 +2153,13 @@ name = "fonts"
 version = "0.0.1"
 dependencies = [
  "app_units",
+ "atomic_refcell",
  "base",
  "bitflags 2.11.0",
  "byteorder 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "content-security-policy",
  "dwrote",
  "euclid",
- "fonts_traits",
  "fontsan",
  "freetype-sys",
  "harfbuzz-sys",
@@ -2206,6 +2170,7 @@ dependencies = [
  "malloc_size_of_derive",
  "memmap2",
  "net_traits",
+ "num-derive",
  "num-traits",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -2231,28 +2196,6 @@ dependencies = [
  "winapi",
  "xml-rs",
  "yeslogic-fontconfig-sys",
-]
-
-[[package]]
-name = "fonts_traits"
-version = "0.0.1"
-dependencies = [
- "atomic_refcell",
- "base",
- "dwrote",
- "log",
- "malloc_size_of_derive",
- "memmap2",
- "num-derive",
- "num-traits",
- "parking_lot",
- "profile_traits",
- "read-fonts",
- "serde",
- "servo_malloc_size_of",
- "servo_url",
- "stylo",
- "webrender_api",
 ]
 
 [[package]]
@@ -4171,7 +4114,6 @@ dependencies = [
  "bytemuck 1.25.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes",
- "canvas_traits",
  "cbc",
  "chacha20poly1305",
  "chardetng",
@@ -4185,7 +4127,6 @@ dependencies = [
  "data-url",
  "deny_public_fields",
  "der",
- "devtools_traits",
  "digest",
  "dirs",
  "dom_struct",
@@ -4198,7 +4139,6 @@ dependencies = [
  "euclid",
  "flate2",
  "fonts",
- "fonts_traits",
  "fontsan",
  "freetype-sys",
  "fst",
@@ -4297,7 +4237,6 @@ dependencies = [
  "sha3",
  "skrifa",
  "smallvec 1.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "storage_traits",
  "strum",
  "stylo",
  "stylo_atoms",
@@ -7581,19 +7520,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "storage_traits"
-version = "0.0.1"
-dependencies = [
- "base",
- "malloc_size_of_derive",
- "profile_traits",
- "serde",
- "servo_malloc_size_of",
- "servo_url",
- "uuid",
-]
 
 [[package]]
 name = "strck"

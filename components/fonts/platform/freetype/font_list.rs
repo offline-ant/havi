@@ -19,7 +19,7 @@ use fontconfig_sys::{
     FcObjectSetCreate, FcObjectSetDestroy, FcPattern, FcPatternAddString, FcPatternCreate,
     FcPatternDestroy, FcPatternGetInteger, FcPatternGetString, FcResultMatch, FcSetSystem,
 };
-use fonts_traits::{FontTemplate, FontTemplateDescriptor, LocalFontIdentifier};
+use crate::{FontTemplate, FontTemplateDescriptor, LocalFontIdentifier};
 use libc::{c_char, c_int};
 use log::debug;
 use style::Atom;

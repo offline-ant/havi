@@ -10,7 +10,7 @@ use js::jsapi::Heap;
 use js::jsval::{JSVal, UndefinedValue};
 use js::rust::MutableHandleValue;
 use script_bindings::script_runtime::CanGc;
-use storage_traits::indexeddb::{IndexedDBKeyRange, IndexedDBKeyType, IndexedDBRecord};
+use crate::storage::api::indexeddb::{IndexedDBKeyRange, IndexedDBKeyType, IndexedDBRecord};
 
 use crate::script::dom::bindings::cell::DomRefCell;
 use crate::script::dom::bindings::codegen::Bindings::IDBCursorBinding::{

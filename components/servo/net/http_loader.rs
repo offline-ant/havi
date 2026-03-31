@@ -12,7 +12,7 @@ use base::cross_process_instant::CrossProcessInstant;
 use base::generic_channel::GenericSharedMemory;
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId};
 use crossbeam_channel::Sender;
-use devtools_traits::{
+use crate::devtools::{
     ChromeToDevtoolsControlMsg, DevtoolsControlMsg, HttpRequest as DevtoolsHttpRequest,
     HttpResponse as DevtoolsHttpResponse, NetworkEvent, SecurityInfoUpdate,
 };

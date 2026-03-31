@@ -12,7 +12,7 @@ use base::id::{PipelineId, WebViewId};
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
-use devtools_traits::ScriptToDevtoolsControlMsg;
+use crate::devtools::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
 use embedder_traits::resources::{self, Resource};
 use encoding_rs::{Encoding, UTF_8};

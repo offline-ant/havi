@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::net::TcpStream;
 
 use base::id::BrowsingContextId;
-use devtools_traits::get_time_stamp;
+use crate::devtools::get_time_stamp;
 use log::warn;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;

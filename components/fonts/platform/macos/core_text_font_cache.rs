@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use app_units::Au;
-use fonts_traits::FontIdentifier;
+use crate::FontIdentifier;
 use objc2_core_foundation::{
     CFData, CFDictionary, CFNumber, CFRetained, CFString, CFType, CFURL, CGFloat,
 };

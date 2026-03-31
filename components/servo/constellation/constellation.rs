@@ -110,8 +110,8 @@ use base::{Epoch, generic_channel};
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
 use crate::canvas::canvas_paint_thread::CanvasPaintThread;
-use canvas_traits::ConstellationCanvasMsg;
-use canvas_traits::canvas::{CanvasId, CanvasMsg};
+use crate::canvas::ConstellationCanvasMsg;
+use crate::canvas::{CanvasId, CanvasMsg};
 use crate::constellation::{
     AuxiliaryWebViewCreationRequest, AuxiliaryWebViewCreationResponse, DocumentState,
     EmbedderToConstellationMessage, IFrameLoadInfo, IFrameLoadInfoWithData, IFrameSizeMsg, Job,
@@ -122,7 +122,7 @@ use crate::constellation::{
 };
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use crossbeam_channel::{Receiver, Select, Sender, unbounded};
-use devtools_traits::{
+use crate::devtools::{
     ChromeToDevtoolsControlMsg, DevtoolsControlMsg, DevtoolsPageInfo, NavigationState,
     ScriptToDevtoolsControlMsg,
 };
@@ -164,10 +164,10 @@ use crate::script::{
 };
 use servo_config::{opts, pref};
 use servo_url::{Host, ImmutableOrigin, BrowserUrl};
-use storage_traits::StorageThreads;
-use storage_traits::client_storage::ClientStorageThreadMessage;
-use storage_traits::indexeddb::{IndexedDBThreadMsg, SyncOperation};
-use storage_traits::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
+use crate::storage::StorageThreads;
+use crate::storage::api::client_storage::ClientStorageThreadMessage;
+use crate::storage::api::indexeddb::{IndexedDBThreadMsg, SyncOperation};
+use crate::storage::api::webstorage_thread::{WebStorageThreadMsg, WebStorageType};
 use style::global_style_data::StyleThreadPool;
 #[cfg(feature = "webgpu")]
 use webgpu::canvas_context::WebGpuExternalImageMap;

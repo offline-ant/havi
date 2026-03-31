@@ -10,7 +10,7 @@ use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use rusqlite::{Connection, Error, OptionalExtension, params};
 use sea_query::{Condition, Expr, ExprTrait, IntoCondition, SqliteQueryBuilder};
 use sea_query_rusqlite::RusqliteBinder;
-use storage_traits::indexeddb::{
+use crate::storage::api::indexeddb::{
     AsyncOperation, AsyncReadOnlyOperation, AsyncReadWriteOperation, BackendError,
     CreateObjectResult, IndexedDBIndex, IndexedDBKeyRange, IndexedDBKeyType, IndexedDBRecord,
     IndexedDBTxnMode, KeyPath, PutItemResult,
@@ -726,7 +726,7 @@ mod tests {
     use profile_traits::time::ProfilerChan;
     use serde::{Deserialize, Serialize};
     use servo_url::ImmutableOrigin;
-    use storage_traits::indexeddb::{
+    use crate::storage::api::indexeddb::{
         AsyncOperation, AsyncReadOnlyOperation, AsyncReadWriteOperation, CreateObjectResult,
         IndexedDBKeyRange, IndexedDBKeyType, IndexedDBTxnMode, KeyPath, PutItemResult,
     };

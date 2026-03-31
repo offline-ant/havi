@@ -11,7 +11,7 @@ use dom_struct::dom_struct;
 use profile_traits::generic_callback::GenericCallback;
 use profile_traits::generic_channel::channel;
 use script_bindings::codegen::GenericUnionTypes::StringOrStringSequence;
-use storage_traits::indexeddb::{
+use crate::storage::api::indexeddb::{
     IndexedDBIndex, IndexedDBThreadMsg, IndexedDBTxnMode, KeyPath, SyncOperation, TxnCompleteMsg,
 };
 use stylo_atoms::Atom;

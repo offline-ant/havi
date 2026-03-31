@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use devtools_traits::CssDatabaseProperty;
+use crate::devtools::CssDatabaseProperty;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;
 use serde_json::{Map, Value};
