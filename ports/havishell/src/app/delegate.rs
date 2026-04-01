@@ -4,7 +4,7 @@ use libhavi::hppr::credentials::global_credential_store;
 use libhavi::hppr::resolve;
 use hppr_client::{Signer, parse_via};
 use libhavi::{
-    CameraRequest, EmbedderControl, HpprControlRequest, HpprControlResponse,
+    CameraRequest, ConsoleLogLevel, EmbedderControl, HpprControlRequest, HpprControlResponse,
     HpprEmbedResolveResponse, HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument,
     HpprResolvedMediaSource, HpprResolvedSourceRef,
 };
@@ -224,6 +224,30 @@ impl Default for MakepadServoAction {
 // ---------------------------------------------------------------------------
 
 pub(super) struct HaviWebViewDelegate;
+
+fn print_console_message(
+    webview_id: Option<WebViewId>,
+    level: ConsoleLogLevel,
+    message: &str,
+) {
+    let scope = webview_id
+        .map(|id| format!("webview={:?}", id))
+        .unwrap_or_else(|| "global".to_string());
+    let prefix = format!("[console][{:?}][{}]", level, scope);
+    match level {
+        ConsoleLogLevel::Warn | ConsoleLogLevel::Error => {
+            eprintln!("{} {}", prefix, message);
+            let _ = std::io::stderr().flush();
+        },
+        ConsoleLogLevel::Log |
+        ConsoleLogLevel::Debug |
+        ConsoleLogLevel::Info |
+        ConsoleLogLevel::Trace => {
+            println!("{} {}", prefix, message);
+            let _ = std::io::stdout().flush();
+        },
+    }
+}
 
 fn home_repo_target() -> hppr_client::ViaSpec {
     std::env::var("HAVI_HOME")
@@ -455,6 +479,15 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
         SignalToUI::set_ui_signal();
     }
 
+    fn show_console_message(
+        &self,
+        webview: libhavi::WebView,
+        level: ConsoleLogLevel,
+        message: String,
+    ) {
+        print_console_message(Some(webview.id()), level, &message);
+    }
+
     fn handle_control_operation(
         &self,
         _webview: libhavi::WebView,
@@ -554,6 +587,10 @@ impl libhavi::ServoDelegate for HaviServoDelegate {
 
     fn request_devtools_connection(&self, request: libhavi::AllowOrDenyRequest) {
         request.allow();
+    }
+
+    fn show_console_message(&self, level: ConsoleLogLevel, message: String) {
+        print_console_message(None, level, &message);
     }
 
     fn watch_get_mode(
