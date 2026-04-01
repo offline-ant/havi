@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Beyond HTTP</title>
+<link href="reset.css" rel="stylesheet"/>
+<link href="reveal.css" rel="stylesheet"/>
+<link href="theme/black.css" rel="stylesheet"/>
+<style>
+  :root {
+    --r-heading-font: system-ui, sans-serif;
+    --r-main-font: system-ui, sans-serif;
+    --accent: #58a6ff;
+    --green: #7ee787;
+    --orange: #f2cc60;
+    --muted: #a5b4c3;
+    --red: #ff7b72;
+  }
+
+  .reveal h1,
+  .reveal h2,
+  .reveal h3 {
+    text-transform: none;
+    letter-spacing: -0.02em;
+  }
+
+  .reveal h1 { font-size: 2.1em; }
+  .reveal h2 { font-size: 1.4em; }
+  .reveal h3 { font-size: 0.92em; }
+
+  .reveal p,
+  .reveal li { line-height: 1.28; }
+
+  .reveal ul,
+  .reveal ol { display: inline-block; text-align: left; }
+
+  .reveal strong { color: #fff; }
+  .reveal code { color: var(--green); }
+  .reveal pre {
+    width: auto;
+    margin: 0.7em auto;
+    font-size: 0.58em;
+    box-shadow: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+  }
+  .reveal pre code {
+    max-height: none;
+    padding: 1em 1.1em;
+  }
+
+  .reveal table {
+    font-size: 0.62em;
+    margin: 0.65em auto;
+  }
+  .reveal table th { color: var(--accent); }
+
+  .center-slide { text-align: center; }
+  .kicker {
+    color: var(--accent);
+    font-size: 0.54em;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 0.9em;
+  }
+  .statement {
+    font-size: 1.32em;
+    line-height: 1.14;
+    margin: 0.35em auto 0.5em;
+    max-width: 13em;
+  }
+  .subtle {
+    color: var(--muted);
+    font-size: 0.66em;
+  }
+  .small { font-size: 0.6em; }
+  .mid { font-size: 0.72em; }
+  .tight li { margin-bottom: 0.24em; }
+  .accent { color: var(--accent); }
+  .green { color: var(--green); }
+  .orange { color: var(--orange); }
+  .red { color: var(--red); }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2em;
+    align-items: start;
+    text-align: left;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.9em;
+    align-items: start;
+    text-align: left;
+  }
+
+  .box {
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 0.8em 0.95em;
+    background: rgba(255,255,255,0.03);
+    text-align: left;
+  }
+
+  .big-list {
+    max-width: 16em;
+    margin: 0.55em auto 0;
+    text-align: left;
+    font-size: 0.84em;
+  }
+
+  .mono-diagram {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: normal;
+    font-size: 0.65em;
+    line-height: 1.18;
+    text-align: left;
+  }
+
+  div-new {
+    display: block;
+    white-space: pre;
+  }
+
+  div-new:empty {
+    height: 1.18em;
+  }
+
+  .packet-view {
+    width: 100%;
+    max-width: 100%;
+    margin: 0.7em auto;
+    padding: 0.9em 1em;
+    box-shadow: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.56em;
+    line-height: 1.3;
+    text-align: left;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .packet-layer {
+    display: block;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 0 !important;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  .packet-line {
+    display: block;
+    white-space: pre;
+    visibility: hidden;
+  }
+
+  .packet-line.always {
+    visibility: visible;
+  }
+
+  .packet-blank {
+    height: 1.3em;
+  }
+
+  .packet-slide.show-blob .blob-layer {
+    border-left-color: var(--green);
+    border-top-color: var(--green);
+  }
+
+  .packet-slide.show-plex .plex-layer {
+    border-left-color: var(--accent);
+    border-top-color: var(--accent);
+  }
+
+  .packet-slide.show-seal .seal-layer {
+    border-left-color: var(--orange);
+    border-top-color: var(--orange);
+  }
+
+  .packet-slide.show-blob .show-blob,
+  .packet-slide.show-plex .show-plex,
+  .packet-slide.show-seal .show-seal {
+    visibility: visible;
+  }
+
+  .step-copy-wrap {
+    position: relative;
+    min-height: 2.4em;
+    max-width: 24em;
+    margin: 0.8em auto 0;
+  }
+
+  .step-copy {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    transform: translateX(0.8em);
+    transition: opacity 180ms ease, transform 180ms ease;
+    pointer-events: none;
+  }
+
+  .packet-slide.current-blob .copy-blob,
+  .packet-slide.current-plex .copy-plex,
+  .packet-slide.current-seal .copy-seal {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .pipe-diagram {
+    display: none;
+  }
+  .pipe-diagram.visible {
+    display: block;
+  }
+
+  .fragment.step-trigger {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .footer-note {
+    margin-top: 0.9em;
+    font-size: 0.54em;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+<section class="center-slide">
+<div class="kicker">HPPR · HAVI</div>
+<h1>Beyond HTTP</h1>
+<p class="mid" style="max-width: 22em; margin: 1em auto 0;">
+    A browser over signed packets.<br/>
+    A larger design space for internet systems.
+  </p>
+</section>
+<section class="center-slide">
+<div class="kicker">Overview</div>
+<h2>This talk</h2>
+<ul class="big-list tight" style="max-width: 21em;">
+<li class="fragment">why packet-authenticated objects matter</li>
+<li class="fragment">the minimal HPPR model: blob, plex, seal</li>
+<li class="fragment">www.dse.nl as a proof of concept</li>
+<li class="fragment">touch on what this unlocks</li>
+</ul>
+</section>
+<section>
+<section class="center-slide">
+<div class="kicker">Thesis</div>
+<div class="statement">
+      We made the <span class="orange">connection</span> authentic
+      and left the <span class="accent">application object</span> ambient.
+    </div>
+</section>
+<section class="center-slide">
+<div class="kicker">Inversion</div>
+<div class="fragment pipe-diagram" data-diagram="pipe-left" style="margin-top: 0.8em;">
+<svg height="260" style="display:block; margin:0 auto; max-width:100%;" viewbox="0 0 900 260" width="900">
+<line stroke="#d2a8ff" stroke-width="10" x1="105" x2="395" y1="120" y2="120"></line>
+<circle cx="80" cy="120" fill="none" r="26" stroke="#58a6ff" stroke-width="8"></circle>
+<circle cx="450" cy="120" fill="none" r="26" stroke="#ff7b72" stroke-width="8"></circle>
+<rect fill="#d2a8ff" height="56" rx="8" width="56" x="230" y="92"></rect>
+</svg>
+</div>
+<div class="fragment pipe-diagram" data-diagram="pipe" style="margin-top: 0.8em;">
+<svg height="260" style="display:block; margin:0 auto; max-width:100%;" viewbox="0 0 900 260" width="900">
+<line stroke="#d2a8ff" stroke-width="10" x1="105" x2="395" y1="120" y2="120"></line>
+<line stroke="#ffb86b" stroke-width="10" x1="505" x2="795" y1="120" y2="120"></line>
+<circle cx="80" cy="120" fill="none" r="26" stroke="#58a6ff" stroke-width="8"></circle>
+<circle cx="450" cy="120" fill="none" r="26" stroke="#ff7b72" stroke-width="8"></circle>
+<circle cx="820" cy="120" fill="none" r="26" stroke="#f2cc60" stroke-width="8"></circle>
+<rect fill="#d2a8ff" height="56" rx="8" width="56" x="230" y="92"></rect>
+<rect fill="#ffb86b" height="56" rx="8" width="56" x="610" y="92"></rect>
+<text fill="#a5b4c3" font-family="system-ui, sans-serif" font-size="28" text-anchor="middle" x="450" y="220">pipe colors the message</text>
+</svg>
+</div>
+<div class="fragment pipe-diagram" data-diagram="packet" style="margin-top: 0.8em;">
+<svg height="260" style="display:block; margin:0 auto; max-width:100%;" viewbox="0 0 900 260" width="900">
+<line stroke="#d2a8ff" stroke-width="10" x1="105" x2="395" y1="120" y2="120"></line>
+<line stroke="#ffb86b" stroke-width="10" x1="505" x2="795" y1="120" y2="120"></line>
+<circle cx="80" cy="120" fill="none" r="26" stroke="#58a6ff" stroke-width="8"></circle>
+<circle cx="450" cy="120" fill="none" r="26" stroke="#ff7b72" stroke-width="8"></circle>
+<circle cx="820" cy="120" fill="none" r="26" stroke="#f2cc60" stroke-width="8"></circle>
+<rect fill="#58a6ff" height="56" rx="8" width="56" x="230" y="92"></rect>
+<rect fill="#58a6ff" height="56" rx="8" width="56" x="610" y="92"></rect>
+<text fill="#a5b4c3" font-family="system-ui, sans-serif" font-size="28" text-anchor="middle" x="450" y="220">sender colors the message</text>
+</svg>
+</div>
+<div class="small" style="margin: 0.2em auto 0.5em; color: #fff; line-height: 1.2;">
+<span class="fragment">Authenticate our packets,</span><br/>
+<span class="fragment">not our pipes.</span>
+</div>
+</section>
+<section>
+<div class="kicker">Thesis</div>
+<h2>What the web host still does today</h2>
+<div class="grid-2" style="margin-top: 1em; grid-template-columns: 1fr 1.1fr; gap: 1.1em;">
+<div class="box fragment">
+<h3 class="accent">Bundled into one place</h3>
+<ul class="tight small">
+<li class="fragment">bytes</li>
+<li class="fragment">identity</li>
+<li class="fragment">version history</li>
+<li class="fragment">moderation state</li>
+<li class="fragment">addressing and discovery</li>
+</ul>
+</div>
+<div class="box fragment">
+<h3 class="accent">Makes it harder to:</h3>
+<ul class="tight small">
+<li class="fragment">preserve integrity when copied</li>
+<li class="fragment">preserve authorship when moved</li>
+<li class="fragment">keep moderation inspectable</li>
+<li class="fragment">move apps without changing identity</li>
+<li class="fragment">keep records meaningful offline</li>
+</ul>
+</div>
+</div>
+</section>
+<section>
+<div class="kicker">Competition</div>
+<h2>Signing packets unbundles the platform</h2>
+<ul class="big-list tight" style="max-width: 23em;">
+<li class="fragment">identity, storage, and administration become separate replaceable layers</li>
+<li class="fragment">signed objects keep their meaning when they move</li>
+<li class="fragment">competition appears at every layer, not only between full-stack silos</li>
+</ul>
+</section>
+</section>
+
+
+
+
+</div>
+</div>
+<script src="reveal.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  slideNumber: true
+});
+
+function updatePacketSlide(slide) {
+  if (!slide || !slide.classList.contains('packet-slide')) return;
+
+  const shown = Array.from(slide.querySelectorAll('.step-trigger.visible'));
+  const current = shown.length ? shown[shown.length - 1].dataset.step : null;
+
+  slide.classList.toggle('show-blob', shown.some(el => el.dataset.step === 'blob'));
+  slide.classList.toggle('show-plex', shown.some(el => el.dataset.step === 'plex'));
+  slide.classList.toggle('show-seal', shown.some(el => el.dataset.step === 'seal'));
+
+  slide.classList.toggle('current-blob', current === 'blob');
+  slide.classList.toggle('current-plex', current === 'plex');
+  slide.classList.toggle('current-seal', current === 'seal');
+}
+
+Reveal.on('ready', event => updatePacketSlide(event.currentSlide));
+Reveal.on('slidechanged', event => updatePacketSlide(event.currentSlide));
+Reveal.on('fragmentshown', event => updatePacketSlide(event.fragment.closest('section')));
+Reveal.on('fragmenthidden', event => updatePacketSlide(event.fragment.closest('section')));
+
+function updateDiagrams(slide) {
+  if (!slide) return;
+  const diagrams = Array.from(slide.querySelectorAll('.pipe-diagram'));
+  if (!diagrams.length) return;
+  diagrams.forEach(d => d.style.display = 'none');
+  const visible = diagrams.filter(d => d.classList.contains('visible'));
+  if (visible.length) visible[visible.length - 1].style.display = 'block';
+}
+
+Reveal.on('fragmentshown', event => updateDiagrams(event.fragment.closest('section')));
+Reveal.on('fragmenthidden', event => updateDiagrams(event.fragment.closest('section')));
+</script>
+</body>
+</html>

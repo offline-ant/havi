@@ -1,6 +1,7 @@
 use havi_types::fragment_tree as published;
 use makepad_browser_scene::{MpDocument, MpScene, ResourceRegistry};
 use makepad_widgets::{dvec2, Cx2d};
+use style::computed_values::visibility::T as Visibility;
 
 use super::box_fragment::build_box_fragment;
 use super::iframe::build_iframe_fragment;
@@ -13,6 +14,11 @@ use super::{
 use crate::browser_scene_primitives::paint_run_item_to_primitives;
 use crate::layout_stacking_context::StackingContextSection;
 use crate::paint_items::RenderPaintItem;
+
+fn style_is_visible(style: &style::properties::ComputedValues) -> bool {
+    style.get_inherited_box().visibility == Visibility::Visible
+        && style.get_effects().opacity > 0.0
+}
 
 pub(super) fn build_paint_list(
     cx: &mut Cx2d,
@@ -98,7 +104,11 @@ pub(super) fn build_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&MpDocument>,
 ) -> Result<(), String> {
-    match generation.kind(fragment_id) {
+    let kind = generation.kind(fragment_id);
+    if !style_is_visible(&kind.base().style) {
+        return Ok(());
+    }
+    match kind {
         published::FragmentKind::Box(bf) | published::FragmentKind::Float(bf) => build_box_fragment(
             cx,
             generation,

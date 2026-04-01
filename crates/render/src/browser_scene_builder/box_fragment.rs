@@ -5,6 +5,7 @@ use makepad_browser_scene::{
 };
 use makepad_widgets::{dvec2, Cx2d, DVec2, Rect};
 use style::computed_values::overflow_x::T as ComputedOverflow;
+use style::computed_values::visibility::T as Visibility;
 use style::values::computed::ClipRectOrAuto;
 use webrender_api::ExternalScrollId;
 
@@ -31,7 +32,9 @@ pub(super) fn build_box_fragment(
     scroll_nodes: &mut BrowserDocumentScrollNodes,
     previous_document: Option<&makepad_browser_scene::MpDocument>,
 ) -> Result<(), String> {
-    let skip_own_paint = bf.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT);
+    let skip_own_paint = bf.base.flags.intersects(published::FragmentFlags::DO_NOT_PAINT)
+        || bf.base.style.get_inherited_box().visibility != Visibility::Visible
+        || bf.base.style.get_effects().opacity <= 0.0;
 
     let border_rect = physical_rect_to_rect(bf.border_rect());
     let content_rect = physical_rect_to_rect(bf.content_rect());

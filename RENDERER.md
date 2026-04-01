@@ -106,6 +106,19 @@ Offscreen work only exists for:
 There is no generic `DirectChunk` ownership model and no transformed-group
 scratch ownership in `browser_scene`.
 
+Important distinction:
+
+- arbitrary CSS subtree opacity requires isolated-picture semantics
+- that does not mean every opacity case must allocate an offscreen surface
+- trivial cases may be optimized later by folding opacity into direct draws
+  when the result is provably equivalent
+- the correct first implementation is still to isolate group opacity through the
+  picture/task path, then optimize reducible cases later
+
+Gecko / WebRender follows the same architectural direction: opacity is modeled
+as picture/filter composition and may use simple surfaces for opacity, while
+still allowing optimization policy above that layer.
+
 ### 3. One clip model and one picture/task model
 
 Browser-scene lowers semantic clip chains.
@@ -484,6 +497,13 @@ Files:
 Opacity and supported filters lower into semantic effect nodes.
 Browser-scene does not execute them locally.
 They become compositor pictures and tasks.
+
+For correctness, group opacity is treated as an isolated composition boundary.
+That matches browser renderer architecture: the subtree must behave like one
+composited image. This does not commit HAVI to always allocating a dedicated
+offscreen surface for every opacity case forever. It states the semantic rule
+first. Later work may optimize away a surface only for cases proven equivalent
+to direct per-primitive opacity application.
 
 Files:
 

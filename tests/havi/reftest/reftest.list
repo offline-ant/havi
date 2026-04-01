@@ -6,6 +6,7 @@
 == cases/overflow-hidden-scroll-clip.html refs/overflow-hidden-scroll-clip-ref.html
 == cases/opacity-group.html refs/opacity-group-ref.html
 == cases/filter-opacity-group.html refs/filter-opacity-group-ref.html
+== cases/visibility-hidden-overlay.html refs/visibility-hidden-overlay-ref.html
 == cases/per-corner-border-radius.html refs/per-corner-border-radius-ref.html
 == cases/repeating-background-image.html refs/repeating-background-image-ref.html
 == cases/async-body-background-repaint.html refs/async-body-background-repaint-ref.html
