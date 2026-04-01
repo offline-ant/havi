@@ -1217,7 +1217,8 @@ impl AppMain for App {
             }
         }
 
-        // Handle window dragging from the tab bar area (replaces hidden caption_bar).
+        // Handle window dragging from unused tab-strip space.
+        // The stock Window caption bar is disabled in live UI.
         // Only treat empty space as caption — exclude tabs, buttons, and controls.
         if let Event::WindowDragQuery(dq) = event {
             if dq.window_id == CxWindowPool::id_zero() {

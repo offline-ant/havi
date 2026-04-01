@@ -9,30 +9,30 @@ script_mod! {
 
     mod.widgets.HaviTabBar = View {
         flow: Right
-        width: Fill height: Fit
+        width: Fill height: 32
         draw_bg.color: #xffffff
         show_bg: true
-        align: Align{y: 1.0}
+        align: Align{y: 0.5}
 
         tab_area := View{
             flow: Right
-            width: Fill height: Fit
-            align: Align{y: 1.0}
+            width: Fill height: Fill
+            align: Align{y: 0.5}
 
             tab_scroll_left_btn := Button{
                 visible: false
                 text: "◀"
-                width: 28 height: 28
-                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                width: 28 height: Fill
+                margin: Inset{left: 2 right: 2 top: 0 bottom: 0}
             }
 
             tab_bar := View{
                 flow: Right
                 event_order: Down
-                width: Fill height: Fit
+                width: Fill height: Fill
                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
                 spacing: 0
-                align: Align{y: 1.0}
+                align: Align{y: 0.5}
                 scroll_bars: ScrollBarsTabs{
                     show_scroll_x: true
                     show_scroll_y: false
@@ -45,7 +45,7 @@ script_mod! {
                 tab_template := View{
                     cursor: MouseCursor.Hand
                     flow: Right
-                    width: 150 height: Fit
+                    width: 150 height: Fill
                     padding: Inset{left: 10 right: 4 top: 5 bottom: 5}
                     spacing: 6
                     align: Align{y: 0.5}
@@ -83,15 +83,15 @@ script_mod! {
             tab_scroll_right_btn := Button{
                 visible: false
                 text: "▶"
-                width: 28 height: 28
-                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                width: 28 height: Fill
+                margin: Inset{left: 2 right: 2 top: 0 bottom: 0}
             }
 
             new_tab_btn := Button{
                 text: "+"
-                width: 28 height: 28
+                width: 28 height: Fill
                 padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                margin: Inset{left: 2 right: 2 top: 2 bottom: 2}
+                margin: Inset{left: 2 right: 2 top: 0 bottom: 0}
                 draw_text.color: #x111111
                 draw_text.text_style.font_size: 16.0
                 draw_bg +: {
@@ -101,9 +101,9 @@ script_mod! {
         }
 
         window_controls := View{
-            width: Fit height: 32
+            width: Fit height: Fill
             flow: Right
-            align: Align{y: 0.0}
+            align: Align{y: 0.5}
 
             win_min := Button{
                 text: "—"
@@ -633,6 +633,7 @@ script_mod! {
 
     mod.widgets.HaviShellRoot = Root {
         main_window := Window{
+            show_caption_bar: false
             window.title: "havi"
             window.inner_size: vec2(1280, 800)
 

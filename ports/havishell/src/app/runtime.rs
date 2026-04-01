@@ -357,20 +357,12 @@ impl App {
         }
         self.update_pylon_dot(cx);
 
-        // Set window title caption to "havi"
-        self.ui
-            .widget(cx, ids!(caption_bar.caption_label.label))
-            .set_text(cx, "havi");
-
         // Sync tab bar UI
         self.sync_tab_bar(cx);
         self.ui
             .button(cx, ids!(dock_btn))
             .set_text(cx, dock_button_text(self.menu_at_bottom));
         self.apply_menu_dock(cx);
-
-        // Hide the Window's built-in caption bar — we use our own tab_bar_wrap
-        self.ui.view(cx, ids!(caption_bar)).set_visible(cx, false);
 
         // Hide macOS traffic light buttons — HAVI uses its own window controls
         cx.push_unique_platform_op(CxOsOp::HideWindowButtons(CxWindowPool::id_zero()));

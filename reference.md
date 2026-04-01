@@ -104,6 +104,8 @@ These visuals are shell UI details, not protocol semantics.
 Current HAVI shell behavior:
 
 - the address bar is single-line and strips `\r`, `\n`, and `\t`
+- desktop HAVI disables the stock Makepad caption bar and uses empty tab-strip
+  space as the draggable caption region
 - the main toolbar shows browser-first controls only: pylon status, back,
   forward, URL input, reload, and an overflow button
 - advanced shell actions such as share, edit, watch, shadow, home, dock, and

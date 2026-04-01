@@ -1,0 +1,11 @@
+# Minimal isolated presentation-rendering repros.
+
+# Screenshot mode settles before delayed DOM work becomes visible.
+== cases/reveal-overlay-probe.html refs/reveal-overlay-probe-ref.html
+
+# Root/body background does not fill the viewport canvas.
+== cases/viewport-bg-fill.html refs/viewport-bg-fill-ref.html
+== cases/viewport-bg-with-content.html refs/viewport-bg-with-content-ref.html
+
+# reveal.js deck init places the active slide off-screen instead of centered.
+== cases/reveal-init-center.html refs/reveal-init-center-ref.html
