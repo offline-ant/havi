@@ -22,7 +22,7 @@ use crate::script::dom::globalscope::GlobalScope;
 use crate::script::dom::media::mediasource::MediaSource;
 use crate::script::dom::timeranges::{TimeRanges, TimeRangesContainer};
 use crate::script::script_runtime::CanGc;
-use crate::media::controller::{self, MseSourceBufferInputId};
+use media::controller::{self, MseSourceBufferInputId};
 
 const STATE_ATTACHED: u8 = 0;
 const STATE_REMOVED: u8 = 1;

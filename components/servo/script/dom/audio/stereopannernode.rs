@@ -4,9 +4,9 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::audio::node::{AudioNodeInit, AudioNodeType};
-use crate::media::audio::param::ParamType;
-use crate::media::audio::stereo_panner::StereoPannerOptions as ServoMediaStereoPannerOptions;
+use servo_media::audio::node::{AudioNodeInit, AudioNodeType};
+use servo_media::audio::param::ParamType;
+use servo_media::audio::stereo_panner::StereoPannerOptions as ServoMediaStereoPannerOptions;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::AudioNodeOptionsHelper;

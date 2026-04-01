@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::media::{MediaAssetMetadata, MediaByteSource, ResolvedMediaAsset, clamp_byte_range};
+use media::{MediaAssetMetadata, MediaByteSource, ResolvedMediaAsset, clamp_byte_range};
 
 use super::*;
 
@@ -30,7 +30,7 @@ impl HTMLMediaElement {
     /// the embedder) and wires it into `video_frame_state` so the existing
     /// renderer draws the camera frames.
     pub(super) fn setup_media_stream(&self, stream: &MediaStream) {
-        use crate::media::streams::MediaStreamType;
+        use servo_media::streams::MediaStreamType;
         use webrender_api::IdNamespace;
 
         self.load_state.set(LoadState::LoadingFromSrcObject);

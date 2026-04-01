@@ -59,7 +59,7 @@ use script_bindings::script_runtime::JSContext;
 use crate::script::{DocumentActivity, ProgressiveWebMetricType};
 use servo_arc::Arc;
 use servo_config::pref;
-use crate::media::{ClientContextId, ServoMedia};
+use servo_media::{ClientContextId, ServoMedia};
 use servo_url::{BrowserUrl, ImmutableOrigin, MutableOrigin};
 use style::attr::AttrValue;
 use style::context::QuirksMode;

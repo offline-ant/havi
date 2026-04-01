@@ -46,7 +46,7 @@ use gaol::sandbox::{ChildSandbox, ChildSandboxMethods};
 use ipc_channel::ipc::{self, IpcSender};
 use crate::layout::LayoutFactoryImpl;
 use log::{Log, Metadata, Record, debug, warn};
-use crate::media::player::context::{GlApi, GlContext, NativeDisplay};
+use servo_media::player::context::{GlApi, GlContext, NativeDisplay};
 use crate::net::embedder::NetToEmbedderMsg;
 use crate::net::image_cache::ImageCacheFactoryImpl;
 use crate::net::protocols::ProtocolRegistry;
@@ -67,7 +67,7 @@ use crate::{devtools, script};
 use crate::geometry::{
     DeviceIndependentIntRect, convert_rect_to_css_pixel, convert_size_to_css_pixel,
 };
-use crate::media::ServoMedia;
+use servo_media::ServoMedia;
 use crate::storage::new_storage_threads;
 use crate::storage::StorageThreads;
 use style::global_style_data::StyleThreadPool;

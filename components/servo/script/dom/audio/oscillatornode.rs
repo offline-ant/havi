@@ -7,12 +7,12 @@ use std::f32;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
-use crate::media::audio::oscillator_node::{
+use servo_media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
+use servo_media::audio::oscillator_node::{
     OscillatorNodeMessage, OscillatorNodeOptions as ServoMediaOscillatorOptions,
     OscillatorType as ServoMediaOscillatorType,
 };
-use crate::media::audio::param::ParamType;
+use servo_media::audio::param::ParamType;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::AudioNodeOptionsHelper;

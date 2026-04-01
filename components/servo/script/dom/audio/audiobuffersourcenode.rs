@@ -7,11 +7,11 @@ use std::f32;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::audio::buffer_source_node::{
+use servo_media::audio::buffer_source_node::{
     AudioBufferSourceNodeMessage, AudioBufferSourceNodeOptions,
 };
-use crate::media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
-use crate::media::audio::param::ParamType;
+use servo_media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
+use servo_media::audio::param::ParamType;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audiobuffer::AudioBuffer;

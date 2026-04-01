@@ -6,8 +6,8 @@ use std::sync::mpsc;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::audio::media_element_source_node::MediaElementSourceNodeMessage;
-use crate::media::audio::node::{AudioNodeInit, AudioNodeMessage};
+use servo_media::audio::media_element_source_node::MediaElementSourceNodeMessage;
+use servo_media::audio::node::{AudioNodeInit, AudioNodeMessage};
 
 use crate::script::dom::audio::audiocontext::AudioContext;
 use crate::script::dom::audio::audionode::AudioNode;

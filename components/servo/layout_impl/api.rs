@@ -27,7 +27,7 @@ use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use bitflags::bitflags;
 use embedder_traits::{Cursor, Theme, UntrustedNodeAddress, ViewportDetails};
 use euclid::{Point2D, Rect, Transform2D};
-use crate::fonts::{FontContext, WebFontDocumentContext};
+use fonts::{FontContext, WebFontDocumentContext};
 use havi_types::fragment_tree::{
     SVGCoordinateUnits, SVGFillRule, SVGGradientSpreadMethod, SVGLineCap, SVGLineJoin,
     SVGPaintOrder, SVGTextAnchor, SVGVectorEffect,

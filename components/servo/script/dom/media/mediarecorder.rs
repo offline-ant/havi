@@ -9,7 +9,7 @@ use dom_struct::dom_struct;
 use embedder_traits::{CameraRecordingEvent, CameraRequest, EmbedderMsg};
 use js::rust::HandleObject;
 use script_bindings::reflector::DomObject;
-use crate::media::streams::MediaStreamType;
+use servo_media::streams::MediaStreamType;
 use stylo_atoms::Atom;
 
 use crate::script::dom::bindings::cell::DomRefCell;
@@ -73,7 +73,7 @@ impl MediaRecorder {
     }
 
     fn is_type_supported_impl(mime_type: &str) -> bool {
-        crate::media::controller::can_play_type(mime_type) != ""
+        media::controller::can_play_type(mime_type) != ""
     }
 
     fn not_supported(message: &str) -> Error {

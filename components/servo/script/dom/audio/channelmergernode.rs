@@ -4,8 +4,8 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::audio::channel_node::ChannelNodeOptions;
-use crate::media::audio::node::AudioNodeInit;
+use servo_media::audio::channel_node::ChannelNodeOptions;
+use servo_media::audio::node::AudioNodeInit;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper, MAX_CHANNEL_COUNT};

@@ -4,9 +4,9 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::ServoMedia;
-use crate::media::audio::node::AudioNodeInit;
-use crate::media::streams::MediaStreamType;
+use servo_media::ServoMedia;
+use servo_media::audio::node::AudioNodeInit;
+use servo_media::streams::MediaStreamType;
 
 use crate::script::dom::audio::audiocontext::AudioContext;
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper};

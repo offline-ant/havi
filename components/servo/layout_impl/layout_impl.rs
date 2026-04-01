@@ -19,7 +19,7 @@ use cssparser::ParserInput;
 use embedder_traits::{Theme, ViewportDetails};
 use euclid::{Point2D, Rect, Scale, Size2D};
 use crate::fonts::{FontContext, FontContextWebFontMethods};
-use crate::fonts::WebFontDocumentContext;
+use ::fonts::WebFontDocumentContext;
 use crate::fonts::StylesheetWebFontLoadFinishedCallback;
 use crate::layout::wrapper_traits::LayoutNode;
 use crate::layout::{

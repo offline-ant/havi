@@ -7,9 +7,9 @@ use ipc_channel::ipc::{self, IpcReceiver};
 use ipc_channel::router::ROUTER;
 use js::rust::{CustomAutoRooterGuard, HandleObject};
 use js::typedarray::{Float32Array, Uint8Array};
-use crate::media::audio::analyser_node::AnalysisEngine;
-use crate::media::audio::block::Block;
-use crate::media::audio::node::AudioNodeInit;
+use servo_media::audio::analyser_node::AnalysisEngine;
+use servo_media::audio::block::Block;
+use servo_media::audio::node::AudioNodeInit;
 
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper};
 use crate::script::dom::audio::baseaudiocontext::BaseAudioContext;

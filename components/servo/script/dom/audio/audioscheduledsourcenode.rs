@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use dom_struct::dom_struct;
-use crate::media::audio::node::{
+use servo_media::audio::node::{
     AudioNodeInit, AudioNodeMessage, AudioScheduledSourceNodeMessage, OnEndedCallback,
 };
 

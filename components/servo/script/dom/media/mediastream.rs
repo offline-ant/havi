@@ -4,8 +4,8 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use crate::media::streams::MediaStreamType;
-use crate::media::streams::registry::MediaStreamId;
+use servo_media::streams::MediaStreamType;
+use servo_media::streams::registry::MediaStreamId;
 
 use crate::script::dom::bindings::cell::{DomRefCell, Ref};
 use crate::script::dom::bindings::codegen::GenericBindings::MediaStreamBinding::MediaStreamMethods;

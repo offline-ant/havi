@@ -7,9 +7,9 @@ use std::sync::mpsc;
 
 use dom_struct::dom_struct;
 use script_bindings::cformat;
-use crate::media::audio::graph::NodeId;
-use crate::media::audio::node::{AudioNodeMessage, AudioNodeType};
-use crate::media::audio::param::{ParamRate, ParamType, RampKind, UserAutomationEvent};
+use servo_media::audio::graph::NodeId;
+use servo_media::audio::node::{AudioNodeMessage, AudioNodeType};
+use servo_media::audio::param::{ParamRate, ParamType, RampKind, UserAutomationEvent};
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::baseaudiocontext::BaseAudioContext;

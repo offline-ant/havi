@@ -19,8 +19,8 @@ use crate::layout::HTMLCanvasData;
 use crate::pixels::{EncodedImageType, Snapshot};
 use rustc_hash::FxHashMap;
 use script_bindings::weakref::WeakRef;
-use crate::media::streams::MediaStreamType;
-use crate::media::streams::registry::MediaStreamId;
+use servo_media::streams::MediaStreamType;
+use servo_media::streams::registry::MediaStreamId;
 use style::attr::AttrValue;
 use webrender_api::ImageKey;
 
