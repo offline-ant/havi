@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../../../site/presentation/reset.css">
+<link rel="stylesheet" href="../../../../site/presentation/reveal.css">
+<link rel="stylesheet" href="../../../../site/presentation/theme/black.css">
+<style>html,body{margin:0;height:100%;background:#111;color:#fff;font:36px system-ui,sans-serif}</style>
+</head>
+<body>
+<div class="reveal"><div class="slides"><section><h1>Reveal Probe</h1><p>one slide</p></section></div></div>
+<script src="../../../../site/presentation/reveal.js"></script>
+<script>
+Promise.resolve(Reveal.initialize({ hash: true, slideNumber: true }))
+  .then(() => {
+    const section = document.querySelector('section');
+    const reveal = document.querySelector('.reveal');
+    document.body.innerHTML = '<pre>' + JSON.stringify({
+      sectionClass: section && section.className,
+      revealClass: reveal && reveal.className,
+      revealWidth: reveal && getComputedStyle(reveal).width,
+      revealHeight: reveal && getComputedStyle(reveal).height,
+      sectionDisplay: section && getComputedStyle(section).display,
+      sectionOpacity: section && getComputedStyle(section).opacity,
+      sectionTransform: section && getComputedStyle(section).transform,
+      slidesTransform: getComputedStyle(document.querySelector('.slides')).transform,
+      indexh: Reveal.getIndices().h,
+      indexv: Reveal.getIndices().v,
+    }, null, 2) + '</pre>';
+  })
+  .catch((e) => {
+    document.body.textContent = 'init error: ' + e.name + ': ' + e.message;
+  });
+</script>
+</body>
+</html>
