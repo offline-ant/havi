@@ -29,8 +29,11 @@ public network:
 
 - group `u`: `//u/network/app/<app>`
 - other public groups:
-  1. `//u/network/group/<group>`
-  2. `//<group>/network/app/<app>`
+  1. split the group on `.`
+  2. fetch `//u/network/group/<rightmost-label>`
+  3. walk leftward one label at a time via
+     `//<resolved-parent-group>/network/group/<next-child-label>`
+  4. fetch `//<resolved-group>/network/app/<app>`
 
 For non-`u` groups, `Content-Authority` may fall back from the group app record
 to `//u/network/app/<app>`.

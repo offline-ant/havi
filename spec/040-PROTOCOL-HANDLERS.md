@@ -46,8 +46,11 @@ this order:
    public network:
    - group `u`: `//u/network/app/<app>`
    - other public groups:
-     1. `//u/network/group/<group>`
-     2. `//<group>/network/app/<app>`
+     1. split the group on `.`
+     2. fetch `//u/network/group/<rightmost-label>`
+     3. walk leftward one label at a time via
+        `//<resolved-parent-group>/network/group/<next-child-label>`
+     4. fetch `//<resolved-group>/network/app/<app>`
 3. remote app content pointer
    (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
 4. target from `Content-Root` + requested location

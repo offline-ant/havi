@@ -82,6 +82,14 @@ async fn inspect_route_content_pointer_auth_join(
             "contentAuthority": lookup.content_authority,
             "rootSigner": lookup.root_signer,
             "groupNetworkKey": lookup.group_record.as_ref().map(|r| r.network_key.clone()),
+            "groupChain": lookup.group_chain.iter().map(|r| serde_json::json!({
+                "parentGroup": r.parent_group,
+                "childLabel": r.child_label,
+                "resolvedGroup": r.resolved_group,
+                "networkKey": r.network_key,
+                "upstream": r.upstream.to_string(),
+                "upstreamVerificationKey": r.upstream_verification_key,
+            })).collect::<Vec<_>>(),
             "error": serde_json::Value::Null,
         }),
         Ok(None) => serde_json::json!({
@@ -91,6 +99,7 @@ async fn inspect_route_content_pointer_auth_join(
             "contentAuthority": serde_json::Value::Null,
             "rootSigner": serde_json::Value::Null,
             "groupNetworkKey": serde_json::Value::Null,
+            "groupChain": serde_json::Value::Null,
             "error": "not public name",
         }),
         Err(e) => serde_json::json!({
@@ -100,6 +109,7 @@ async fn inspect_route_content_pointer_auth_join(
             "contentAuthority": serde_json::Value::Null,
             "rootSigner": serde_json::Value::Null,
             "groupNetworkKey": serde_json::Value::Null,
+            "groupChain": serde_json::Value::Null,
             "error": e.to_string(),
         }),
     };
