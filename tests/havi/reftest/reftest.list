@@ -8,6 +8,8 @@
 == cases/filter-opacity-group.html refs/filter-opacity-group-ref.html
 == cases/per-corner-border-radius.html refs/per-corner-border-radius-ref.html
 == cases/repeating-background-image.html refs/repeating-background-image-ref.html
+== cases/async-body-background-repaint.html refs/async-body-background-repaint-ref.html
+== cases/async-box-background-repaint.html refs/async-box-background-repaint-ref.html
 == cases/text-dense-retained.html refs/text-dense-retained-ref.html
 == cases/long-scroll-snapshot.html refs/long-scroll-snapshot-ref.html
 == cases/embed-inline.html refs/embed-inline-ref.html
