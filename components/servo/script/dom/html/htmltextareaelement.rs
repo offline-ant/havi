@@ -7,7 +7,7 @@ use std::default::Default;
 
 use base::text::Utf16CodeUnitLength;
 use dom_struct::dom_struct;
-use embedder_traits::{EmbedderControlRequest, InputMethodRequest, InputMethodType};
+use crate::embedder::{EmbedderControlRequest, InputMethodRequest, InputMethodType};
 use crate::fonts::{ByteIndex, TextByteRange};
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use base::generic_channel;
 use dom_struct::dom_struct;
-use embedder_traits::{self, AllowOrDeny, EmbedderMsg, PermissionFeature};
+use crate::embedder::{AllowOrDeny, EmbedderMsg, PermissionFeature};
 use js::conversions::ConversionResult;
 use js::jsapi::JSObject;
 use js::jsval::{ObjectValue, UndefinedValue};

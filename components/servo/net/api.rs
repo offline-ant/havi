@@ -40,7 +40,7 @@ use crate::net::response::{HttpsState, Response, ResponseInit};
 
 
 // Re-export HPPR types for use in CoreResourceMsg
-pub use embedder_traits::{ HpprRequest, HpprResponse, HpprSigner, HpprViaSpec, HpprProtocolError, HpprProtocolResponse};
+pub use crate::embedder::{ HpprRequest, HpprResponse, HpprSigner, HpprViaSpec, HpprProtocolError, HpprProtocolResponse};
 
 /// <https://fetch.spec.whatwg.org/#document-accept-header-value>
 pub const DOCUMENT_ACCEPT_HEADER_VALUE: HeaderValue =

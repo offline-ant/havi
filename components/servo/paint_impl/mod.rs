@@ -13,7 +13,7 @@ pub use api::*;
 use base::generic_channel::RoutedReceiver;
 use crate::constellation::EmbedderToConstellationMessage;
 use crossbeam_channel::Sender;
-use embedder_traits::{EventLoopWaker, ShutdownState};
+use crate::embedder::{EventLoopWaker, ShutdownState};
 use self::src_bridge::ScreenshotBridge;
 use profile_traits::{mem, time};
 #[cfg(feature = "webxr")]

@@ -8,7 +8,7 @@ use std::num::NonZeroU64;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use embedder_traits::resources::{self, Resource};
+use crate::embedder::resources::{self, Resource};
 use fst::{Map, MapBuilder};
 use headers::{HeaderMapExt, StrictTransportSecurity};
 use http::HeaderMap;

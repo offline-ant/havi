@@ -2387,7 +2387,7 @@ pub fn query_elements_from_point(
     _flags: crate::layout::ElementsFromPointFlags,
     scroll_offsets: &ScrollOffsets<'_>,
 ) -> Vec<crate::layout::ElementsFromPointResult> {
-    use embedder_traits::Cursor;
+    use crate::embedder::Cursor;
     use style::computed_values::pointer_events::T as PointerEvents;
     use style::values::specified::ui::CursorKind;
 

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use base::generic_channel::GenericCallback;
 use crate::constellation::{KeyboardScroll, ScriptToConstellationMessage};
-use embedder_traits::{
+use crate::embedder::{
     Cursor, EditingActionEvent, EmbedderMsg, ImeEvent, InputEvent, InputEventId,
     InputEventOutcome, InputEventResult, KeyboardEvent as EmbedderKeyboardEvent, MouseButton,
     MouseButtonAction, MouseButtonEvent, MouseLeftViewportEvent,
@@ -20,7 +20,7 @@ use embedder_traits::{
     WheelEvent as EmbedderWheelEvent,
 };
 #[cfg(feature = "gamepad")]
-use embedder_traits::{
+use crate::embedder::{
     GamepadEvent as EmbedderGamepadEvent, GamepadSupportedHapticEffects, GamepadUpdateType,
 };
 use euclid::{Point2D, Vector2D};
@@ -820,8 +820,8 @@ impl DocumentEventHandler {
         }
 
         let mouse_event_type_string = match event.action {
-            embedder_traits::MouseButtonAction::Up => "mouseup",
-            embedder_traits::MouseButtonAction::Down => "mousedown",
+            crate::embedder::MouseButtonAction::Up => "mouseup",
+            crate::embedder::MouseButtonAction::Down => "mousedown",
         };
 
         // From <https://w3c.github.io/uievents/#event-type-mousedown>

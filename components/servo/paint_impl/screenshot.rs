@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 use base::id::WebViewId;
-use embedder_traits::ScreenshotCaptureError;
+use crate::embedder::ScreenshotCaptureError;
 use image::RgbaImage;
 use webrender_api::units::DeviceRect;
 

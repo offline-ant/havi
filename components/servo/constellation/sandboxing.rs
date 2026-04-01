@@ -57,7 +57,7 @@ impl UnprivilegedContent {
 pub fn content_process_sandbox_profile() -> Profile {
     use std::path::PathBuf;
 
-    use embedder_traits::resources;
+    use crate::embedder::resources;
     use gaol::platform;
 
     let mut operations = vec![
@@ -107,7 +107,7 @@ pub fn content_process_sandbox_profile() -> Profile {
 pub fn content_process_sandbox_profile() -> Profile {
     use std::path::PathBuf;
 
-    use embedder_traits::resources;
+    use crate::embedder::resources;
 
     let mut operations = vec![Operation::FileReadAll(PathPattern::Literal(PathBuf::from(
         "/dev/urandom",

@@ -25,7 +25,7 @@ use base::Epoch;
 use base::generic_channel::GenericSender;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use bitflags::bitflags;
-use embedder_traits::{Cursor, Theme, UntrustedNodeAddress, ViewportDetails};
+use crate::embedder::{Cursor, Theme, UntrustedNodeAddress, ViewportDetails};
 use euclid::{Point2D, Rect, Transform2D};
 use crate::fonts::{FontContext, WebFontDocumentContext};
 use havi_types::fragment_tree::{

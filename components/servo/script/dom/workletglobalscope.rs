@@ -11,7 +11,7 @@ use crate::constellation::{ScriptToConstellationChan, ScriptToConstellationMessa
 use crossbeam_channel::Sender;
 use crate::devtools::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
-use embedder_traits::{JavaScriptEvaluationError, ScriptToEmbedderChan};
+use crate::embedder::{JavaScriptEvaluationError, ScriptToEmbedderChan};
 use js::jsval::UndefinedValue;
 use crate::net::ResourceThreads;
 use crate::net::image_cache::ImageCache;

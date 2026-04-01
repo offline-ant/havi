@@ -9,7 +9,7 @@ use base::cross_process_instant::CrossProcessInstant;
 use bitflags::bitflags;
 use crate::devtools::{TimelineMarker, TimelineMarkerType};
 use dom_struct::dom_struct;
-use embedder_traits::InputEventResult;
+use crate::embedder::InputEventResult;
 use js::rust::HandleObject;
 use keyboard_types::{Key, NamedKey};
 use script_bindings::codegen::GenericBindings::PointerEventBinding::PointerEventMethods;

@@ -10,7 +10,7 @@ use crate::devtools::{
     ConsoleArgument, ConsoleArgumentObject, ConsoleArgumentPropertyValue, ConsoleLogLevel,
     ConsoleMessage, ConsoleMessageFields, ScriptToDevtoolsControlMsg, StackFrame, get_time_stamp,
 };
-use embedder_traits::EmbedderMsg;
+use crate::embedder::EmbedderMsg;
 use js::conversions::jsstr_to_string;
 use js::jsapi::{self, ESClass, PropertyDescriptor};
 use js::jsval::{Int32Value, UndefinedValue};

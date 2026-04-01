@@ -13,7 +13,7 @@ use base::generic_channel::{self, GenericSender, SendError};
 use base::id::PipelineId;
 use crate::devtools::DevtoolScriptControlMsg::{self, GetCssDatabase, SimulateColorScheme};
 use crate::devtools::{DevtoolsPageInfo, NavigationState};
-use embedder_traits::Theme;
+use crate::embedder::Theme;
 use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use serde::Serialize;

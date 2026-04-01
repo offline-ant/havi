@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use base::id::WebViewId;
-use embedder_traits::{
+use crate::embedder::{
     AuthenticationResponse, EmbedderControlId, FilePickerRequest, WebResourceRequest,
     WebResourceResponseMsg,
 };

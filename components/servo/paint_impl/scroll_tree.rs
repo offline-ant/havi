@@ -10,7 +10,7 @@ use base::Epoch;
 use base::id::ScrollTreeNodeId;
 use base::print_tree::PrintTree;
 use bitflags::bitflags;
-use embedder_traits::ViewportDetails;
+use crate::embedder::ViewportDetails;
 use euclid::SideOffsets2D;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};

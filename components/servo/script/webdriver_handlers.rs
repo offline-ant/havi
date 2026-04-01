@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 use base::generic_channel::{GenericOneshotSender, GenericSend, GenericSender};
 use base::id::{BrowsingContextId, PipelineId};
 use cookie::Cookie;
-use embedder_traits::{
+use crate::embedder::{
     CustomHandlersAutomationMode, JSValue, JavaScriptEvaluationError,
     JavaScriptEvaluationResultSerializationError, WebDriverFrameId, WebDriverJSResult,
     WebDriverLoadStatus,

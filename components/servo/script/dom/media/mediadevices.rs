@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use dom_struct::dom_struct;
-use embedder_traits::{CameraRequest, EmbedderMsg};
+use crate::embedder::{CameraRequest, EmbedderMsg};
 use crate::media::ServoMedia;
 use crate::media::streams::MediaStreamType;
 use crate::media::streams::capture::MediaTrackConstraintSet;

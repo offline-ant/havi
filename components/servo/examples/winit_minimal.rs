@@ -156,8 +156,8 @@ impl Waker {
     }
 }
 
-impl embedder_traits::EventLoopWaker for Waker {
-    fn clone_box(&self) -> Box<dyn embedder_traits::EventLoopWaker> {
+impl crate::embedder::EventLoopWaker for Waker {
+    fn clone_box(&self) -> Box<dyn crate::embedder::EventLoopWaker> {
         Box::new(Self(self.0.clone()))
     }
 

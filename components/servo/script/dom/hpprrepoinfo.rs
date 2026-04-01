@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use dom_struct::dom_struct;
 use script_bindings::cformat;
-use embedder_traits::{EmbedderMsg, HpprControlRequest, HpprControlResponse};
+use crate::embedder::{EmbedderMsg, HpprControlRequest, HpprControlResponse};
 
 use crate::script::dom::bindings::codegen::GenericBindings::HpprRepoInfoBinding::HpprRepoInfoMethods;
 use crate::script::dom::bindings::error::Error;

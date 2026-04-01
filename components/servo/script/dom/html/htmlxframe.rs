@@ -13,7 +13,7 @@ use crate::constellation::{
 };
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use dom_struct::dom_struct;
-use embedder_traits::{
+use crate::embedder::{
     EmbedderMsg, HpprControlRequest, HpprControlResponse, HpprEmbedResolveResponse,
     ViewportDetails,
 };

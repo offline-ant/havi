@@ -16,7 +16,7 @@ use base::generic_channel::GenericSender;
 use base::id::{PipelineId, WebViewId};
 use bitflags::bitflags;
 use cssparser::ParserInput;
-use embedder_traits::{Theme, ViewportDetails};
+use crate::embedder::{Theme, ViewportDetails};
 use euclid::{Point2D, Rect, Scale, Size2D};
 use crate::fonts::{FontContext, FontContextWebFontMethods};
 use crate::fonts::WebFontDocumentContext;

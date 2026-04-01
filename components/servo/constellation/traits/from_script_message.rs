@@ -16,8 +16,8 @@ use base::id::{
 use crate::canvas::{CanvasId, CanvasMsg};
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
-use embedder_traits::user_contents::UserContentManagerId;
-use embedder_traits::{
+use crate::embedder::user_contents::UserContentManagerId;
+use crate::embedder::{
     AnimationState, FocusSequenceNumber, JSValue, JavaScriptEvaluationError,
     JavaScriptEvaluationId, MediaSessionEvent, ScriptToEmbedderChan, Theme, ViewportDetails,
 };

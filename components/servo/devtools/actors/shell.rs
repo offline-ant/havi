@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base::id::WebViewId;
-use embedder_traits::{EmbedderMsg, EmbedderProxy};
+use crate::embedder::{EmbedderMsg, EmbedderProxy};
 use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashMap;
 use serde_json::{Map, Value};

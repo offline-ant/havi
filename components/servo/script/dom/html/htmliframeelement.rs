@@ -14,7 +14,7 @@ use content_security_policy::sandboxing_directive::{
     SandboxingFlagSet, parse_a_sandboxing_directive,
 };
 use dom_struct::dom_struct;
-use embedder_traits::ViewportDetails;
+use crate::embedder::ViewportDetails;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;

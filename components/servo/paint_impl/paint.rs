@@ -12,7 +12,7 @@ use base::id::{PainterId, PipelineId, WebViewId};
 use crate::constellation::{EmbedderToConstellationMessage, WindowSizeType};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
-use embedder_traits::{
+use crate::embedder::{
     InputEventAndId, InputEventId, InputEventResult, ScreenshotCaptureError,
     ShutdownState, ViewportDetails, WebViewRect,
 };
@@ -484,24 +484,24 @@ impl Paint {
     }
 
     pub fn notify_input_event(&self, webview_id: WebViewId, event: InputEventAndId) {
-        if let embedder_traits::InputEvent::Wheel(wheel_event) = event.event {
+        if let crate::embedder::InputEvent::Wheel(wheel_event) = event.event {
             let dpp = self.device_pixels_per_page_pixel(webview_id);
             let point = match wheel_event.point {
-                embedder_traits::WebViewPoint::Device(point) => point / dpp,
-                embedder_traits::WebViewPoint::Page(point) => point,
+                crate::embedder::WebViewPoint::Device(point) => point / dpp,
+                crate::embedder::WebViewPoint::Page(point) => point,
             };
             let line_height: f32 = 16.0;
             let page_height: f32 = 800.0;
             let delta = match wheel_event.delta.mode {
-                embedder_traits::WheelMode::DeltaPixel => LayoutVector2D::new(
+                crate::embedder::WheelMode::DeltaPixel => LayoutVector2D::new(
                     -wheel_event.delta.x as f32 / dpp.get(),
                     -wheel_event.delta.y as f32 / dpp.get(),
                 ),
-                embedder_traits::WheelMode::DeltaLine => LayoutVector2D::new(
+                crate::embedder::WheelMode::DeltaLine => LayoutVector2D::new(
                     -wheel_event.delta.x as f32 * line_height,
                     -wheel_event.delta.y as f32 * line_height,
                 ),
-                embedder_traits::WheelMode::DeltaPage => LayoutVector2D::new(
+                crate::embedder::WheelMode::DeltaPage => LayoutVector2D::new(
                     -wheel_event.delta.x as f32 * page_height,
                     -wheel_event.delta.y as f32 * page_height,
                 ),

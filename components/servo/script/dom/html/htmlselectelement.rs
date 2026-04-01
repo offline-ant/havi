@@ -6,8 +6,8 @@ use std::default::Default;
 use std::iter;
 
 use dom_struct::dom_struct;
-use embedder_traits::EmbedderControlRequest;
-use embedder_traits::{SelectElementOption, SelectElementOptionOrOptgroup};
+use crate::embedder::EmbedderControlRequest;
+use crate::embedder::{SelectElementOption, SelectElementOptionOrOptgroup};
 use html5ever::{LocalName, Prefix, QualName, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;

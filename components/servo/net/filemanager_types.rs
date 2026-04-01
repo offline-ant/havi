@@ -5,7 +5,7 @@
 use std::cmp::{max, min};
 use std::ops::Range;
 
-use embedder_traits::{EmbedderControlId, EmbedderControlResponse, FilePickerRequest};
+use crate::embedder::{EmbedderControlId, EmbedderControlResponse, FilePickerRequest};
 use ipc_channel::ipc::IpcSender;
 use malloc_size_of_derive::MallocSizeOf;
 use num_traits::ToPrimitive;

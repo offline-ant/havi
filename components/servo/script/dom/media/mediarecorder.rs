@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use crate::constellation::BlobImpl;
 use dom_struct::dom_struct;
-use embedder_traits::{CameraRecordingEvent, CameraRequest, EmbedderMsg};
+use crate::embedder::{CameraRecordingEvent, CameraRequest, EmbedderMsg};
 use js::rust::HandleObject;
 use script_bindings::reflector::DomObject;
 use crate::media::streams::MediaStreamType;

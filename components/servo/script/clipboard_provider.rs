@@ -4,7 +4,7 @@
 
 use base::generic_channel::GenericCallback;
 use base::id::WebViewId;
-use embedder_traits::{EmbedderMsg, ScriptToEmbedderChan};
+use crate::embedder::{EmbedderMsg, ScriptToEmbedderChan};
 use malloc_size_of_derive::MallocSizeOf;
 
 /// A trait which abstracts access to the embedder's clipboard in order to allow unit

@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use base::generic_channel::GenericCallback;
 use dom_struct::dom_struct;
-use embedder_traits::{DualRumbleEffectParams, EmbedderMsg, GamepadSupportedHapticEffects};
+use crate::embedder::{DualRumbleEffectParams, EmbedderMsg, GamepadSupportedHapticEffects};
 use js::rust::MutableHandleValue;
 
 use crate::script::dom::bindings::cell::DomRefCell;
@@ -240,7 +240,7 @@ impl GamepadHapticActuatorMethods<crate::DomTypeHolder> for GamepadHapticActuato
         let event = EmbedderMsg::PlayGamepadHapticEffect(
             document.webview_id(),
             self.gamepad_index as usize,
-            embedder_traits::GamepadHapticEffectType::DualRumble(params),
+            crate::embedder::GamepadHapticEffectType::DualRumble(params),
             callback,
         );
         self.global().as_window().send_to_embedder(event);

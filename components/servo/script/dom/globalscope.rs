@@ -30,7 +30,7 @@ use content_security_policy::CspList;
 use crossbeam_channel::Sender;
 use crate::devtools::{PageError, ScriptToDevtoolsControlMsg, get_time_stamp};
 use dom_struct::dom_struct;
-use embedder_traits::{EmbedderMsg, JavaScriptEvaluationError, ScriptToEmbedderChan};
+use crate::embedder::{EmbedderMsg, JavaScriptEvaluationError, ScriptToEmbedderChan};
 use crate::fonts::FontContext;
 use indexmap::IndexSet;
 use ipc_channel::ipc::{self};

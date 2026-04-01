@@ -51,8 +51,8 @@ use crate::devtools::{
     CSSError, DevtoolScriptControlMsg, DevtoolsPageInfo, NavigationState,
     ScriptToDevtoolsControlMsg, WorkerId,
 };
-use embedder_traits::user_contents::{UserContentManagerId, UserContents, UserScript};
-use embedder_traits::{
+use crate::embedder::user_contents::{UserContentManagerId, UserContents, UserScript};
+use crate::embedder::{
     EmbedderControlId, EmbedderControlResponse, EmbedderMsg, FocusSequenceNumber,
     InputEventOutcome, JavaScriptEvaluationError, JavaScriptEvaluationId, MediaSessionActionType,
     Theme, ViewportDetails, WebDriverScriptCommand,

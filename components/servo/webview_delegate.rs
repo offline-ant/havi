@@ -8,8 +8,8 @@ use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::PipelineId;
 use crate::constellation::EmbedderToConstellationMessage;
 #[cfg(feature = "gamepad")]
-use embedder_traits::GamepadHapticEffectType;
-use embedder_traits::{
+use crate::embedder::GamepadHapticEffectType;
+use crate::embedder::{
     AlertResponse, AllowOrDeny, AuthenticationResponse, ConfirmResponse, ConsoleLogLevel,
     ContextMenuAction, ContextMenuElementInformation, ContextMenuItem, Cursor, EmbedderControlId,
     EmbedderControlResponse, FilePickerRequest, FilterPattern, HpprControlRequest,

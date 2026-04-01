@@ -12,8 +12,8 @@ use base::cross_process_instant::CrossProcessInstant;
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use crate::constellation::LoadData;
 use crossbeam_channel::Sender;
-use embedder_traits::user_contents::UserContentManagerId;
-use embedder_traits::{Theme, ViewportDetails};
+use crate::embedder::user_contents::UserContentManagerId;
+use crate::embedder::{Theme, ViewportDetails};
 use http::header;
 use crate::net::policy_container::RequestPolicyContainer;
 use crate::net::request::{

@@ -6,7 +6,7 @@ use std::fs::Metadata;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
-use embedder_traits::resources::{Resource, read_string};
+use crate::embedder::resources::{Resource, read_string};
 use headers::{ContentType, HeaderMapExt};
 use crate::net::request::Request;
 use crate::net::response::{Response, ResponseBody};

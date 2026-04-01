@@ -10,7 +10,7 @@ use std::slice::from_raw_parts;
 
 #[cfg(feature = "js_backtrace")]
 use backtrace::Backtrace;
-use embedder_traits::JavaScriptErrorInfo;
+use crate::embedder::JavaScriptErrorInfo;
 use js::context::JSContext;
 use js::conversions::jsstr_to_string;
 use js::error::{throw_range_error, throw_type_error};

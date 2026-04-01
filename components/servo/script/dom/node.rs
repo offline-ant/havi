@@ -18,7 +18,7 @@ use base::id::{BrowsingContextId, PipelineId};
 use bitflags::bitflags;
 use crate::devtools::NodeInfo;
 use dom_struct::dom_struct;
-use embedder_traits::UntrustedNodeAddress;
+use crate::embedder::UntrustedNodeAddress;
 use euclid::default::Size2D;
 use euclid::{Point2D, Rect};
 use html5ever::serialize::HtmlSerializer;

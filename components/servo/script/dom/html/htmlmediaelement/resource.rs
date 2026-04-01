@@ -420,17 +420,17 @@ impl HTMLMediaElement {
     }
 
     fn send_resolve_request_blocking(
-        embedder_chan: embedder_traits::ScriptToEmbedderChan,
+        embedder_chan: crate::embedder::ScriptToEmbedderChan,
         webview_id: base::id::WebViewId,
         origin_url: String,
-        request: embedder_traits::HpprResolveRequest,
-    ) -> Result<embedder_traits::HpprResolveResponse, String> {
+        request: crate::embedder::HpprResolveRequest,
+    ) -> Result<crate::embedder::HpprResolveResponse, String> {
         let (tx, rx) = std::sync::mpsc::channel();
         let callback = GenericCallback::new(move |message| {
             let result = match message {
                 Ok(HpprControlResponse::Resolve(response)) => Ok(response),
                 Ok(HpprControlResponse::Error(error)) => {
-                    Ok(embedder_traits::HpprResolveResponse::Error(error))
+                    Ok(crate::embedder::HpprResolveResponse::Error(error))
                 },
                 Ok(_) => Err("unexpected control response for resolve request".to_string()),
                 Err(error) => Err(error.to_string()),
@@ -453,10 +453,10 @@ impl HTMLMediaElement {
 
     fn handle_resolved_hppr_asset_response(&self, url: BrowserUrl, response: HpprControlResponse) {
         let resolved = match response {
-            HpprControlResponse::Resolve(embedder_traits::HpprResolveResponse::Media(resolved)) => {
+            HpprControlResponse::Resolve(crate::embedder::HpprResolveResponse::Media(resolved)) => {
                 resolved
             },
-            HpprControlResponse::Resolve(embedder_traits::HpprResolveResponse::Error(error)) => {
+            HpprControlResponse::Resolve(crate::embedder::HpprResolveResponse::Error(error)) => {
                 info!("media: HPPR resolve failed url={} error={}", url, error);
                 self.media_data_processing_failure_steps();
                 return;
@@ -486,14 +486,14 @@ impl HTMLMediaElement {
                 embedder_chan.clone(),
                 webview_id,
                 origin_url.clone(),
-                embedder_traits::HpprResolveRequest::ReadBytes {
+                crate::embedder::HpprResolveRequest::ReadBytes {
                     source: source.clone(),
                     offset,
                     length,
                 },
             ) {
-                Ok(embedder_traits::HpprResolveResponse::Bytes(bytes)) => Ok(bytes),
-                Ok(embedder_traits::HpprResolveResponse::Error(error)) => Err(error),
+                Ok(crate::embedder::HpprResolveResponse::Bytes(bytes)) => Ok(bytes),
+                Ok(crate::embedder::HpprResolveResponse::Error(error)) => Err(error),
                 Ok(_) => Err("unexpected resolve response for byte read".to_string()),
                 Err(error) => Err(error),
             }
@@ -563,7 +563,7 @@ impl HTMLMediaElement {
         window.send_to_embedder(EmbedderMsg::HpprControlOperation(
             window.webview_id(),
             origin_url,
-            HpprControlRequest::Resolve(embedder_traits::HpprResolveRequest::Media {
+            HpprControlRequest::Resolve(crate::embedder::HpprResolveRequest::Media {
                 url: url.to_string(),
             }),
             callback,

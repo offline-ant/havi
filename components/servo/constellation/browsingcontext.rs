@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::{BrowsingContextGroupId, BrowsingContextId, PipelineId, WebViewId};
-use embedder_traits::ViewportDetails;
+use crate::embedder::ViewportDetails;
 use log::warn;
 use rustc_hash::{FxHashMap, FxHashSet};
 

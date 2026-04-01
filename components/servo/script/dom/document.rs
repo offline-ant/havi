@@ -26,7 +26,7 @@ use cookie::Cookie;
 use data_url::mime::Mime;
 use crate::devtools::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
-use embedder_traits::{
+use crate::embedder::{
     AllowOrDeny, AnimationState, CustomHandlersAutomationMode, EmbedderMsg, FocusSequenceNumber,
     Image, LoadStatus,
 };

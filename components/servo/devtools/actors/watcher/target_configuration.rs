@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use embedder_traits::Theme;
+use crate::embedder::Theme;
 use log::warn;
 use malloc_size_of_derive::MallocSizeOf;
 use serde::Serialize;

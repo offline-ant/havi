@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use dom_struct::dom_struct;
-use embedder_traits::{CameraStreamId, EmbedderMsg};
+use crate::embedder::{CameraStreamId, EmbedderMsg};
 use crate::media::streams::MediaStreamType;
 use crate::media::streams::registry::MediaStreamId;
 
@@ -161,7 +161,7 @@ impl MediaStreamTrack {
                     self.global().send_to_embedder(
                         EmbedderMsg::CameraRequest(
                             webview_id,
-                            embedder_traits::CameraRequest::Close(*stream_id),
+                            crate::embedder::CameraRequest::Close(*stream_id),
                         ),
                     );
                 }

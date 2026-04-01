@@ -4,7 +4,7 @@
 use base::generic_channel;
 use base::id::WebViewId;
 use crossbeam_channel::Sender;
-use embedder_traits::{CameraRequest, ConsoleLogLevel, Notification};
+use crate::embedder::{CameraRequest, ConsoleLogLevel, Notification};
 
 use crate::webview_delegate::{AllowOrDenyRequest, WebResourceLoad};
 

@@ -11,7 +11,7 @@ use base::generic_channel::GenericSender;
 use base::id::{PainterId, WebViewId};
 use crate::constellation::{EmbedderToConstellationMessage, TraversalDirection};
 use dpi::PhysicalSize;
-use embedder_traits::{
+use crate::embedder::{
     ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
     InputEvent, InputEventAndId, InputEventId, JSValue, JavaScriptEvaluationError, LoadStatus,
     MediaSessionActionType, NewWebViewDetails, ScreenshotCaptureError, Theme, TraversalId,

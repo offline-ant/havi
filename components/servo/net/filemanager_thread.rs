@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{self, AtomicBool, AtomicUsize, Ordering};
 
-use embedder_traits::{
+use crate::embedder::{
     EmbedderControlId, EmbedderControlResponse, FilePickerRequest, GenericEmbedderProxy,
     SelectedFile,
 };

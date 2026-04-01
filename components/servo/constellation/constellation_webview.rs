@@ -3,8 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
-use embedder_traits::user_contents::UserContentManagerId;
-use embedder_traits::{InputEvent, MouseLeftViewportEvent, Theme};
+use crate::embedder::user_contents::UserContentManagerId;
+use crate::embedder::{InputEvent, MouseLeftViewportEvent, Theme};
 use euclid::Point2D;
 use log::warn;
 use rustc_hash::FxHashMap;

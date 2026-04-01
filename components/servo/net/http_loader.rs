@@ -16,7 +16,7 @@ use crate::devtools::{
     ChromeToDevtoolsControlMsg, DevtoolsControlMsg, HttpRequest as DevtoolsHttpRequest,
     HttpResponse as DevtoolsHttpResponse, NetworkEvent, SecurityInfoUpdate,
 };
-use embedder_traits::{AuthenticationResponse, GenericEmbedderProxy};
+use crate::embedder::{AuthenticationResponse, GenericEmbedderProxy};
 use futures::{TryFutureExt, TryStreamExt, future};
 use headers::authorization::Basic;
 use headers::{

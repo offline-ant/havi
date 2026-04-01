@@ -106,9 +106,8 @@ pub mod media {
     pub use ::servo_media::*;
 }
 
-pub mod embedder {
-    pub use ::embedder_traits::*;
-}
+#[path = "embedder/lib.rs"]
+pub mod embedder;
 
 pub mod script_traits {
     pub use crate::script::*;
@@ -229,8 +228,8 @@ impl PageResponse {
 pub use accesskit;
 pub use base::generic_channel::{GenericCallback, GenericSender};
 pub use base::id::WebViewId;
-pub use embedder_traits::user_contents::UserScript;
-pub use embedder_traits::*;
+pub use crate::embedder::user_contents::UserScript;
+pub use crate::embedder::*;
 pub use image::RgbaImage;
 pub use keyboard_types::{
     Code, CompositionEvent, CompositionState, Key, KeyState, Location, Modifiers, NamedKey,

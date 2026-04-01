@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use dom_struct::dom_struct;
-use embedder_traits::{GamepadSupportedHapticEffects, GamepadUpdateType};
+use crate::embedder::{GamepadSupportedHapticEffects, GamepadUpdateType};
 use js::typedarray::{Float64, HeapFloat64Array};
 use script_bindings::trace::RootedTraceableBox;
 
