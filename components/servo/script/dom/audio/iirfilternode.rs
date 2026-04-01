@@ -9,8 +9,8 @@ use itertools::Itertools;
 use js::gc::CustomAutoRooterGuard;
 use js::rust::HandleObject;
 use js::typedarray::Float32Array;
-use servo_media::audio::iir_filter_node::{IIRFilterNode as IIRFilter, IIRFilterNodeOptions};
-use servo_media::audio::node::AudioNodeInit;
+use crate::media::audio::iir_filter_node::{IIRFilterNode as IIRFilter, IIRFilterNodeOptions};
+use crate::media::audio::node::AudioNodeInit;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper};

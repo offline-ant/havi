@@ -6,9 +6,9 @@ use std::rc::Rc;
 
 use dom_struct::dom_struct;
 use embedder_traits::{CameraRequest, EmbedderMsg};
-use servo_media::ServoMedia;
-use servo_media::streams::MediaStreamType;
-use servo_media::streams::capture::MediaTrackConstraintSet;
+use crate::media::ServoMedia;
+use crate::media::streams::MediaStreamType;
+use crate::media::streams::capture::MediaTrackConstraintSet;
 
 use crate::script::dom::bindings::codegen::Bindings::MediaDevicesBinding::{
     MediaDevicesMethods, MediaStreamConstraints,
@@ -162,7 +162,7 @@ impl MediaDevicesMethods<crate::DomTypeHolder> for MediaDevices {
                         &global,
                         &device.device_id,
                         crate::script::conversions::Convert::convert(
-                            servo_media::streams::device_monitor::MediaDeviceKind::VideoInput,
+                            crate::media::streams::device_monitor::MediaDeviceKind::VideoInput,
                         ),
                         &device.label,
                         "",
@@ -237,8 +237,8 @@ fn convert_constraints(js: &BooleanOrMediaTrackConstraints) -> Option<MediaTrack
     }
 }
 
-fn convert_culong(js: &ConstrainULong) -> Option<servo_media::streams::capture::Constrain<u32>> {
-    use servo_media::streams::capture::{Constrain, ConstrainRange};
+fn convert_culong(js: &ConstrainULong) -> Option<crate::media::streams::capture::Constrain<u32>> {
+    use crate::media::streams::capture::{Constrain, ConstrainRange};
     match js {
         ConstrainULong::ClampedUnsignedLong(val) => Some(Constrain::Value(*val)),
         ConstrainULong::ConstrainULongRange(range) => {
@@ -255,8 +255,8 @@ fn convert_culong(js: &ConstrainULong) -> Option<servo_media::streams::capture::
     }
 }
 
-fn convert_cdouble(js: &ConstrainDouble) -> Option<servo_media::streams::capture::Constrain<f64>> {
-    use servo_media::streams::capture::{Constrain, ConstrainRange};
+fn convert_cdouble(js: &ConstrainDouble) -> Option<crate::media::streams::capture::Constrain<f64>> {
+    use crate::media::streams::capture::{Constrain, ConstrainRange};
     match js {
         ConstrainDouble::Double(val) => Some(Constrain::Value(**val)),
         ConstrainDouble::ConstrainDoubleRange(range) => {

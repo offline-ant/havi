@@ -4,7 +4,7 @@
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::node::AudioNodeInit;
+use crate::media::audio::node::AudioNodeInit;
 
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper, MAX_CHANNEL_COUNT};
 use crate::script::dom::audio::baseaudiocontext::BaseAudioContext;

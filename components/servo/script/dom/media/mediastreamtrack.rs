@@ -6,8 +6,8 @@ use std::cell::Cell;
 
 use dom_struct::dom_struct;
 use embedder_traits::{CameraStreamId, EmbedderMsg};
-use servo_media::streams::MediaStreamType;
-use servo_media::streams::registry::MediaStreamId;
+use crate::media::streams::MediaStreamType;
+use crate::media::streams::registry::MediaStreamId;
 
 use crate::script::dom::bindings::codegen::GenericBindings::MediaStreamTrackBinding::MediaStreamTrackMethods;
 use crate::script::dom::bindings::reflector::{DomGlobal, reflect_dom_object};

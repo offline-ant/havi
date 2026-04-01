@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use servo_media::streams::device_monitor::MediaDeviceKind as ServoMediaDeviceKind;
+use crate::media::streams::device_monitor::MediaDeviceKind as ServoMediaDeviceKind;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::bindings::codegen::Bindings::MediaDeviceInfoBinding::{

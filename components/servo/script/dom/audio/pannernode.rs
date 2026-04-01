@@ -7,11 +7,11 @@ use std::f32;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
-use servo_media::audio::panner_node::{
+use crate::media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
+use crate::media::audio::panner_node::{
     DistanceModel, PannerNodeMessage, PannerNodeOptions, PanningModel,
 };
-use servo_media::audio::param::{ParamDir, ParamType};
+use crate::media::audio::param::{ParamDir, ParamType};
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper};

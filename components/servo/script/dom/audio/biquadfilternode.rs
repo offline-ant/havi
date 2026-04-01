@@ -7,11 +7,11 @@ use std::f32;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::biquad_filter_node::{
+use crate::media::audio::biquad_filter_node::{
     BiquadFilterNodeMessage, BiquadFilterNodeOptions, FilterType,
 };
-use servo_media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
-use servo_media::audio::param::ParamType;
+use crate::media::audio::node::{AudioNodeInit, AudioNodeMessage, AudioNodeType};
+use crate::media::audio::param::ParamType;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audionode::{AudioNode, AudioNodeOptionsHelper};

@@ -203,7 +203,7 @@ impl HTMLMediaElement {
         // parameter), represents a type that the user agent knows it cannot render, then end the
         // synchronous section, and jump down to the failed with elements step below.
         if let Some(type_) = element.get_attribute(&ns!(), &local_name!("type")) {
-            if media::controller::can_play_type(&type_.value()) == "" {
+            if crate::media::controller::can_play_type(&type_.value()) == "" {
                 self.load_from_source_child_failure_steps(source);
                 return;
             }

@@ -9,8 +9,8 @@ use log::warn;
 use script_bindings::codegen::InheritTypes::{
     AudioNodeTypeId, AudioScheduledSourceNodeTypeId, EventTargetTypeId,
 };
-use servo_media::audio::graph::NodeId;
-use servo_media::audio::node::{
+use crate::media::audio::graph::NodeId;
+use crate::media::audio::node::{
     AudioNodeInit, AudioNodeMessage, ChannelCountMode as ServoMediaChannelCountMode, ChannelInfo,
     ChannelInterpretation as ServoMediaChannelInterpretation,
 };

@@ -7,7 +7,7 @@ use std::rc::Rc;
 use base::id::PipelineId;
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::context::{LatencyCategory, ProcessingState, RealTimeAudioContextOptions};
+use crate::media::audio::context::{LatencyCategory, ProcessingState, RealTimeAudioContextOptions};
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::baseaudiocontext::{BaseAudioContext, BaseAudioContextOptions};

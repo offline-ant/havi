@@ -10,7 +10,7 @@ use style::color::AbsoluteColor;
 use super::backend::Convert;
 use super::canvas_data::Filter;
 
-impl Convert<peniko::FontData> for fonts::FontDataAndIndex {
+impl Convert<peniko::FontData> for crate::fonts::FontDataAndIndex {
     fn convert(self) -> peniko::FontData {
         use std::sync::Arc;
         peniko::FontData::new(peniko::Blob::new(Arc::new(self.data)), self.index)

@@ -13,13 +13,13 @@ use dom_struct::dom_struct;
 use js::rust::CustomAutoRooterGuard;
 use js::typedarray::ArrayBuffer;
 use script_bindings::cformat;
-use servo_media::audio::context::{
+use crate::media::audio::context::{
     AudioContext, AudioContextOptions, OfflineAudioContextOptions, ProcessingState,
     RealTimeAudioContextOptions,
 };
-use servo_media::audio::decoder::AudioDecoderCallbacksBuilder;
-use servo_media::audio::graph::NodeId;
-use servo_media::{ClientContextId, ServoMedia};
+use crate::media::audio::decoder::AudioDecoderCallbacksBuilder;
+use crate::media::audio::graph::NodeId;
+use crate::media::{ClientContextId, ServoMedia};
 use uuid::Uuid;
 
 use crate::script::conversions::Convert;

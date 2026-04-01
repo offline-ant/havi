@@ -10,7 +10,7 @@ use std::thread::Builder;
 use base::id::PipelineId;
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::context::OfflineAudioContextOptions as ServoMediaOfflineAudioContextOptions;
+use crate::media::audio::context::OfflineAudioContextOptions as ServoMediaOfflineAudioContextOptions;
 
 use crate::script::dom::audio::audiobuffer::{AudioBuffer, MAX_SAMPLE_RATE, MIN_SAMPLE_RATE};
 use crate::script::dom::audio::audionode::MAX_CHANNEL_COUNT;

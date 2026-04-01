@@ -21,7 +21,7 @@ use http::StatusCode;
 use http::header::{self, HeaderMap, HeaderValue};
 use js::realm::{AutoRealm, CurrentRealm};
 use crate::layout::MediaFrame;
-use media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
+use crate::media::controller::{MediaController, MediaEvent, MediaOrigin, register_event_sender};
 use crate::net::hppr_media::ResolvedHpprMediaAsset;
 use crate::net::request::{Destination, RequestId};
 use crate::net::{
@@ -34,7 +34,7 @@ use script_bindings::codegen::InheritTypes::{
 };
 use script_bindings::script_runtime::temp_cx;
 use servo_config::pref;
-use servo_media::player::audio::AudioRenderer;
+use crate::media::player::audio::AudioRenderer;
 use servo_url::BrowserUrl;
 use stylo_atoms::Atom;
 use uuid::Uuid;

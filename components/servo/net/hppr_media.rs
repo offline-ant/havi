@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use hppr_packet::Packet;
 use hppr_packet::chunk::{is_chunk_manifest, parse_chunk_manifest};
-use media::{MediaAssetMetadata, MediaByteSource, ResolvedMediaAsset, clamp_byte_range};
+use crate::media::{MediaAssetMetadata, MediaByteSource, ResolvedMediaAsset, clamp_byte_range};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HpprResolvedMediaKind {

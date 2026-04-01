@@ -6,9 +6,9 @@ use std::f32;
 
 use dom_struct::dom_struct;
 use js::rust::HandleObject;
-use servo_media::audio::constant_source_node::ConstantSourceNodeOptions as ServoMediaConstantSourceOptions;
-use servo_media::audio::node::{AudioNodeInit, AudioNodeType};
-use servo_media::audio::param::ParamType;
+use crate::media::audio::constant_source_node::ConstantSourceNodeOptions as ServoMediaConstantSourceOptions;
+use crate::media::audio::node::{AudioNodeInit, AudioNodeType};
+use crate::media::audio::param::ParamType;
 
 use crate::script::conversions::Convert;
 use crate::script::dom::audio::audioparam::AudioParam;

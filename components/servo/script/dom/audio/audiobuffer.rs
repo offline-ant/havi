@@ -8,7 +8,7 @@ use dom_struct::dom_struct;
 use js::rust::{CustomAutoRooterGuard, HandleObject};
 use js::typedarray::{Float32, Float32Array, HeapFloat32Array};
 use script_bindings::trace::RootedTraceableBox;
-use servo_media::audio::buffer_source_node::AudioBuffer as ServoMediaAudioBuffer;
+use crate::media::audio::buffer_source_node::AudioBuffer as ServoMediaAudioBuffer;
 
 use crate::script::dom::audio::audionode::MAX_CHANNEL_COUNT;
 use crate::script::dom::bindings::buffer_source::HeapBufferSource;

@@ -5,8 +5,8 @@
 use std::f32;
 
 use dom_struct::dom_struct;
-use servo_media::audio::node::AudioNodeType;
-use servo_media::audio::param::{ParamDir, ParamType};
+use crate::media::audio::node::AudioNodeType;
+use crate::media::audio::param::{ParamDir, ParamType};
 
 use crate::script::dom::audio::audioparam::AudioParam;
 use crate::script::dom::audio::baseaudiocontext::BaseAudioContext;

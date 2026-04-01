@@ -130,7 +130,7 @@ impl HTMLMediaElementMethods<crate::DomTypeHolder> for HTMLMediaElement {
 
     /// <https://html.spec.whatwg.org/multipage/#dom-navigator-canplaytype>
     fn CanPlayType(&self, type_: DOMString) -> CanPlayTypeResult {
-        match media::controller::can_play_type(&type_.str()) {
+        match crate::media::controller::can_play_type(&type_.str()) {
             "" => CanPlayTypeResult::_empty,
             "probably" => CanPlayTypeResult::Probably,
             _ => CanPlayTypeResult::Maybe,

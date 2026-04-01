@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use atomic_refcell::{AtomicRef, AtomicRefCell};
 use base::id::{BrowsingContextId, PipelineId};
-use fonts::TextByteRange;
+use crate::fonts::TextByteRange;
 use html5ever::{LocalName, Namespace};
 use malloc_size_of_derive::MallocSizeOf;
 use crate::net::image_cache::Image;

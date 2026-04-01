@@ -27,7 +27,7 @@ use crate::script::dom::media::sourcebuffer::SourceBuffer;
 use crate::script::dom::media::sourcebufferlist::SourceBufferList;
 use crate::script::dom::window::Window;
 use crate::script::script_runtime::CanGc;
-use media::controller::{self, MediaEvent, MseSourceBufferInputId};
+use crate::media::controller::{self, MediaEvent, MseSourceBufferInputId};
 
 static MEDIA_SOURCE_OBJECT_URLS: LazyLock<Mutex<HashMap<String, Trusted<MediaSource>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
