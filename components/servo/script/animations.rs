@@ -9,7 +9,7 @@ use std::cell::Cell;
 use base::id::PipelineId;
 use crate::constellation::ScriptToConstellationMessage;
 use cssparser::ToCss;
-use crate::embedder::{AnimationState as AnimationsPresentState, UntrustedNodeAddress};
+use embedder_traits::{AnimationState as AnimationsPresentState, UntrustedNodeAddress};
 use libc::c_void;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};

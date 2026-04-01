@@ -6,7 +6,7 @@ use std::default::Default;
 
 use base::id::BrowsingContextId;
 use crate::constellation::{IFrameSizeMsg, ScriptToConstellationMessage, WindowSizeType};
-use crate::embedder::ViewportDetails;
+use embedder_traits::ViewportDetails;
 use crate::layout::IFrameSizes;
 use crate::paint::PinchZoomInfos;
 use rustc_hash::FxHashMap;

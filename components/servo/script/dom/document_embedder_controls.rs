@@ -7,7 +7,7 @@ use std::cell::Cell;
 use base::Epoch;
 use base::generic_channel::GenericSend;
 use crate::constellation::{LoadData, NavigationHistoryBehavior};
-use crate::embedder::{
+use embedder_traits::{
     ContextMenuAction, ContextMenuElementInformation, ContextMenuElementInformationFlags,
     ContextMenuItem, ContextMenuRequest, EditingActionEvent, EmbedderControlId,
     EmbedderControlRequest, EmbedderControlResponse, EmbedderMsg,

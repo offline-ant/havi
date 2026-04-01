@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::ffi::c_void;
 use std::fmt;
 
-use crate::embedder::UntrustedNodeAddress;
+use embedder_traits::UntrustedNodeAddress;
 use js::rust::HandleValue;
 use crate::layout::ElementsFromPointFlags;
 use rustc_hash::FxBuildHasher;

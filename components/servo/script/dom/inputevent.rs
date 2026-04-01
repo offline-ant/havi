@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use crate::embedder::Cursor;
+use embedder_traits::Cursor;
 use euclid::Point2D;
 use js::rust::HandleObject;
 use style_traits::CSSPixel;

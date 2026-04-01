@@ -273,7 +273,7 @@ impl MouseEvent {
     #[expect(clippy::too_many_arguments)]
     pub(crate) fn for_platform_button_event(
         event_type_string: &'static str,
-        event: crate::embedder::MouseButtonEvent,
+        event: embedder_traits::MouseButtonEvent,
         pressed_mouse_buttons: u16,
         window: &Window,
         hit_test_result: &HitTestResult,

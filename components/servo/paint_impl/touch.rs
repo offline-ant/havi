@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use base::id::WebViewId;
-use crate::embedder::{TouchEvent, TouchEventType, WebViewPoint};
+use embedder_traits::{TouchEvent, TouchEventType, WebViewPoint};
 use euclid::Point2D;
 use webrender_api::units::{DeviceVector2D, LayoutVector2D};
 

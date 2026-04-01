@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use std::{fmt, slice};
 
 use atomic_refcell::{AtomicRef, AtomicRefMut};
-use crate::embedder::UntrustedNodeAddress;
+use embedder_traits::UntrustedNodeAddress;
 use html5ever::{LocalName, Namespace, local_name, ns};
 use js::jsapi::JSObject;
 use crate::layout::wrapper_traits::{

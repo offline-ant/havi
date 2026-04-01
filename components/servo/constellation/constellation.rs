@@ -126,9 +126,9 @@ use crate::devtools::{
     ChromeToDevtoolsControlMsg, DevtoolsControlMsg, DevtoolsPageInfo, NavigationState,
     ScriptToDevtoolsControlMsg,
 };
-use crate::embedder::resources::{self, Resource};
-use crate::embedder::user_contents::{UserContentManagerId, UserContents};
-use crate::embedder::{
+use embedder_traits::resources::{self, Resource};
+use embedder_traits::user_contents::{UserContentManagerId, UserContents};
+use embedder_traits::{
     AnimationState, EmbedderControlId, EmbedderControlResponse, EmbedderMsg, EmbedderProxy,
     FocusSequenceNumber, InputEvent, InputEventAndId, InputEventOutcome, JSValue,
     JavaScriptEvaluationError, JavaScriptEvaluationId, KeyboardEvent, MediaSessionActionType,

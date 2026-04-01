@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use dom_struct::dom_struct;
-use crate::embedder::{EmbedderMsg, LoadStatus};
+use embedder_traits::{EmbedderMsg, LoadStatus};
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::rust::HandleObject;
 use style::attr::AttrValue;

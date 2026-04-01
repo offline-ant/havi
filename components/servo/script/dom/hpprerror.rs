@@ -5,7 +5,7 @@
 //! HPPR Error DOM binding - protocol errors with structured information.
 
 use dom_struct::dom_struct;
-use crate::embedder::HpprProtocolError;
+use embedder_traits::HpprProtocolError;
 use js::gc::HandleObject;
 use script_bindings::root::DomRoot;
 use script_bindings::script_runtime::CanGc;

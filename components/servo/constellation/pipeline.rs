@@ -8,7 +8,7 @@ use std::rc::Rc;
 use base::generic_channel::SendError;
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
 use crate::constellation::LoadData;
-use crate::embedder::{AnimationState, FocusSequenceNumber};
+use embedder_traits::{AnimationState, FocusSequenceNumber};
 use log::{debug, error, warn};
 use crate::paint::{CompositionPipeline, PaintMessage, PaintProxy};
 use crate::script::{

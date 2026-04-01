@@ -4,7 +4,7 @@
 
 use base::id::WebViewId;
 use crate::constellation::EmbedderToConstellationMessage;
-use crate::embedder::{JSValue, JavaScriptEvaluationError, JavaScriptEvaluationId};
+use embedder_traits::{JSValue, JavaScriptEvaluationError, JavaScriptEvaluationId};
 use rustc_hash::FxHashMap;
 
 use crate::proxies::ConstellationProxy;

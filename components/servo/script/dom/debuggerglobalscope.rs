@@ -12,8 +12,8 @@ use crate::devtools::{
     SourceInfo, WorkerId,
 };
 use dom_struct::dom_struct;
-use crate::embedder::ScriptToEmbedderChan;
-use crate::embedder::resources::{self, Resource};
+use embedder_traits::ScriptToEmbedderChan;
+use embedder_traits::resources::{self, Resource};
 use js::context::JSContext;
 use js::jsval::UndefinedValue;
 use js::rust::wrappers2::JS_DefineDebuggerObject;

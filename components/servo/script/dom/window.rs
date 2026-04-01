@@ -32,8 +32,8 @@ use crossbeam_channel::{Sender, unbounded};
 use cssparser::SourceLocation;
 use crate::devtools::{ScriptToDevtoolsControlMsg, TimelineMarker, TimelineMarkerType};
 use dom_struct::dom_struct;
-use crate::embedder::user_contents::UserScript;
-use crate::embedder::{
+use embedder_traits::user_contents::UserScript;
+use embedder_traits::{
     AlertResponse, ConfirmResponse, EmbedderMsg, HpprControlRequest, HpprControlResponse,
     HpprResolveRequest, HpprResolveResponse, JavaScriptEvaluationError, PromptResponse,
     ScriptToEmbedderChan, SimpleDialogRequest, Theme, UntrustedNodeAddress, ViewportDetails,

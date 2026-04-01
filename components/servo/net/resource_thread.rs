@@ -15,7 +15,7 @@ use base::id::CookieStoreId;
 use cookie::Cookie;
 use crossbeam_channel::Sender;
 use crate::devtools::DevtoolsControlMsg;
-use crate::embedder::GenericEmbedderProxy;
+use embedder_traits::GenericEmbedderProxy;
 use hyper_serde::Serde;
 use ipc_channel::ipc::IpcSender;
 use log::{debug, warn};

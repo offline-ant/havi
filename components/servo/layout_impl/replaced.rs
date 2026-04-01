@@ -5,7 +5,7 @@
 use app_units::Au;
 use base::id::{BrowsingContextId, PipelineId};
 use data_url::DataUrl;
-use crate::embedder::ViewportDetails;
+use embedder_traits::ViewportDetails;
 use euclid::{Scale, Size2D};
 use html5ever::local_name;
 use crate::layout::wrapper_traits::ThreadSafeLayoutNode;

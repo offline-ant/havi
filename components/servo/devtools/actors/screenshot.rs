@@ -9,7 +9,7 @@ use base::id::WebViewId;
 use rustc_hash::FxHashMap;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use crate::embedder::{EmbedderMsg, EmbedderProxy};
+use embedder_traits::{EmbedderMsg, EmbedderProxy};
 use image::ImageEncoder;
 use image::RgbaImage;
 use image::codecs::png::PngEncoder;

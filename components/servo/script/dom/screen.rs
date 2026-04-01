@@ -4,7 +4,7 @@
 
 use base::generic_channel;
 use dom_struct::dom_struct;
-use crate::embedder::{EmbedderMsg, ScreenMetrics};
+use embedder_traits::{EmbedderMsg, ScreenMetrics};
 
 use crate::script::dom::bindings::codegen::GenericBindings::ScreenBinding::ScreenMethods;
 use crate::script::dom::bindings::num::Finite;

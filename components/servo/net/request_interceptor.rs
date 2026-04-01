@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use content_security_policy::Destination;
-use crate::embedder::{GenericEmbedderProxy, WebResourceRequest, WebResourceResponseMsg};
+use embedder_traits::{GenericEmbedderProxy, WebResourceRequest, WebResourceResponseMsg};
 use log::error;
 use crate::net::NetworkError;
 use crate::net::http_status::HttpStatus;

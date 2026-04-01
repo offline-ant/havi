@@ -7,7 +7,7 @@ use std::net::TcpListener as StdTcpListener;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crossbeam_channel::unbounded;
-use crate::embedder::{EmbedderMsg, EmbedderProxy, EventLoopWaker, GenericEmbedderProxy};
+use embedder_traits::{EmbedderMsg, EmbedderProxy, EventLoopWaker, GenericEmbedderProxy};
 use futures::future::ready;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty, Full};

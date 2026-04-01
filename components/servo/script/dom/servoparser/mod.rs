@@ -14,7 +14,7 @@ use base64::engine::general_purpose;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use crate::devtools::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
-use crate::embedder::resources::{self, Resource};
+use embedder_traits::resources::{self, Resource};
 use encoding_rs::{Encoding, UTF_8};
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;

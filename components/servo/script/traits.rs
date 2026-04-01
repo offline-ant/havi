@@ -25,8 +25,8 @@ use crate::constellation::{
 };
 use crossbeam_channel::RecvTimeoutError;
 use crate::devtools::ScriptToDevtoolsControlMsg;
-use crate::embedder::user_contents::{UserContentManagerId, UserContents};
-use crate::embedder::{
+use embedder_traits::user_contents::{UserContentManagerId, UserContents};
+use embedder_traits::{
     EmbedderControlId, EmbedderControlResponse, FocusSequenceNumber, InputEventAndId,
     JavaScriptEvaluationId, MediaSessionActionType, PaintHitTestResult, ScriptToEmbedderChan,
     Theme, ViewportDetails, WebDriverScriptCommand,

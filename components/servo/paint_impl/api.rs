@@ -10,7 +10,7 @@ use std::fmt::{Debug, Error, Formatter};
 use base::Epoch;
 use base::id::{PainterId, PipelineId, WebViewId};
 use crossbeam_channel::Sender;
-use crate::embedder::{AnimationState, EventLoopWaker};
+use embedder_traits::{AnimationState, EventLoopWaker};
 use euclid::{Rect, Scale, Size2D};
 use log::warn;
 use malloc_size_of_derive::MallocSizeOf;

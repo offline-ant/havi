@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use crate::constellation::BlobImpl;
 use dom_struct::dom_struct;
-use crate::embedder::SelectedFile;
+use embedder_traits::SelectedFile;
 use js::rust::HandleObject;
 use time::{Duration, OffsetDateTime};
 

@@ -13,7 +13,7 @@ use std::rc::Rc;
 use crate::background_hang_monitor::{BackgroundHangMonitorControlMsg, HangMonitorAlert};
 use base::generic_channel::{self, GenericReceiver, GenericSender, SendError};
 use base::id::ScriptEventLoopId;
-use crate::embedder::ScriptToEmbedderChan;
+use embedder_traits::ScriptToEmbedderChan;
 use ipc_channel::IpcError;
 use log::error;
 

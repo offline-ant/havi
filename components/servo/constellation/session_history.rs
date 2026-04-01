@@ -7,7 +7,7 @@ use std::fmt;
 
 use base::id::{BrowsingContextId, HistoryStateId, PipelineId, WebViewId};
 use crate::constellation::LoadData;
-use crate::embedder::ViewportDetails;
+use embedder_traits::ViewportDetails;
 use log::debug;
 use servo_url::BrowserUrl;
 

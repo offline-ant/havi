@@ -830,14 +830,14 @@ impl HTMLLinkElement {
             let frame = raster_image.first_frame();
 
             let format = match raster_image.format {
-                PixelFormat::K8 => crate::embedder::PixelFormat::K8,
-                PixelFormat::KA8 => crate::embedder::PixelFormat::KA8,
-                PixelFormat::RGB8 => crate::embedder::PixelFormat::RGB8,
-                PixelFormat::RGBA8 => crate::embedder::PixelFormat::RGBA8,
-                PixelFormat::BGRA8 => crate::embedder::PixelFormat::BGRA8,
+                PixelFormat::K8 => embedder_traits::PixelFormat::K8,
+                PixelFormat::KA8 => embedder_traits::PixelFormat::KA8,
+                PixelFormat::RGB8 => embedder_traits::PixelFormat::RGB8,
+                PixelFormat::RGBA8 => embedder_traits::PixelFormat::RGBA8,
+                PixelFormat::BGRA8 => embedder_traits::PixelFormat::BGRA8,
             };
 
-            let embedder_image = crate::embedder::Image::new(
+            let embedder_image = embedder_traits::Image::new(
                 frame.width,
                 frame.height,
                 std::sync::Arc::new(GenericSharedMemory::from_bytes(&raster_image.bytes)),

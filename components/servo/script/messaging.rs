@@ -15,7 +15,7 @@ use bluetooth::BluetoothRequest;
 use crate::constellation::ScriptToConstellationMessage;
 use crossbeam_channel::{Receiver, SendError, Sender, select};
 use crate::devtools::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg};
-use crate::embedder::{EmbedderControlId, EmbedderControlResponse, ScriptToEmbedderChan};
+use embedder_traits::{EmbedderControlId, EmbedderControlResponse, ScriptToEmbedderChan};
 use crate::net::FetchResponseMsg;
 use crate::net::image_cache::ImageCacheResponseMessage;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};

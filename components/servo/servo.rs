@@ -31,7 +31,7 @@ use crate::constellation::{
 };
 use crate::constellation::{EmbedderToConstellationMessage, ScriptToConstellationSender};
 use crossbeam_channel::{Receiver, Sender, unbounded};
-pub use crate::embedder::*;
+pub use embedder_traits::*;
 use env_logger::Builder as EnvLoggerBuilder;
 use crate::fonts::{SystemFontService, font_render_api_from_paint_api};
 #[cfg(all(
@@ -809,9 +809,9 @@ impl Servo {
             public_storage_threads.clone(),
             private_storage_threads.clone(),
             match &builder.hppr_home_target {
-                crate::embedder::HpprViaSpec::Net { host, port, .. } => format!("{host}:{port}"),
-                crate::embedder::HpprViaSpec::Unix { path } => path.to_string_lossy().to_string(),
-                crate::embedder::HpprViaSpec::Unknown { scheme, rest } => format!("{scheme}+{rest}"),
+                embedder_traits::HpprViaSpec::Net { host, port, .. } => format!("{host}:{port}"),
+                embedder_traits::HpprViaSpec::Unix { path } => path.to_string_lossy().to_string(),
+                embedder_traits::HpprViaSpec::Unknown { scheme, rest } => format!("{scheme}+{rest}"),
             },
         );
         if opts::get().multiprocess {
@@ -1193,7 +1193,7 @@ pub struct ServoBuilder {
     preferences: Option<Box<Preferences>>,
     event_loop_waker: Box<dyn EventLoopWaker>,
     protocol_registry: ProtocolRegistry,
-    hppr_home_target: crate::embedder::HpprViaSpec,
+    hppr_home_target: embedder_traits::HpprViaSpec,
     #[cfg(feature = "webxr")]
     webxr_registry: Box<dyn webxr::WebXrRegistry>,
 }
@@ -1204,7 +1204,7 @@ impl Default for ServoBuilder {
             preferences: Default::default(),
             event_loop_waker: Box::new(DefaultEventLoopWaker),
             protocol_registry: Default::default(),
-            hppr_home_target: crate::embedder::HpprViaSpec::Net {
+            hppr_home_target: embedder_traits::HpprViaSpec::Net {
                 host: "127.0.0.1".to_string(),
                 port: 4777,
                 scheme: None,
@@ -1234,7 +1234,7 @@ impl ServoBuilder {
         self.protocol_registry = protocol_registry;
         self
     }
-    pub fn hppr_home_target(mut self, target: crate::embedder::HpprViaSpec) -> Self {
+    pub fn hppr_home_target(mut self, target: embedder_traits::HpprViaSpec) -> Self {
         self.hppr_home_target = target;
         self
     }

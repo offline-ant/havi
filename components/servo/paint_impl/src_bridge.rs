@@ -77,7 +77,7 @@ pub struct PendingScreenshot {
     pub request_id: u64,
     pub webview_id: WebViewId,
     pub rect: Option<DeviceRect>,
-    pub callback: Box<dyn FnOnce(Result<RgbaImage, crate::embedder::ScreenshotCaptureError>) + 'static>,
+    pub callback: Box<dyn FnOnce(Result<RgbaImage, embedder_traits::ScreenshotCaptureError>) + 'static>,
 }
 
 pub type PendingScreenshotMap = HashMap<u64, PendingScreenshot>;

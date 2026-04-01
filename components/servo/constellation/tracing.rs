@@ -36,7 +36,7 @@ pub(crate) trait LogTarget {
 }
 
 mod from_embedder {
-    use crate::embedder::{InputEvent, InputEventAndId};
+    use embedder_traits::{InputEvent, InputEventAndId};
 
     use super::LogTarget;
 

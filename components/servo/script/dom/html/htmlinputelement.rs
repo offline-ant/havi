@@ -13,7 +13,7 @@ use base::generic_channel::GenericSender;
 use base::text::Utf16CodeUnitLength;
 use cssparser::{Parser, ParserInput};
 use dom_struct::dom_struct;
-use crate::embedder::{
+use embedder_traits::{
     EmbedderControlRequest, FilePickerRequest, FilterPattern, InputMethodRequest, InputMethodType,
     RgbColor, SelectedFile,
 };

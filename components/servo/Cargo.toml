@@ -15,14 +15,13 @@ crate-type = ["rlib"]
 # Note: Shell ports that disable libhavi default features must opt into any needed features explicitly.
 default = ["clipboard", "js_jit"]
 background_hang_monitor = ["sampler"]
-baked-default-resources = []
 sampler = []
 bluetooth = ["dep:bluetooth", "script_bindings/bluetooth"]
 clipboard = ["dep:arboard"]
 crown = ["js/crown"]
 debugmozjs = ["js/debugmozjs"]
 dynamic_freetype = []
-gamepad = ["script_bindings/gamepad"]
+gamepad = ["embedder_traits/gamepad", "script_bindings/gamepad"]
 glwindow = []
 headless = []
 jitspew = ["js/jitspew"]
@@ -40,7 +39,7 @@ vello = []
 webgpu = ["script_bindings/webgpu"]
 webxr = ["glwindow", "headless", "openxr-api", "script_bindings/webxr"]
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(crown)', 'cfg(servo_production)', 'cfg(servo_do_not_use_in_production)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(crown)'] }
 
 [dependencies]
 accesskit = { workspace = true }
@@ -53,6 +52,7 @@ bluetooth = { path = "../bluetooth", optional = true }
 crossbeam-channel = { workspace = true }
 dpi = { workspace = true }
 bytes = "1"
+embedder_traits = { workspace = true }
 env_logger = { workspace = true }
 euclid = { workspace = true }
 fonts = { path = "../fonts" }
@@ -149,6 +149,7 @@ argon2 = { workspace = true }
 parking_lot = { workspace = true }
 peniko = { workspace = true }
 percent-encoding = { workspace = true }
+pixels_external = { package = "pixels", path = "../pixels" }
 phf = "0.13"
 pkcs8 = { workspace = true }
 quick_cache = "0.6"

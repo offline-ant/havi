@@ -13,7 +13,7 @@ use base::generic_channel::GenericCallback;
 use base64::Engine as _;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use dom_struct::dom_struct;
-use crate::embedder::{EmbedderMsg, HpprControlRequest, HpprControlResponse, MediaPositionState, MediaSessionEvent};
+use embedder_traits::{EmbedderMsg, HpprControlRequest, HpprControlResponse, MediaPositionState, MediaSessionEvent};
 use headers::{ContentLength, ContentRange, HeaderMapExt};
 use hppr_packet::Packet;
 use html5ever::{LocalName, Prefix, QualName, local_name, ns};

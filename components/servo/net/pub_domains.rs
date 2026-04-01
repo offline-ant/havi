@@ -17,7 +17,7 @@
 use std::iter::FromIterator;
 use std::sync::LazyLock;
 
-use crate::embedder::resources::{self, Resource};
+use embedder_traits::resources::{self, Resource};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use malloc_size_of_derive::MallocSizeOf;
 use rustc_hash::FxHashSet;

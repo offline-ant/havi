@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dom_struct::dom_struct;
-use crate::embedder::{
+use embedder_traits::{
     EmbedderMsg, Notification as EmbedderNotification,
     NotificationAction as EmbedderNotificationAction,
 };
@@ -21,7 +21,7 @@ use crate::net::image_cache::{
 };
 use crate::net::request::{Destination, RequestBuilder, RequestId};
 use crate::net::{FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming};
-use crate::pixels::RasterImage;
+use crate::pixels::{RasterImage, SharedRasterImage};
 use rustc_hash::FxHashSet;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use uuid::Uuid;
@@ -117,6 +117,39 @@ pub(crate) struct Notification {
     #[ignore_malloc_size_of = "RasterImage"]
     #[no_trace]
     badge_resource: DomRefCell<Option<Arc<RasterImage>>>,
+}
+
+fn to_embedder_shared_raster_image(image: SharedRasterImage) -> pixels_external::SharedRasterImage {
+    pixels_external::SharedRasterImage {
+        metadata: pixels_external::ImageMetadata {
+            width: image.metadata.width,
+            height: image.metadata.height,
+        },
+        format: match image.format {
+            crate::pixels::PixelFormat::K8 => pixels_external::PixelFormat::K8,
+            crate::pixels::PixelFormat::KA8 => pixels_external::PixelFormat::KA8,
+            crate::pixels::PixelFormat::RGB8 => pixels_external::PixelFormat::RGB8,
+            crate::pixels::PixelFormat::RGBA8 => pixels_external::PixelFormat::RGBA8,
+            crate::pixels::PixelFormat::BGRA8 => pixels_external::PixelFormat::BGRA8,
+        },
+        id: image.id,
+        cors_status: match image.cors_status {
+            crate::pixels::CorsStatus::Safe => pixels_external::CorsStatus::Safe,
+            crate::pixels::CorsStatus::Unsafe => pixels_external::CorsStatus::Unsafe,
+        },
+        bytes: image.bytes,
+        frames: image
+            .frames
+            .into_iter()
+            .map(|frame| pixels_external::ImageFrame {
+                delay: frame.delay,
+                byte_range: frame.byte_range,
+                width: frame.width,
+                height: frame.height,
+            })
+            .collect(),
+        is_opaque: image.is_opaque,
+    }
 }
 
 impl Notification {
@@ -292,13 +325,13 @@ impl Notification {
         }
     }
 
-    /// Create an [`crate::embedder::Notification`].
+    /// Create an [`embedder_traits::Notification`].
     fn to_embedder_notification(&self) -> EmbedderNotification {
         let icon_resource = self
             .icon_resource
             .borrow()
             .as_ref()
-            .map(|image| image.to_shared());
+            .map(|image| Arc::new(to_embedder_shared_raster_image((*image.to_shared()).clone())));
         EmbedderNotification {
             title: self.title.to_string(),
             body: self.body.to_string(),
@@ -336,12 +369,12 @@ impl Notification {
                 .badge_resource
                 .borrow()
                 .as_ref()
-                .map(|image| image.to_shared()),
+                .map(|image| Arc::new(to_embedder_shared_raster_image((*image.to_shared()).clone()))),
             image_resource: self
                 .image_resource
                 .borrow()
                 .as_ref()
-                .map(|image| image.to_shared()),
+                .map(|image| Arc::new(to_embedder_shared_raster_image((*image.to_shared()).clone()))),
         }
     }
 }

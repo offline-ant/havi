@@ -18,10 +18,10 @@ use std::time::Duration;
 use base::cross_process_instant::CrossProcessInstant;
 use base::generic_channel::GenericCallback;
 use base::id::{MessagePortId, PipelineId, ScriptEventLoopId, WebViewId};
-use crate::embedder::user_contents::{
+use embedder_traits::user_contents::{
     UserContentManagerId, UserScript, UserScriptId, UserStyleSheet, UserStyleSheetId,
 };
-use crate::embedder::{
+use embedder_traits::{
     EmbedderControlId, EmbedderControlResponse, InputEventAndId, JavaScriptEvaluationId,
     MediaSessionActionType, NewWebViewDetails, PaintHitTestResult, Theme, TraversalId,
     ViewportDetails, WebDriverCommandMsg,

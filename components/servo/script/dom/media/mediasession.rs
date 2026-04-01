@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use crate::constellation::ScriptToConstellationMessage;
 use dom_struct::dom_struct;
-use crate::embedder::{
+use embedder_traits::{
     MediaMetadata as EmbedderMediaMetadata, MediaPositionState as EmbedderMediaPositionState,
     MediaSessionActionType, MediaSessionEvent,
 };
