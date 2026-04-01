@@ -552,6 +552,34 @@ Makepad proof environments live in:
 - `makepad/experiments/browser-text-lab/`
 - `makepad/experiments/browser-cache-lab/`
 
+## Document canvas background
+
+CSS root/body background propagation is resolved at layout/publication time,
+not in the renderer.
+
+Layout publishes `DocumentCanvasBackground` as part of `FragmentArenaGeneration`.
+This record carries the resolved source (root element or propagated body
+element), the viewport paint rect, and the source fragment id.
+
+The renderer paints the document canvas background as a dedicated pass before
+ordinary fragment traversal. Ordinary box background painting for the
+transferred source fragment is suppressed via per-fragment
+`suppress_background_paint` metadata.
+
+Suppression is background-only. Borders, box shadows, foreground content, and
+hit testing on the source fragment are not affected.
+
+When neither root nor body supplies a canvas background, no
+`DocumentCanvasBackground` is published and normal fragment painting proceeds.
+
+Files:
+
+- `havi/crates/types/src/fragment_tree/arena.rs`
+- `havi/components/layout/fragment_tree/fragment_tree.rs`
+- `havi/crates/render/src/browser_scene_primitives/mod.rs`
+- `havi/crates/render/src/browser_scene_primitives/box_background.rs`
+- `havi/crates/render/src/browser_scene_builder/document.rs`
+
 ## Bottom line
 
 HAVI now has one retained browser renderer architecture:
