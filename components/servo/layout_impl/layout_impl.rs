@@ -108,17 +108,17 @@ static STYLE_THREAD_POOL: Mutex<&LazyLock<style::global_style_data::StyleThreadP
     Mutex::new(&style::global_style_data::STYLE_THREAD_POOL);
 
 /// A CSS file to style the user agent stylesheet.
-static USER_AGENT_CSS: &[u8] = include_bytes!("../../layout/stylesheets/user-agent.css");
+static USER_AGENT_CSS: &[u8] = include_bytes!("stylesheets/user-agent.css");
 
 /// A CSS file to style the Servo browser.
-static SERVO_CSS: &[u8] = include_bytes!("../../layout/stylesheets/servo.css");
+static SERVO_CSS: &[u8] = include_bytes!("stylesheets/servo.css");
 
 /// A CSS file to style the presentational hints.
 static PRESENTATIONAL_HINTS_CSS: &[u8] =
-    include_bytes!("../../layout/stylesheets/presentational-hints.css");
+    include_bytes!("stylesheets/presentational-hints.css");
 
 /// A CSS file to style the quirks mode.
-static QUIRKS_MODE_CSS: &[u8] = include_bytes!("../../layout/stylesheets/quirks-mode.css");
+static QUIRKS_MODE_CSS: &[u8] = include_bytes!("stylesheets/quirks-mode.css");
 
 /// Information needed by layout.
 pub struct LayoutThread {

@@ -8,7 +8,7 @@ use dom_struct::dom_struct;
 use html5ever::{LocalName, Prefix, local_name, ns};
 use js::context::JSContext;
 use js::rust::HandleObject;
-use pixels::RasterImage;
+use crate::pixels::RasterImage;
 use servo_arc::Arc;
 
 use crate::script::dom::attr::Attr;

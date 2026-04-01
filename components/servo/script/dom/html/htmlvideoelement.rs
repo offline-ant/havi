@@ -17,7 +17,7 @@ use crate::net::request::{CredentialsMode, Destination, RequestBuilder, RequestI
 use crate::net::{
     CoreResourceThread, FetchMetadata, FetchResponseMsg, NetworkError, ResourceFetchTiming,
 };
-use pixels::Snapshot;
+use crate::pixels::Snapshot;
 use script_bindings::script_runtime::temp_cx;
 use servo_url::BrowserUrl;
 use style::attr::{AttrValue, LengthOrPercentageOrAuto};

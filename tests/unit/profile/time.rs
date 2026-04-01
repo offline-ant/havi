@@ -6,7 +6,7 @@ use std::thread;
 
 use ::time::Duration;
 use ipc_channel::ipc;
-use profile::time;
+use profile::profile::time;
 use profile_traits::ipc as ProfiledIpc;
 use profile_traits::time::{ProfilerCategory, ProfilerData, ProfilerMsg};
 use servo_config::opts::OutputOptions;

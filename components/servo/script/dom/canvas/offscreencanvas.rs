@@ -10,7 +10,7 @@ use crate::constellation::{BlobImpl, TransferableOffscreenCanvas};
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
 use js::rust::{HandleObject, HandleValue};
-use pixels::{EncodedImageType, Snapshot};
+use crate::pixels::{EncodedImageType, Snapshot};
 use rustc_hash::FxHashMap;
 use script_bindings::match_domstring_ascii;
 use script_bindings::weakref::WeakRef;
@@ -112,7 +112,7 @@ impl OffscreenCanvas {
             None => {
                 let size = self.get_size();
                 if size.is_empty() ||
-                    pixels::compute_rgba8_byte_length_if_within_limit(
+                    crate::pixels::compute_rgba8_byte_length_if_within_limit(
                         size.width as usize,
                         size.height as usize,
                     )

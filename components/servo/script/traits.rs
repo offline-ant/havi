@@ -37,7 +37,7 @@ use keyboard_types::Modifiers;
 use malloc_size_of_derive::MallocSizeOf;
 use crate::net::ResourceThreads;
 use crate::paint::{CrossProcessPaintApi, PinchZoomInfos};
-use pixels::PixelFormat;
+use crate::pixels::PixelFormat;
 use profile_traits::mem;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};

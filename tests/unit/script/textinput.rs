@@ -12,7 +12,7 @@ use base::{RopeIndex, RopeMovement};
 use keyboard_types::{Key, Modifiers, NamedKey};
 use script::test::DOMString;
 use script::test::textinput::{ClipboardProvider, Direction, SelectionDirection, TextInput};
-use script::textinput::Lines;
+use script::script::textinput::Lines;
 
 pub struct DummyClipboardContext {
     content: String,

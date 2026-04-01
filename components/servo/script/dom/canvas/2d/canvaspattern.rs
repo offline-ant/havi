@@ -6,7 +6,7 @@ use crate::canvas::{FillOrStrokeStyle, RepetitionStyle, SurfaceStyle};
 use dom_struct::dom_struct;
 use euclid::default::{Size2D, Transform2D};
 use js::context::JSContext;
-use pixels::{SharedSnapshot, Snapshot};
+use crate::pixels::{SharedSnapshot, Snapshot};
 
 use crate::script::dom::bindings::cell::DomRefCell;
 use crate::script::dom::bindings::codegen::GenericBindings::CanvasRenderingContext2DBinding::CanvasPatternMethods;

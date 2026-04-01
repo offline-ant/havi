@@ -16,5 +16,5 @@ base = { workspace = true }
 encoding_rs = { workspace = true }
 euclid = { workspace = true }
 keyboard-types = { workspace = true }
-script = {path = "../../../components/script"}
+script = { package = "libhavi", path = "../../../components/servo" }
 servo_url = {path = "../../../components/url"}

@@ -14,7 +14,7 @@ use crate::net::image_cache::{
     Image as CachedImage, ImageCache, ImageCacheResult, ImageOrMetadataAvailable, PendingImageId,
 };
 use parking_lot::{Mutex, RwLock};
-use pixels::RasterImage;
+use crate::pixels::RasterImage;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::context::SharedStyleContext;
 use style::dom::OpaqueNode;

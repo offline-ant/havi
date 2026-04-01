@@ -14,7 +14,7 @@ use fonts::TextByteRange;
 use html5ever::{LocalName, Namespace};
 use malloc_size_of_derive::MallocSizeOf;
 use crate::net::image_cache::Image;
-use pixels::ImageMetadata;
+use crate::pixels::ImageMetadata;
 use servo_arc::Arc;
 use servo_url::BrowserUrl;
 use style::attr::AttrValue;

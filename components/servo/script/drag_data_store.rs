@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::constellation::BlobImpl;
 use indexmap::IndexMap;
-use pixels::RasterImage;
+use crate::pixels::RasterImage;
 
 use crate::script::dom::bindings::error::{Error, Fallible};
 use crate::script::dom::bindings::root::DomRoot;

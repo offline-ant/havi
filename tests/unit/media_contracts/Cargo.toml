@@ -14,5 +14,5 @@ path = "lib.rs"
 [dependencies]
 hppr-client = { workspace = true }
 hppr-packet = { workspace = true }
-net = { path = "../../../components/net" }
+net = { package = "libhavi", path = "../../../components/servo" }
 media = { path = "../../../components/media/media-thread" }

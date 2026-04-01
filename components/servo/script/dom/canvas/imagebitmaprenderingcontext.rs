@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
-use pixels::Snapshot;
+use crate::pixels::Snapshot;
 
 use crate::canvas_context::{CanvasContext, CanvasHelpers, HTMLCanvasElementOrOffscreenCanvas};
 use crate::script::dom::bindings::cell::DomRefCell;
@@ -118,7 +118,7 @@ impl CanvasContext for ImageBitmapRenderingContext {
             None => {
                 let size = self.canvas.size();
                 if size.is_empty() ||
-                    pixels::compute_rgba8_byte_length_if_within_limit(
+                    crate::pixels::compute_rgba8_byte_length_if_within_limit(
                         size.width as usize,
                         size.height as usize,
                     )

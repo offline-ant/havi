@@ -36,7 +36,7 @@ use crate::layout::{
 use libc::{self, c_void, uintptr_t};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::net::image_cache::Image;
-use pixels::ImageMetadata;
+use crate::pixels::ImageMetadata;
 use script_bindings::codegen::GenericBindings::EventBinding::EventMethods;
 use script_bindings::codegen::InheritTypes::DocumentFragmentTypeId;
 use crate::script::DocumentActivity;

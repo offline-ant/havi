@@ -7,7 +7,7 @@ use crate::canvas::{
 };
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::paint::SerializableImageData;
-use pixels::Snapshot;
+use crate::pixels::Snapshot;
 use webrender_api::ImageDescriptor;
 
 use super::canvas_data::Filter;
