@@ -2789,7 +2789,7 @@ dependencies = [
  "hpprd",
  "libc",
  "log",
- "nix",
+ "nix 0.28.0",
  "tokio",
 ]
 
@@ -2890,7 +2890,7 @@ dependencies = [
  "libc",
  "log",
  "mimalloc",
- "nix",
+ "nix 0.28.0",
  "quinn",
  "rusqlite",
  "rust-argon2",
@@ -4129,6 +4129,7 @@ dependencies = [
  "ml-dsa",
  "ml-kem",
  "mozjs",
+ "nix 0.30.1",
  "nom 8.0.0",
  "nom-rfc8288",
  "num-bigint-dig",
@@ -4155,6 +4156,7 @@ dependencies = [
  "ring",
  "rsa",
  "rusqlite",
+ "rustc-demangle",
  "rustc-hash 2.1.1",
  "script_bindings",
  "sea-query",
@@ -5065,6 +5067,18 @@ dependencies = [
  "cfg_aliases 0.1.1",
  "libc",
  "memoffset",
+]
+
+[[package]]
+name = "nix"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "cfg_aliases 0.2.1",
+ "libc",
 ]
 
 [[package]]

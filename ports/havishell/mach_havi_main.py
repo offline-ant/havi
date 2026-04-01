@@ -741,7 +741,7 @@ def _build_desktop(args: argparse.Namespace) -> int:
     cmd.extend(["build", "-p", "havishell"])
     if args.release:
         cmd.append("--release")
-    extra = getattr(args, "extra", None)
+    extra = _normalized_extra(args)
     if extra:
         cmd.extend(extra)
 
@@ -1017,46 +1017,65 @@ def _add_android_flags(p: argparse.ArgumentParser) -> None:
                    help=f"Android package name (default: {DEFAULT_PACKAGE_NAME})")
 
 
-def _extract_desktop_passthrough(argv: list[str]) -> list[str] | None:
+def _parse_desktop_passthrough(argv: list[str]) -> argparse.Namespace | None:
     if not argv:
         return None
 
     command = argv[0]
-    if command == "check":
-        known = {"-r", "--release"}
-        prefix = [command]
-        i = 1
-        while i < len(argv) and argv[i] in known:
-            prefix.append(argv[i])
-            i += 1
-        return prefix + ["--"] + argv[i:]
+    if command == "test":
+        return argparse.Namespace(command="test", func=cmd_test, extra=argv[1:])
 
-    if command == "build":
-        if len(argv) > 1 and argv[1] in {"android", "ios"}:
-            return None
-        known = {"-r", "--release"}
-        prefix = [command]
-        i = 1
-        while i < len(argv) and argv[i] in known:
-            prefix.append(argv[i])
-            i += 1
-        return prefix + ["--"] + argv[i:]
-
-    if command == "run":
-        if len(argv) > 1 and argv[1] in {"android", "emulator", "ios"}:
-            return None
-        known = {"-r", "--release", "--reuse"}
-        prefix = [command]
-        i = 1
-        while i < len(argv) and argv[i] in known:
-            prefix.append(argv[i])
-            i += 1
-        return prefix + ["--"] + argv[i:]
+    if len(argv) > 1 and argv[1] in {"-h", "--help"}:
+        return None
 
     if command == "studio":
-        return [command, "--"] + argv[1:]
+        extra = argv[2:] if len(argv) > 1 and argv[1] == "--" else argv[1:]
+        return argparse.Namespace(command="studio", func=cmd_studio, extra=extra)
 
-    return None
+    if command not in {"build", "check", "run"}:
+        return None
+
+    desktop_platforms = {
+        "build": {"android", "ios"},
+        "run": {"android", "emulator", "ios"},
+    }
+    if len(argv) > 1 and argv[1] in desktop_platforms.get(command, set()):
+        return None
+
+    release = False
+    reuse = False
+    extra: list[str] = []
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            extra = argv[i + 1:]
+            break
+        if arg in {"-h", "--help"}:
+            return None
+        if arg in {"-r", "--release"}:
+            release = True
+            i += 1
+            continue
+        if command == "run" and arg == "--reuse":
+            reuse = True
+            i += 1
+            continue
+        extra = argv[i:]
+        break
+
+    return argparse.Namespace(
+        command=command,
+        platform=None,
+        release=release,
+        reuse=reuse,
+        extra=extra,
+        func={
+            "build": cmd_build,
+            "check": cmd_check,
+            "run": cmd_run,
+        }[command],
+    )
 
 
 def run(topdir: str) -> int:
@@ -1137,15 +1156,11 @@ def run(topdir: str) -> int:
     p_studio.add_argument("extra", nargs="*", help="Extra arguments")
     p_studio.set_defaults(func=cmd_studio)
 
-    # For `test`, pass everything after "test" verbatim to cargo test.
     argv = sys.argv[1:]
-    if argv and argv[0] == "test":
-        args = argparse.Namespace(command="test", func=cmd_test, extra=argv[1:])
-        return args.func(args)
 
-    desktop_passthrough = _extract_desktop_passthrough(argv)
+    desktop_passthrough = _parse_desktop_passthrough(argv)
     if desktop_passthrough is not None:
-        argv = desktop_passthrough
+        return desktop_passthrough.func(desktop_passthrough)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -136,6 +136,7 @@ mime_guess = { workspace = true }
 ml-dsa = { workspace = true }
 nom = { workspace = true }
 ml-kem = { workspace = true }
+nix = { workspace = true, features = ["signal"] }
 nom_rfc8288 = { package = "nom-rfc8288", version = "0.4" }
 num-bigint-dig = { workspace = true }
 num-traits = { workspace = true }
@@ -163,6 +164,7 @@ regex = { workspace = true }
 rsa = { workspace = true }
 sea-query-rusqlite = { workspace = true }
 rusqlite = { version = "0.37", features = ["bundled"] }
+rustc-demangle = "0.1"
 rustc-hash = { workspace = true }
 read-fonts = { workspace = true }
 script_bindings = { path = "../script_bindings" }
