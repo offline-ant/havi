@@ -168,6 +168,9 @@ Current behavior:
 - current retained coverage includes rounded solid boxes, uniform rounded borders,
   exact rounded background clips for retained gradients and images, box shadows,
   retained text, clipped images, and iframe/embed child documents on the retained path
+- document canvas background paint is a dedicated published/rendered concept;
+  layout resolves root/body propagation and background-only suppression before
+  retained rendering, and ordinary box background painting stays fragment-local
 - browser text uses an explicit prepare phase before draw; the compositor owns one global glyph residency cache and explicit per-page GPU textures for browser text
 - prepared browser text batches are per-draw snapshots only; they are invalid after any glyph-cache generation or page-generation change
 - layout publishes one immutable `FragmentArenaGeneration` per visible generation through `havi-types`

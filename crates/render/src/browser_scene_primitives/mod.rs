@@ -17,7 +17,10 @@ use makepad_widgets::{dvec2, Cx2d, Rect};
 use style::color::{AbsoluteColor, ColorSpace};
 use style::properties::ComputedValues;
 
-use self::box_background::{append_box_background_primitives, has_unsupported_background_layers};
+use self::box_background::{
+    append_box_background_primitives, append_document_canvas_background_primitives,
+    has_unsupported_background_layers,
+};
 use self::box_border::{append_box_border_primitives, border_paint, border_radius, outline_paint};
 use self::box_shadow::append_box_shadow_primitives;
 use self::resources::ensure_image_resource_for_fragment;
@@ -52,6 +55,7 @@ pub(crate) fn paint_run_item_to_primitives(
                 bounds,
                 &bf.base.style,
                 generation.background_images_for(item.fragment_id),
+                generation.suppress_background_paint_for(item.fragment_id),
                 spatial_id,
                 clip_chain_id,
                 effect_id,
@@ -66,6 +70,7 @@ pub(crate) fn paint_run_item_to_primitives(
                 bounds,
                 &iframe.base.style,
                 &[],
+                false,
                 spatial_id,
                 clip_chain_id,
                 effect_id,
@@ -124,6 +129,43 @@ pub(crate) fn paint_run_item_to_primitives(
     }
 }
 
+pub(crate) fn lower_document_canvas_background_primitives(
+    generation: &published::FragmentArenaGeneration,
+    scene: &mut MpScene,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: MpClipChainId,
+) -> Result<Vec<MpPrimitive>, String> {
+    let Some(document_canvas_background) = generation.document_canvas_background.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let source_base = generation.base(document_canvas_background.source_fragment_id);
+    if has_unsupported_background_layers(&source_base.style) {
+        return Err("background images not supported by browser-scene adapter yet".to_string());
+    }
+    let owner_node_id = paint_item_owner_node_id(generation, document_canvas_background.source_fragment_id);
+    let current = inherited_color(&source_base.style);
+    let current_abs = AbsoluteColor::new(ColorSpace::Srgb, current.x, current.y, current.z, current.w);
+    let bounds = physical_rect_to_rect(document_canvas_background.paint_rect);
+
+    let mut primitives = Vec::new();
+    append_document_canvas_background_primitives(
+        scene,
+        &mut primitives,
+        registry,
+        glyph_runs,
+        &source_base.style,
+        generation.background_images_for(document_canvas_background.source_fragment_id),
+        bounds,
+        spatial_id,
+        clip_chain_id,
+        owner_node_id,
+        &current_abs,
+    )?;
+    Ok(primitives)
+}
+
 fn lower_box_primitives(
     scene: &mut MpScene,
     registry: &mut ResourceRegistry,
@@ -131,6 +173,7 @@ fn lower_box_primitives(
     bounds: Rect,
     computed: &ComputedValues,
     background_images: &[Option<havi_types::BackgroundImage>],
+    suppress_background_paint: bool,
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -171,6 +214,7 @@ fn lower_box_primitives(
         effect_id,
         owner_node_id,
         &current_abs,
+        suppress_background_paint,
     )?;
     append_box_border_primitives(
         &mut primitives,

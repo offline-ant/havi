@@ -6,6 +6,11 @@
 # Root/body background does not fill the viewport canvas.
 == cases/viewport-bg-fill.html refs/viewport-bg-fill-ref.html
 == cases/viewport-bg-with-content.html refs/viewport-bg-with-content-ref.html
+== cases/viewport-bg-root-wins.html refs/viewport-bg-root-wins-ref.html
+== cases/viewport-bg-body-wins.html refs/viewport-bg-body-wins-ref.html
+== cases/viewport-bg-both-transparent.html refs/viewport-bg-both-transparent-ref.html
+== cases/viewport-bg-body-gradient.html refs/viewport-bg-body-gradient-ref.html
+== cases/viewport-bg-body-no-double-paint.html refs/viewport-bg-body-no-double-paint-ref.html
 
 # reveal.js deck init places the active slide off-screen instead of centered.
 == cases/reveal-init-center.html refs/reveal-init-center-ref.html

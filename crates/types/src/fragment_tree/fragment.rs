@@ -176,4 +176,5 @@ pub struct FragmentDerivedData {
     pub scrollable_overflow: Vec<PhysicalRect<Au>>,
     pub sticky_insets: Vec<Option<PhysicalSides<crate::geom::AuOrAuto>>>,
     pub background_images: Vec<Vec<Option<super::BackgroundImage>>>,
+    pub suppress_background_paint: Vec<bool>,
 }

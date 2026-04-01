@@ -12,7 +12,7 @@ use style::properties::ComputedValues;
 use super::gradient::{angle_percentage_stops, length_percentage_stops, radial_shape};
 use super::resources::ensure_background_image_resource;
 use super::svg::append_svg_background_generation_primitives;
-use crate::background::{BackgroundLayerGeom, layout_background_layer, resolve_insets};
+use crate::background::{BackgroundLayerGeom, BoxInsets, layout_background_layer, resolve_insets};
 use crate::color::resolve_color;
 
 pub(super) fn has_unsupported_background_layers(computed: &ComputedValues) -> bool {
@@ -40,33 +40,14 @@ pub(super) fn append_box_background_primitives(
     effect_id: Option<makepad_browser_scene::MpEffectId>,
     owner_node_id: Option<usize>,
     current_abs: &AbsoluteColor,
+    suppress_background_paint: bool,
 ) -> Result<(), String> {
-    let background_color = resolve_color(&computed.get_background().background_color, current_abs);
-    if background_color.w > 0.001 {
-        let mut primitive = if clip_radius.max() > 0.0 {
-            MpPrimitive::rounded_rect(
-                makepad_browser_scene::MpPrimitiveId(0),
-                spatial_id,
-                clip_chain_id,
-                bounds,
-                background_color,
-                clip_radius,
-            )
-        } else {
-            MpPrimitive::solid_rect(
-                makepad_browser_scene::MpPrimitiveId(0),
-                spatial_id,
-                clip_chain_id,
-                bounds,
-                background_color,
-            )
-        };
-        primitive.effect_id = effect_id;
-        primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
-        primitives.push(primitive);
+    if suppress_background_paint {
+        return Ok(());
     }
 
-    append_background_layer_primitives(
+    let (border_insets, padding_insets) = resolve_insets(computed);
+    append_background_primitives_with_insets(
         scene,
         primitives,
         registry,
@@ -75,9 +56,49 @@ pub(super) fn append_box_background_primitives(
         background_images,
         bounds,
         clip_radius,
+        &border_insets,
+        &padding_insets,
         spatial_id,
         clip_chain_id,
         effect_id,
+        owner_node_id,
+        current_abs,
+    )
+}
+
+pub(super) fn append_document_canvas_background_primitives(
+    scene: &mut MpScene,
+    primitives: &mut Vec<MpPrimitive>,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
+    computed: &ComputedValues,
+    background_images: &[Option<BackgroundImage>],
+    bounds: Rect,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: MpClipChainId,
+    owner_node_id: Option<usize>,
+    current_abs: &AbsoluteColor,
+) -> Result<(), String> {
+    let zero_insets = BoxInsets {
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+        left: 0.0,
+    };
+    append_background_primitives_with_insets(
+        scene,
+        primitives,
+        registry,
+        glyph_runs,
+        computed,
+        background_images,
+        bounds,
+        MpPerCornerRadius::uniform(0.0),
+        &zero_insets,
+        &zero_insets,
+        spatial_id,
+        clip_chain_id,
+        None,
         owner_node_id,
         current_abs,
     )
@@ -146,6 +167,67 @@ fn background_layer_clip_chain(
     })
 }
 
+fn append_background_primitives_with_insets(
+    scene: &mut MpScene,
+    primitives: &mut Vec<MpPrimitive>,
+    registry: &mut ResourceRegistry,
+    glyph_runs: &mut HashMap<MpGlyphRunKey, MpGlyphRunResource>,
+    computed: &ComputedValues,
+    background_images: &[Option<BackgroundImage>],
+    bounds: Rect,
+    clip_radius: MpPerCornerRadius,
+    border_insets: &BoxInsets,
+    padding_insets: &BoxInsets,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    owner_node_id: Option<usize>,
+    current_abs: &AbsoluteColor,
+) -> Result<(), String> {
+    let background_color = resolve_color(&computed.get_background().background_color, current_abs);
+    if background_color.w > 0.001 {
+        let mut primitive = if clip_radius.max() > 0.0 {
+            MpPrimitive::rounded_rect(
+                makepad_browser_scene::MpPrimitiveId(0),
+                spatial_id,
+                clip_chain_id,
+                bounds,
+                background_color,
+                clip_radius,
+            )
+        } else {
+            MpPrimitive::solid_rect(
+                makepad_browser_scene::MpPrimitiveId(0),
+                spatial_id,
+                clip_chain_id,
+                bounds,
+                background_color,
+            )
+        };
+        primitive.effect_id = effect_id;
+        primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
+        primitives.push(primitive);
+    }
+
+    append_background_layer_primitives(
+        scene,
+        primitives,
+        registry,
+        glyph_runs,
+        computed,
+        background_images,
+        bounds,
+        clip_radius,
+        border_insets,
+        padding_insets,
+        spatial_id,
+        clip_chain_id,
+        effect_id,
+        owner_node_id,
+        current_abs,
+    )
+}
+
 fn append_background_layer_primitives(
     scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
@@ -155,6 +237,8 @@ fn append_background_layer_primitives(
     background_images: &[Option<BackgroundImage>],
     bounds: Rect,
     clip_radius: MpPerCornerRadius,
+    border_insets: &BoxInsets,
+    padding_insets: &BoxInsets,
     spatial_id: makepad_browser_scene::MpSpatialId,
     clip_chain_id: MpClipChainId,
     effect_id: Option<makepad_browser_scene::MpEffectId>,
@@ -168,7 +252,6 @@ fn append_background_layer_primitives(
     if bg.background_image.0.is_empty() {
         return Ok(());
     }
-    let (border_insets, padding_insets) = resolve_insets(computed);
     for (index, image) in bg.background_image.0.iter().enumerate().rev() {
         match image {
             style::values::computed::image::Image::None => continue,
@@ -180,8 +263,8 @@ fn append_background_layer_primitives(
                     bounds.pos.y,
                     bounds.size.x as f32,
                     bounds.size.y as f32,
-                    &border_insets,
-                    &padding_insets,
+                    border_insets,
+                    padding_insets,
                     None,
                     None,
                 ) else {
@@ -371,8 +454,8 @@ fn append_background_layer_primitives(
                     bounds.pos.y,
                     bounds.size.x as f32,
                     bounds.size.y as f32,
-                    &border_insets,
-                    &padding_insets,
+                    border_insets,
+                    padding_insets,
                     Some(background_image.width as f32),
                     Some(background_image.height as f32),
                 ) else {

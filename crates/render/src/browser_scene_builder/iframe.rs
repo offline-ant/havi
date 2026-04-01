@@ -64,11 +64,13 @@ pub(super) fn build_iframe_fragment(
                     scrollable_overflow: Vec::new(),
                     sticky_insets: Vec::new(),
                     background_images: Vec::new(),
+                    suppress_background_paint: Vec::new(),
                 },
                 node_fragments: std::collections::HashMap::new(),
                 svg_resources: Arc::from(Vec::<published::SVGResourceNode>::new()),
                 initial_containing_block: havi_types::PhysicalRect::zero(),
                 scrollable_overflow: havi_types::PhysicalRect::zero(),
+                document_canvas_background: None,
             })
         });
     let child_document = build_browser_document(

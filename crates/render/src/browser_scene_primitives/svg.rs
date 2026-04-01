@@ -1061,6 +1061,7 @@ mod tests {
                 scrollable_overflow: Vec::new(),
                 sticky_insets: Vec::new(),
                 background_images: Vec::new(),
+                suppress_background_paint: Vec::new(),
             },
             node_fragments: HashMap::new(),
             svg_resources: Arc::from([SVGResourceNode {
@@ -1068,6 +1069,7 @@ mod tests {
             }]),
             initial_containing_block: au_rect(0, 0, 0, 0),
             scrollable_overflow: au_rect(0, 0, 0, 0),
+            document_canvas_background: None,
         }
     }
 

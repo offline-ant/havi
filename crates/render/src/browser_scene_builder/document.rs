@@ -7,6 +7,7 @@ use webrender_api::{ExternalScrollId, PipelineId};
 
 use super::geometry::physical_rect_to_rect;
 use super::traversal::build_paint_list;
+use crate::browser_scene_primitives::lower_document_canvas_background_primitives;
 use super::{
     BrowserDocumentScrollNodes, BuildContext, BuildState, BuiltBrowserDocument, DirectBuilderIds,
 };
@@ -50,6 +51,22 @@ pub(super) fn build_browser_document(
     let root_spatial_id = scene.root_spatial_id;
     let root_clip_chain_id = scene.root_clip_chain_id;
 
+    let mut state = BuildState {
+        glyph_runs: Default::default(),
+        child_documents: Vec::new(),
+        pattern_tiles: Default::default(),
+    };
+    for primitive in lower_document_canvas_background_primitives(
+        generation,
+        &mut scene,
+        registry,
+        &mut state.glyph_runs,
+        root_spatial_id,
+        root_clip_chain_id,
+    )? {
+        scene.push_primitive(primitive);
+    }
+
     // Create root scroll frame — same mechanism as per-element scroll frames.
     // Key 0 matches ExternalScrollId(0, pipeline).0 used by layout for root scroll.
     let root_scroll_node_id = ExternalScrollId(0, root_pipeline_id);
@@ -69,12 +86,6 @@ pub(super) fn build_browser_document(
             scroll_offset: root_scroll_offset,
         }),
     });
-
-    let mut state = BuildState {
-        glyph_runs: Default::default(),
-        child_documents: Vec::new(),
-        pattern_tiles: Default::default(),
-    };
     let mut scroll_nodes = BrowserDocumentScrollNodes::default();
     scroll_nodes
         .spatial_nodes

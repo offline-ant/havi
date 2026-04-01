@@ -12,6 +12,7 @@ use havi_types::fragment_tree as published;
 use rustc_hash::FxHashSet;
 use style::animation::AnimationSetKey;
 use style::computed_values::position::T as Position;
+use style::values::computed::image::Image;
 use style::values::specified::Overflow;
 
 use super::{
@@ -187,6 +188,7 @@ impl FragmentTree {
                 svg_resources: self.generation.svg_resources.clone(),
                 initial_containing_block: self.generation.initial_containing_block,
                 scrollable_overflow: self.generation.scrollable_overflow,
+                document_canvas_background: self.generation.document_canvas_background.clone(),
             }),
             svg_text_layout_context: self.svg_text_layout_context.clone(),
             viewport_scroll_sensitivity: self.viewport_scroll_sensitivity,
@@ -226,6 +228,8 @@ fn build_generation(
         .filter_map(|fragment| builder.paint_child_for_root(fragment))
         .collect::<Vec<_>>();
 
+    let document_canvas_background = builder.resolve_document_canvas_background(initial_containing_block);
+
     published::FragmentArenaGeneration {
         geometry_roots: Arc::from(geometry_roots),
         paint_roots: Arc::from(paint_roots),
@@ -240,6 +244,7 @@ fn build_generation(
         svg_resources: Arc::from(builder.svg_resources),
         initial_containing_block,
         scrollable_overflow,
+        document_canvas_background,
     }
 }
 
@@ -274,6 +279,7 @@ impl<'a> ArenaBuilder<'a> {
                 scrollable_overflow: Vec::new(),
                 sticky_insets: Vec::new(),
                 background_images: Vec::new(),
+                suppress_background_paint: Vec::new(),
             },
             internal_to_node: HashMap::new(),
             node_fragments: HashMap::new(),
@@ -541,6 +547,107 @@ impl<'a> ArenaBuilder<'a> {
             ),
             _ => Vec::new(),
         });
+        self.derived.suppress_background_paint.push(false);
+    }
+
+    fn resolve_document_canvas_background(
+        &mut self,
+        initial_containing_block: PhysicalRect<Au>,
+    ) -> Option<published::DocumentCanvasBackground> {
+        let root_fragment_id = self.first_box_fragment_with_flag(published::FragmentFlags::IS_ROOT_ELEMENT)?;
+        let root_base = self.nodes[root_fragment_id.0 as usize].base();
+        let root_background_visible = fragment_supplies_canvas_background(root_base);
+        let document_canvas_background = if root_background_visible {
+            Some(published::DocumentCanvasBackground {
+                source_kind: published::CanvasBackgroundSource::RootElement,
+                source_fragment_id: root_fragment_id,
+                paint_rect: initial_containing_block,
+            })
+        } else if root_allows_body_canvas_background(root_base) {
+            self.first_box_fragment_with_flag(
+                published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT,
+            )
+            .filter(|body_fragment_id| {
+                fragment_supplies_canvas_background(self.nodes[body_fragment_id.0 as usize].base())
+            })
+            .map(|source_fragment_id| published::DocumentCanvasBackground {
+                source_kind: published::CanvasBackgroundSource::PropagatedHtmlBody,
+                source_fragment_id,
+                paint_rect: initial_containing_block,
+            })
+        } else {
+            None
+        };
+
+        if let Some(canvas_background) = &document_canvas_background {
+            self.suppress_background_paint_for_source(canvas_background.source_fragment_id);
+        }
+
+        document_canvas_background
+    }
+
+    fn suppress_background_paint_for_source(&mut self, source_fragment_id: published::FragmentId) {
+        let source_base = self.nodes[source_fragment_id.0 as usize].base();
+        let suppress_flag = if source_base
+            .flags
+            .contains(published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT)
+        {
+            Some(published::FragmentFlags::IS_BODY_ELEMENT_OF_HTML_ELEMENT_ROOT)
+        } else if source_base.flags.contains(published::FragmentFlags::IS_ROOT_ELEMENT) {
+            Some(published::FragmentFlags::IS_ROOT_ELEMENT)
+        } else {
+            None
+        };
+        let source_tag = source_base.tag;
+
+        for (index, node) in self.nodes.iter().enumerate() {
+            let fragment_id = published::FragmentId(index as u32);
+            let node_base = node.base();
+            let same_anonymous_style = node_base.tag.is_none()
+                && self.fragment_is_descendant_of(fragment_id, source_fragment_id)
+                && node_base.style.get_background() == source_base.style.get_background();
+            if !matches!(
+                &node.kind,
+                published::FragmentKind::Box(_) | published::FragmentKind::Float(_)
+            ) {
+                continue;
+            }
+            let same_flag = suppress_flag.is_some_and(|flag| node_base.flags.contains(flag));
+            let same_tag = source_tag.is_some() && node_base.tag == source_tag;
+            if same_flag || same_tag || same_anonymous_style {
+                self.derived.suppress_background_paint[index] = true;
+            }
+        }
+    }
+
+    fn fragment_is_descendant_of(
+        &self,
+        fragment_id: published::FragmentId,
+        ancestor_id: published::FragmentId,
+    ) -> bool {
+        let mut current = self.nodes[fragment_id.0 as usize].parent;
+        while let Some(parent) = current {
+            if parent == ancestor_id {
+                return true;
+            }
+            current = self.nodes[parent.0 as usize].parent;
+        }
+        false
+    }
+
+    fn first_box_fragment_with_flag(
+        &self,
+        flag: published::FragmentFlags,
+    ) -> Option<published::FragmentId> {
+        self.nodes.iter().enumerate().find_map(|(index, node)| {
+            matches!(
+                &node.kind,
+                published::FragmentKind::Box(_) | published::FragmentKind::Float(_)
+            )
+            .then_some(node.base())
+            .filter(|base| base.flags.contains(flag))
+            .map(|_| published::FragmentId(index as u32))
+        })
     }
 
     fn record_node_mapping(&mut self, id: published::FragmentId, tag: Option<published::Tag>) {
@@ -878,6 +985,36 @@ fn resolve_background_images_for_base(
         }
     }
     images
+}
+
+fn fragment_supplies_canvas_background(base: &published::BaseFragment) -> bool {
+    let current_color = &base.style.get_inherited_text().color;
+    let background_color = base
+        .style
+        .get_background()
+        .background_color
+        .resolve_to_absolute(current_color);
+    if background_color.alpha > 0.001 {
+        return true;
+    }
+    base.style
+        .get_background()
+        .background_image
+        .0
+        .iter()
+        .any(|image| !matches!(image, Image::None))
+}
+
+fn root_allows_body_canvas_background(base: &published::BaseFragment) -> bool {
+    let current_color = &base.style.get_inherited_text().color;
+    let background = base.style.get_background();
+    let background_color = background.background_color.resolve_to_absolute(current_color);
+    background_color.alpha <= 0.001
+        && background
+            .background_image
+            .0
+            .iter()
+            .all(|image| matches!(image, Image::None))
 }
 
 #[derive(Clone, Copy)]

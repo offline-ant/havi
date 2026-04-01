@@ -9,6 +9,19 @@ use super::{
     BaseFragment, FragmentDerivedData, FragmentId, FragmentKind, FragmentNode, OutOfFlowPlacement,
     PaintChild, PlacementId, SVGResourceId, SVGResourceNode,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanvasBackgroundSource {
+    RootElement,
+    PropagatedHtmlBody,
+}
+
+#[derive(Clone, Debug)]
+pub struct DocumentCanvasBackground {
+    pub source_kind: CanvasBackgroundSource,
+    pub source_fragment_id: FragmentId,
+    pub paint_rect: PhysicalRect<Au>,
+}
 use crate::geom::PhysicalRect;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -28,6 +41,7 @@ pub struct FragmentArenaGeneration {
     pub svg_resources: Arc<[SVGResourceNode]>,
     pub initial_containing_block: PhysicalRect<Au>,
     pub scrollable_overflow: PhysicalRect<Au>,
+    pub document_canvas_background: Option<DocumentCanvasBackground>,
 }
 
 impl FragmentArenaGeneration {
@@ -112,5 +126,9 @@ impl FragmentArenaGeneration {
         id: FragmentId,
     ) -> &[Option<super::BackgroundImage>] {
         self.derived.background_images[id.0 as usize].as_slice()
+    }
+
+    pub fn suppress_background_paint_for(&self, id: FragmentId) -> bool {
+        self.derived.suppress_background_paint[id.0 as usize]
     }
 }
