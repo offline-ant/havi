@@ -15,7 +15,7 @@ use log::warn;
 use crate::paint::{
     CrossProcessPaintApi, ExternalImageProvider, ExternalImageSource, SerializableImageData,
 };
-use crate::pixels::{SharedSnapshot, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{SharedSnapshot, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use rustc_hash::FxHashMap;
 use crate::webgpu::{
     ContextConfiguration, PRESENTATION_BUFFER_COUNT, PendingTexture, WebGPUContextId, WebGPUMsg,

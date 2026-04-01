@@ -22,7 +22,7 @@ use style::values::generics::transform::{GenericRotate, GenericScale, GenericTra
 use style_traits::CSSPixel;
 use webrender_api::units::LayoutTransform;
 
-use crate::pixels::RasterImage;
+use pixels::RasterImage;
 
 use super::{BaseFragment, BaseFragmentInfo, CollapsedBlockMargins, Fragment, FragmentFlags};
 use crate::layout::formatting_contexts::Baselines;

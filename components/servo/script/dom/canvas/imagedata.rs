@@ -14,7 +14,7 @@ use js::gc::CustomAutoRooterGuard;
 use js::jsapi::JSObject;
 use js::rust::HandleObject;
 use js::typedarray::{ClampedU8, HeapUint8ClampedArray, TypedArray, Uint8ClampedArray};
-use crate::pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use rustc_hash::FxHashMap;
 use script_bindings::trace::RootedTraceableBox;
 
@@ -53,7 +53,7 @@ impl ImageData {
         can_gc: CanGc,
     ) -> Fallible<DomRoot<ImageData>> {
         let len =
-            crate::pixels::compute_rgba8_byte_length_if_within_limit(width as usize, height as usize)
+            pixels::compute_rgba8_byte_length_if_within_limit(width as usize, height as usize)
                 .ok_or(Error::Range(
                     c"The requested image size exceeds the supported range".to_owned(),
                 ))?;
@@ -189,7 +189,7 @@ impl ImageData {
     /// Nothing must change the array on the JS side while the slice is live.
     #[expect(unsafe_code)]
     pub(crate) unsafe fn get_rect(&self, rect: Rect<u32>) -> Cow<'_, [u8]> {
-        crate::pixels::rgba8_get_rect(unsafe { self.as_slice() }, self.get_size().to_u32(), rect)
+        pixels::rgba8_get_rect(unsafe { self.as_slice() }, self.get_size().to_u32(), rect)
     }
 
     #[expect(unsafe_code)]
@@ -289,7 +289,7 @@ impl ImageDataMethods<crate::DomTypeHolder> for ImageData {
 
         // When a constructor is called for an ImageData that is too large, other browsers throw
         // IndexSizeError rather than RangeError here, so we do the same.
-        crate::pixels::compute_rgba8_byte_length_if_within_limit(sw as usize, sh as usize)
+        pixels::compute_rgba8_byte_length_if_within_limit(sw as usize, sh as usize)
             .ok_or(Error::IndexSize(None))?;
 
         // 2. Initialize this given sw, sh, and settings.

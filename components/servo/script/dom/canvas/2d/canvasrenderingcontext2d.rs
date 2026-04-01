@@ -7,7 +7,7 @@ use crate::canvas::{Canvas2dMsg, CanvasId};
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
 use js::context::JSContext;
-use crate::pixels::Snapshot;
+use pixels::Snapshot;
 use script_bindings::reflector::AssociatedMemory;
 use servo_url::BrowserUrl;
 use webrender_api::ImageKey;

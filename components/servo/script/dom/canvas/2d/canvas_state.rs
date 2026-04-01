@@ -27,7 +27,7 @@ use crate::fonts::{
 use js::context::JSContext;
 use crate::net::image_cache::{ImageCache, ImageResponse};
 use crate::net::request::CorsSettings;
-use crate::pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use servo_arc::Arc as ServoArc;
 use servo_url::{ImmutableOrigin, BrowserUrl};
 use style::color::{AbsoluteColor, ColorFlags, ColorSpace};
@@ -1784,7 +1784,7 @@ impl CanvasState {
         }
 
         let (origin, size) = adjust_size_sign(Point2D::new(sx, sy), Size2D::new(sw, sh));
-        let read_rect = match crate::pixels::clip(origin, size.to_u32(), canvas_size) {
+        let read_rect = match pixels::clip(origin, size.to_u32(), canvas_size) {
             Some(rect) => rect,
             None => {
                 // All the pixels are outside the canvas surface.
@@ -1867,7 +1867,7 @@ impl CanvasState {
             Point2D::new(dirty_x, dirty_y),
             Size2D::new(dirty_width, dirty_height),
         );
-        let src_rect = match crate::pixels::clip(src_origin, src_size.to_u32(), imagedata_size.to_u32()) {
+        let src_rect = match pixels::clip(src_origin, src_size.to_u32(), imagedata_size.to_u32()) {
             Some(rect) => rect,
             None => return,
         };
@@ -1877,7 +1877,7 @@ impl CanvasState {
         );
         // By clipping to the canvas surface, we avoid sending any pixel
         // that would fall outside it.
-        let dst_rect = match crate::pixels::clip(dst_origin, src_rect.size, canvas_size) {
+        let dst_rect = match pixels::clip(dst_origin, src_rect.size, canvas_size) {
             Some(rect) => rect,
             None => return,
         };

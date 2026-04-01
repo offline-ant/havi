@@ -147,9 +147,9 @@ ocb3 = { workspace = true }
 p521 = { workspace = true }
 argon2 = { workspace = true }
 parking_lot = { workspace = true }
+pixels = { path = "../pixels" }
 peniko = { workspace = true }
 percent-encoding = { workspace = true }
-pixels_external = { package = "pixels", path = "../pixels" }
 phf = "0.13"
 pkcs8 = { workspace = true }
 quick_cache = "0.6"

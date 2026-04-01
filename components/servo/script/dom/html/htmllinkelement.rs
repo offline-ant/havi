@@ -19,7 +19,7 @@ use crate::net::request::{Destination, Initiator, RequestBuilder, RequestId};
 use crate::net::{
     FetchMetadata, FetchResponseMsg, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
-use crate::pixels::PixelFormat;
+use pixels::PixelFormat;
 use script_bindings::root::Dom;
 use servo_arc::Arc;
 use servo_url::BrowserUrl;
@@ -825,7 +825,7 @@ impl HTMLLinkElement {
         let window = self.owner_window();
         let document = self.owner_document();
 
-        let send_rasterized_favicon_to_embedder = |raster_image: &crate::pixels::RasterImage| {
+        let send_rasterized_favicon_to_embedder = |raster_image: &pixels::RasterImage| {
             // Let's not worry about animated favicons...
             let frame = raster_image.first_frame();
 

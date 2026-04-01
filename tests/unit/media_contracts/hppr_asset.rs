@@ -8,7 +8,7 @@ use hppr_packet::Packet;
 use hppr_packet::crypto::calculate_hash;
 use hppr_packet::writer::PacketWriter;
 use media::{MediaAssetMetadata, ResolvedMediaAsset, clamp_byte_range};
-use net::net::hppr_media::{HpprResolvedMediaKind, ResolvedHpprMediaAsset};
+use net::hppr_media::{HpprResolvedMediaKind, ResolvedHpprMediaAsset};
 
 fn endpoint() -> String {
     "127.0.0.1:4777".to_string()

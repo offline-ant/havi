@@ -29,7 +29,7 @@ use crate::net::request::CorsSettings;
 use crate::net::{FetchMetadata, FetchResponseMsg, FilteredMetadata, NetworkError};
 use crate::paint::{CrossProcessPaintApi, ImageUpdate, SerializableImageData};
 use parking_lot::Mutex;
-use crate::pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage, load_from_memory};
+use ::pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage, load_from_memory};
 use profile_traits::mem::{Report, ReportKind};
 use profile_traits::path;
 use rustc_hash::FxHashMap;

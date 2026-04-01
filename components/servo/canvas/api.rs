@@ -14,7 +14,7 @@ use crate::fonts::{FontDataAndIndex, FontIdentifier};
 use kurbo::{BezPath, ParamCurveNearest as _, PathEl, Point, Shape, Triangle};
 use malloc_size_of::MallocSizeOf;
 use malloc_size_of_derive::MallocSizeOf;
-use crate::pixels::SharedSnapshot;
+use pixels::SharedSnapshot;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 use style::color::AbsoluteColor;

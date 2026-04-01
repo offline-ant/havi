@@ -18,7 +18,7 @@ use crate::layout::{
     SVGElementData, StyleData, TrustedNodeAddress,
 };
 use crate::net::image_cache::Image;
-use crate::pixels::ImageMetadata;
+use ::pixels::ImageMetadata;
 use selectors::Element as _;
 use servo_arc::Arc;
 use ::servo_url::BrowserUrl;

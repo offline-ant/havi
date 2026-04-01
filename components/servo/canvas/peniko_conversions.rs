@@ -4,7 +4,7 @@
 
 use crate::canvas::*;
 use peniko::ImageAlphaType;
-use crate::pixels::{Alpha, SnapshotPixelFormat};
+use pixels::{Alpha, SnapshotPixelFormat};
 use style::color::AbsoluteColor;
 
 use super::backend::Convert;

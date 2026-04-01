@@ -13,7 +13,7 @@ use crossbeam_channel::{Sender, select, unbounded};
 use euclid::default::{Rect, Size2D, Transform2D};
 use log::warn;
 use crate::paint::CrossProcessPaintApi;
-use crate::pixels::Snapshot;
+use pixels::Snapshot;
 use rustc_hash::FxHashMap;
 use webrender_api::ImageKey;
 

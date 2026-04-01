@@ -10,7 +10,6 @@
 import configparser
 import fnmatch
 import glob
-import importlib
 import io
 import itertools
 import json
@@ -19,7 +18,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any, TypedDict, LiteralString, cast
+from typing import Any, TypedDict, LiteralString
 from collections.abc import Iterator, Callable
 import types
 
@@ -104,7 +103,7 @@ FILE_PATTERNS_TO_CHECK = [
 # File patterns that are ignored for all tidy and lint checks.
 FILE_PATTERNS_TO_IGNORE = ["*.#*", "*.pyc", "fake-ld.sh", "*.ogv", "*.webm", "license.html"]
 
-SPEC_BASE_PATH = "components/servo/script/dom/"
+SPEC_BASE_PATH = "components/script/dom/"
 
 WEBIDL_STANDARDS = [
     b"//www.khronos.org/registry/webgl/extensions",
@@ -680,7 +679,7 @@ def check_that_manifests_exist() -> Iterator[tuple[str, int, str]]:
 
 
 def check_that_manifests_are_clean() -> Iterator[tuple[str, int, str]]:
-    wptlogging = importlib.import_module("wptrunner.wptlogging")
+    from wptrunner import wptlogging
 
     print("\r ➤  Checking WPT manifests for cleanliness...")
     output_stream = io.StringIO("")
@@ -693,7 +692,7 @@ def check_that_manifests_are_clean() -> Iterator[tuple[str, int, str]]:
 
 
 def lint_wpt_test_files() -> Iterator[tuple[str, int, str]]:
-    lint = importlib.import_module("tools.lint.lint")
+    from tools.lint import lint
 
     # Override the logging function so that we can collect errors from
     # the lint script, which doesn't allow configuration of the output.
@@ -878,8 +877,11 @@ def parse_config(config_file: dict[str, Any]) -> None:
     dirs_to_check = config_file.get("check_ext", {})
     # Fix the paths (OS-dependent)
     for path, exts in dirs_to_check.items():
-        normalized_path = cast(str, normalize_paths(path))
-        config["check_ext"][normalized_path] = exts
+        # FIXME: Temporarily ignoring this since the type signature for
+        # `normalize_paths` must use a constrained type variable for this to
+        # typecheck but Pyrefly doesn't handle that correctly (but mypy does).
+        # pyrefly: ignore[bad-argument-type]
+        config["check_ext"][normalize_paths(path)] = exts
 
     # Add list of blocked packages
     config["blocked-packages"] = config_file.get("blocked-packages", {})
@@ -930,11 +932,11 @@ def collect_errors_for_files(
             for check in checking_functions:
                 for error in check(filename, contents):
                     # the result will be: `(filename, line, message)`
-                    yield (filename, error[0], error[1])
+                    yield (filename,) + error
             lines: list[bytes] = contents.splitlines(True)
             for check in line_checking_functions:
                 for error in check(filename, lines):
-                    yield (filename, error[0], error[1])
+                    yield (filename,) + error
 
 
 def scan(only_changed_files: bool = False, progress: bool = False, github_annotations: bool = False) -> int:

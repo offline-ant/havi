@@ -25,7 +25,7 @@ use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::fonts::FontIdentifier;
 use kurbo::Shape as _;
 use crate::paint::SerializableImageData;
-use crate::pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use vello::wgpu::{
     BackendOptions, Backends, Buffer, BufferDescriptor, BufferUsages, COPY_BYTES_PER_ROW_ALIGNMENT,
     CommandEncoderDescriptor, Device, Extent3d, Instance, InstanceDescriptor, InstanceFlags,
@@ -592,7 +592,7 @@ impl GenericDrawTarget for VelloDrawTarget {
                 let mut data = GenericSharedMemory::from_bytes(data);
                 #[expect(unsafe_code)]
                 unsafe {
-                    crate::pixels::generic_transform_inplace::<1, false, false>(data.deref_mut());
+                    pixels::generic_transform_inplace::<1, false, false>(data.deref_mut());
                 };
                 data
             } else {
@@ -602,7 +602,7 @@ impl GenericDrawTarget for VelloDrawTarget {
         })
     }
 
-    fn snapshot(&mut self) -> crate::pixels::Snapshot {
+    fn snapshot(&mut self) -> pixels::Snapshot {
         let size = self.size;
         let padded_byte_width = self.padded_byte_width;
         self.map_read(|data| {

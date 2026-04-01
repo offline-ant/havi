@@ -27,7 +27,7 @@ use crate::net::{
     FetchMetadata, FetchResponseMsg, NetworkError, ReferrerPolicy, ResourceFetchTiming,
 };
 use num_traits::ToPrimitive;
-use crate::pixels::{CorsStatus, ImageMetadata, Snapshot};
+use pixels::{CorsStatus, ImageMetadata, Snapshot};
 use regex::Regex;
 use rustc_hash::FxHashSet;
 use script_bindings::script_runtime::temp_cx;

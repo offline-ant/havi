@@ -6,7 +6,7 @@ use crate::canvas::Canvas2dMsg;
 use dom_struct::dom_struct;
 use euclid::default::Size2D;
 use js::context::JSContext;
-use crate::pixels::Snapshot;
+use pixels::Snapshot;
 
 use crate::canvas_context::{CanvasContext, HTMLCanvasElementOrOffscreenCanvas};
 use crate::script::dom::bindings::codegen::Bindings::CanvasRenderingContext2DBinding::{

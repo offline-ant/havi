@@ -16,7 +16,7 @@ use html5ever::{LocalName, Prefix, local_name, ns};
 use ipc_channel::ipc::{self as ipcchan};
 use js::rust::{HandleObject, HandleValue};
 use crate::layout::HTMLCanvasData;
-use crate::pixels::{EncodedImageType, Snapshot};
+use pixels::{EncodedImageType, Snapshot};
 use rustc_hash::FxHashMap;
 use script_bindings::weakref::WeakRef;
 use servo_media::streams::MediaStreamType;
@@ -289,7 +289,7 @@ impl HTMLCanvasElement {
             None => {
                 let size = self.get_size();
                 if size.is_empty() ||
-                    crate::pixels::compute_rgba8_byte_length_if_within_limit(
+                    pixels::compute_rgba8_byte_length_if_within_limit(
                         size.width as usize,
                         size.height as usize,
                     )

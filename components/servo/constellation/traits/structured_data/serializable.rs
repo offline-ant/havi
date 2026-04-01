@@ -17,7 +17,7 @@ use base::id::{
 use euclid::default::Transform3D;
 use malloc_size_of_derive::MallocSizeOf;
 use crate::net::filemanager_thread::RelativePos;
-use crate::pixels::SharedSnapshot;
+use pixels::SharedSnapshot;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use servo_url::ImmutableOrigin;

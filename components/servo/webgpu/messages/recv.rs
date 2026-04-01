@@ -11,7 +11,7 @@ use base::generic_channel::{
     GenericCallback, GenericOneshotSender, GenericSender, GenericSharedMemory,
 };
 use base::id::PipelineId;
-use crate::pixels::SharedSnapshot;
+use pixels::SharedSnapshot;
 use serde::{Deserialize, Serialize};
 use webrender_api::ImageKey;
 use webrender_api::euclid::default::Size2D;
@@ -173,7 +173,7 @@ pub enum WebGPURequest {
         size: Size2D<u32>,
         canvas_epoch: Epoch,
     },
-    /// Create [`crate::pixels::Snapshot`] with contents of the last present operation
+    /// Create [`pixels::Snapshot`] with contents of the last present operation
     /// or provided pending texture and send it over provided [`IpcSender`].
     GetImage {
         context_id: WebGPUContextId,

@@ -8,7 +8,7 @@ use std::cell::{Cell, RefCell};
 use arrayvec::ArrayVec;
 use base::{Epoch, generic_channel};
 use dom_struct::dom_struct;
-use crate::pixels::Snapshot;
+use pixels::Snapshot;
 use script_bindings::cformat;
 use script_bindings::codegen::GenericBindings::WebGPUBinding::GPUTextureFormat;
 use crate::webgpu::{

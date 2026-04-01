@@ -27,7 +27,7 @@ use crate::net::request::{Destination, RequestId};
 use crate::net::{
     CoreResourceThread, FetchMetadata, FilteredMetadata, NetworkError, ResourceFetchTiming,
 };
-use crate::pixels::RasterImage;
+use pixels::RasterImage;
 use script_bindings::codegen::GenericUnionTypes::BlobOrMediaSource;
 use script_bindings::codegen::InheritTypes::{
     ElementTypeId, HTMLElementTypeId, HTMLMediaElementTypeId, NodeTypeId,

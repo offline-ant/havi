@@ -10,7 +10,7 @@ use crate::constellation::SerializableImageBitmap;
 use dom_struct::dom_struct;
 use euclid::default::{Point2D, Rect, Size2D};
 use js::realm::CurrentRealm;
-use crate::pixels::{CorsStatus, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{CorsStatus, Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use rustc_hash::FxHashMap;
 use script_bindings::error::{Error, Fallible};
 
@@ -119,7 +119,7 @@ impl ImageBitmap {
         // Whether the byte length of the source bitmap exceeds the supported range.
         // In the case the source is too large, we should fail, and that is not defined.
         // <https://github.com/whatwg/html/issues/3323>
-        let Some(source_byte_length) = crate::pixels::compute_rgba8_byte_length_if_within_limit(
+        let Some(source_byte_length) = pixels::compute_rgba8_byte_length_if_within_limit(
             source_rect.size.width as usize,
             source_rect.size.height as usize,
         ) else {
@@ -150,7 +150,7 @@ impl ImageBitmap {
         // Whether the byte length of the output bitmap exceeds the supported range.
         // In the case the output is too large, we should fail, and that is not defined.
         // <https://github.com/whatwg/html/issues/3323>
-        let Some(output_byte_length) = crate::pixels::compute_rgba8_byte_length_if_within_limit(
+        let Some(output_byte_length) = pixels::compute_rgba8_byte_length_if_within_limit(
             output_size.width as usize,
             output_size.height as usize,
         ) else {
@@ -194,7 +194,7 @@ impl ImageBitmap {
             input_rect_cropped.size,
         );
 
-        crate::pixels::copy_rgba8_image(
+        pixels::copy_rgba8_image(
             input.size(),
             input_rect_cropped.cast(),
             input.as_raw_bytes(),
@@ -206,13 +206,13 @@ impl ImageBitmap {
         // Step 7. Scale output to the size specified by outputWidth and outputHeight.
         let mut output = if source.size() != output_size {
             let quality = match options.resizeQuality {
-                ResizeQuality::Pixelated => crate::pixels::FilterQuality::None,
-                ResizeQuality::Low => crate::pixels::FilterQuality::Low,
-                ResizeQuality::Medium => crate::pixels::FilterQuality::Medium,
-                ResizeQuality::High => crate::pixels::FilterQuality::High,
+                ResizeQuality::Pixelated => pixels::FilterQuality::None,
+                ResizeQuality::Low => pixels::FilterQuality::Low,
+                ResizeQuality::Medium => pixels::FilterQuality::Medium,
+                ResizeQuality::High => pixels::FilterQuality::High,
             };
 
-            let Some(output_data) = crate::pixels::scale_rgba8_image(
+            let Some(output_data) = pixels::scale_rgba8_image(
                 source.size(),
                 source.as_raw_bytes(),
                 output_size,
@@ -242,7 +242,7 @@ impl ImageBitmap {
         // output must be flipped vertically, disregarding any image orientation metadata
         // of the source (such as EXIF metadata), if any.
         if options.imageOrientation == ImageOrientation::FlipY {
-            crate::pixels::flip_y_rgba8_image_inplace(output.size(), output.as_raw_bytes_mut());
+            pixels::flip_y_rgba8_image_inplace(output.size(), output.as_raw_bytes_mut());
         }
 
         // TODO: Step 9. If image is an img element or a Blob object, let val be the value
@@ -537,7 +537,7 @@ impl ImageBitmap {
                 // (e.g., a vector graphic with no natural size), then queue
                 // a global task, using the bitmap task source, to reject promise
                 // with an "InvalidStateError" DOMException and abort these steps.
-                let Some(raster_image) = crate::pixels::load_from_memory(&bytes, CorsStatus::Safe) else {
+                let Some(raster_image) = pixels::load_from_memory(&bytes, CorsStatus::Safe) else {
                     reject_promise_on_bitmap_task_source(&p);
                     return p;
                 };

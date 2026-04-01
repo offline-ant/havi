@@ -102,7 +102,7 @@ pub struct ImageFragment {
     pub showing_broken_image_icon: bool,
     /// Raster image pixel data, stored for rendering without WebRender.
     #[conditional_malloc_size_of]
-    pub raster_image: Option<std::sync::Arc<crate::pixels::RasterImage>>,
+    pub raster_image: Option<std::sync::Arc<pixels::RasterImage>>,
 }
 
 #[derive(MallocSizeOf)]

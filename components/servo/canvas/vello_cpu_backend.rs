@@ -15,7 +15,7 @@ use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::fonts::FontIdentifier;
 use kurbo::Shape;
 use crate::paint::SerializableImageData;
-use crate::pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
+use pixels::{Snapshot, SnapshotAlphaMode, SnapshotPixelFormat};
 use vello_cpu::{kurbo, peniko};
 use webrender_api::{ImageDescriptor, ImageDescriptorFlags};
 
@@ -468,7 +468,7 @@ impl GenericDrawTarget for VelloCPUDrawTarget {
         (image_desc, data)
     }
 
-    fn snapshot(&mut self) -> crate::pixels::Snapshot {
+    fn snapshot(&mut self) -> pixels::Snapshot {
         Snapshot::from_vec(
             self.size().cast(),
             SnapshotPixelFormat::RGBA,

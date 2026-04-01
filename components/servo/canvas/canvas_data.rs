@@ -6,7 +6,7 @@ use base::Epoch;
 use crate::canvas::*;
 use euclid::default::{Point2D, Rect, Size2D, Transform2D};
 use crate::paint::CrossProcessPaintApi;
-use crate::pixels::Snapshot;
+use pixels::Snapshot;
 use webrender_api::ImageKey;
 
 use super::backend::GenericDrawTarget;

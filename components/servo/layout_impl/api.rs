@@ -38,7 +38,7 @@ use malloc_size_of_derive::MallocSizeOf;
 use crate::net::image_cache::{ImageCache, PendingImageId};
 use crate::paint::CrossProcessPaintApi;
 use parking_lot::RwLock;
-use crate::pixels::RasterImage;
+use pixels::RasterImage;
 use profile_traits::mem::Report;
 use profile_traits::time;
 use rustc_hash::FxHashMap;
@@ -1508,7 +1508,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage};
+    use pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage};
     use style::dom::OpaqueNode;
 
     use crate::layout::{AnimatingImages, ImageAnimationState};

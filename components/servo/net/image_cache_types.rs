@@ -8,7 +8,7 @@ use base::id::PipelineId;
 use log::debug;
 use malloc_size_of::MallocSizeOfOps;
 use malloc_size_of_derive::MallocSizeOf;
-use crate::pixels::{CorsStatus, ImageMetadata, RasterImage};
+use pixels::{CorsStatus, ImageMetadata, RasterImage};
 use profile_traits::mem::Report;
 use serde::{Deserialize, Serialize};
 use servo_url::{ImmutableOrigin, BrowserUrl};
