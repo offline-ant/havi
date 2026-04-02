@@ -36,6 +36,7 @@ pub(super) struct TabInfo {
     pub(super) webview: libhavi::WebView,
     pub(super) title: String,
     pub(super) url: String,
+    pub(super) nav_request_id: u64,
     /// LiveId used as the key in tab_bar View.children.
     pub(super) widget_id: LiveId,
     /// Per-tab HPPR watch state.
@@ -304,6 +305,7 @@ impl App {
             webview,
             title,
             url: url.clone(),
+            nav_request_id: current.nav_request_id,
             widget_id,
             watch,
         };
@@ -328,6 +330,7 @@ impl App {
             webview,
             title: title_from_url(url),
             url: url.to_string(),
+            nav_request_id: 0,
             widget_id: next_tab_live_id(),
             watch: Default::default(),
         });

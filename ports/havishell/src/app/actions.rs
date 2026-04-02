@@ -1,5 +1,5 @@
 use super::*;
-use super::navigation::parse_navigation_url;
+use super::navigation::{NavInput, classify_nav_input, group_landing_url, parse_navigation_url};
 
 use libhavi::hppr::credentials::global_credential_store;
 use libhavi::hppr::resolve;
@@ -99,6 +99,32 @@ fn shareable_url(current_url: &str, public_via: Option<&str>) -> String {
     }
 
     set_jsonqa_via(current_url, via)
+}
+
+fn resolve_group_landing_destination(endpoint: &str, group: &str) -> String {
+    let fallback = group_landing_url(group, "home");
+    let Ok(target) = hppr_client::parse_via(endpoint) else {
+        return fallback;
+    };
+    let Ok(client) = libhavi::hppr::client::HpprdClientAsync::new(target) else {
+        return fallback;
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return fallback;
+    };
+
+    let creds = global_credential_store();
+    let client = Arc::new(client);
+    let app = runtime
+        .block_on(async {
+            libhavi::hppr::util::resolve_group_home_app(group, &client, &creds)
+                .await
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(|| "home".to_string());
+
+    group_landing_url(group, &app)
 }
 
 fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
@@ -222,6 +248,60 @@ fn disable_shadow_mode(url: &str) -> Result<(), String> {
 }
 
 impl App {
+    fn load_tab_browser_url(
+        &mut self,
+        cx: &mut Cx,
+        idx: usize,
+        parsed: libhavi::BrowserUrl,
+    ) -> Result<String, String> {
+        let parsed_url = parsed.to_string();
+        self.tabs[idx].webview.load(parsed);
+        self.tabs[idx].url = parsed_url.clone();
+        if idx == self.active_tab_idx {
+            self.attach_active_browser_state(cx);
+            self.focus_active_webview(cx);
+            self.set_url_input_sanitized(cx, &parsed_url);
+            self.request_active_page_redraw(cx);
+        } else {
+            self.request_spin(cx);
+        }
+        self.sync_tab_bar(cx);
+        Ok(parsed_url)
+    }
+
+    fn submit_nav_input(&mut self, cx: &mut Cx, raw_input: &str) {
+        let Some(tab) = self.tabs.get_mut(self.active_tab_idx) else {
+            return;
+        };
+
+        tab.nav_request_id = tab.nav_request_id.wrapping_add(1);
+        let request_id = tab.nav_request_id;
+        let webview_id = tab.webview_id;
+        let input = raw_input.to_string();
+
+        match classify_nav_input(&input) {
+            Some(NavInput::Direct(parsed)) => {
+                let _ = self.load_tab_browser_url(cx, self.active_tab_idx, parsed);
+            }
+            Some(NavInput::BarePublicGroup(group)) => {
+                let endpoint = self.watch_fallback_endpoint.clone();
+                std::thread::Builder::new()
+                    .name("havi-nav-resolve".to_string())
+                    .spawn(move || {
+                        let url = resolve_group_landing_destination(&endpoint, &group);
+                        Cx::post_action(MakepadServoAction::NavigationResolved {
+                            webview_id,
+                            request_id,
+                            url,
+                        });
+                        SignalToUI::set_ui_signal();
+                    })
+                    .ok();
+            }
+            None => {}
+        }
+    }
+
     fn toggle_shadow_for_active_tab(&mut self) {
         let Some(tab) = self.tabs.get(self.active_tab_idx) else {
             return;
@@ -553,13 +633,7 @@ impl MatchEvent for App {
                 NavCommand::Back => self.go_back(),
                 NavCommand::Forward => self.go_forward(),
                 NavCommand::Reload => self.reload(),
-                NavCommand::Navigate(url) => {
-                    self.navigate(url);
-                    // Update active tab URL
-                    if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
-                        tab.url = url.clone();
-                    }
-                },
+                NavCommand::Navigate(url) => self.submit_nav_input(cx, url),
             }
         }
 
@@ -792,20 +866,11 @@ impl MatchEvent for App {
                     response_sender,
                 }) => {
                     let response = if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        if let Some(tab) = self.tabs.get_mut(idx) {
+                            tab.nav_request_id = tab.nav_request_id.wrapping_add(1);
+                        }
                         if let Some(parsed) = parse_navigation_url(url) {
-                            let parsed_url = parsed.to_string();
-                            self.tabs[idx].webview.load(parsed);
-                            self.tabs[idx].url = parsed_url.clone();
-                            if idx == self.active_tab_idx {
-                                self.attach_active_browser_state(cx);
-                                self.focus_active_webview(cx);
-                                self.set_url_input_sanitized(cx, &parsed_url);
-                                self.request_active_page_redraw(cx);
-                            } else {
-                                self.request_spin(cx);
-                            }
-                            self.sync_tab_bar(cx);
-                            Ok(parsed_url)
+                            self.load_tab_browser_url(cx, idx, parsed)
                         } else {
                             Err("invalid url".to_string())
                         }
@@ -813,6 +878,25 @@ impl MatchEvent for App {
                         Err("unknown webview".to_string())
                     };
                     let _ = response_sender.send(response);
+                },
+                Some(MakepadServoAction::NavigationResolved {
+                    webview_id,
+                    request_id,
+                    url,
+                }) => {
+                    if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        let stale = self
+                            .tabs
+                            .get(idx)
+                            .map(|tab| tab.nav_request_id != *request_id)
+                            .unwrap_or(true);
+                        if stale {
+                            continue;
+                        }
+                        if let Some(parsed) = parse_navigation_url(url) {
+                            let _ = self.load_tab_browser_url(cx, idx, parsed);
+                        }
+                    }
                 },
                 Some(MakepadServoAction::DevtoolsActivateWebView {
                     webview_id,

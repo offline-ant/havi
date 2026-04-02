@@ -87,6 +87,12 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         response_sender: Sender<Result<(), String>>,
     },
+    /// Background address-bar resolution produced a final concrete URL.
+    NavigationResolved {
+        webview_id: WebViewId,
+        request_id: u64,
+        url: String,
+    },
     /// Servo requests showing a context menu for a webview.
     ContextMenuShow {
         webview_id: WebViewId,
@@ -179,6 +185,16 @@ impl std::fmt::Debug for MakepadServoAction {
             Self::DevtoolsActivateWebView { webview_id, .. } => f
                 .debug_struct("DevtoolsActivateWebView")
                 .field("webview_id", webview_id)
+                .finish(),
+            Self::NavigationResolved {
+                webview_id,
+                request_id,
+                url,
+            } => f
+                .debug_struct("NavigationResolved")
+                .field("webview_id", webview_id)
+                .field("request_id", request_id)
+                .field("url", url)
                 .finish(),
             Self::ContextMenuShow { webview_id, .. } => f
                 .debug_struct("ContextMenuShow")

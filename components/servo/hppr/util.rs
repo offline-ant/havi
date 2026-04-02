@@ -24,6 +24,15 @@ pub enum RouteEndpointSource {
     ParentRoute,
 }
 
+#[derive(Clone, Debug)]
+struct ExactGroupRoute {
+    endpoint: ViaSpec,
+    route_authority_key: Option<String>,
+    upstream_verification_key: Option<String>,
+    home_app: Option<String>,
+    source: RouteEndpointSource,
+}
+
 impl RouteEndpointSource {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -289,23 +298,24 @@ async fn fetch_public_packet_via(via: &ViaSpec, urc: &str) -> Result<hppr_client
     client.get_packet_authenticated(urc).await
 }
 
-/// Resolve route endpoint for a group/app via local and public route records.
-///
-/// Returns `(endpoint, upstream_verification_key, content_authority_pin, source)`.
-pub async fn resolve_route_endpoint(
+async fn resolve_exact_group_route(
     group: &str,
     app: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
-) -> Result<(ViaSpec, Option<String>, Option<String>, RouteEndpointSource), String> {
+) -> Result<ExactGroupRoute, String> {
     let repo_target = repo_client.target();
-
     if group.is_empty() || app.is_empty() {
-        return Ok((repo_target, None, None, RouteEndpointSource::HomeFallback));
+        return Ok(ExactGroupRoute {
+            endpoint: repo_target,
+            route_authority_key: None,
+            upstream_verification_key: None,
+            home_app: None,
+            source: RouteEndpointSource::HomeFallback,
+        });
     }
 
     let public_name = hppr_client::is_public_name(group, app);
-    let mut local_app = None;
     let mut root_override = None;
     let mut repo_vkey = None;
 
@@ -313,7 +323,6 @@ pub async fn resolve_route_endpoint(
         match repo_client.get_admin_identity().await {
             Ok(vkey) => {
                 repo_vkey = Some(vkey.clone());
-                local_app = repo_client.get_local_route_app(group, app, &vkey).await.ok();
                 root_override = repo_client.get_local_route_group("u", &vkey).await.ok();
             }
             Err(e) => {
@@ -330,16 +339,17 @@ pub async fn resolve_route_endpoint(
     } else {
         None
     };
-    let mut expected_signer = if let Some(root) = &root_override {
+    let mut route_authority_key = if let Some(root) = &root_override {
         Some(root.route_authority_key.clone())
     } else if public_name {
         Some(root_config.pubkey.clone())
     } else {
         None
     };
+    let mut upstream_verification_key = None;
+    let mut home_app = root_override.as_ref().and_then(|root| root.home_app.clone());
     let mut parent_group = "u".to_string();
-    let mut final_group_record: Option<hppr_client::GroupRouteRecord> = None;
-    let mut used_local = local_app.is_some() || root_override.is_some();
+    let mut used_local = root_override.is_some();
 
     for exact_group in exact_groups(group)? {
         if let Some(repo_vkey) = repo_vkey.as_deref()
@@ -347,18 +357,10 @@ pub async fn resolve_route_endpoint(
         {
             used_local = true;
             current_target = Some(local_group.upstream.clone());
-            expected_signer = Some(local_group.route_authority_key.clone());
-            parent_group = exact_group.clone();
-            final_group_record = Some(hppr_client::GroupRouteRecord {
-                parent_group: String::new(),
-                child_label: String::new(),
-                resolved_group: exact_group,
-                upstream: local_group.upstream,
-                route_authority_key: local_group.route_authority_key,
-                upstream_verification_key: local_group.upstream_verification_key,
-                home_app: local_group.home_app,
-                signer: String::new(),
-            });
+            route_authority_key = Some(local_group.route_authority_key.clone());
+            upstream_verification_key = local_group.upstream_verification_key.clone();
+            home_app = local_group.home_app.clone();
+            parent_group = exact_group;
             continue;
         }
 
@@ -366,7 +368,7 @@ pub async fn resolve_route_endpoint(
             break;
         }
         let Some(target) = current_target.as_ref() else { break; };
-        let Some(expected) = expected_signer.as_ref() else { break; };
+        let Some(expected) = route_authority_key.as_ref() else { break; };
         let child_label = if parent_group == "u" && !exact_group.contains('.') {
             exact_group.clone()
         } else {
@@ -384,30 +386,77 @@ pub async fn resolve_route_endpoint(
         let record = hppr_client::network::parse_group_record(&packet, expected, &parent_group, &child_label)
             .map_err(|e| e.to_string())?;
         current_target = Some(record.upstream.clone());
-        expected_signer = Some(record.route_authority_key.clone());
-        parent_group = record.resolved_group.clone();
-        final_group_record = Some(record);
+        route_authority_key = Some(record.route_authority_key.clone());
+        upstream_verification_key = record.upstream_verification_key.clone();
+        home_app = record.home_app.clone();
+        parent_group = record.resolved_group;
+    }
+
+    if let (Some(endpoint), Some(route_authority_key)) = (current_target, route_authority_key) {
+        return Ok(ExactGroupRoute {
+            endpoint,
+            route_authority_key: Some(route_authority_key),
+            upstream_verification_key,
+            home_app,
+            source: if used_local {
+                RouteEndpointSource::LocalRoute
+            } else {
+                RouteEndpointSource::PublicNetwork
+            },
+        });
+    }
+
+    Ok(ExactGroupRoute {
+        endpoint: repo_target,
+        route_authority_key: None,
+        upstream_verification_key: None,
+        home_app: None,
+        source: RouteEndpointSource::HomeFallback,
+    })
+}
+
+pub async fn resolve_group_home_app(
+    group: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) -> Result<Option<String>, String> {
+    let exact = resolve_exact_group_route(group, "home", repo_client, credential_store).await?;
+    Ok(exact.home_app)
+}
+
+/// Resolve route endpoint for a group/app via local and public route records.
+///
+/// Returns `(endpoint, upstream_verification_key, content_authority_pin, source)`.
+pub async fn resolve_route_endpoint(
+    group: &str,
+    app: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+) -> Result<(ViaSpec, Option<String>, Option<String>, RouteEndpointSource), String> {
+    let repo_target = repo_client.target();
+    let exact = resolve_exact_group_route(group, app, repo_client, credential_store).await?;
+    let public_name = hppr_client::is_public_name(group, app);
+    let mut local_app = None;
+
+    if credential_store.get_admin().is_some() {
+        match repo_client.get_admin_identity().await {
+            Ok(vkey) => {
+                local_app = repo_client.get_local_route_app(group, app, &vkey).await.ok();
+            }
+            Err(e) => {
+                log::debug!("Failed to get admin identity for local route lookup: {}", e);
+            }
+        }
     }
 
     let public_app = if public_name {
-        if group == "u" {
-            let target = current_target.clone().unwrap_or_else(|| root_config.server.clone());
-            let expected = expected_signer.clone().unwrap_or_else(|| root_config.pubkey.clone());
-            let urc = format!("//u/route/app/{}", app);
-            match fetch_public_packet_via(&target, &urc).await {
-                Ok(packet) => Some(
-                    hppr_client::network::parse_app_record(&packet, &[expected], "u", app)
-                        .map_err(|e| e.to_string())?,
-                ),
-                Err(_) => None,
-            }
-        } else if let (Some(target), Some(group_record)) = (current_target.as_ref(), final_group_record.as_ref()) {
+        if let Some(route_authority_key) = exact.route_authority_key.as_ref() {
             let urc = format!("//{}/route/app/{}", group, app);
-            match fetch_public_packet_via(target, &urc).await {
+            match fetch_public_packet_via(&exact.endpoint, &urc).await {
                 Ok(packet) => Some(
                     hppr_client::network::parse_app_record(
                         &packet,
-                        std::slice::from_ref(&group_record.route_authority_key),
+                        std::slice::from_ref(route_authority_key),
                         group,
                         app,
                     )
@@ -444,28 +493,29 @@ pub async fn resolve_route_endpoint(
         .as_ref()
         .and_then(|r| r.upstream.clone())
         .or_else(|| public_app.as_ref().and_then(|r| r.upstream.clone()))
-        .or_else(|| final_group_record.as_ref().map(|r| r.upstream.clone()));
+        .or_else(|| {
+            if group == "u" || matches!(exact.source, RouteEndpointSource::HomeFallback) {
+                None
+            } else {
+                Some(exact.endpoint.clone())
+            }
+        });
     let upstream_verification_key = local_app
         .as_ref()
         .and_then(|r| r.upstream_verification_key.clone())
         .or_else(|| public_app.as_ref().and_then(|r| r.upstream_verification_key.clone()))
-        .or_else(|| final_group_record.as_ref().and_then(|r| r.upstream_verification_key.clone()));
+        .or_else(|| exact.upstream_verification_key.clone());
 
     if let Some(endpoint) = endpoint {
-        let source = if used_local {
-            RouteEndpointSource::LocalRoute
-        } else {
-            RouteEndpointSource::PublicNetwork
-        };
         report_route_resolution(
             group,
             app,
-            source,
+            exact.source,
             &endpoint,
             upstream_verification_key.as_deref(),
             None,
         );
-        return Ok((endpoint, upstream_verification_key, content_authority, source));
+        return Ok((endpoint, upstream_verification_key, content_authority, exact.source));
     }
 
     if public_name {

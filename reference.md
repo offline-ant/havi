@@ -109,6 +109,9 @@ These visuals are shell UI details, not protocol semantics.
 Current HAVI shell behavior:
 
 - the address bar is single-line and strips `\r`, `\n`, and `\t`
+- a bare public group name like `eu` or `lab.eu` resolves to that group's
+  landing page as `hppr://<group>/<home-app>/index.html`; when no effective
+  `Home-App` is configured, HAVI uses `home`
 - desktop HAVI disables the stock Makepad caption bar and uses empty tab-strip
   space as the draggable caption region
 - the main toolbar shows browser-first controls only: pylon status, back,
