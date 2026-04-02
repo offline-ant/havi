@@ -18,7 +18,10 @@ Data persists across browser restarts.
 ## `window.home` and `window.route`
 
 - `window.home` targets the local home repo and is always available.
-- `window.route` targets configured route endpoints and may fail offline.
+- `window.route` targets the resolved route endpoint when one is available and
+  may fail offline.
+- an effective local route answer, including a terminal local exact-app
+  bootstrap, still counts as route-backed
 
 Use `window.home` for persistence and offline reads.
 Use `window.route` for fresh remote reads when available.
@@ -38,7 +41,7 @@ HAVI has no dedicated online/offline API.
 
 Practical checks:
 
-- `window.route === null`: no route-backed source exists or no usable route endpoint exists
+- `window.route === null`: no route-backed source exists or no usable route endpoint exists after effective resolution
 - route operation throws fatal error: route is unreachable or session failed
 - absence of local route auth falls back to `anyone`; it does not by itself make
   `window.route` null

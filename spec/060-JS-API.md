@@ -15,7 +15,9 @@ HAVI exposes HPPR APIs on `window`.
 - `window.H3`: crypto namespace (always available)
 
 `window.route` is `null` when no route exists or no usable route endpoint is
-available.
+available after effective resolution.
+An effective local route answer, including a terminal local exact-app
+bootstrap, still exposes `window.route`.
 Absence of local route auth falls back to `anyone`.
 
 For `hppr://` routed pages, route/content-pointer resolution happens before
@@ -127,6 +129,13 @@ interface HpprClient {
 };
 ```
 
+### connect() endpoint parameter
+
+`connect()` takes an HPPR via string as `endpoint`.
+Via syntax is defined by `../../hppr/spec/031-VIA-SYNTAX.md`.
+Examples include `host`, `quib+host:4776`, `ws+host`, and
+`unix+/absolute/path`.
+
 ### connect() identity parameter
 
 `connect()` accepts an optional identity string following the HPPR route/auth
@@ -190,6 +199,9 @@ Result fields:
 - `contentAuthority`: resolved content-authority signer for the document, or `null`
 - `isRepo`: whether the resolved source came from the home repo path
 
+`isRepo` is `true` for browser-home-selected sources such as `repo` and other
+non-route-backed home-repo resolution paths.
+
 For app-content URLs, `contentAuthority` comes from the app content pointer's
 `Content-Authority`.
 For direct sealed content, `contentAuthority` comes from packet `Seal-By`.
@@ -233,8 +245,11 @@ Packet fields include:
 
 `URC` models coordinate syntax.
 `Address` wraps scheme/endpoint and an inner `URC`. For `hppr://...{via:...}`,
-`endpoint` returns the raw `via` value (`host`, `host:port`, or keywords like
-`repo`).
+`endpoint` returns the raw `via` value.
+When that value names a remote endpoint, it follows HPPR via syntax from
+`../../hppr/spec/031-VIA-SYNTAX.md`.
+Browser-defined address shorthands such as `repo` are HAVI address-layer
+values, not HPPR core via syntax.
 
 `window.address` is the exact HAVI address API.
 Setting `window.address = url` or `window.address.href = url` navigates

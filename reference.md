@@ -76,8 +76,10 @@ Current HAVI behavior:
 - HAVI does not auto-install a local route packet from public-network discovery
 - routed resolution decisions are printed to stderr with the selected source,
   endpoint, and public-network details
-- failed public-network resolution for a public name is a navigation failure,
-  not a silent home-repo fallback
+- failed canonical public lookup for a public name is a navigation failure
+  unless local exact-group or terminal local exact-app records supply the
+  effective route answer
+- HAVI does not silently fall back to generic home-repo content for that case
 - `hppr-join://` is used only for routed `UNAUTHORIZED not a member` failures
 - missing Ring2 setup on the target repo is shown as a route setup error, not a
   join flow

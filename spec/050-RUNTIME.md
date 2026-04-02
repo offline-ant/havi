@@ -26,7 +26,12 @@ The storage backend and local process model are implementation-defined.
 - `window.route` targets the selected route repo when one is available.
 
 `window.route` may be `null` when no route exists, no usable route endpoint is
-available, or the current document has no route-backed source.
+available after effective resolution, or the current document has no
+route-backed source.
+When effective resolution selects the home repo as the source, that document is
+not route-backed and `window.route` is `null`.
+An effective local route answer, including a terminal local exact-app
+bootstrap, still exposes `window.route`.
 Absence of local route auth falls back to `anyone` and does not by itself make
 `window.route` null.
 

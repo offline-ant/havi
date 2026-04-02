@@ -12,6 +12,7 @@
 == cases/async-body-background-repaint.html refs/async-body-background-repaint-ref.html
 == cases/async-box-background-repaint.html refs/async-box-background-repaint-ref.html
 == cases/text-dense-retained.html refs/text-dense-retained-ref.html
+== cases/pre-single-run-scroll.html refs/pre-single-run-scroll-ref.html
 == cases/long-scroll-snapshot.html refs/long-scroll-snapshot-ref.html
 == cases/embed-inline.html refs/embed-inline-ref.html
 == cases/scroll-top-js.html refs/scroll-top-js-ref.html

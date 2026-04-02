@@ -21,6 +21,7 @@ Supported input forms:
 - `hppr://group/app/path`
 
 `via` selects an explicit upstream endpoint when present.
+Endpoint syntax follows HPPR via syntax.
 Without `via`, HAVI applies the HPPR route scheme effective resolver from
 `../../hppr/spec/100-SCHEMES.md`.
 
@@ -32,8 +33,12 @@ scheme, not by HAVI-specific packet rules.
 For non-`u` groups, `Content-Authority` may fall back from the group app record
 to `//u/route/app/<app>`.
 That fallback applies only to `Content-Authority`, never to `Upstream`.
-If public-network resolution fails for a public name, navigation fails.
-HAVI does not silently fall back to the home repo for that case.
+If canonical public lookup fails for a public name and no local exact-group or
+terminal local exact-app record supplies the effective route answer,
+navigation fails.
+HAVI does not silently fall back to a generic home-repo fetch for that case.
+For non-public or otherwise home-resolved sources, the browser may still select
+the home repo as the effective source. That case is not route-backed.
 
 ## JavaScript globals
 

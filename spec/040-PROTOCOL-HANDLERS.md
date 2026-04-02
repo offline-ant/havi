@@ -14,10 +14,9 @@ General form:
 
 When `via` is present, the browser connects directly to that endpoint.
 
-| `via` value      | Transport | Default port |
-|------------------|-----------|--------------|
-| `host`           | TCP       | 4777         |
-| `host:port`      | TCP       | none         |
+`via` uses HPPR core via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+Common forms include `host`, `host:port`, `tcp+host`, `quib+host:4776`,
+`ws+host`, and `unix+/absolute/path`.
 
 Packet signatures provide integrity and authorship regardless of transport.
 
@@ -60,12 +59,22 @@ Public-network rules:
 - for non-`u` groups, `Content-Authority` falls back to `//u/route/app/<app>`
   when the group app record omits it; only `Content-Authority` is inherited
   from public app defaults, never `Upstream`
-- missing `//<group>/route/app/<app>` is a discovery failure
+- missing `//<group>/route/app/<app>` is a canonical public discovery failure
+- effective resolution MAY still succeed when a terminal local exact-app record
+  provides the exact route answer for `//<group>/<app>`
 - when public-network resolution produces an effective `Content-Authority`, the
   browser MUST require exact equality with the deploy pointer
   `Content-Authority`
-- if public-network resolution fails for a public name, the browser MUST fail
-  navigation instead of silently falling back to the home repo
+- if canonical public lookup fails for a public name and no local exact-group
+  or terminal local exact-app record provides the effective route answer, the
+  browser MUST fail navigation instead of silently falling back to the home
+  repo
+- an effective local route answer, including a terminal local exact-app
+  bootstrap, is still a route-backed result; it does not convert navigation
+  into a generic home-repo document fetch
+- when effective resolution selects the home repo instead of a routed endpoint
+  (for example by browser-local policy such as `repo` or a non-public home
+  fallback), the source is not route-backed
 
 Fetch behavior:
 
