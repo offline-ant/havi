@@ -223,6 +223,9 @@ xml5ever = { workspace = true }
 xi-unicode = { workspace = true }
 xpath = { workspace = true }
 utf-8 = { workspace = true }
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2 = { workspace = true }
+
 [target.'cfg(not(any(target_os = "android", target_env = "ohos")))'.dependencies]
 arboard = { workspace = true, optional = true }
 [target.'cfg(all(not(target_os = "windows"), not(target_os = "ios"), not(target_os = "android"), not(target_env = "ohos"), not(target_arch = "arm"), not(target_arch = "aarch64")))'.dependencies]
