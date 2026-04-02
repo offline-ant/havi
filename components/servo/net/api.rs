@@ -1169,7 +1169,7 @@ pub struct Metadata {
     pub hppr_content_authority: Option<String>,
     /// HPPR: site ring1 credentials (ring1_name, signing_key) for the home repo (window.home).
     pub site_credentials: Option<(String, String)>,
-    /// HPPR: pre-built signer for ring2 auth (window.route).
+    /// HPPR: pre-built signer for routed access (window.route).
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     pub hppr_signer: Option<HpprSigner>,
     /// HPPR: admin credentials (ring1_name, signing_key) for window.ring0.

@@ -94,8 +94,8 @@ def _admin_signer():
     finally:
         conn.close()
     if row:
-        return f"ring1:{row[0]}#{row[1]}"
-    return "ring1:ring0#init"
+        return f"ring1:{row[0]}|{row[1]}"
+    return "ring1:ring0|init"
 
 
 def _debug_port():

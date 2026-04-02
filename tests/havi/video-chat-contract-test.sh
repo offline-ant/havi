@@ -12,7 +12,7 @@ start_server
 setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 
-HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/video-chat.html" < "$FORGE_ROOT/video-chat.html"
+HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/video-chat.html" < "$FORGE_ROOT/video-chat.html"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat.html"
 

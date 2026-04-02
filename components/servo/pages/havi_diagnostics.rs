@@ -177,13 +177,15 @@ async fn inspect_route_content_pointer_auth_join(
 
     if let (Some(_), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
         match client
-            .get_route_auth(group, &repo_vkey)
+            .get_route_auth(group, Some(app), &repo_vkey)
             .await
         {
             Ok(route_key) => {
                 route_key_present = true;
-                route_signing_key = Some(route_key.signing_key.clone());
-                requester_vkey = signing_to_verifying_key(&route_key.signing_key).ok();
+                if let Ok(hppr_client::Signer::Ring2 { signing_key, .. }) = hppr_client::Signer::parse(&route_key.auth) {
+                    requester_vkey = signing_to_verifying_key(&signing_key).ok();
+                    route_signing_key = Some(signing_key);
+                }
             },
             Err(e) => {
                 route_key_error = Some(e);

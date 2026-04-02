@@ -78,8 +78,8 @@ impl HpprClient {
 impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
     /// HpprClient.repo(options) - create client with site or elevated credentials.
     ///
-    /// Without role: uses site sandbox `HAVI-site:<group>#<app>`
-    /// With role: uses elevated `HAVI-role:<app>#<role>`, signed by site key
+    /// Without role: uses site sandbox `site:<group>#<app>`.
+    /// With role: uses elevated `HAVI-role:<app>#<role>`, signed by the site's key.
     fn Home(window: &Window, options: &HpprRepoOptions) -> Fallible<Rc<Promise>> {
         let global = window.upcast::<GlobalScope>();
         let can_gc = CanGc::note();
@@ -91,9 +91,9 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
             // Determine the ring1_name to use
             let ring1_name = match &options.role {
                 Some(role_name) => {
-                    // Extract app from site_ring1_name (HAVI-site:<group>#<app>)
+                    // Extract app from site_ring1_name (site:<group>#<app>)
                     let app = site_ring1_name
-                        .strip_prefix("HAVI-site:")
+                        .strip_prefix("site:")
                         .and_then(|s| s.split('#').nth(1))
                         .unwrap_or("");
                     // Use role's ring1_name but site's signing key

@@ -639,7 +639,7 @@ pub(crate) struct Document {
     hppr_admin_credentials: DomRefCell<Option<(String, String)>>,
     /// HPPR: endpoint extracted from the document URL
     hppr_endpoint: DomRefCell<Option<String>>,
-    /// HPPR: pre-built signer for ring2 auth (window.route).
+    /// HPPR: pre-built signer for routed access (window.route).
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     #[no_trace]
     hppr_signer: DomRefCell<Option<hppr_client::Signer>>,

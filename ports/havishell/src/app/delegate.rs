@@ -259,19 +259,19 @@ fn home_repo_target() -> hppr_client::ViaSpec {
 
 fn signer_identity_string(signer: &Signer) -> Option<String> {
     match signer {
-        Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}#{}", group, signing_key)),
+        Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}|{}", group, signing_key)),
         Signer::Ring1 {
             ring1_name,
             signing_key,
-        } => Some(format!("ring1:{}#{}", ring1_name, signing_key)),
+        } => Some(format!("ring1:{}|{}", ring1_name, signing_key)),
         Signer::Ring1Adhoc { token, ring1_name } => {
-            Some(format!("ring1:{}#{}", ring1_name, token))
+            Some(format!("ring1:{}|{}", ring1_name, token))
         },
         Signer::Ring2Adhoc {
             credential_input, ..
         } => Some(format!("ring2:{}", credential_input)),
         Signer::Ring2Contextual { username, password } => {
-            Some(format!("ring2:/{}#{}", username, password))
+            Some(format!("ring2:/{}|{}", username, password))
         },
         Signer::Anyone { .. } => None,
     }

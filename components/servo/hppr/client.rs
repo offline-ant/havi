@@ -6,7 +6,8 @@
 //!
 //! Contains:
 //! - `site_ring1_name`: Generate ring1 account names from group/app
-//! - route/local-route record helpers
+//! - local route record helpers
+//! - local route auth helpers
 //! - `HpprdClientAsync`: Async client for hpprd daemon operations
 
 use hppr_client::Packet;
@@ -55,11 +56,10 @@ pub struct LocalRouteGroupInfo {
     pub home_app: Option<String>,
 }
 
-/// Local route auth information for per-group Ring2 authentication.
+/// Local route auth record loaded from `//repo/route/auth/...`.
 #[derive(Debug, Clone)]
 pub struct RouteAuthInfo {
-    pub signing_key: String,
-    pub verification_key: Option<String>,
+    pub auth: String,
 }
 
 /// App content pointer information for routed app content.
@@ -425,21 +425,28 @@ impl HpprdClientAsync {
     pub async fn get_route_auth(
         &self,
         group: &str,
+        app: Option<&str>,
         repo_vkey: &str,
     ) -> Result<RouteAuthInfo, String> {
-        let urc = format!("//repo/route/auth/{}/|/seal/{}", group, repo_vkey);
-        let packet = self.get_packet(&urc).await?;
+        let mut urcs = Vec::with_capacity(2);
+        if let Some(app) = app {
+            urcs.push(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey));
+        }
+        urcs.push(format!("//repo/route/auth/{}/|/seal/{}", group, repo_vkey));
 
-        let signing_key = packet
-            .header("Secret-Key")
-            .ok_or("Route auth packet missing Secret-Key header")?
-            .to_string();
-        let verification_key = packet.header("Verification-Key").map(|s| s.to_string());
+        for urc in urcs {
+            let packet = match self.get_packet(&urc).await {
+                Ok(packet) => packet,
+                Err(_) => continue,
+            };
+            let auth = packet
+                .header("Auth")
+                .ok_or("Route auth packet missing Auth header")?
+                .to_string();
+            return Ok(RouteAuthInfo { auth });
+        }
 
-        Ok(RouteAuthInfo {
-            signing_key,
-            verification_key,
-        })
+        Err("Route auth packet not found".to_string())
     }
 
     pub async fn ensure_route_auth(
@@ -447,29 +454,38 @@ impl HpprdClientAsync {
         group: &str,
         repo_vkey: &str,
     ) -> Result<RouteAuthInfo, String> {
-        if let Ok(existing) = self.get_route_auth(group, repo_vkey).await {
-            return Ok(existing);
+        if let Ok(existing) = self.get_route_auth(group, None, repo_vkey).await {
+            let signer = Signer::parse(&existing.auth).map_err(|e| e.to_string())?;
+            match signer {
+                Signer::Ring2 { group: existing_group, .. } if existing_group == group => {
+                    return Ok(existing);
+                }
+                _ => {
+                    return Err(format!(
+                        "existing route auth for '{}' is not a group-bound Ring2 signer",
+                        group
+                    ));
+                }
+            }
         }
 
-        let (signing_key, verification_key) = generate_keypair();
+        let (signing_key, _verification_key) = generate_keypair();
         let add_args = format!(
             "Seal-By: oldest\n\
              Group: repo\n\
              App: route\n\
              Location: auth/{}\n\
-             Auth-Scheme: ring2\n\
-             Secret-Key: {}\n\
-             Verification-Key: {}\n",
-            group, signing_key, verification_key
+             Auth: ring2:{}|{}\n",
+            group, group, signing_key
         );
         self.add(add_args.as_bytes()).await?;
 
-        self.get_route_auth(group, repo_vkey).await
+        self.get_route_auth(group, None, repo_vkey).await
     }
 
     /// Get admin identity (verification key) from host.
     ///
-    /// Used for route lookups (coordinate scheme requires admin key).
+    /// Used for local route lookups and app-content pointer resolution.
     pub async fn get_admin_identity(&self) -> Result<String, String> {
         let urc = "//repo/admin/identity/|";
         let packet = self.get_packet(urc).await?;

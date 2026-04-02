@@ -25,8 +25,10 @@ The storage backend and local process model are implementation-defined.
 - `window.home` targets the home repo and is always available.
 - `window.route` targets the selected route repo when one is available.
 
-`window.route` may be `null` when no route exists, no usable route identity is
+`window.route` may be `null` when no route exists, no usable route endpoint is
 available, or the current document has no route-backed source.
+Absence of local route auth falls back to `anyone` and does not by itself make
+`window.route` null.
 
 ## Per-origin site identity
 

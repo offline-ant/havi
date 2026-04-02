@@ -9,8 +9,8 @@ interface EnvelopeHpprClient {
 
     // Remote client with optional identity string
     // Omitted or empty: anyone (no authentication)
-    // Identity formats: ring1:<name>#<password>, ring1:<name>#&.key.H3,
-    // ring2:<group>#&.key.H3, ring2:<group>/<user>#<password>
+    // Identity formats: ring1:<name>|<password>, ring1:<name>|&.key.H3,
+    // ring2:<group>|&.key.H3, ring2:<group>/<user>|<password>
     [NewObject, Throws] static Promise<EnvelopeHpprClient> connect(DOMString endpoint, optional DOMString identity);
 
     // Unpack the envelope: returns an HpprClient that yields values directly

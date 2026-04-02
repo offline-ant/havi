@@ -20,7 +20,7 @@ create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
 # Store the signing key as a packet so the JS test page can fetch it
-echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/stream-publisher-test.html"
 run_js_tests 30

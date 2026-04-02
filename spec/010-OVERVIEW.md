@@ -7,7 +7,7 @@ HAVI is a web browser for HPPR content.
 HAVI can:
 
 - Open repos with `hppr://group/app/path{via:endpoint}`.
-- Open `hppr://group/app/path` using route config from the home repo.
+- Open `hppr://group/app/path` using the HPPR route scheme effective resolver.
 - Store local route and trust state in the home repo.
 - Apply CSS transforms structurally to rendered subtrees so descendant text,
   images, stacking contexts, scroll clips, and iframe content render in the
@@ -21,19 +21,13 @@ Supported input forms:
 - `hppr://group/app/path`
 
 `via` selects an explicit upstream endpoint when present.
-Without `via`, HAVI resolves route config from the home repo.
+Without `via`, HAVI applies the HPPR route scheme effective resolver from
+`../../hppr/spec/100-SCHEMES.md`.
 
-For `hppr://group/app/path`, HAVI resolves route config from the home repo.
-If no local route record exists and `group` does not start with `~`, HAVI resolves the
-public route:
-
-- group `u`: `//u/route/app/<app>`
-- other public groups:
-  1. split the group on `.`
-  2. fetch `//u/route/group/<rightmost-label>`
-  3. walk leftward one label at a time via
-     `//<resolved-parent-group>/route/group/<next-child-label>`
-  4. fetch `//<resolved-group>/route/app/<app>`
+That resolver combines local exact-app records, local exact-group anchors,
+canonical public route discovery, and local route auth attachment.
+Route packet structure and resolver semantics are defined by the HPPR route
+scheme, not by HAVI-specific packet rules.
 
 For non-`u` groups, `Content-Authority` may fall back from the group app record
 to `//u/route/app/<app>`.

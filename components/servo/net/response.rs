@@ -145,7 +145,7 @@ pub struct Response {
     pub hppr_packet: Option<hppr_packet::Packet>,
     /// HPPR: endpoint address used to fetch this content.
     pub hppr_endpoint: Option<String>,
-    /// HPPR: pre-built signer for ring2 auth (window.route).
+    /// HPPR: pre-built signer for routed access (window.route).
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     pub hppr_signer: Option<crate::HpprSigner>,
     /// HPPR: resolved content authority for the loaded content.

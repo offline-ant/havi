@@ -6,9 +6,12 @@ This guide covers practical read/write patterns for HAVI apps using
 ## Mental model
 
 - `window.home`: local home repo. Always available.
-- `window.route`: remote route repo client. May be `null` or unavailable.
+- `window.route`: remote routed repo client. May be `null` when no routed
+  endpoint exists for the current source.
 
 Use home for durability and offline safety. Use route for freshness.
+Route packet structure and local route auth storage are defined by the general
+HPPR route scheme, not by HAVI-specific packet rules.
 
 ## Pattern 1: Local-first with remote fallback
 
@@ -81,7 +84,7 @@ This keeps UX responsive during route outages.
 
 Two practical checks:
 
-- `window.route === null`: no local route answer or no matching route auth key.
+- `window.route === null`: no local route answer or no usable route endpoint.
 - HPPR error with `fatal === true`: route/session failed; reconnect needed.
 
 Treat route failure as normal state, not exceptional app crash state.
@@ -127,7 +130,8 @@ Use:
 - Reuse configured route: `hppr --via route get //group/app/path`
 - Explicit endpoint: `hppr --via tcp+host:port get //group/app/path`
 
-`route join` stores local route app metadata and a per-group route auth record in the home repo.
+`route join` stores local route app metadata and a group-default local route auth record in the home repo.
+Exact-app local route auth can override that default under `//repo/route/auth/<group>/<app>/|`.
 
 ## Write path recommendation
 

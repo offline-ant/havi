@@ -4,8 +4,11 @@
 
 //! HPPR join page handler.
 //!
-//! Handles hppr-join:// URLs for Ring2 membership requests.
+//! Handles hppr-join:// URLs for HAVI's group membership flow.
 //! URL format: hppr-join://group/app/
+//!
+//! This page is HAVI UI. The underlying route/auth storage and signer grammar are
+//! general HPPR route-scheme behavior.
 
 use std::sync::Arc;
 
@@ -39,7 +42,7 @@ pub async fn handle_request(
         Ok(c) => c,
         Err(e) => {
             return render_error(&format!(
-                "Failed to prepare route credential for '{}': {}",
+                "Failed to prepare local route auth for '{}': {}",
                 group, e
             ));
         },
@@ -60,7 +63,7 @@ pub async fn handle_request(
     let mut response =
         PageResponse::html(render_join_page(&group, &app, &route_vkey, &route_sk, &fixture_state));
     response.hppr_endpoint = Some(endpoint.to_string());
-    response.hppr_signer = Some(format!("ring2:{}#{}", group, route_sk));
+    response.hppr_signer = Some(format!("ring2:{}|{}", group, route_sk));
     response
 }
 
@@ -142,7 +145,7 @@ fn render_join_page(
 
     <div class="card">
         <div class="row">
-            <span class="label">Your route verification key</span>
+            <span class="label">Your local route auth verification key</span>
             <div class="mono" id="route-vkey">{route_vkey}</div>
         </div>
         <div class="row">
@@ -310,9 +313,9 @@ fn render_join_page(
         copyBtn.addEventListener('click', async function() {{
             try {{
                 await navigator.clipboard.writeText(ROUTE_VKEY);
-                setStatus(joinStatus, 'Route auth key copied.', 'ok');
+                setStatus(joinStatus, 'Local route auth verification key copied.', 'ok');
             }} catch (_e) {{
-                setStatus(joinStatus, 'Failed to copy route auth key.', 'error');
+                setStatus(joinStatus, 'Failed to save local route auth.', 'error');
             }}
         }});
 

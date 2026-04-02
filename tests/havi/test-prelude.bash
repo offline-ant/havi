@@ -227,13 +227,13 @@ create_remote_key() {
 # Uses ring1 anyone ACL rules for unauthenticated access
 setup_acl() {
     local group="$1" app="$2" perms="${3:-rwl}"
-    HPPR_SIGNER='ring1:ring0#init' $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
+    HPPR_SIGNER='ring1:ring0|init' $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
 }
 
 # Set up ACL on remote repo
 setup_remote_acl() {
     local group="$1" app="$2" perms="${3:-r.l}"
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
 }
 
@@ -352,7 +352,7 @@ copy_into_mount() {
 # Import content directory as sealed packets via filesystem mount + cp.
 import_content() {
     local content_dir="$1" group="$2" app="$3"
-    fs_mount "$HPPR_HOME" "ring1:ring0#init" "//$group/$app" --seal-with oldest
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with oldest
     copy_into_mount "$content_dir"
     fs_unmount
 }
@@ -361,7 +361,7 @@ import_content() {
 import_content_paths() {
     local content_dir="$1" group="$2" app="$3"
     shift 3
-    fs_mount "$HPPR_HOME" "ring1:ring0#init" "//$group/$app" --seal-with oldest
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with oldest
     copy_into_mount "$content_dir" "$@"
     fs_unmount
 }
@@ -369,7 +369,7 @@ import_content_paths() {
 # Import content to remote repo via filesystem mount + cp.
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
-    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0#init" "//$group/$app" --seal-with oldest
+    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0|init" "//$group/$app" --seal-with oldest
     copy_into_mount "$content_dir"
     fs_unmount
 }
@@ -379,7 +379,7 @@ import_remote_content() {
 # (Seal-By: oldest). This matches what get_admin_identity() returns.
 setup_route() {
     local group="$1" app="$2"
-    HPPR_SIGNER='ring1:ring0#init' $HPPR add "//repo/route/app/$group/$app" \
+    HPPR_SIGNER='ring1:ring0|init' $HPPR add "//repo/route/app/$group/$app" \
         -H "Seal-By: oldest" \
         -H "Upstream: tcp+127.0.0.1:$REMOTE_PORT" \
         -H "Upstream-Verification-Key: $REMOTE_SIGNING_KEY" <<< ""
@@ -389,7 +389,7 @@ setup_route() {
 # Resolver reads //<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>.
 setup_remote_deploy() {
     local group="$1" app="$2"
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR add "//$group/admin/deploy/$app" \
         -H "Seal-By: oldest" \
         -H "Content-Root: //$group/$app" \
@@ -398,7 +398,7 @@ setup_remote_deploy() {
 
 # Set up ring2 on remote repo and pre-create site ring1 account locally.
 #
-# Creates a site keypair and a route auth keypair, configures ring2 on the remote
+# Creates a site keypair and a local route auth keypair, configures ring2 on the remote
 # with both keys as members, and creates the matching ring1 account and
 # route auth packet on the home repo so HAVI finds it at page load.
 setup_remote_ring2() {
@@ -412,7 +412,7 @@ setup_remote_ring2() {
     site_sk=$($HPPR key show "$keyname")
     site_vk=$($HPPR key pubkey "$keyname")
 
-    # Generate route auth keypair (for window.route ring2 identity)
+    # Generate local route auth keypair (for routed Ring2 identity)
     local route_keyname="route-$$"
     $HPPR key generate "$route_keyname" >/dev/null
     local route_sk route_vk
@@ -420,20 +420,20 @@ setup_remote_ring2() {
     route_vk=$($HPPR key pubkey "$route_keyname")
 
     # Ring2 setup on remote
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" --init
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" acl add r.l "//$group/$app/"
-    # Register both site key and route auth key as ring2 members
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    # Register both site key and local route auth key as ring2 members
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 members "//$group" add "$site_vk"
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0#init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 members "//$group" add "$route_vk"
 
     # Create site ring1 account on home repo with that key.
     # Setup must be sealed by ring0's oldest key (Seal-By: oldest).
     # Keys packet is self-signed by the site key.
-    HPPR_SIGNER='ring1:ring0#init' $HPPR add \
+    HPPR_SIGNER='ring1:ring0|init' $HPPR add \
         "//repo/admin/ring1/${ring1_name}/setup" \
         -H "Seal-By: oldest" \
         -H "Member: $site_vk" \
@@ -444,17 +444,15 @@ setup_remote_ring2() {
         -H "ACL-Rule: r.l //repo/route/app/" \
         -H "ACL-Rule: r.l //repo/route/group/" \
         -H "ACL-Rule: r.. //repo/route/auth/" <<< ""
-    HPPR_SIGNER='ring1:ring0#init' $HPPR add -k "$site_sk" \
+    HPPR_SIGNER='ring1:ring0|init' $HPPR add -k "$site_sk" \
         "//repo/admin/ring1/${ring1_name}/keys" \
         -H "Secret-Key: $site_sk" <<< ""
 
-    # Store route auth on home repo so ensure_route_auth finds it.
-    HPPR_SIGNER='ring1:ring0#init' $HPPR add \
+    # Store local route auth on home repo so routed access finds it.
+    HPPR_SIGNER='ring1:ring0|init' $HPPR add \
         "//repo/route/auth/$group" \
         -H "Seal-By: oldest" \
-        -H "Auth-Scheme: ring2" \
-        -H "Secret-Key: $route_sk" \
-        -H "Verification-Key: $route_vk" <<< ""
+        -H "Auth: ring2:$group|$route_sk" <<< ""
 }
 
 # ============================================================================

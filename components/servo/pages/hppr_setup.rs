@@ -24,7 +24,7 @@ use crate::hppr::util::html_escape;
 /// Handle an hppr-setup:// URL request.
 pub async fn handle_request(
     url: &str,
-    client: &Arc<HpprdClientAsync>,
+    _client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> PageResponse {
     let address = match HAVIAddress::parse(url) {
@@ -50,10 +50,7 @@ pub async fn handle_request(
         return render_error("Invalid hppr-setup URL: missing group");
     }
 
-    // Ensure per-group route auth exists for setup actions.
-    let _ = credential_store
-        .get_or_create_route_credential_async(&parts.group, client)
-        .await;
+    let _ = credential_store;
 
     let (ring1_name, token) = get_admin_credentials();
     let html = render_setup_page(&endpoint, &parts.group, &parts.app, &location);

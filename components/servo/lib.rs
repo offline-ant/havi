@@ -167,9 +167,9 @@ pub struct PageResponse {
     pub hppr_packet: Option<hppr_client::hppr_packet::Packet>,
     /// Site Ring1 credentials (ring1_name, signing_key) for window.home.
     pub site_credentials: Option<(String, String)>,
-    /// Route endpoint string for window.route.
+    /// Routed endpoint string for window.route.
     pub hppr_endpoint: Option<String>,
-    /// Route signer string for window.route (Ring2 identity).
+    /// Route signer string for window.route (effective local route auth or anyone).
     pub hppr_signer: Option<String>,
     /// Resolved content authority for the loaded HPPR content.
     pub hppr_content_authority: Option<String>,

@@ -68,7 +68,10 @@ impl SiteCredential {
     }
 }
 
-/// Route credential with per-group keypair for Ring2 remote authentication.
+/// Generated group-default local route auth signer for HAVI join/setup flows.
+///
+/// HAVI currently generates Ring2 group signers here for join/login convenience.
+/// General route auth semantics are defined by the HPPR route scheme.
 #[derive(Debug, Clone)]
 pub struct RouteCredential {
     signing_key: String,
@@ -123,7 +126,7 @@ pub struct CredentialStore {
     admin: RwLock<Option<Credential>>,
     /// Cached site credentials with keypairs by (group, app).
     site_credentials: RwLock<HashMap<(String, String), SiteCredential>>,
-    /// Cached route credentials with keypairs by group.
+    /// Cached generated group-default local route auth signers by group.
     route_credentials: RwLock<HashMap<String, RouteCredential>>,
     /// Cached persistent shadow credentials with keypairs by (group, app).
     shadow_credentials: RwLock<HashMap<(String, String), ShadowCredential>>,
@@ -242,7 +245,7 @@ impl CredentialStore {
         Ok(cred)
     }
 
-    /// Get or create a route credential for a group (async version).
+    /// Get or create a generated group-default local route auth signer.
     pub async fn get_or_create_route_credential_async(
         &self,
         group: &str,
@@ -262,8 +265,20 @@ impl CredentialStore {
         let route_auth = client
             .ensure_route_auth(group, &repo_vkey)
             .await?;
+        let signer = hppr_client::Signer::parse(&route_auth.auth).map_err(|e| e.to_string())?;
+        let signing_key = match signer {
+            hppr_client::Signer::Ring2 { group: auth_group, signing_key } if auth_group == group => {
+                signing_key
+            }
+            _ => {
+                return Err(format!(
+                    "existing route auth for '{}' is not a group-bound Ring2 signer",
+                    group
+                ));
+            }
+        };
 
-        let cred = RouteCredential::new(route_auth.signing_key);
+        let cred = RouteCredential::new(signing_key);
         if let Ok(mut cache) = self.route_credentials.write() {
             cache.insert(group.to_string(), cred.clone());
         }

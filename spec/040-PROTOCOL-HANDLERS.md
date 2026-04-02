@@ -37,23 +37,19 @@ Primary browsing scheme.
 
 ### Routed resolution
 
-For routed non-repo pages (`hppr://<group>/<app>/...`), the browser resolves in
-this order:
+For routed non-repo pages (`hppr://<group>/<app>/...`), the browser applies the
+HPPR route scheme effective resolver from `../../hppr/spec/100-SCHEMES.md`.
 
-1. local route records in the home repo
-   (`//repo/route/app/<group>/<app>/|/...`, `//repo/route/group/<group>/|/...`)
-2. if no local route answer exists and `group` does not start with `~`, resolve the
-   public route:
-   - group `u`: `//u/route/app/<app>`
-   - other public groups:
-     1. split the group on `.`
-     2. fetch `//u/route/group/<rightmost-label>`
-     3. walk leftward one label at a time via
-        `//<resolved-parent-group>/route/group/<next-child-label>`
-     4. fetch `//<resolved-group>/route/app/<app>`
-3. remote app content pointer
-   (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
-4. target from `Content-Root` + requested location
+That resolver combines:
+
+1. local exact-app route records in the home repo
+2. local exact-group route anchors in the home repo
+3. canonical public route discovery for public names
+4. local route auth attachment with exact-app override and group fallback
+5. remote app content pointer resolution
+
+The packet structure and merge rules for route records are defined by the HPPR
+route scheme. This spec only states browser behavior on top of that scheme.
 
 Public-network rules:
 
@@ -83,6 +79,10 @@ Origin remains `//<group>/<app>/`.
 
 How a browser persists routes, asks for user approval, or offers join/setup
 flows is implementation-defined.
+
+Auth selection is local policy.
+Public route records do not carry auth metadata.
+When no local route auth record exists, routed access defaults to `anyone`.
 
 ### Content fetch
 

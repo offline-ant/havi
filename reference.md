@@ -205,7 +205,11 @@ HAVI creates per-origin site Ring1 identities using:
 
 `site:<group>#<app>`
 
-It also maintains per-group route auth records for authenticated remote operations.
+HAVI also reads and writes local route auth records under `//repo/route/auth/`
+as part of HPPR route-scheme behavior.
+Exact-app auth overrides group-default auth.
+When no local route auth record exists, routed access falls back to `anyone`.
+Join/setup pages are HAVI UI on top of that general HPPR mechanism.
 
 ## Notes on scope
 

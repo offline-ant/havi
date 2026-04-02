@@ -14,8 +14,9 @@ HAVI exposes HPPR APIs on `window`.
 - `window.ring0`: admin client (privileged implementations only)
 - `window.H3`: crypto namespace (always available)
 
-`window.route` is `null` when no route exists or no matching route auth key is
+`window.route` is `null` when no route exists or no usable route endpoint is
 available.
+Absence of local route auth falls back to `anyone`.
 
 For `hppr://` routed pages, route/content-pointer resolution happens before
 page JS runs. If content-pointer metadata is missing or invalid, navigation
@@ -128,22 +129,26 @@ interface HpprClient {
 
 ### connect() identity parameter
 
-`connect()` accepts an optional identity string following `Signer::parse()`
-format:
+`connect()` accepts an optional identity string following the HPPR route/auth
+identity text format:
 
 - omitted, `""`, or `"anyone"`: anyone
-- `ring1:<name>#<password>`: Ring1 password-derived key
-- `ring1:<name>#&.<b64a>.H3`: Ring1 explicit key
-- `ring2:<group>#&.<b64a>.H3`: Ring2 explicit key
-- `ring2:<group>/<user>#<password>`: Ring2 adhoc key
+- `ring1:<name>|<password>`: Ring1 password-derived key
+- `ring1:<name>|&.<b64a>.H3`: Ring1 explicit key
+- `ring2:<group>|&.<b64a>.H3`: Ring2 explicit key
+- `ring2:<group>/<user>|<password>`: Ring2 adhoc key
+- `ring2:/<user>|<password>`: Ring2 contextual adhoc key
 
 Invalid identity strings reject the returned promise with a TypeError.
+The identity grammar itself is defined by the HPPR route scheme.
 
 ### connectRing2Password()
 
 `connectRing2Password(endpoint, group, username, password)` creates a remote
 client with a Ring2 adhoc signer without requiring the caller to assemble a
 signer string manually.
+This is a convenience for local auth selection. Routed pages without stored
+local route auth still default to `anyone`.
 
 `username` follows one `Location` segment's constraints.
 The derived key remains client-side.

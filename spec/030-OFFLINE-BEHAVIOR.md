@@ -38,8 +38,10 @@ HAVI has no dedicated online/offline API.
 
 Practical checks:
 
-- `window.route === null`: no route exists or no matching route auth key exists
+- `window.route === null`: no route-backed source exists or no usable route endpoint exists
 - route operation throws fatal error: route is unreachable or session failed
+- absence of local route auth falls back to `anyone`; it does not by itself make
+  `window.route` null
 
 ## WATCH while offline
 

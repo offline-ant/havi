@@ -4,12 +4,15 @@
 
 //! Shared HPPR source resolution.
 //!
-//! This module owns browser-level HPPR resolution policy:
-//! - route selection
+//! This module owns browser-level consequences of HPPR route resolution:
+//! - route endpoint selection
+//! - local route auth attachment
 //! - content-pointer resolution
-//! - endpoint and signer choice
 //! - document/media packet resolution
 //! - source-based byte reads
+//!
+//! Route record structure and effective/canonical resolution semantics are
+//! defined by the HPPR route scheme, not by HAVI-specific packet rules.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -233,7 +236,7 @@ async fn resolve_access(
     let signer = if is_repo {
         None
     } else {
-        Some(build_route_signer(&parts.group, repo_client, credential_store).await?)
+        Some(build_route_signer(&parts.group, &parts.app, repo_client).await?)
     };
     let client = if let Some(signer) = &signer {
         Arc::new(HpprdClientAsync::new_with_signer(
@@ -354,13 +357,22 @@ async fn resolve_content_pointer_target(
 
 async fn build_route_signer(
     group: &str,
+    app: &str,
     repo_client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
 ) -> Result<Signer, String> {
-    let route_cred = credential_store
-        .get_or_create_route_credential_async(group, repo_client)
-        .await?;
-    Ok(Signer::ring2(group, route_cred.signing_key()))
+    let repo_vkey = match repo_client.get_admin_identity().await {
+        Ok(vkey) => vkey,
+        Err(_) => return Ok(Signer::anyone()),
+    };
+    let route_auth = match repo_client.get_route_auth(group, Some(app), &repo_vkey).await {
+        Ok(info) => info,
+        Err(_) => return Ok(Signer::anyone()),
+    };
+    let signer = Signer::parse(&route_auth.auth).map_err(|e| e.to_string())?;
+    match signer {
+        Signer::Ring2Contextual { .. } => signer.derive_for(group).map_err(|e| e.to_string()),
+        other => Ok(other),
+    }
 }
 
 fn source_client(

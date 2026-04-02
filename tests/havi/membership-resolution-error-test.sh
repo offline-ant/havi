@@ -12,29 +12,29 @@ start_server
 start_remote_server
 
 REMOTE_HOME="tcp+127.0.0.1:$REMOTE_PORT"
-REMOTE_REPO_VKEY=$(HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" hello | awk -F': ' '/^Seal-By:/{print $2; exit}')
+REMOTE_REPO_VKEY=$(HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" hello | awk -F': ' '/^Seal-By:/{print $2; exit}')
 
 # Remote target repo: routeable public content pointer and ring2 setup exist,
 # but the membership entrypoint contains invalid Member-Delegate data so routed
 # Ring2 auth fails with MEMBERS resolution failed.
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring2 setup "//$TEST_GROUP" --init >/dev/null
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GROUP/admin/members" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring2 setup "//$TEST_GROUP" --init >/dev/null
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/members" \
     -H 'Seal-By: oldest' \
     -H 'Member-Delegate: bad-delegate' <<< '' >/dev/null
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
     -H 'Seal-By: oldest' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Membership Failure</title>
 <h1>Membership Failure</h1>
 EOF
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
     -H 'Seal-By: oldest' \
     -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 # Home repo route points directly at the remote target repo.
-HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//repo/route/app/$TEST_GROUP/$TEST_APP" \
+HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//repo/route/app/$TEST_GROUP/$TEST_APP" \
     -H 'Seal-By: oldest' \
     -H "Upstream: $REMOTE_HOME" \
     -H "Upstream-Verification-Key: $REMOTE_REPO_VKEY" <<< '' >/dev/null

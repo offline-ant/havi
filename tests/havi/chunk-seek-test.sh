@@ -29,7 +29,7 @@ done > "$CHUNK_DIR/data.txt"
 log "Test data size: $(wc -c < "$CHUNK_DIR/data.txt") bytes"
 
 # Chunk at 1024-byte boundaries to force multiple chunks for ~10KB file
-HPPR_SIGNER='ring1:ring0#init' $HPPR chunk "$CHUNK_DIR/data.txt" \
+HPPR_SIGNER='ring1:ring0|init' $HPPR chunk "$CHUNK_DIR/data.txt" \
     --chunk-size 1024 \
     "//$TEST_GROUP/$TEST_APP/chunked/data.txt"
 log "Chunked data stored"
@@ -39,13 +39,13 @@ log "Chunked data stored"
 # build the manifest by hand: 3 blob chunks, 1 sub-manifest, 1 top-level manifest.
 # Total data: 30 bytes = "AAAAAAAAAA" + "BBBBBBBBBB" + "CCCCCCCCCC"
 
-BLOB1_HASH=$(echo -n "AAAAAAAAAA" | HPPR_SIGNER='ring1:ring0#init' $HPPR add --blob)
-BLOB2_HASH=$(echo -n "BBBBBBBBBB" | HPPR_SIGNER='ring1:ring0#init' $HPPR add --blob)
-BLOB3_HASH=$(echo -n "CCCCCCCCCC" | HPPR_SIGNER='ring1:ring0#init' $HPPR add --blob)
+BLOB1_HASH=$(echo -n "AAAAAAAAAA" | HPPR_SIGNER='ring1:ring0|init' $HPPR add --blob)
+BLOB2_HASH=$(echo -n "BBBBBBBBBB" | HPPR_SIGNER='ring1:ring0|init' $HPPR add --blob)
+BLOB3_HASH=$(echo -n "CCCCCCCCCC" | HPPR_SIGNER='ring1:ring0|init' $HPPR add --blob)
 log "Blob chunks: $BLOB1_HASH $BLOB2_HASH $BLOB3_HASH"
 
 # Flat manifest: all 3 blobs as direct B-type chunks
-printf '' | HPPR_SIGNER='ring1:ring0#init' $HPPR add \
+printf '' | HPPR_SIGNER='ring1:ring0|init' $HPPR add \
     "//$TEST_GROUP/$TEST_APP/chunked/nested.bin" \
     -H "Chunk+Link: 0..10 $BLOB1_HASH" \
     -H "Chunk+Link: 10..20 $BLOB2_HASH" \

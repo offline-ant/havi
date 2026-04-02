@@ -100,7 +100,7 @@ Typical rules:
 - read/list site namespace
 - write only under `//<group>/<app>/user/`
 - access own Ring1 admin area for proxy requests
-- read local route metadata and route auth for authenticated remote access
+- read local route metadata and local route auth for routed remote access
 
 ```text
 ACL-Rule: rdl //<group>/<app>/
@@ -113,7 +113,10 @@ ACL-Rule: r.. //repo/route/auth/
 
 `window.home`: Ring1 auth with `site:<group>#<app>` key.
 
-`window.route`: Ring2 auth with route auth key for group.
+`window.route`: effective routed endpoint plus local route auth attachment.
+When no local route auth record exists, routed access uses `anyone`.
+Exact-app auth overrides group-default auth.
+The route/auth packet model itself is defined by the HPPR route scheme.
 
 ACL checks run in `hpprd`, not in page JavaScript.
 
@@ -121,7 +124,8 @@ ACL checks run in `hpprd`, not in page JavaScript.
 
 - HPPR origins are secure contexts.
 - XSS still applies when apps render untrusted content unsafely.
-- Route auth key compromise affects routed repo capability for that group.
+- Local route auth compromise affects routed repo capability for the affected
+  group or app scope.
 - App content pointer compromise affects which content root and signer back an
   app URL.
 - Content-signer mismatch causes `<x policy="auto">` to isolate the child.

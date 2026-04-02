@@ -22,11 +22,11 @@ setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0#init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
 
 # Start cooked publisher: delayed payload feed keeps stream open until data arrives.
 # Uses --key for the cooked stream-pub API (payload bytes in, trailer framing internal).
-{ sleep 4; echo -n "hello-havi"; sleep 2; } | HPPR_SIGNER='ring1:ring0#init' $HPPR stream-pub --key "$SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
+{ sleep 4; echo -n "hello-havi"; sleep 2; } | HPPR_SIGNER='ring1:ring0|init' $HPPR stream-pub --key "$SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
 PUB_PID=$!
 log "Publisher started (PID: $PUB_PID)"
 

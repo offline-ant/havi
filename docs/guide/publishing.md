@@ -25,7 +25,7 @@ Use this for quick iteration on one file.
 
 ```bash
 # authenticate request (example ring1 token)
-export HPPR_SIGNER='ring1:ring0#init'
+export HPPR_SIGNER='ring1:ring0|init'
 
 # publish content
 hppr add --seal-by oldest \

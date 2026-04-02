@@ -41,8 +41,12 @@ HAVI has a **home repo** (local persistent store) and optional **route repos**
 (remote endpoints).
 
 - `window.home`: always local, persistent, offline-capable
-- `window.route`: remote route client, nullable/unavailable when route/auth is
-  missing
+- `window.route`: remote route client, nullable when no routed endpoint exists
+  for the current source
+
+Route and app content pointer config are separate. Route packet structure,
+local route auth storage, and identity text are general HPPR route-scheme
+behavior.
 
 Route and app content pointer config are separate:
 
@@ -83,8 +87,8 @@ For routed origins, HAVI resolves content through a group app content pointer
 
 ACL enforcement still happens server-side in `hpprd` for every command.
 
-Each site gets an isolated Ring1 identity (`HAVI-site:<group>#<app>`), so
-cross-site privilege sharing does not happen implicitly.
+Each site gets an isolated Ring1 identity (`site:<group>#<app>`), so cross-site
+privilege sharing does not happen implicitly.
 
 ## Content type resolution
 
@@ -111,7 +115,7 @@ Import a local directory into home repo:
 
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
-export HPPR_SIGNER='ring1:ring0#init'
+export HPPR_SIGNER='ring1:ring0|init'
 pylon mount /mnt/hppr --root //u/showcase --rw --seal-with oldest
 cp -a showcase/. /mnt/hppr/
 pylon unmount /mnt/hppr
@@ -136,7 +140,7 @@ CLI prerequisites for this section:
 
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
-export HPPR_SIGNER='ring1:ring0#init'
+export HPPR_SIGNER='ring1:ring0|init'
 ```
 
 HAVI embedded repo must be running.
