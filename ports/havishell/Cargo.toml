@@ -36,6 +36,7 @@ keyboard-types = "0.8"
 dpi = "0.1"
 euclid = "0.22"
 hppr-client = { workspace = true }
+hppr-packet = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
 pylon = { path = "../../../hppr/pylon", default-features = false }
