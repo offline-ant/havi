@@ -34,7 +34,7 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GRO
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 # Home repo route points directly at the remote target repo.
-HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//repo/admin/route/$TEST_GROUP/$TEST_APP" \
+HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//repo/route/app/$TEST_GROUP/$TEST_APP" \
     -H 'Seal-By: oldest' \
     -H "Upstream: $REMOTE_HOME" \
     -H "Upstream-Verification-Key: $REMOTE_REPO_VKEY" <<< '' >/dev/null

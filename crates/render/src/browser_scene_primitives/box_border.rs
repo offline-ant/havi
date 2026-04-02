@@ -1,4 +1,7 @@
-use makepad_browser_scene::{MpClipChainId, MpHitTestTag, MpPerCornerRadius, MpPrimitive};
+use makepad_browser_scene::{
+    MpClipChain, MpClipChainId, MpClipKind, MpClipNode, MpHitTestTag, MpPerCornerRadius,
+    MpPrimitive, MpScene,
+};
 use makepad_widgets::{dvec2, Rect, Vec4f};
 use style::color::AbsoluteColor;
 use style::properties::ComputedValues;
@@ -58,11 +61,11 @@ pub(super) fn border_paint(computed: &ComputedValues, current_abs: &AbsoluteColo
         if width <= 0.0 || matches!(style, BorderStyle::None | BorderStyle::Hidden) {
             return None;
         }
-        Some(BorderSidePaint {
-            width,
-            color: resolve_color(color, current_abs),
-            style,
-        })
+        let color = resolve_color(color, current_abs);
+        if color.w <= 0.0 {
+            return None;
+        }
+        Some(BorderSidePaint { width, color, style })
     };
 
     BorderPaint {
@@ -108,6 +111,7 @@ pub(super) fn outline_paint(computed: &ComputedValues, current_abs: &AbsoluteCol
 }
 
 pub(super) fn append_box_border_primitives(
+    scene: &mut MpScene,
     primitives: &mut Vec<MpPrimitive>,
     bounds: Rect,
     radius: MpPerCornerRadius,
@@ -132,6 +136,19 @@ pub(super) fn append_box_border_primitives(
             primitive.effect_id = effect_id;
             primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
             primitives.push(primitive);
+        } else if let Some(shared_side) = shared_rounded_border_side(border) {
+            append_clipped_rounded_border_side_primitives(
+                scene,
+                primitives,
+                bounds,
+                radius,
+                border,
+                shared_side,
+                spatial_id,
+                clip_chain_id,
+                effect_id,
+                owner_node_id,
+            );
         } else if has_border_paint(border) {
             return Err("rounded borders with non-uniform edges are not supported by browser-scene adapter yet".to_string());
         }
@@ -214,6 +231,90 @@ fn uniform_rounded_border(border: &BorderPaint) -> Option<(f64, Vec4f)> {
         return None;
     }
     Some((top.width, top.color))
+}
+
+fn shared_rounded_border_side(border: &BorderPaint) -> Option<BorderSidePaint> {
+    let mut sides = [border.top, border.right, border.bottom, border.left]
+        .into_iter()
+        .flatten();
+    let first = sides.next()?;
+    if first.style != BorderStyle::Solid {
+        return None;
+    }
+    if sides.any(|side| {
+        side.style != BorderStyle::Solid || side.width != first.width || side.color != first.color
+    }) {
+        return None;
+    }
+    Some(first)
+}
+
+fn append_clipped_rounded_border_side_primitives(
+    scene: &mut MpScene,
+    primitives: &mut Vec<MpPrimitive>,
+    bounds: Rect,
+    radius: MpPerCornerRadius,
+    border: &BorderPaint,
+    side_paint: BorderSidePaint,
+    spatial_id: makepad_browser_scene::MpSpatialId,
+    clip_chain_id: MpClipChainId,
+    effect_id: Option<makepad_browser_scene::MpEffectId>,
+    owner_node_id: Option<usize>,
+) {
+    for border_side in [BorderSide::Top, BorderSide::Right, BorderSide::Bottom, BorderSide::Left] {
+        let has_side = match border_side {
+            BorderSide::Top => border.top.is_some(),
+            BorderSide::Right => border.right.is_some(),
+            BorderSide::Bottom => border.bottom.is_some(),
+            BorderSide::Left => border.left.is_some(),
+        };
+        if !has_side {
+            continue;
+        }
+        let side_clip = scene.push_clip(MpClipNode {
+            spatial_id,
+            kind: MpClipKind::Rect {
+                rect: rounded_border_side_clip_rect(bounds, side_paint.width, border_side),
+            },
+        });
+        let side_clip_chain_id = scene.push_clip_chain(MpClipChain {
+            parent: Some(clip_chain_id),
+            clips: vec![side_clip],
+        });
+        let mut primitive = MpPrimitive::border(
+            makepad_browser_scene::MpPrimitiveId(0),
+            spatial_id,
+            side_clip_chain_id,
+            bounds,
+            side_paint.color,
+            side_paint.width as f32,
+            radius,
+        );
+        primitive.effect_id = effect_id;
+        primitive.hit_test_tag = owner_node_id.map(|id| MpHitTestTag(id as u64));
+        primitives.push(primitive);
+    }
+}
+
+fn rounded_border_side_clip_rect(bounds: Rect, width: f64, border_side: BorderSide) -> Rect {
+    match border_side {
+        BorderSide::Top => Rect {
+            pos: bounds.pos,
+            size: dvec2(bounds.size.x, width),
+        },
+        BorderSide::Right => Rect {
+            pos: dvec2(bounds.pos.x + bounds.size.x - width, bounds.pos.y),
+            size: dvec2(width, bounds.size.y),
+        },
+        BorderSide::Bottom => Rect {
+            pos: dvec2(bounds.pos.x, bounds.pos.y + bounds.size.y - width),
+            size: dvec2(bounds.size.x, width),
+        },
+        BorderSide::Left => Rect {
+            pos: bounds.pos,
+            size: dvec2(width, bounds.size.y),
+        },
+    }
 }
 
 fn append_border_primitives(
@@ -532,5 +633,100 @@ fn lighten(color: Vec4f, factor: f32) -> Vec4f {
         y: (color.y * factor).min(1.0),
         z: (color.z * factor).min(1.0),
         w: color.w,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use makepad_browser_scene::{MpPrimitiveKind, MpSceneId};
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
+        Rect {
+            pos: dvec2(x, y),
+            size: dvec2(w, h),
+        }
+    }
+
+    fn solid_side(width: f64, color: Vec4f) -> BorderSidePaint {
+        BorderSidePaint {
+            width,
+            color,
+            style: BorderStyle::Solid,
+        }
+    }
+
+    #[test]
+    fn shared_rounded_border_side_accepts_matching_visible_sides() {
+        let color = Vec4f { x: 0.3, y: 0.6, z: 1.0, w: 1.0 };
+        let border = BorderPaint {
+            top: Some(solid_side(8.0, color)),
+            right: None,
+            bottom: None,
+            left: Some(solid_side(8.0, color)),
+        };
+
+        assert_eq!(shared_rounded_border_side(&border).unwrap().width, 8.0);
+    }
+
+    #[test]
+    fn rounded_partial_border_emits_side_clipped_border_primitives() {
+        let color = Vec4f { x: 0.3, y: 0.6, z: 1.0, w: 1.0 };
+        let border = BorderPaint {
+            top: Some(solid_side(8.0, color)),
+            right: None,
+            bottom: None,
+            left: Some(solid_side(8.0, color)),
+        };
+        let mut scene = MpScene::new(MpSceneId(1), rect(0.0, 0.0, 200.0, 200.0));
+        let root_spatial_id = scene.root_spatial_id;
+        let root_clip_chain_id = scene.root_clip_chain_id;
+        let mut primitives = Vec::new();
+        let bounds = rect(40.0, 30.0, 180.0, 120.0);
+
+        append_box_border_primitives(
+            &mut scene,
+            &mut primitives,
+            bounds,
+            MpPerCornerRadius::uniform(28.0),
+            &border,
+            None,
+            root_spatial_id,
+            root_clip_chain_id,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(primitives.len(), 2);
+        assert_eq!(scene.clips.len(), 2);
+        assert_eq!(scene.clip_chains.len(), 3);
+
+        let top_clip = &scene.clips[0];
+        let left_clip = &scene.clips[1];
+        match &top_clip.kind {
+            MpClipKind::Rect { rect: clip_rect } => {
+                assert_eq!(*clip_rect, rect(40.0, 30.0, 180.0, 8.0))
+            }
+            kind => panic!("expected top rect clip, got {kind:?}"),
+        }
+        match &left_clip.kind {
+            MpClipKind::Rect { rect: clip_rect } => {
+                assert_eq!(*clip_rect, rect(40.0, 30.0, 8.0, 120.0))
+            }
+            kind => panic!("expected left rect clip, got {kind:?}"),
+        }
+
+        for primitive in primitives {
+            assert_ne!(primitive.clip_chain_id, scene.root_clip_chain_id);
+            match primitive.kind {
+                MpPrimitiveKind::Border(border) => {
+                    assert_eq!(border.width, 8.0);
+                    assert_eq!(border.color, color);
+                    assert_eq!(border.radius, MpPerCornerRadius::uniform(28.0));
+                }
+                kind => panic!("expected border primitive, got {kind:?}"),
+            }
+        }
     }
 }

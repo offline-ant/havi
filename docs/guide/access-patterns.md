@@ -81,7 +81,7 @@ This keeps UX responsive during route outages.
 
 Two practical checks:
 
-- `window.route === null`: no route config or no matching route key.
+- `window.route === null`: no local route answer or no matching route auth key.
 - HPPR error with `fatal === true`: route/session failed; reconnect needed.
 
 Treat route failure as normal state, not exceptional app crash state.
@@ -123,11 +123,11 @@ Use:
 
 ## Route setup patterns
 
-- First-time route setup: `hppr join //group/app <address>`
+- First-time route setup: `hppr route join //group/app <address>`
 - Reuse configured route: `hppr --via route get //group/app/path`
 - Explicit endpoint: `hppr --via tcp+host:port get //group/app/path`
 
-`join` stores route metadata and a per-group route key in home repo.
+`route join` stores local route app metadata and a per-group route auth record in the home repo.
 
 ## Write path recommendation
 

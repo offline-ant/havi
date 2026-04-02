@@ -310,9 +310,9 @@ fn render_join_page(
         copyBtn.addEventListener('click', async function() {{
             try {{
                 await navigator.clipboard.writeText(ROUTE_VKEY);
-                setStatus(joinStatus, 'Route key copied.', 'ok');
+                setStatus(joinStatus, 'Route auth key copied.', 'ok');
             }} catch (_e) {{
-                setStatus(joinStatus, 'Failed to copy route key.', 'error');
+                setStatus(joinStatus, 'Failed to copy route auth key.', 'error');
             }}
         }});
 

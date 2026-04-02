@@ -32,22 +32,22 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//u/admin/d
     -H "Content-Root: //u/$TEST_APP" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
-NETWORK_KEY="network-root-$TEST_NAME-$$"
-"$HPPR" key generate "$NETWORK_KEY" >/dev/null
-NETWORK_SK=$("$HPPR" key show "$NETWORK_KEY")
-NETWORK_VK=$("$HPPR" key pubkey "$NETWORK_KEY")
+ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
+"$HPPR" key generate "$ROUTE_ROOT_KEY" >/dev/null
+ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
+ROUTE_ROOT_VK=$("$HPPR" key pubkey "$ROUTE_ROOT_KEY")
 
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" network put-app "//u/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" route app put "//u/$TEST_APP" \
     --upstream "$REMOTE_HOME" \
     --upstream-vkey "$REMOTE_REPO_VKEY" \
     --content-authority "$REMOTE_REPO_VKEY" \
-    --signing-key "$NETWORK_SK" \
+    --signing-key "$ROUTE_ROOT_SK" \
     --signer 'ring1:ring0#init' >/dev/null
 
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//u/network/"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//u/route/"
 
-export _HPPR_NETWORK_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
-export _HPPR_NETWORK_ROOT_PUBKEY="$NETWORK_VK"
+export _HPPR_ROUTE_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
+export _HPPR_ROUTE_ROOT_PUBKEY="$ROUTE_ROOT_VK"
 
 start_servo "hppr://u/$TEST_APP/index.html"
 
@@ -61,7 +61,7 @@ done
 [[ "$title" == "Network U App Ephemeral" ]] || fail "expected public-root app page, got title: ${title:-<none>}"
 
 set +e
-route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" headers "//repo/admin/route/u/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
+route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" headers "//repo/route/app/u/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
 route_status=$?
 set -e
 [[ "$route_status" -ne 0 ]] || fail "public root app navigation should not persist local route: $route_headers"

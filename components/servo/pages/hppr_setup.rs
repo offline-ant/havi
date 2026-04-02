@@ -50,7 +50,7 @@ pub async fn handle_request(
         return render_error("Invalid hppr-setup URL: missing group");
     }
 
-    // Ensure per-group route key exists for setup actions.
+    // Ensure per-group route auth exists for setup actions.
     let _ = credential_store
         .get_or_create_route_credential_async(&parts.group, client)
         .await;

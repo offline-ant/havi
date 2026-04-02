@@ -199,13 +199,13 @@ Operations:
 
 These actors are HAVI shell tooling, not part of the web platform surface.
 
-## Site accounts and route keys
+## Site accounts and route auth
 
 HAVI creates per-origin site Ring1 identities using:
 
 `site:<group>#<app>`
 
-It also maintains per-group route keys for authenticated remote operations.
+It also maintains per-group route auth records for authenticated remote operations.
 
 ## Notes on scope
 

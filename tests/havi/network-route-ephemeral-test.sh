@@ -34,32 +34,32 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" add "//$TEST_GRO
     -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
-# Publish network records: group record + app record signed by a test root key.
-NETWORK_KEY="network-root-$TEST_NAME-$$"
-"$HPPR" key generate "$NETWORK_KEY" >/dev/null
-NETWORK_SK=$("$HPPR" key show "$NETWORK_KEY")
-NETWORK_VK=$("$HPPR" key pubkey "$NETWORK_KEY")
+# Publish route records: group record + app record signed by a test route root key.
+ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
+"$HPPR" key generate "$ROUTE_ROOT_KEY" >/dev/null
+ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
+ROUTE_ROOT_VK=$("$HPPR" key pubkey "$ROUTE_ROOT_KEY")
 
-# Group record: //u/network/group/<group>
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" network put-group "//$TEST_GROUP" \
+# Group record: //u/route/group/<group>
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" route group put "//$TEST_GROUP" \
     --upstream "$REMOTE_HOME" \
-    --network-key "$NETWORK_VK" \
+    --route-authority-key "$ROUTE_ROOT_VK" \
     --upstream-vkey "$REMOTE_REPO_VKEY" \
-    --signing-key "$NETWORK_SK" \
+    --signing-key "$ROUTE_ROOT_SK" \
     --signer 'ring1:ring0#init' >/dev/null
 
-# App record: //<group>/network/app/<app>
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" network put-app "//$TEST_GROUP/$TEST_APP" \
+# App record: //<group>/route/app/<app>
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" route app put "//$TEST_GROUP/$TEST_APP" \
     --content-authority "$REMOTE_REPO_VKEY" \
-    --signing-key "$NETWORK_SK" \
+    --signing-key "$ROUTE_ROOT_SK" \
     --signer 'ring1:ring0#init' >/dev/null
 
 # Allow anyone to read network records
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//u/network/"
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/network/"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//u/route/"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/route/"
 
-export _HPPR_NETWORK_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
-export _HPPR_NETWORK_ROOT_PUBKEY="$NETWORK_VK"
+export _HPPR_ROUTE_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
+export _HPPR_ROUTE_ROOT_PUBKEY="$ROUTE_ROOT_VK"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/index.html"
 
@@ -73,7 +73,7 @@ done
 [[ "$title" == "Network Ephemeral" ]] || fail "expected network-resolved page, got title: ${title:-<none>}"
 
 set +e
-route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" headers "//repo/admin/route/$TEST_GROUP/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
+route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0#init' "$HPPR" headers "//repo/route/app/$TEST_GROUP/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
 route_status=$?
 set -e
 [[ "$route_status" -ne 0 ]] || fail "network navigation should not persist local route: $route_headers"

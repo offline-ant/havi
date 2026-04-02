@@ -6,7 +6,7 @@
 //!
 //! Contains:
 //! - `site_ring1_name`: Generate ring1 account names from group/app
-//! - `RouteInfo`: Route information extracted from route packets
+//! - route/local-route record helpers
 //! - `HpprdClientAsync`: Async client for hpprd daemon operations
 
 use hppr_client::Packet;
@@ -38,24 +38,28 @@ pub fn site_ring1_name(group: &str, app: &str) -> String {
     format!("site:{}#{}", group, app)
 }
 
-/// Route information extracted from a route packet.
-///
-/// Route packets are sealed packets at
-/// `//repo/admin/route/<group>/<app>/|/seal/<repo-vkey>` containing endpoint
-/// information for remote HPPR servers.
+/// Local exact-app route record information.
 #[derive(Debug, Clone)]
-pub struct RouteInfo {
-    /// Upstream: parsed via target of the remote repo.
+pub struct LocalRouteAppInfo {
     pub upstream: Option<ViaSpec>,
-    /// Upstream-Verification-Key: repo's verification key from HELLO greeting.
-    /// Used for ring2 matching and upstream identity verification on reconnect.
     pub upstream_verification_key: Option<String>,
+    pub content_authority: Option<String>,
 }
 
-/// Route key information for per-group Ring2 authentication.
+/// Local exact-group route record information.
 #[derive(Debug, Clone)]
-pub struct RouteKeyInfo {
+pub struct LocalRouteGroupInfo {
+    pub upstream: ViaSpec,
+    pub route_authority_key: String,
+    pub upstream_verification_key: Option<String>,
+    pub home_app: Option<String>,
+}
+
+/// Local route auth information for per-group Ring2 authentication.
+#[derive(Debug, Clone)]
+pub struct RouteAuthInfo {
     pub signing_key: String,
+    pub verification_key: Option<String>,
 }
 
 /// App content pointer information for routed app content.
@@ -340,85 +344,110 @@ impl HpprdClientAsync {
     }
 
     // ========================================================================
-    // Route Packet Methods
+    // Local Route Record Methods
     // ========================================================================
 
-    /// Get route info for a group/app from localhost.
-    ///
-    /// Route packets use the coordinate scheme:
-    /// `//repo/admin/route/<group>/<app>/|/seal/<repo-vkey>`.
-    pub async fn get_route(
+    pub async fn get_local_route_app(
         &self,
         group: &str,
         app: &str,
         repo_vkey: &str,
-    ) -> Result<RouteInfo, String> {
-        let urc = format!("//repo/admin/route/{}/{}/|/seal/{}", group, app, repo_vkey);
+    ) -> Result<LocalRouteAppInfo, String> {
+        let urc = format!("//repo/route/app/{}/{}/|/seal/{}", group, app, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
-        // Verify it's a Seal packet
         let packet_type = hppr_packet::Packet::parse(packet.as_bytes().to_vec().into_boxed_slice())
             .map(|p| p.packet_type())
             .unwrap_or(PacketType::Null);
         if packet_type != PacketType::Seal {
             return Err(format!(
-                "Route packet is not sealed (got type: {:?})",
+                "Local route app packet is not sealed (got type: {:?})",
                 packet_type
             ));
         }
 
-        // Extract and parse Upstream header (single via target)
         let upstream = match packet.header("Upstream") {
             Some(v) => Some(
                 parse_via(v).map_err(|e| format!("invalid Upstream header '{}': {}", v, e))?,
             ),
             None => None,
         };
-
-        if upstream.is_none() {
-            return Err("Route packet has no Upstream header".to_string());
-        }
-
-        // Extract Upstream-Verification-Key header (repo's key from HELLO)
         let upstream_verification_key = packet
             .header("Upstream-Verification-Key")
             .map(|s| s.trim().to_string())
             .filter(|v| !v.is_empty());
+        let content_authority = packet
+            .header("Content-Authority")
+            .map(|s| s.trim().to_string())
+            .filter(|v| !v.is_empty());
 
-        Ok(RouteInfo {
+        Ok(LocalRouteAppInfo {
             upstream,
             upstream_verification_key,
+            content_authority,
         })
     }
 
-    /// Get route key packet for a group from home admin namespace.
-    pub async fn get_route_key(
+    pub async fn get_local_route_group(
         &self,
         group: &str,
         repo_vkey: &str,
-    ) -> Result<RouteKeyInfo, String> {
-        let urc = format!("//repo/admin/route-keys/{}/|/seal/{}", group, repo_vkey);
+    ) -> Result<LocalRouteGroupInfo, String> {
+        let urc = format!("//repo/route/group/{}/|/seal/{}", group, repo_vkey);
+        let packet = self.get_packet(&urc).await?;
+
+        let upstream_raw = packet
+            .header("Upstream")
+            .ok_or("Local route group packet missing Upstream header")?;
+        let upstream = parse_via(upstream_raw)
+            .map_err(|e| format!("invalid Upstream header '{}': {}", upstream_raw, e))?;
+        let route_authority_key = packet
+            .header("Route-Authority-Key")
+            .ok_or("Local route group packet missing Route-Authority-Key header")?
+            .to_string();
+        let upstream_verification_key = packet
+            .header("Upstream-Verification-Key")
+            .map(|s| s.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let home_app = packet
+            .header("Home-App")
+            .map(|s| s.trim().to_string())
+            .filter(|v| !v.is_empty());
+
+        Ok(LocalRouteGroupInfo {
+            upstream,
+            route_authority_key,
+            upstream_verification_key,
+            home_app,
+        })
+    }
+
+    pub async fn get_route_auth(
+        &self,
+        group: &str,
+        repo_vkey: &str,
+    ) -> Result<RouteAuthInfo, String> {
+        let urc = format!("//repo/route/auth/{}/|/seal/{}", group, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
         let signing_key = packet
             .header("Secret-Key")
-            .ok_or("Route key packet missing Secret-Key header")?
+            .ok_or("Route auth packet missing Secret-Key header")?
             .to_string();
-        let _verification_key = packet
-            .header("Verification-Key")
-            .ok_or("Route key packet missing Verification-Key header")?
-            .to_string();
+        let verification_key = packet.header("Verification-Key").map(|s| s.to_string());
 
-        Ok(RouteKeyInfo { signing_key })
+        Ok(RouteAuthInfo {
+            signing_key,
+            verification_key,
+        })
     }
 
-    /// Ensure route key exists for a group. Creates one when missing.
-    pub async fn ensure_route_key(
+    pub async fn ensure_route_auth(
         &self,
         group: &str,
         repo_vkey: &str,
-    ) -> Result<RouteKeyInfo, String> {
-        if let Ok(existing) = self.get_route_key(group, repo_vkey).await {
+    ) -> Result<RouteAuthInfo, String> {
+        if let Ok(existing) = self.get_route_auth(group, repo_vkey).await {
             return Ok(existing);
         }
 
@@ -426,15 +455,16 @@ impl HpprdClientAsync {
         let add_args = format!(
             "Seal-By: oldest\n\
              Group: repo\n\
-             App: admin\n\
-             Location: route-keys/{}\n\
+             App: route\n\
+             Location: auth/{}\n\
+             Auth-Scheme: ring2\n\
              Secret-Key: {}\n\
              Verification-Key: {}\n",
             group, signing_key, verification_key
         );
         self.add(add_args.as_bytes()).await?;
 
-        self.get_route_key(group, repo_vkey).await
+        self.get_route_auth(group, repo_vkey).await
     }
 
     /// Get admin identity (verification key) from host.
@@ -509,7 +539,9 @@ impl HpprdClientAsync {
         let mut rules = vec![
             ("rdl", format!("//{}/{}/", group, app)),
             ("rwl", format!("//{}/{}/user/", group, app)),
-            ("r..", "//repo/admin/route-keys/".to_string()),
+            ("r.l", "//repo/route/app/".to_string()),
+            ("r.l", "//repo/route/group/".to_string()),
+            ("r..", "//repo/route/auth/".to_string()),
             ("rwl", format!("//repo/admin/ring1/{}/", ring1_name)),
         ];
         rules.sort_by_key(|(_, path)| acl_coord_sort_key(path));

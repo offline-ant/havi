@@ -41,7 +41,7 @@ async fn inspect_route_content_pointer_auth_join(
             Ok(repo_vkey) => {
                 local_repo_vkey = Some(repo_vkey.clone());
                 match client
-                    .get_route(group, app, &repo_vkey)
+                    .get_local_route_app(group, app, &repo_vkey)
                     .await
                 {
                     Ok(route) => {
@@ -74,19 +74,19 @@ async fn inspect_route_content_pointer_auth_join(
         route_json["error"] = serde_json::json!("admin credentials unavailable");
     }
 
-    let public_network_json = match hppr_client::lookup_network_if_public_async(group, app).await {
+    let public_network_json = match hppr_client::lookup_route_if_public_async(group, app).await {
         Ok(Some(lookup)) => serde_json::json!({
             "available": true,
             "endpoint": lookup.endpoint.to_string(),
             "upstreamVerificationKey": lookup.upstream_verification_key,
             "contentAuthority": lookup.content_authority,
             "rootSigner": lookup.root_signer,
-            "groupNetworkKey": lookup.group_record.as_ref().map(|r| r.network_key.clone()),
+            "groupRouteAuthorityKey": lookup.group_record.as_ref().map(|r| r.route_authority_key.clone()),
             "groupChain": lookup.group_chain.iter().map(|r| serde_json::json!({
                 "parentGroup": r.parent_group.clone(),
                 "childLabel": r.child_label.clone(),
                 "resolvedGroup": r.resolved_group.clone(),
-                "networkKey": r.network_key.clone(),
+                "routeAuthorityKey": r.route_authority_key.clone(),
                 "upstream": r.upstream.to_string(),
                 "upstreamVerificationKey": r.upstream_verification_key.clone(),
                 "homeApp": r.home_app.clone(),
@@ -99,7 +99,7 @@ async fn inspect_route_content_pointer_auth_join(
             "upstreamVerificationKey": serde_json::Value::Null,
             "contentAuthority": serde_json::Value::Null,
             "rootSigner": serde_json::Value::Null,
-            "groupNetworkKey": serde_json::Value::Null,
+            "groupRouteAuthorityKey": serde_json::Value::Null,
             "groupChain": serde_json::Value::Null,
             "error": "not public name",
         }),
@@ -109,7 +109,7 @@ async fn inspect_route_content_pointer_auth_join(
             "upstreamVerificationKey": serde_json::Value::Null,
             "contentAuthority": serde_json::Value::Null,
             "rootSigner": serde_json::Value::Null,
-            "groupNetworkKey": serde_json::Value::Null,
+            "groupRouteAuthorityKey": serde_json::Value::Null,
             "groupChain": serde_json::Value::Null,
             "error": e.to_string(),
         }),
@@ -177,7 +177,7 @@ async fn inspect_route_content_pointer_auth_join(
 
     if let (Some(_), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
         match client
-            .get_route_key(group, &repo_vkey)
+            .get_route_auth(group, &repo_vkey)
             .await
         {
             Ok(route_key) => {

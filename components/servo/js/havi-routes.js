@@ -45,18 +45,18 @@ async function loadRoutes() {
             return;
         }
 
-        const groups = await window.ring0.list('//repo/admin/route/');
+        const groups = await window.ring0.list('//repo/route/app/');
         /** @type {{ group: string, app: string, packet: HpprPacket }[]} */
         const routes = [];
 
         for (const group of groups) {
             const cleanGroup = group.replace(/\/$/, '');
             try {
-                const apps = await window.ring0.list('//repo/admin/route/' + cleanGroup + '/');
+                const apps = await window.ring0.list('//repo/route/app/' + cleanGroup + '/');
                 for (const app of apps) {
                     const cleanApp = app.replace(/\/$/, '');
                     try {
-                        const routeUrc = '//repo/admin/route/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
+                        const routeUrc = '//repo/route/app/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
                         const packet = await window.ring0.get(routeUrc);
                         routes.push({ group: cleanGroup, app: cleanApp, packet });
                     } catch (_e) {

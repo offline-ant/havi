@@ -217,6 +217,7 @@ fn lower_box_primitives(
         suppress_background_paint,
     )?;
     append_box_border_primitives(
+        scene,
         &mut primitives,
         bounds,
         radius,

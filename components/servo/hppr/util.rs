@@ -269,12 +269,27 @@ fn report_route_resolution(
     eprintln!("{}", line);
 }
 
-/// Resolve route endpoint for a group/app via admin route lookup.
-///
-/// Looks up the route packet in the home repo using admin credentials when
-/// available. For public names without a local route, performs public network
-/// lookup. Failed public-network resolution for public names is a hard failure
-/// (no silent home-repo fallback).
+fn exact_groups(group: &str) -> Result<Vec<String>, String> {
+    let labels = hppr_client::network::split_group_labels(group).map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(labels.len());
+    let mut current = String::new();
+    for label in labels {
+        if current.is_empty() {
+            current = label.to_string();
+        } else {
+            current = format!("{}.{}", label, current);
+        }
+        out.push(current.clone());
+    }
+    Ok(out)
+}
+
+async fn fetch_public_packet_via(via: &ViaSpec, urc: &str) -> Result<hppr_client::Packet, String> {
+    let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), hppr_client::Signer::anyone()));
+    client.get_packet_authenticated(urc).await
+}
+
+/// Resolve route endpoint for a group/app via local and public route records.
 ///
 /// Returns `(endpoint, upstream_verification_key, content_authority_pin, source)`.
 pub async fn resolve_route_endpoint(
@@ -289,97 +304,191 @@ pub async fn resolve_route_endpoint(
         return Ok((repo_target, None, None, RouteEndpointSource::HomeFallback));
     }
 
+    let public_name = hppr_client::is_public_name(group, app);
+    let mut local_app = None;
+    let mut root_override = None;
+    let mut repo_vkey = None;
+
     if credential_store.get_admin().is_some() {
         match repo_client.get_admin_identity().await {
-            Ok(repo_vkey) => match repo_client.get_route(group, app, &repo_vkey).await {
-                Ok(route_info) => {
-                    let endpoint = route_info.upstream.unwrap_or_else(|| {
-                        log::debug!(
-                            "Route for {}/{} has no upstream, falling back to repo",
-                            group,
-                            app
-                        );
-                        repo_target.clone()
-                    });
-                    report_route_resolution(
-                        group,
-                        app,
-                        RouteEndpointSource::LocalRoute,
-                        &endpoint,
-                        route_info.upstream_verification_key.as_deref(),
-                        None,
-                    );
-                    return Ok((
-                        endpoint,
-                        route_info.upstream_verification_key,
-                        None,
-                        RouteEndpointSource::LocalRoute,
-                    ));
-                }
-                Err(e) => {
-                    log::debug!("No route for {}/{}: {}", group, app, e);
-                }
-            },
+            Ok(vkey) => {
+                repo_vkey = Some(vkey.clone());
+                local_app = repo_client.get_local_route_app(group, app, &vkey).await.ok();
+                root_override = repo_client.get_local_route_group("u", &vkey).await.ok();
+            }
             Err(e) => {
-                log::debug!(
-                    "Failed to get admin identity for route lookup: {}, continuing with public network",
-                    e
-                );
+                log::debug!("Failed to get admin identity for local route lookup: {}", e);
             }
         }
-    } else {
-        log::debug!("No admin credential for route lookup, continuing with public network");
     }
 
-    match hppr_client::lookup_network_if_public_async(group, app).await {
-        Ok(Some(lookup)) => {
-            report_route_resolution(
-                group,
-                app,
-                RouteEndpointSource::PublicNetwork,
-                &lookup.endpoint,
-                lookup.upstream_verification_key.as_deref(),
-                Some("ephemeral"),
-            );
-            Ok((
-                lookup.endpoint,
-                lookup.upstream_verification_key,
-                lookup.content_authority,
-                RouteEndpointSource::PublicNetwork,
-            ))
+    let root_config = hppr_client::RouteRootConfig::load().map_err(|e| e.to_string())?;
+    let mut current_target = if let Some(root) = &root_override {
+        Some(root.upstream.clone())
+    } else if public_name {
+        Some(root_config.server.clone())
+    } else {
+        None
+    };
+    let mut expected_signer = if let Some(root) = &root_override {
+        Some(root.route_authority_key.clone())
+    } else if public_name {
+        Some(root_config.pubkey.clone())
+    } else {
+        None
+    };
+    let mut parent_group = "u".to_string();
+    let mut final_group_record: Option<hppr_client::GroupRouteRecord> = None;
+    let mut used_local = local_app.is_some() || root_override.is_some();
+
+    for exact_group in exact_groups(group)? {
+        if let Some(repo_vkey) = repo_vkey.as_deref()
+            && let Ok(local_group) = repo_client.get_local_route_group(&exact_group, repo_vkey).await
+        {
+            used_local = true;
+            current_target = Some(local_group.upstream.clone());
+            expected_signer = Some(local_group.route_authority_key.clone());
+            parent_group = exact_group.clone();
+            final_group_record = Some(hppr_client::GroupRouteRecord {
+                parent_group: String::new(),
+                child_label: String::new(),
+                resolved_group: exact_group,
+                upstream: local_group.upstream,
+                route_authority_key: local_group.route_authority_key,
+                upstream_verification_key: local_group.upstream_verification_key,
+                home_app: local_group.home_app,
+                signer: String::new(),
+            });
+            continue;
         }
-        Ok(None) => {
-            report_route_resolution(
-                group,
-                app,
-                RouteEndpointSource::HomeFallback,
-                &repo_target,
-                None,
-                Some("not-public-name"),
-            );
-            Ok((repo_target, None, None, RouteEndpointSource::HomeFallback))
+
+        if !public_name {
+            break;
         }
-        Err(err) => {
-            log::warn!(
-                "Public network lookup failed for //{}/{}: {}",
-                group,
-                app,
-                err
-            );
-            report_route_resolution(
-                group,
-                app,
-                RouteEndpointSource::PublicNetwork,
-                &repo_target,
-                None,
-                Some("public-network-failed"),
-            );
-            Err(format!(
-                "public network lookup failed for //{}/{}: {}",
-                group, app, err
-            ))
-        }
+        let Some(target) = current_target.as_ref() else { break; };
+        let Some(expected) = expected_signer.as_ref() else { break; };
+        let child_label = if parent_group == "u" && !exact_group.contains('.') {
+            exact_group.clone()
+        } else {
+            exact_group
+                .strip_suffix(&format!(".{}", parent_group))
+                .unwrap_or(&exact_group)
+                .trim_end_matches('.')
+                .to_string()
+        };
+        let urc = format!("//{}/route/group/{}", parent_group, child_label);
+        let packet = match fetch_public_packet_via(target, &urc).await {
+            Ok(packet) => packet,
+            Err(_) => break,
+        };
+        let record = hppr_client::network::parse_group_record(&packet, expected, &parent_group, &child_label)
+            .map_err(|e| e.to_string())?;
+        current_target = Some(record.upstream.clone());
+        expected_signer = Some(record.route_authority_key.clone());
+        parent_group = record.resolved_group.clone();
+        final_group_record = Some(record);
     }
+
+    let public_app = if public_name {
+        if group == "u" {
+            let target = current_target.clone().unwrap_or_else(|| root_config.server.clone());
+            let expected = expected_signer.clone().unwrap_or_else(|| root_config.pubkey.clone());
+            let urc = format!("//u/route/app/{}", app);
+            match fetch_public_packet_via(&target, &urc).await {
+                Ok(packet) => Some(
+                    hppr_client::network::parse_app_record(&packet, &[expected], "u", app)
+                        .map_err(|e| e.to_string())?,
+                ),
+                Err(_) => None,
+            }
+        } else if let (Some(target), Some(group_record)) = (current_target.as_ref(), final_group_record.as_ref()) {
+            let urc = format!("//{}/route/app/{}", group, app);
+            match fetch_public_packet_via(target, &urc).await {
+                Ok(packet) => Some(
+                    hppr_client::network::parse_app_record(
+                        &packet,
+                        std::slice::from_ref(&group_record.route_authority_key),
+                        group,
+                        app,
+                    )
+                    .map_err(|e| e.to_string())?,
+                ),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let content_authority = if let Some(local_app) = &local_app {
+        local_app.content_authority.clone()
+    } else if let Some(public_app) = &public_app {
+        if public_app.content_authority.is_some() {
+            public_app.content_authority.clone()
+        } else if public_name && group != "u" {
+            hppr_client::lookup_route_if_public_async(group, app)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|lookup| lookup.content_authority)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let endpoint = local_app
+        .as_ref()
+        .and_then(|r| r.upstream.clone())
+        .or_else(|| public_app.as_ref().and_then(|r| r.upstream.clone()))
+        .or_else(|| final_group_record.as_ref().map(|r| r.upstream.clone()));
+    let upstream_verification_key = local_app
+        .as_ref()
+        .and_then(|r| r.upstream_verification_key.clone())
+        .or_else(|| public_app.as_ref().and_then(|r| r.upstream_verification_key.clone()))
+        .or_else(|| final_group_record.as_ref().and_then(|r| r.upstream_verification_key.clone()));
+
+    if let Some(endpoint) = endpoint {
+        let source = if used_local {
+            RouteEndpointSource::LocalRoute
+        } else {
+            RouteEndpointSource::PublicNetwork
+        };
+        report_route_resolution(
+            group,
+            app,
+            source,
+            &endpoint,
+            upstream_verification_key.as_deref(),
+            None,
+        );
+        return Ok((endpoint, upstream_verification_key, content_authority, source));
+    }
+
+    if public_name {
+        report_route_resolution(
+            group,
+            app,
+            RouteEndpointSource::PublicNetwork,
+            &repo_target,
+            None,
+            Some("public-route-failed"),
+        );
+        return Err(format!("public route lookup failed for //{}/{}", group, app));
+    }
+
+    report_route_resolution(
+        group,
+        app,
+        RouteEndpointSource::HomeFallback,
+        &repo_target,
+        None,
+        Some("not-public-name"),
+    );
+    Ok((repo_target, None, None, RouteEndpointSource::HomeFallback))
 }
 
 #[cfg(test)]

@@ -70,7 +70,7 @@ async function init() {
             const localGreeting = await ring0.hello();
             const localKey = localGreeting.verifyingKey;
             if (localKey) {
-                const localRouteUrc = '//repo/admin/route/' + GROUP + '/' + APP + '/|/seal/' + localKey;
+                const localRouteUrc = '//repo/route/app/' + GROUP + '/' + APP + '/|/seal/' + localKey;
                 const localPacket = await ring0.get(localRouteUrc);
                 localRoute = {
                     endpoint: localPacket.getHeader('Upstream')
@@ -123,8 +123,8 @@ async function accept() {
             const routeHeaders = [
                 'Seal-By: oldest',
                 'Group: repo',
-                'App: admin',
-                'Location: route/' + GROUP + '/' + APP,
+                'App: route',
+                'Location: app/' + GROUP + '/' + APP,
                 'Upstream: ' + ENDPOINT,
                 'Upstream-Verification-Key: ' + greeting.verifyingKey
             ];

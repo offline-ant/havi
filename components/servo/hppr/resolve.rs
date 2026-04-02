@@ -95,7 +95,8 @@ pub async fn route_configured_for_direct_endpoint(
         return false;
     };
 
-    repo_client.get_route(group, app, &repo_vkey).await.is_ok()
+    repo_client.get_local_route_app(group, app, &repo_vkey).await.is_ok()
+        || repo_client.get_local_route_group(group, &repo_vkey).await.is_ok()
 }
 
 pub async fn resolve_document(

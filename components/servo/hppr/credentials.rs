@@ -255,15 +255,15 @@ impl CredentialStore {
         }
 
         self.get_admin()
-            .ok_or("No admin credential available for route key lookup")?;
+            .ok_or("No admin credential available for route auth lookup")?;
         let repo_vkey = client
             .get_admin_identity()
             .await?;
-        let route_key = client
-            .ensure_route_key(group, &repo_vkey)
+        let route_auth = client
+            .ensure_route_auth(group, &repo_vkey)
             .await?;
 
-        let cred = RouteCredential::new(route_key.signing_key);
+        let cred = RouteCredential::new(route_auth.signing_key);
         if let Ok(mut cache) = self.route_credentials.write() {
             cache.insert(group.to_string(), cred.clone());
         }

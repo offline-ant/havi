@@ -34,18 +34,18 @@ async function loadQuickLinks() {
         const adminKey = greeting.verifyingKey;
         if (!adminKey) return;
 
-        const groups = await window.ring0.list('//repo/admin/route/');
+        const groups = await window.ring0.list('//repo/route/app/');
         let count = 0;
         for (const group of groups) {
             if (count >= 5) break;
             const cleanGroup = group.replace(/\/$/, '');
             try {
-                const apps = await window.ring0.list('//repo/admin/route/' + cleanGroup + '/');
+                const apps = await window.ring0.list('//repo/route/app/' + cleanGroup + '/');
                 for (const app of apps) {
                     if (count >= 5) break;
                     const cleanApp = app.replace(/\/$/, '');
                     try {
-                        const routeUrc = '//repo/admin/route/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
+                        const routeUrc = '//repo/route/app/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
                         await window.ring0.get(routeUrc);
                         const link = document.createElement('a');
                         link.href = 'hppr://' + cleanGroup + '/' + cleanApp + '/';

@@ -40,31 +40,31 @@ Primary browsing scheme.
 For routed non-repo pages (`hppr://<group>/<app>/...`), the browser resolves in
 this order:
 
-1. local route packet -> endpoint
-   (`//repo/admin/route/<group>/<app>/|/...`)
-2. if no local route exists and `group` does not start with `~`, resolve the
-   public network:
-   - group `u`: `//u/network/app/<app>`
+1. local route records in the home repo
+   (`//repo/route/app/<group>/<app>/|/...`, `//repo/route/group/<group>/|/...`)
+2. if no local route answer exists and `group` does not start with `~`, resolve the
+   public route:
+   - group `u`: `//u/route/app/<app>`
    - other public groups:
      1. split the group on `.`
-     2. fetch `//u/network/group/<rightmost-label>`
+     2. fetch `//u/route/group/<rightmost-label>`
      3. walk leftward one label at a time via
-        `//<resolved-parent-group>/network/group/<next-child-label>`
-     4. fetch `//<resolved-group>/network/app/<app>`
+        `//<resolved-parent-group>/route/group/<next-child-label>`
+     4. fetch `//<resolved-group>/route/app/<app>`
 3. remote app content pointer
    (`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`)
 4. target from `Content-Root` + requested location
 
 Public-network rules:
 
-- for group `u`, `//u/network/app/<app>` supplies endpoint, optional repo pin,
+- for group `u`, `//u/route/app/<app>` supplies endpoint, optional repo pin,
   and optional `Content-Authority`
 - for non-`u` groups, app `Upstream` inherits from the group record when
   omitted
-- for non-`u` groups, `Content-Authority` falls back to `//u/network/app/<app>`
+- for non-`u` groups, `Content-Authority` falls back to `//u/route/app/<app>`
   when the group app record omits it; only `Content-Authority` is inherited
   from public app defaults, never `Upstream`
-- missing `//<group>/network/app/<app>` is a discovery failure
+- missing `//<group>/route/app/<app>` is a discovery failure
 - when public-network resolution produces an effective `Content-Authority`, the
   browser MUST require exact equality with the deploy pointer
   `Content-Authority`

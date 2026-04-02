@@ -100,18 +100,20 @@ Typical rules:
 - read/list site namespace
 - write only under `//<group>/<app>/user/`
 - access own Ring1 admin area for proxy requests
-- read route keys for authenticated remote access
+- read local route metadata and route auth for authenticated remote access
 
 ```text
 ACL-Rule: rdl //<group>/<app>/
 ACL-Rule: rwl //<group>/<app>/user/
 ACL-Rule: rwl //repo/admin/ring1/site:<group>#<app>/
-ACL-Rule: r.. //repo/admin/route-keys/
+ACL-Rule: r.l //repo/route/app/
+ACL-Rule: r.l //repo/route/group/
+ACL-Rule: r.. //repo/route/auth/
 ```
 
 `window.home`: Ring1 auth with `site:<group>#<app>` key.
 
-`window.route`: Ring2 auth with route key for group.
+`window.route`: Ring2 auth with route auth key for group.
 
 ACL checks run in `hpprd`, not in page JavaScript.
 
@@ -119,7 +121,7 @@ ACL checks run in `hpprd`, not in page JavaScript.
 
 - HPPR origins are secure contexts.
 - XSS still applies when apps render untrusted content unsafely.
-- Route key compromise affects routed repo capability for that group.
+- Route auth key compromise affects routed repo capability for that group.
 - App content pointer compromise affects which content root and signer back an
   app URL.
 - Content-signer mismatch causes `<x policy="auto">` to isolate the child.
