@@ -51,6 +51,7 @@ pub mod geometry {
 }
 pub mod layout {
     pub use ::layout::*;
+    pub use ::layout_api::*;
 }
 pub mod metrics {
     pub use ::metrics::*;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libhavi::base::id::WebViewId;
 use havi_types::FragmentArenaGeneration;
-use libhavi::layout::{shared_layout_fragment_tree_for, SharedLayoutFragmentTree};
+use layout_api::{shared_layout_fragment_tree_for, SharedLayoutFragmentTree};
 
 pub(crate) type LayoutFragmentTree = Arc<FragmentArenaGeneration>;
 
