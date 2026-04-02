@@ -263,21 +263,25 @@ script_mod! {
             url_input := TextInput{
                 width: Fill height: Fit
                 empty_text: "Enter URC..."
+                padding: Inset{left: 12 right: 12 top: 6 bottom: 6}
                 draw_text +: {
-                    color: #x111111
-                    color_hover: uniform(#x111111)
-                    color_focus: uniform(#x111111)
-                    color_empty: uniform(#x777777)
-                    color_empty_hover: uniform(#x777777)
-                    color_empty_focus: uniform(#x555555)
+                    color: #x000000
+                    color_hover: uniform(#x000000)
+                    color_focus: uniform(#x000000)
+                    color_empty: uniform(#x666666)
+                    color_empty_hover: uniform(#x666666)
+                    color_empty_focus: uniform(#x444444)
                 }
                 draw_bg +: {
                     color: #xffffff
                     color_hover: uniform(#xffffff)
                     color_focus: uniform(#xffffff)
                     border_color: uniform(#xcccccc)
-                    border_color_hover: uniform(#xbbbbbb)
-                    border_color_focus: uniform(#xaaaaaa)
+                    border_color_hover: uniform(#x999999)
+                    border_color_focus: uniform(#x777777)
+                }
+                draw_cursor +: {
+                    color: uniform(#x000000)
                 }
             }
 
