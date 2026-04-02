@@ -10,13 +10,13 @@ use std::thread;
 use app_units::Au;
 use base::generic_channel::{self, GenericReceiver};
 use base::id::PainterId;
-use crate::{
+use fonts_traits::{
     FontDescriptor, FontIdentifier, FontTemplate, FontTemplateRef, LowercaseFontFamilyName,
     SystemFontServiceMessage, SystemFontServiceProxySender,
 };
 use malloc_size_of::MallocSizeOf as MallocSizeOfTrait;
 use malloc_size_of_derive::MallocSizeOf;
-use crate::FontRenderApi;
+use paint_api::CrossProcessPaintApi;
 use profile_traits::mem::{
     ProcessReports, ProfilerChan, Report, ReportKind, ReportsChan, perform_memory_report,
 };
@@ -58,8 +58,7 @@ struct FontInstancesMapKey {
 pub struct SystemFontService {
     port: GenericReceiver<SystemFontServiceMessage>,
     local_families: FontStore,
-    #[ignore_malloc_size_of = "Font render backend is process-global plumbing"]
-    paint_api: FontRenderApi,
+    paint_api: CrossProcessPaintApi,
     // keys already have the render key namespace
     font_keys_by_font_and_painter: HashMap<(FontIdentifier, PainterId), FontKey>,
     font_instances: HashMap<FontInstancesMapKey, FontInstanceKey>,
@@ -81,7 +80,7 @@ pub struct SystemFontService {
 
 impl SystemFontService {
     pub fn spawn(
-        paint_api: FontRenderApi,
+        paint_api: CrossProcessPaintApi,
         memory_profiler_sender: ProfilerChan,
     ) -> SystemFontServiceProxySender {
         let (sender, receiver) = generic_channel::channel().unwrap();

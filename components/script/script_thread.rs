@@ -70,7 +70,7 @@ use js::jsval::UndefinedValue;
 use url::Position;
 use js::rust::ParentRuntime;
 use js::rust::wrappers2::{JS_AddInterruptCallback, SetWindowProxyClass};
-use layout_api::{LayoutConfig, LayoutFactory, RestyleReason};
+use layout_api::{LayoutConfig, LayoutFactory, RestyleReason, ScriptThreadFactory};
 
 use metrics::MAX_TASK_NS;
 use net_traits::image_cache::{ImageCache, ImageCacheFactory, ImageCacheResponseMessage};
@@ -457,8 +457,8 @@ impl Drop for ScriptMemoryFailsafe<'_> {
     }
 }
 
-impl ScriptThread {
-    pub fn create(
+impl ScriptThreadFactory for ScriptThread {
+    fn create(
         state: InitialScriptState,
         layout_factory: Arc<dyn LayoutFactory>,
         image_cache_factory: Arc<dyn ImageCacheFactory>,

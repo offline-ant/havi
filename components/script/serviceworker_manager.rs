@@ -16,7 +16,7 @@ use base::generic_channel::{self, GenericSender, ReceiveError, RoutedReceiver};
 use base::id::{PipelineNamespace, ServiceWorkerId, ServiceWorkerRegistrationId};
 use constellation_traits::{
     DOMMessage, Job, JobError, JobResult, JobResultValue, JobType, SWManagerMsg, SWManagerSenders,
-    ScopeThings, ServiceWorkerMsg,
+    ScopeThings, ServiceWorkerManagerFactory, ServiceWorkerMsg,
 };
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use fonts::FontContext;
@@ -498,8 +498,8 @@ fn update_serviceworker(
     )
 }
 
-impl ServiceWorkerManager {
-    pub fn create(sw_senders: SWManagerSenders, origin: ImmutableOrigin) {
+impl ServiceWorkerManagerFactory for ServiceWorkerManager {
+    fn create(sw_senders: SWManagerSenders, origin: ImmutableOrigin) {
         let (resource_chan, resource_port) = ipc::channel().unwrap();
 
         let SWManagerSenders {

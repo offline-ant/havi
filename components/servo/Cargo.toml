@@ -14,48 +14,58 @@ crate-type = ["rlib"]
 [features]
 # Note: Shell ports that disable libhavi default features must opt into any needed features explicitly.
 default = ["clipboard", "js_jit"]
-background_hang_monitor = ["sampler"]
+background_hang_monitor = ["background_hang_monitor/sampler"]
 sampler = []
-bluetooth = ["dep:bluetooth", "script_bindings/bluetooth"]
+bluetooth = ["bluetooth_traits", "dep:bluetooth", "constellation_traits/bluetooth", "script/bluetooth", "script_traits/bluetooth", "script_bindings/bluetooth"]
 clipboard = ["dep:arboard"]
-crown = ["js/crown"]
-debugmozjs = ["js/debugmozjs"]
+crown = ["script/crown"]
+debugmozjs = ["script/debugmozjs"]
 dynamic_freetype = []
-gamepad = ["embedder_traits/gamepad", "script_bindings/gamepad"]
+gamepad = ["constellation/gamepad", "embedder_traits/gamepad", "script/gamepad", "script_bindings/gamepad"]
 glwindow = []
 headless = []
-jitspew = ["js/jitspew"]
-js_backtrace = []
-js_jit = ["js/jit"]
+jitspew = ["script/jitspew"]
+js_backtrace = ["script/js_backtrace"]
+js_jit = ["script/js_jit"]
 native-bluetooth = ["bluetooth/native-bluetooth"]
-no-wgl = []
+no-wgl = ["paint_api/no-wgl"]
 openxr-api = []
-profilemozjs = ["js/profilemozjs"]
-refcell_backtrace = []
+profilemozjs = ["script/profilemozjs"]
+refcell_backtrace = ["script/refcell_backtrace"]
 test-util = []
-testbinding = ["script_bindings/testbinding"]
-tracing = ["dep:tracing", "profile_traits/tracing", "script_bindings/tracing"]
-vello = []
-webgpu = ["script_bindings/webgpu"]
-webxr = ["glwindow", "headless", "openxr-api", "script_bindings/webxr"]
+testbinding = ["script/testbinding", "script_bindings/testbinding"]
+tracing = ["dep:tracing", "paint/tracing", "constellation/tracing", "fonts/tracing", "layout/tracing", "profile_traits/tracing", "script/tracing", "script_bindings/tracing"]
+vello = ["constellation/vello"]
+webgpu = ["paint/webgpu", "constellation/webgpu", "constellation_traits/webgpu", "script/webgpu", "script_bindings/webgpu"]
+webxr = ["dep:webxr", "glwindow", "headless", "openxr-api", "paint/webxr", "script/webxr", "script_bindings/webxr"]
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(crown)'] }
 
 [dependencies]
 accesskit = { workspace = true }
 app_units = { workspace = true }
+background_hang_monitor = { path = "../background_hang_monitor" }
+background_hang_monitor_api = { workspace = true }
 base = { workspace = true }
 bitflags = { workspace = true }
 byteorder = { workspace = true }
+canvas = { path = "../canvas" }
+canvas_traits = { workspace = true }
+constellation = { path = "../constellation" }
+constellation_traits = { workspace = true }
 cssparser = { workspace = true }
 bluetooth = { path = "../bluetooth", optional = true }
+bluetooth_traits = { workspace = true, optional = true }
 crossbeam-channel = { workspace = true }
+devtools = { path = "../devtools" }
+devtools_traits = { workspace = true }
 dpi = { workspace = true }
 bytes = "1"
 embedder_traits = { workspace = true }
 env_logger = { workspace = true }
 euclid = { workspace = true }
 fonts = { path = "../fonts" }
+fonts_traits = { workspace = true }
 html5ever = { workspace = true }
 hppr-client = { workspace = true }
 hppr-packet = { workspace = true }
@@ -122,8 +132,11 @@ icu_locid = { workspace = true }
 icu_properties = { workspace = true }
 icu_segmenter = { workspace = true }
 kurbo = { workspace = true, features = ["serde"] }
+layout = { path = "../layout" }
+layout_api = { workspace = true }
 libc = { workspace = true }
 markup5ever = { workspace = true }
+metrics = { path = "../metrics" }
 log = { workspace = true }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
@@ -133,6 +146,8 @@ mime = { workspace = true }
 mime-multipart-hyper1 = { workspace = true }
 makepad_media = { package = "makepad-media", path = "../../../havi-makepad/media", features = ["avif"] }
 mime_guess = { workspace = true }
+net = { path = "../net" }
+net_traits = { workspace = true }
 ml-dsa = { workspace = true }
 nom = { workspace = true }
 ml-kem = { workspace = true }
@@ -146,6 +161,8 @@ p384 = { workspace = true }
 ocb3 = { workspace = true }
 p521 = { workspace = true }
 argon2 = { workspace = true }
+paint = { path = "../paint" }
+paint_api = { workspace = true }
 parking_lot = { workspace = true }
 pixels = { path = "../pixels" }
 peniko = { workspace = true }
@@ -155,6 +172,7 @@ pkcs8 = { workspace = true }
 quick_cache = "0.6"
 sec1 = { workspace = true }
 postcard = { workspace = true }
+profile = { path = "../profile" }
 profile_traits = { workspace = true }
 pulldown-cmark = "0.13.0"
 rand = { workspace = true }
@@ -167,7 +185,9 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 rustc-demangle = "0.1"
 rustc-hash = { workspace = true }
 read-fonts = { workspace = true }
+script = { path = "../script" }
 script_bindings = { path = "../script_bindings" }
+script_traits = { workspace = true }
 servo_config = { path = "../config" }
 servo_geometry = { path = "../geometry" }
 servo_url = { path = "../url" }
@@ -184,6 +204,8 @@ servo-media = { workspace = true }
 servo-media-dummy = { workspace = true }
 servo-tracing = { workspace = true }
 servo_allocator = { path = "../allocator" }
+storage = { path = "../storage" }
+storage_traits = { workspace = true }
 servo_config_macro = { path = "../config/macro" }
 servo_arc = { workspace = true }
 stylo = { workspace = true }
@@ -200,6 +222,7 @@ swapper = "0.1"
 taffy = { workspace = true }
 tempfile = "3"
 time = { workspace = true }
+timers = { path = "../timers" }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "macros"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
@@ -214,9 +237,12 @@ urlpattern = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 vello_cpu = { workspace = true }
 webdriver = { workspace = true }
+webgpu = { path = "../webgpu" }
+webgpu_traits = { workspace = true }
 webrender_api = { workspace = true }
 wgpu-core = { workspace = true, features = ["serde", "wgsl"] }
 wgpu-types = { workspace = true, features = ["serde"] }
+webxr = { path = "../webxr", optional = true }
 webxr-api = { workspace = true }
 x25519-dalek = { workspace = true }
 xml5ever = { workspace = true }

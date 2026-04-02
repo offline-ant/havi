@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::{
+use fonts_traits::{
     FontDescriptor, FontIdentifier, FontTemplate, FontTemplateRef, FontTemplateRefMethods,
     IsOblique, LowercaseFontFamilyName,
 };

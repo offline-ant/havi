@@ -18,7 +18,7 @@ use dwrote::{
     FontCollection, FontFace, FontFile, FontSimulations,
 };
 use euclid::default::{Point2D, Rect, Size2D};
-use crate::LocalFontIdentifier;
+use fonts_traits::LocalFontIdentifier;
 use log::debug;
 use read_fonts::TableProvider;
 use skrifa::Tag;

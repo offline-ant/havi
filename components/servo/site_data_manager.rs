@@ -9,7 +9,7 @@ use crate::net::{ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
 use crate::servo_url::BrowserUrl;
 use crate::storage::StorageThreads;
-use crate::storage::api::webstorage_thread::{OriginDescriptor, WebStorageType};
+use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageType};
 
 bitflags! {
     /// Identifies categories of site data associated with a site.

@@ -1400,9 +1400,12 @@ impl LayoutThread {
         if damage.contains(RestyleDamage::RECALCULATE_OVERFLOW) {
             self.need_overflow_calculation.set(true);
         }
-        let needs_repaint = damage.contains(RestyleDamage::REPAINT);
-        if needs_repaint {
+        if damage.contains(RestyleDamage::REPAINT) {
             self.need_new_display_list.set(true);
+        }
+        if !damage.contains(RestyleDamage::RELAYOUT) {
+            layout_context.style_context.stylist.rule_tree().maybe_gc();
+            return (ReflowPhasesRun::empty(), IFrameSizes::default());
         }
 
         let box_tree = &*box_tree;
@@ -1413,33 +1416,6 @@ impl LayoutThread {
                 .unwrap()
                 .layout(recalc_style_traversal.context(), viewport_size)
         };
-
-        if !damage.contains(RestyleDamage::RELAYOUT) {
-            if !needs_repaint {
-                layout_context.style_context.stylist.rule_tree().maybe_gc();
-                return (ReflowPhasesRun::empty(), IFrameSizes::default());
-            }
-
-            let fragment_tree = Rc::new(if let Some(pool) = rayon_pool {
-                pool.install(run_layout)
-            } else {
-                run_layout()
-            });
-
-            *self.fragment_tree.borrow_mut() = Some(fragment_tree);
-            self.publish_shared_scroll_state();
-
-            layout_context.style_context.stylist.rule_tree().maybe_gc();
-
-            self.fragment_tree_generation
-                .set(self.fragment_tree_generation.get().wrapping_add(1));
-
-            return (
-                ReflowPhasesRun::RanLayout | ReflowPhasesRun::BuiltDisplayList,
-                IFrameSizes::default(),
-            );
-        }
-
         let fragment_tree = Rc::new(if let Some(pool) = rayon_pool {
             pool.install(run_layout)
         } else {

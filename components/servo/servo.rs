@@ -33,7 +33,7 @@ use crate::constellation::{EmbedderToConstellationMessage, ScriptToConstellation
 use crossbeam_channel::{Receiver, Sender, unbounded};
 pub use embedder_traits::*;
 use env_logger::Builder as EnvLoggerBuilder;
-use crate::fonts::{SystemFontService, font_render_api_from_paint_api};
+use crate::fonts::SystemFontService;
 #[cfg(all(
     not(target_os = "windows"),
     not(target_os = "ios"),
@@ -45,13 +45,15 @@ use crate::fonts::{SystemFontService, font_render_api_from_paint_api};
 use gaol::sandbox::{ChildSandbox, ChildSandboxMethods};
 use ipc_channel::ipc::{self, IpcSender};
 use crate::layout::LayoutFactoryImpl;
+use layout_api::ScriptThreadFactory;
 use log::{Log, Metadata, Record, debug, warn};
 use servo_media::player::context::{GlApi, GlContext, NativeDisplay};
 use crate::net::embedder::NetToEmbedderMsg;
 use crate::net::image_cache::ImageCacheFactoryImpl;
 use crate::net::protocols::ProtocolRegistry;
 use crate::net::resource_thread::new_resource_threads;
-use crate::net::{ResourceThreads, exit_fetch_thread, start_fetch_thread};
+use crate::net::ResourceThreads;
+use net_traits::{exit_fetch_thread, start_fetch_thread};
 use crate::paint::{src_bridge::ScreenshotBridge, InitialPaintState, Paint};
 use crate::paint::{CrossProcessPaintApi, PaintMessage, PaintProxy};
 use crate::profile::{mem as profile_mem, system_reporter, time as profile_time};
@@ -998,7 +1000,7 @@ fn create_constellation(
     let privileged_urls = protocols.privileged_urls();
     let system_font_service = Arc::new(
         SystemFontService::spawn(
-            font_render_api_from_paint_api(paint_proxy.cross_process_paint_api.clone()),
+            paint_proxy.cross_process_paint_api.clone(),
             mem_profiler_chan.clone(),
         )
         .to_proxy(),
@@ -1028,7 +1030,7 @@ fn create_constellation(
         hppr_home_endpoint,
     };
     let layout_factory = Arc::new(LayoutFactoryImpl());
-    Constellation::start(
+    Constellation::<script::ScriptThread, script::ServiceWorkerManager>::start(
         embedder_to_constellation_receiver,
         initial_state,
         layout_factory,
@@ -1150,7 +1152,7 @@ pub fn run_content_process(token: String) {
                 .expect("Failed to join on the fetch thread in the constellation");
         },
         UnprivilegedContent::ServiceWorker(content) => {
-            content.start();
+            content.start::<script::ServiceWorkerManager>();
         },
     }
 }

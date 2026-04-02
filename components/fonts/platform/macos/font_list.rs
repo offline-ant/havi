@@ -5,7 +5,7 @@
 use std::ffi::c_void;
 
 use base::text::{UnicodeBlock, UnicodeBlockMethod, unicode_plane};
-use crate::LocalFontIdentifier;
+use fonts_traits::LocalFontIdentifier;
 use log::debug;
 use objc2_core_foundation::{CFDictionary, CFRetained, CFSet, CFString, CFType, CFURL};
 use objc2_core_text::{

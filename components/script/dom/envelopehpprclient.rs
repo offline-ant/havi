@@ -473,7 +473,7 @@ impl EnvelopeHpprClient {
 impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
     /// EnvelopeHpprClient.home() - create client with site sandbox credentials.
     ///
-    /// Uses the current page's site Ring1 (`site:<group>#<app>`) with
+    /// Uses the current page's site Ring1 (HAVI-site:<group>#<app>) with
     /// seal-based authentication via the site's signing key.
     fn Home(window: &Window) -> Fallible<Rc<Promise>> {
         let global = window.upcast::<GlobalScope>();

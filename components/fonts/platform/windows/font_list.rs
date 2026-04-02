@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use base::text::{UnicodeBlock, UnicodeBlockMethod, unicode_plane};
 use dwrote::{Font, FontCollection, FontStretch, FontStyle};
-use crate::LocalFontIdentifier;
+use fonts_traits::LocalFontIdentifier;
 use style::values::computed::font::GenericFontFamily;
 use style::values::computed::{FontStyle as StyleFontStyle, FontWeight as StyleFontWeight};
 use style::values::specified::font::FontStretchKeyword;

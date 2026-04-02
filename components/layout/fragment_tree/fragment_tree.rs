@@ -12,7 +12,7 @@ use havi_types::fragment_tree as published;
 use rustc_hash::FxHashSet;
 use style::animation::AnimationSetKey;
 use style::computed_values::position::T as Position;
-use style::values::computed::image::Image;
+use style::values::computed::Image;
 use style::values::specified::Overflow;
 
 use super::{

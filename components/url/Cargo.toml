@@ -10,13 +10,17 @@ rust-version.workspace = true
 [lib]
 name = "servo_url"
 path = "lib.rs"
+doctest = false
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [dependencies]
 encoding_rs = { workspace = true }
 hppr-packet = { workspace = true }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 servo_arc = { workspace = true }
-url = { workspace = true }
-uuid = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["serde"] }

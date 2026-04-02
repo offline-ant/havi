@@ -12,18 +12,6 @@
 //! heavy lifting of coordinating all of Servo's internal subsystems, including the
 //! `ScriptThread` and the `LayoutThread`, as well maintains the navigation context.
 
-#[macro_use]
-extern crate js;
-#[macro_use]
-extern crate jstraceable_derive;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate malloc_size_of_derive;
-#[macro_use]
-extern crate stylo_atoms;
-
-
 mod clipboard_delegate;
 #[cfg(feature = "gamepad")]
 mod gamepad_provider;
@@ -38,64 +26,82 @@ mod user_content_manager;
 mod webview;
 mod webview_delegate;
 
-pub(crate) use crate::script::webdriver_handlers;
-pub(crate) use crate::script::unminify;
 pub use crate::script::test;
 
-#[path = "background_hang_monitor/mod.rs"]
-pub mod background_hang_monitor;
-#[path = "canvas/mod.rs"]
-pub mod canvas;
-#[path = "constellation/mod.rs"]
-pub mod constellation;
-#[path = "devtools/mod.rs"]
-pub mod devtools;
-#[path = "fonts/mod.rs"]
-pub mod fonts;
+pub mod background_hang_monitor {
+    pub use ::background_hang_monitor::*;
+}
+pub mod canvas {
+    pub use ::canvas::*;
+    pub use ::canvas_traits::*;
+}
+pub mod constellation {
+    pub use ::constellation::*;
+    pub use ::constellation_traits::*;
+}
+pub mod devtools {
+    pub use ::devtools::*;
+    pub use ::devtools_traits::*;
+}
+pub mod fonts {
+    pub use ::fonts::*;
+}
 pub mod geometry {
     pub use ::servo_geometry::*;
 }
-#[path = "layout_impl/mod.rs"]
-pub mod layout;
-#[path = "metrics/mod.rs"]
-pub mod metrics;
-#[path = "net/mod.rs"]
-pub mod net;
-#[path = "paint_impl/mod.rs"]
-pub mod paint;
+pub mod layout {
+    pub use ::layout::*;
+}
+pub mod metrics {
+    pub use ::metrics::*;
+}
+pub mod net {
+    pub use ::net::*;
+    pub use ::net_traits::{AsyncRuntime, ResourceThreads, SiteDescriptor};
+
+    pub mod pub_domains {
+        pub use ::net_traits::pub_domains::*;
+    }
+}
+pub mod paint {
+    pub use ::paint::*;
+    pub use ::paint_api::*;
+}
 #[path = "pages/mod.rs"]
 pub mod pages;
-#[path = "pixels/mod.rs"]
-pub mod pixels;
-#[path = "profile/mod.rs"]
-pub mod profile;
-#[macro_use]
-#[path = "script/lib.rs"]
-pub mod script;
+pub mod pixels {
+    pub use ::pixels::*;
+}
+pub mod profile {
+    pub use ::profile::*;
+}
+pub mod script {
+    pub use ::script::*;
+}
 pub mod servo_config {
     pub use ::servo_config::*;
 }
 pub mod servo_url {
     pub use ::servo_url::*;
 }
-#[path = "storage/mod.rs"]
-pub mod storage;
-#[path = "timers/mod.rs"]
-pub mod timers;
-#[path = "webgpu/mod.rs"]
-pub mod webgpu;
+pub mod storage {
+    pub use ::storage::*;
+    pub use ::storage_traits::StorageThreads;
+}
+pub mod timers {
+    pub use ::timers::*;
+}
+pub mod webgpu {
+    pub use ::webgpu::*;
+}
 #[cfg(feature = "webxr")]
-#[path = "webxr/mod.rs"]
-pub mod webxr;
+pub mod webxr {
+    pub use ::webxr::*;
+}
 pub mod hppr;
 
-pub(crate) use crate::script::DomTypeHolder;
-pub(crate) use crate::script::DomTypes;
-pub(crate) use crate::script::ScriptThread;
 pub use crate::constellation::Constellation;
 pub use crate::constellation::UnprivilegedContent;
-pub(crate) use crate::script::canvas_context;
-pub(crate) use crate::script::{AssociatedMemory, CustomTraceable, DomObject, HasParent, JSTraceable, MutDomObject, Reflector};
 
 pub mod base {
     pub use ::base::*;
@@ -110,32 +116,36 @@ pub mod embedder {
     pub use ::embedder_traits::*;
 }
 
+pub mod net_traits {
+    pub use ::net_traits::*;
+}
+
 pub mod script_traits {
-    pub use crate::script::*;
+    pub use ::script_traits::*;
 }
 
 pub mod constellation_traits {
-    pub use crate::constellation::*;
+    pub use ::constellation_traits::*;
 }
 
 pub mod fonts_traits {
-    pub use crate::fonts::*;
+    pub use ::fonts_traits::*;
 }
 
 pub mod storage_traits {
-    pub use crate::storage::*;
+    pub use ::storage_traits::*;
 }
 
 pub mod devtools_traits {
-    pub use crate::devtools::*;
+    pub use ::devtools_traits::*;
 }
 
 pub mod canvas_traits {
-    pub use crate::canvas::*;
+    pub use ::canvas_traits::*;
 }
 
 pub mod webgpu_traits {
-    pub use crate::webgpu::*;
+    pub use ::webgpu_traits::*;
 }
 
 #[cfg(feature = "webxr")]
@@ -145,11 +155,11 @@ pub mod webxr_api {
 
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth_traits {
-    pub use ::bluetooth::*;
+    pub use ::bluetooth_traits::*;
 }
 
 pub mod background_hang_monitor_api {
-    pub use crate::background_hang_monitor::*;
+    pub use ::background_hang_monitor_api::*;
 }
 
 /// Response from a protocol page handler.
@@ -240,7 +250,7 @@ pub use servo_media::player::context::{
 };
 // This API should probably not be exposed in this way. Instead there should be a fully
 // fleshed out public domains API if we want to expose it.
-pub use crate::net::pub_domains::is_reg_domain;
+pub use net_traits::pub_domains::is_reg_domain;
 // This should be replaced with an API on ServoBuilder.
 // See <https://github.com/servo/servo/issues/40950>.
 pub use resources;
@@ -284,11 +294,12 @@ pub mod protocol_handler {
     pub use crate::net::hppr_chunks::{batch_reassemble_chunks, fetch_chunk_blobs, parse_exchange_into_blobs};
     pub use crate::net::hppr_pool::HpprAsyncState;
     pub use crate::net::protocols::{FileProtocolHander, ProtocolHandler, ProtocolRegistry};
-    pub use crate::net::filemanager_thread::RelativePos;
-    pub use crate::net::http_status::HttpStatus;
-    pub use crate::net::request::Request;
-    pub use crate::net::response::{Response, ResponseBody};
-    pub use crate::net::{NetworkError, ResourceFetchTiming};
+    pub use net_traits::NetworkError;
+    pub use net_traits::ResourceFetchTiming;
+    pub use net_traits::filemanager_thread::RelativePos;
+    pub use net_traits::http_status::HttpStatus;
+    pub use net_traits::request::Request;
+    pub use net_traits::response::{Response, ResponseBody};
 
     pub use crate::webview_delegate::ProtocolHandlerRegistration;
 }

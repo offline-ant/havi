@@ -1,0 +1,26 @@
+[package]
+name = "canvas_traits"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "canvas_traits"
+path = "lib.rs"
+
+[dependencies]
+base = { workspace = true }
+crossbeam-channel = { workspace = true }
+euclid = { workspace = true }
+fonts_traits = { workspace = true }
+kurbo = { workspace = true, features = ["serde"] }
+malloc_size_of = { workspace = true }
+malloc_size_of_derive = { workspace = true }
+pixels = { path = "../../pixels" }
+serde = { workspace = true }
+strum = { workspace = true }
+stylo = { workspace = true }
+webrender_api = { workspace = true }

@@ -14,13 +14,14 @@ use dpi::PhysicalSize;
 use embedder_traits::{
     ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
     InputEvent, InputEventAndId, InputEventId, JSValue, JavaScriptEvaluationError, LoadStatus,
-    MediaSessionActionType, NewWebViewDetails, ScreenshotCaptureError, Theme, TraversalId,
-    ViewportDetails, WebViewRect,
+    MediaSessionActionType, NewWebViewDetails, ScreenshotCaptureError, ScreenGeometry, Theme,
+    TraversalId, ViewportDetails, WebViewRect,
 };
 use euclid::{Scale, Size2D};
 use image::RgbaImage;
 use crate::geometry::DeviceIndependentPixel;
 use crate::servo_url::BrowserUrl;
+use paint_api::WebViewTrait;
 use style_traits::CSSPixel;
 use webrender_api::units::{
     DeviceIntRect, DevicePixel, DevicePoint, DeviceSize, LayoutVector2D,
@@ -87,6 +88,38 @@ pub(crate) struct WebViewInner {
     back_forward_list_index: usize,
 }
 
+struct ServoRendererWebView {
+    weak_handle: Weak<RefCell<WebViewInner>>,
+    id: WebViewId,
+}
+
+impl WebViewTrait for ServoRendererWebView {
+    fn id(&self) -> WebViewId {
+        self.id
+    }
+
+    fn screen_geometry(&self) -> Option<ScreenGeometry> {
+        let webview = WebView::from_weak_handle(&self.weak_handle)?;
+        webview.delegate().screen_geometry(webview)
+    }
+
+    fn set_animating(&self, new_value: bool) {
+        if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
+            webview.set_animating(new_value);
+        }
+    }
+
+    fn notify_scroll_default_action(
+        &self,
+        point: Option<euclid::Point2D<f32, CSSPixel>>,
+        delta: LayoutVector2D,
+    ) {
+        if let Some(webview) = WebView::from_weak_handle(&self.weak_handle) {
+            webview.delegate().notify_scroll_default_action(webview, point, delta);
+        }
+    }
+}
+
 impl Drop for WebViewInner {
     fn drop(&mut self) {
         self.servo
@@ -122,19 +155,10 @@ impl WebView {
         })));
 
         let viewport_details = webview.viewport_details();
-        let weak_for_animating = webview.weak_handle();
-        let weak_for_scroll = webview.weak_handle();
         servo.paint().add_webview(
-            id,
-            Box::new(move |new_value| {
-                if let Some(wv) = WebView::from_weak_handle(&weak_for_animating) {
-                    wv.set_animating(new_value);
-                }
-            }),
-            Box::new(move |point, delta| {
-                if let Some(wv) = WebView::from_weak_handle(&weak_for_scroll) {
-                    wv.delegate().notify_scroll_default_action(wv, point, delta);
-                }
+            Box::new(ServoRendererWebView {
+                weak_handle: webview.weak_handle(),
+                id,
             }),
             viewport_details,
         );

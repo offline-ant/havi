@@ -17,7 +17,7 @@ use base::text::{UnicodeBlock, UnicodeBlockMethod};
 use bitflags::bitflags;
 use euclid::default::{Point2D, Rect};
 use euclid::num::Zero;
-use crate::FontDescriptor;
+use fonts_traits::FontDescriptor;
 use log::debug;
 use malloc_size_of_derive::MallocSizeOf;
 use parking_lot::RwLock;

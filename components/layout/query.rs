@@ -2822,13 +2822,11 @@ mod tests {
                 scrollable_overflow: vec![PhysicalRect::zero(); len],
                 sticky_insets: vec![None; len],
                 background_images: vec![Vec::new(); len],
-                suppress_background_paint: vec![false; len],
             },
             node_fragments: HashMap::new(),
             svg_resources: Arc::from([]),
             initial_containing_block: PhysicalRect::zero(),
             scrollable_overflow: PhysicalRect::zero(),
-            document_canvas_background: None,
         }
     }
 
