@@ -27,7 +27,6 @@ byteorder = { workspace = true }
 content-security-policy = { workspace = true }
 euclid = { workspace = true }
 freetype-sys = { workspace = true }
-harfbuzz-sys = { workspace = true }
 itertools = { workspace = true }
 icu_properties = { workspace = true }
 libc = { workspace = true }
@@ -62,9 +61,13 @@ dwrote = { workspace = true }
 winapi = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+harfbuzz-sys = { workspace = true, features = ["bundled"] }
 objc2-core-foundation = { workspace = true }
 objc2-core-graphics = { workspace = true }
 objc2-core-text = { workspace = true }
+
+[target.'cfg(any(target_os = "windows", target_os = "android", target_env = "ohos", all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
+harfbuzz-sys = { workspace = true }
 
 [target.'cfg(any(target_os = "android", target_env = "ohos", all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
 fontconfig_sys = { package = "yeslogic-fontconfig-sys", version = "6" }
