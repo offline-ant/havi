@@ -114,6 +114,12 @@ enum PylonInitResult {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct TabInspectorState {
+    pub page_info: Option<libhavi::HpprPageInfo>,
+    pub panel_open: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum StartupState {
     #[default]
@@ -1092,6 +1098,10 @@ impl App {
 
     pub(super) fn active_webview_id(&self) -> Option<WebViewId> {
         self.tabs.get(self.active_tab_idx).map(|tab| tab.webview_id)
+    }
+
+    pub(super) fn active_inspector_state(&self) -> Option<&TabInspectorState> {
+        self.tabs.get(self.active_tab_idx).map(|tab| &tab.inspector)
     }
 
     pub(super) fn video_belongs_to_active_page(&self, video_id: u64) -> bool {

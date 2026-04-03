@@ -73,6 +73,8 @@ public network for an upstream endpoint.
 Current HAVI behavior:
 
 - public-network lookup is used for the current navigation only
+- HPPR error pages include a collapsed `Lookup details` section showing the
+  committed HPPR lookup trace when available
 - HAVI does not auto-install a local route packet from public-network discovery
 - routed resolution decisions are printed to stderr with the selected source,
   endpoint, and public-network details
@@ -115,7 +117,12 @@ Current HAVI shell behavior:
 - desktop HAVI disables the stock Makepad caption bar and uses empty tab-strip
   space as the draggable caption region
 - the main toolbar shows browser-first controls only: pylon status, back,
-  forward, URL input, reload, and an overflow button
+  forward, URL input, an info button, reload, and an overflow button
+- the info button opens a right-side current-tab inspector panel
+- the inspector panel shows committed page source fields, packet info, and the
+  current HPPR lookup trace when available
+- inspector v1 actions are copy lookup trace, open `havi:///diagnostics`, and
+  open the final resolved target when the trace has one
 - advanced shell actions such as share, edit, watch, shadow, home, dock, and
   services live in the overflow panel
 - `Ctrl+T` on Linux and Windows opens a new tab
@@ -167,6 +174,9 @@ Shadow mode is a HAVI workflow feature, not a generic HPPR browser requirement.
 ## Diagnostics
 
 `havi:///diagnostics` exposes HAVI-specific inspection and test controls.
+
+The toolbar info panel is the fast current-page inspector. `havi:///diagnostics`
+remains the deeper active probe tool.
 
 Current API commands:
 

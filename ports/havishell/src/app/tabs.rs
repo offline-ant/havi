@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use super::{
     dock_button_text, shadow_button_text, watch_button_text, App, HaviWebViewDelegate,
+    TabInspectorState,
 };
 
 const TAB_MIN_WIDTH: f64 = 120.0;
@@ -41,6 +42,7 @@ pub(super) struct TabInfo {
     pub(super) widget_id: LiveId,
     /// Per-tab HPPR watch state.
     pub(super) watch: libhavi::hppr::watch::WatchHandle,
+    pub(super) inspector: TabInspectorState,
 }
 
 impl App {
@@ -308,6 +310,7 @@ impl App {
             nav_request_id: current.nav_request_id,
             widget_id,
             watch,
+            inspector: current.inspector.clone(),
         };
 
         self.activate_tab_webview(self.active_tab_idx);
@@ -315,6 +318,7 @@ impl App {
         self.focus_active_webview(cx);
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
+        self.sync_info_panel(cx);
         self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }
@@ -333,6 +337,7 @@ impl App {
             nav_request_id: 0,
             widget_id: next_tab_live_id(),
             watch: Default::default(),
+            inspector: Default::default(),
         });
         self.active_tab_idx = self.tabs.len() - 1;
         self.activate_tab_webview(self.active_tab_idx);
@@ -348,6 +353,7 @@ impl App {
         }
         self.set_url_input_sanitized(cx, url);
         self.sync_toolbar_state(cx);
+        self.sync_info_panel(cx);
         self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
         self.maybe_start_screenshot_capture(cx);
@@ -391,6 +397,7 @@ impl App {
         let url = self.tabs[self.active_tab_idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
+        self.sync_info_panel(cx);
         self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }
@@ -416,6 +423,7 @@ impl App {
         let url = self.tabs[idx].url.clone();
         self.set_url_input_sanitized(cx, &url);
         self.sync_toolbar_state(cx);
+        self.sync_info_panel(cx);
         self.request_active_page_redraw(cx);
         self.sync_tab_bar(cx);
     }

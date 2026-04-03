@@ -300,6 +300,11 @@ impl ServoInner {
                     webview.set_page_title(title);
                 }
             },
+            EmbedderMsg::NotifyHpprPageInfoChanged(webview_id, page_info) => {
+                if let Some(webview) = self.get_webview_handle(webview_id) {
+                    webview.set_hppr_page_info(page_info);
+                }
+            },
             EmbedderMsg::MoveTo(webview_id, position) => {
                 if let Some(webview) = self.get_webview_handle(webview_id) {
                     webview.delegate().request_move_to(webview, position);

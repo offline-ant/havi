@@ -15,11 +15,11 @@ use crate::PageResponse;
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
 use crate::hppr::resolve::{
-    resolve_document_with_snapshot, resolve_listing_with_snapshot,
+    HpprResolveError, resolve_document_with_snapshot, resolve_listing_with_snapshot,
     route_configured_for_direct_endpoint,
 };
 use crate::hppr::url::{HAVIAddress, via_url};
-use crate::hppr::util::{html_escape, markdown_to_html, mime_from_path};
+use crate::hppr::util::{html_escape, markdown_to_html, mime_from_path, render_hppr_error_page};
 
 /// Handle an hppr:// URL request.
 pub async fn handle_request(
@@ -95,12 +95,18 @@ async fn handle_get(
             {
                 return response;
             }
-            if error.contains("NOT_FOUND") {
-                eprintln!("[havi] hppr error: url={} action=not-found error={}", url, error);
-                return render_not_found_response(url);
+            if error.message.contains("NOT_FOUND") {
+                eprintln!("[havi] hppr error: url={} action=not-found error={}", url, error.message);
+                return render_not_found_response(url, Some(&error.lookup_trace));
             }
-            eprintln!("[havi] hppr error: url={} action=error error={}", url, error);
-            return PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)));
+            eprintln!("[havi] hppr error: url={} action=error error={}", url, error.message);
+            return PageResponse::html(render_hppr_error_page(
+                "HPPR Error",
+                &error.message,
+                Some(&format!("URL: {}", url)),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace);
         },
     };
 
@@ -134,6 +140,7 @@ async fn handle_get(
         credential_store,
     )
     .await;
+    response.hppr_lookup_trace = Some(resolved.lookup_trace);
 
     response
 }
@@ -167,6 +174,7 @@ async fn handle_list(
                 credential_store,
             )
             .await;
+            response.hppr_lookup_trace = Some(resolved.lookup_trace);
             response
         },
         Err(error) => {
@@ -175,8 +183,14 @@ async fn handle_list(
             {
                 return response;
             }
-            eprintln!("[havi] hppr list error: url={} action=error error={}", url, error);
-            PageResponse::error("HPPR Error", &error, Some(&format!("URL: {}", url)))
+            eprintln!("[havi] hppr list error: url={} action=error error={}", url, error.message);
+            PageResponse::html(render_hppr_error_page(
+                "HPPR Error",
+                &error.message,
+                Some(&format!("URL: {}", url)),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace)
         },
     }
 }
@@ -236,37 +250,60 @@ fn classify_routed_error(
     group: &str,
     app: &str,
     address: &HAVIAddress,
-    error: &str,
+    error: &HpprResolveError,
 ) -> Option<PageResponse> {
     if !address.has_direct_endpoint() && !address.is_routed() {
         return None;
     }
 
-    if error.contains("UNAUTHORIZED not a member") {
-        eprintln!("[havi] hppr error: url={} action=join error={}", url, error);
+    if error.message.contains("UNAUTHORIZED not a member") {
+        eprintln!("[havi] hppr error: url={} action=join error={}", url, error.message);
         return Some(unauthorized_join_redirect(group, app));
     }
 
-    if error.contains("NOT_FOUND ring2 setup") {
-        eprintln!("[havi] hppr error: url={} action=ring2-setup-missing error={}", url, error);
-        return Some(PageResponse::error(
-            "Route Setup Error",
-            error,
-            Some("Target repo is missing Ring2 setup for this group."),
-        ));
+    if error.message.contains("NOT_FOUND ring2 setup") {
+        eprintln!(
+            "[havi] hppr error: url={} action=ring2-setup-missing error={}",
+            url, error.message
+        );
+        return Some(
+            PageResponse::html(render_hppr_error_page(
+                "Route Setup Error",
+                &error.message,
+                Some("Target repo is missing Ring2 setup for this group."),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace.clone()),
+        );
     }
 
-    if error.contains("MEMBERS resolution failed") {
-        eprintln!("[havi] hppr error: url={} action=route-membership-error error={}", url, error);
-        return Some(PageResponse::error(
-            "Route Membership Error",
-            error,
-            Some("Target repo membership configuration is broken or incomplete."),
-        ));
+    if error.message.contains("MEMBERS resolution failed") {
+        eprintln!(
+            "[havi] hppr error: url={} action=route-membership-error error={}",
+            url, error.message
+        );
+        return Some(
+            PageResponse::html(render_hppr_error_page(
+                "Route Membership Error",
+                &error.message,
+                Some("Target repo membership configuration is broken or incomplete."),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace.clone()),
+        );
     }
 
-    if error.contains("UNAUTHORIZED") {
-        eprintln!("[havi] hppr error: url={} action=routed-auth-error error={}", url, error);
+    if error.message.contains("UNAUTHORIZED") {
+        eprintln!("[havi] hppr error: url={} action=routed-auth-error error={}", url, error.message);
+        return Some(
+            PageResponse::html(render_hppr_error_page(
+                "Routed Auth Error",
+                &error.message,
+                Some(&format!("URL: {}", url)),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace.clone()),
+        );
     }
 
     None
@@ -344,7 +381,10 @@ fn render_join_redirect(join_url: &str, group: &str, app: &str) -> String {
 }
 
 /// Render a user-friendly 404 page with coordinate info and editor link.
-fn render_not_found_response(url: &str) -> PageResponse {
+fn render_not_found_response(
+    url: &str,
+    lookup_trace: Option<&embedder_traits::HpprLookupTrace>,
+) -> PageResponse {
     let (coordinate, editor_url) = match HAVIAddress::parse(url) {
         Ok(addr) => {
             let parts = addr.parts();
@@ -393,18 +433,33 @@ fn render_not_found_response(url: &str) -> PageResponse {
         .actions a:hover { background: #7fdbff; }
     "#;
 
+    let details_html = lookup_trace
+        .map(|trace| {
+            format!(
+                r#"<details><summary>Lookup details</summary><pre>{}</pre></details>"#,
+                html_escape(&trace.format_text())
+            )
+        })
+        .unwrap_or_default();
+
     let body = format!(
         r#"    <h1>Not Found</h1>
     <p class="message">No packet exists at this coordinate:</p>
     <div class="coordinate">{coordinate}</div>
     <div class="actions">
         <a href="{editor_url}">Create with Editor</a>
-    </div>"#,
+    </div>
+    {details_html}"#,
         coordinate = html_escape(&coordinate),
         editor_url = html_escape(&editor_url),
+        details_html = details_html,
     );
 
-    PageResponse::html(crate::pages::page_shell::render_page("Not Found", css, &body))
+    let mut response = PageResponse::html(crate::pages::page_shell::render_page("Not Found", css, &body));
+    if let Some(lookup_trace) = lookup_trace.cloned() {
+        response.hppr_lookup_trace = Some(lookup_trace);
+    }
+    response
 }
 
 fn response_mime<'a>(content_type: &'a str, path: &'a str) -> &'a str {

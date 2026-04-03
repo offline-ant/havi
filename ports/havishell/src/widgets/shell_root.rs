@@ -301,8 +301,53 @@ script_mod! {
             }
         }
 
+        info_btn := Button{ text: "i" }
         reload_btn := Button{ text: "🔄" }
         overflow_btn := Button{ text: "⋯" }
+    }
+
+    mod.widgets.HaviInfoPanel = View {
+        visible: false
+        width: 400 height: Fill
+        flow: Down
+        align: Align{x: 1.0}
+        padding: Inset{left: 12 right: 12 top: 12 bottom: 12}
+        spacing: 8
+        show_bg: true
+        draw_bg +: {
+            color: uniform(#xffffff)
+            border_color: uniform(#xcccccc)
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                sdf.fill(self.color)
+                sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y)
+                sdf.stroke(self.border_color, 1.0)
+                return sdf.result
+            }
+        }
+
+        panel_title := Label{ text: "Page info" draw_text.color: #x111111 draw_text.text_style.font_size: 12.0 }
+        info_scroll := View{
+            width: Fill height: Fill
+            flow: Down
+            spacing: 8
+            scroll_bars: ScrollBars{show_scroll_x: false show_scroll_y: true}
+
+            page_section := Label{ text: "" width: Fill draw_text.color: #x222222 draw_text.text_style.font_size: 10.0 }
+            source_section := Label{ text: "" width: Fill draw_text.color: #x222222 draw_text.text_style.font_size: 10.0 }
+            packet_section := Label{ text: "" width: Fill draw_text.color: #x222222 draw_text.text_style.font_size: 10.0 }
+            trace_section := Label{ text: "" width: Fill draw_text.color: #x222222 draw_text.text_style.font_size: 10.0 }
+        }
+
+        info_actions := View{
+            width: Fill height: Fit
+            flow: Right
+            spacing: 6
+            copy_trace_btn := Button{ text: "Copy lookup trace" }
+            open_diagnostics_btn := Button{ text: "Open diagnostics" }
+            open_target_btn := Button{ text: "Open final target" }
+        }
     }
 
     mod.widgets.HaviContextMenu = View {
@@ -663,6 +708,7 @@ script_mod! {
                         context_menu := mod.widgets.HaviContextMenu {}
                         pylon_menu := mod.widgets.HaviPylonMenu {}
                         overflow_menu := mod.widgets.HaviOverflowMenu {}
+                        info_panel := mod.widgets.HaviInfoPanel {}
                     }
                 }
                 splash_screen := mod.widgets.HaviSplash {}

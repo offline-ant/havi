@@ -44,6 +44,7 @@ fn page_response_to_servo(
         }
     }
     response.hppr_packet = page.hppr_packet;
+    response.hppr_lookup_trace = page.hppr_lookup_trace;
     response.site_credentials = page.site_credentials;
     if let Some(endpoint) = page.hppr_endpoint {
         response.hppr_endpoint = Some(endpoint);

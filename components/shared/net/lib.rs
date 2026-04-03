@@ -51,7 +51,10 @@ pub mod request;
 pub mod response;
 
 // Re-export HPPR types for use in CoreResourceMsg
-pub use embedder_traits::{ HpprRequest, HpprResponse, HpprSigner, HpprViaSpec, HpprProtocolError, HpprProtocolResponse};
+pub use embedder_traits::{
+    HpprLookupTrace, HpprPageInfo, HpprPacketInfo, HpprProtocolError, HpprProtocolResponse,
+    HpprRequest, HpprResponse, HpprSigner, HpprViaSpec,
+};
 pub use hppr_source::{
     HpprDocumentSource, HpprDocumentSourceSnapshot, clear_hppr_document_source,
     get_hppr_document_source, set_hppr_document_source,
@@ -1183,6 +1186,8 @@ pub struct Metadata {
     /// HPPR: parsed packet for document.packet / window.packet.
     #[ignore_malloc_size_of = "hppr_packet::Packet"]
     pub hppr_packet: Option<hppr_packet::Packet>,
+    /// HPPR: canonical lookup trace for the current page load.
+    pub hppr_lookup_trace: Option<HpprLookupTrace>,
     /// HPPR: endpoint address used to fetch this content.
     pub hppr_endpoint: Option<String>,
     /// HPPR: resolved content authority for the loaded content.
@@ -1216,6 +1221,7 @@ impl Metadata {
             redirected: false,
             tls_security_info: None,
             hppr_packet: None,
+            hppr_lookup_trace: None,
             hppr_endpoint: None,
             hppr_content_authority: None,
             hppr_source: None,

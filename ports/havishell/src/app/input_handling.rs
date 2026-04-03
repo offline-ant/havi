@@ -261,6 +261,15 @@ impl App {
                                 self.hide_overflow_menu(cx);
                                 handled_input = true;
                             }
+                            if self
+                                .tabs
+                                .get(self.active_tab_idx)
+                                .map(|tab| tab.inspector.panel_open)
+                                .unwrap_or(false)
+                            {
+                                self.hide_info_panel(cx);
+                                handled_input = true;
+                            }
                         }
                         if Self::is_primary_new_tab_shortcut(key_event) {
                             self.open_home_tab(cx);

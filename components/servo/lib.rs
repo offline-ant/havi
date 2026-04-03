@@ -176,6 +176,8 @@ pub struct PageResponse {
     pub csp: Option<String>,
     /// The HPPR packet that produced this response (for document.packet DOM API).
     pub hppr_packet: Option<hppr_client::hppr_packet::Packet>,
+    /// Canonical HPPR lookup trace for this page load.
+    pub hppr_lookup_trace: Option<embedder_traits::HpprLookupTrace>,
     /// Site Ring1 credentials (ring1_name, signing_key) for window.home.
     pub site_credentials: Option<(String, String)>,
     /// Routed endpoint string for window.route.
@@ -196,6 +198,7 @@ impl PageResponse {
             admin_credentials: None,
             csp: None,
             hppr_packet: None,
+            hppr_lookup_trace: None,
             site_credentials: None,
             hppr_endpoint: None,
             hppr_signer: None,
@@ -211,6 +214,7 @@ impl PageResponse {
             admin_credentials: None,
             csp: None,
             hppr_packet: None,
+            hppr_lookup_trace: None,
             site_credentials: None,
             hppr_endpoint: None,
             hppr_signer: None,
@@ -221,6 +225,11 @@ impl PageResponse {
 
     pub fn error(title: &str, message: &str, hint: Option<&str>) -> Self {
         Self::html(hppr::util::render_error_page(title, message, hint))
+    }
+
+    pub fn with_hppr_lookup_trace(mut self, trace: embedder_traits::HpprLookupTrace) -> Self {
+        self.hppr_lookup_trace = Some(trace);
+        self
     }
 
     pub fn with_admin_credentials(mut self, ring1_name: String, signing_key: String) -> Self {

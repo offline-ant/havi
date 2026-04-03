@@ -181,6 +181,56 @@ pub(crate) fn with_script_thread<R: Default>(f: impl FnOnce(&ScriptThread) -> R)
     with_optional_script_thread(|script_thread| script_thread.map(f).unwrap_or_default())
 }
 
+fn script_hppr_signer_string(signer: &net_traits::HpprSigner) -> Option<String> {
+    match signer {
+        hppr_client::Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}|{}", group, signing_key)),
+        hppr_client::Signer::Ring1 { ring1_name, signing_key } => Some(format!("ring1:{}|{}", ring1_name, signing_key)),
+        hppr_client::Signer::Ring1Adhoc { token, ring1_name } => Some(format!("ring1:{}|{}", ring1_name, token)),
+        hppr_client::Signer::Ring2Adhoc { credential_input, .. } => Some(format!("ring2:{}", credential_input)),
+        hppr_client::Signer::Ring2Contextual { username, password } => Some(format!("ring2:/{}|{}", username, password)),
+        hppr_client::Signer::Anyone { .. } => None,
+    }
+}
+
+fn build_hppr_page_info(metadata: &Metadata) -> Option<embedder_traits::HpprPageInfo> {
+    let source = metadata.hppr_source.as_ref();
+    let source_kind = source.map(|source| match source {
+        net_traits::HpprDocumentSource::Repo => "repo".to_string(),
+        net_traits::HpprDocumentSource::Remote { .. } => "remote".to_string(),
+    });
+    let content_root = source.and_then(|source| match source {
+        net_traits::HpprDocumentSource::Repo => None,
+        net_traits::HpprDocumentSource::Remote { content_root, .. } => Some(content_root.clone()),
+    });
+    let packet = metadata.hppr_packet.as_ref().map(|packet| embedder_traits::HpprPacketInfo {
+        hash: packet.pkt_hash().to_string(),
+        packet_type: format!("{:?}", packet.packet_type()),
+        seal_by: packet.header("Seal-By").map(str::to_string),
+        content_type: packet.header("Content-Type").map(str::to_string),
+        data_length: packet.data().len(),
+    });
+
+    if source_kind.is_none()
+        && metadata.hppr_endpoint.is_none()
+        && metadata.hppr_signer.is_none()
+        && metadata.hppr_content_authority.is_none()
+        && packet.is_none()
+        && metadata.hppr_lookup_trace.is_none()
+    {
+        return None;
+    }
+
+    Some(embedder_traits::HpprPageInfo {
+        endpoint: metadata.hppr_endpoint.clone(),
+        signer: metadata.hppr_signer.as_ref().and_then(script_hppr_signer_string),
+        source_kind,
+        content_root,
+        content_authority: metadata.hppr_content_authority.clone(),
+        packet,
+        lookup_trace: metadata.hppr_lookup_trace.clone(),
+    })
+}
+
 // We borrow the incomplete parser contexts mutably during parsing,
 // which is fine except that parsing can trigger evaluation,
 // which can trigger GC, and so we can end up tracing the script
@@ -3555,6 +3605,7 @@ impl ScriptThread {
             Some(final_url.clone()),
         );
 
+        let hppr_page_info = build_hppr_page_info(&metadata);
         let content_type: Option<Mime> = metadata
             .content_type
             .map(Serde::into_inner)
@@ -3697,6 +3748,16 @@ impl ScriptThread {
             ) {
                 document.set_hppr_packet(&packet);
             }
+        }
+
+        if is_top_level_global {
+            let _ = self
+                .senders
+                .pipeline_to_embedder_sender
+                .send(EmbedderMsg::NotifyHpprPageInfoChanged(
+                    incomplete.webview_id,
+                    hppr_page_info,
+                ));
         }
 
         document.set_navigation_start(incomplete.navigation_start);

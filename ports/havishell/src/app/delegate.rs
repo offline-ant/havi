@@ -48,6 +48,11 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         pipeline_id: webrender_api::PipelineId,
     },
+    /// Committed HPPR page info changed for a webview.
+    HpprPageInfoChanged {
+        webview_id: WebViewId,
+        page_info: Option<libhavi::HpprPageInfo>,
+    },
     /// The cursor should change for a webview.
     CursorChanged {
         webview_id: WebViewId,
@@ -146,6 +151,11 @@ impl std::fmt::Debug for MakepadServoAction {
                 .debug_struct("NewFrameReady")
                 .field("webview_id", webview_id)
                 .field("pipeline_id", pipeline_id)
+                .finish(),
+            Self::HpprPageInfoChanged { webview_id, page_info } => f
+                .debug_struct("HpprPageInfoChanged")
+                .field("webview_id", webview_id)
+                .field("page_info", page_info)
                 .finish(),
             Self::CursorChanged { webview_id, cursor } => f
                 .debug_struct("CursorChanged")
@@ -367,13 +377,13 @@ fn resolve_response(request: HpprResolveRequest) -> HpprControlResponse {
                     HpprResolveRequest::Document { url } => {
                         match resolve::resolve_document(&url, &client, &creds).await {
                             Ok(result) => map_document(result),
-                            Err(error) => HpprResolveResponse::Error(error),
+                            Err(error) => HpprResolveResponse::Error(error.to_string()),
                         }
                     },
                     HpprResolveRequest::Media { url } => {
                         match resolve::resolve_media(&url, &client, &creds).await {
                             Ok(result) => map_media(result),
-                            Err(error) => HpprResolveResponse::Error(error),
+                            Err(error) => HpprResolveResponse::Error(error.to_string()),
                         }
                     },
                     HpprResolveRequest::ReadBytes {
@@ -459,6 +469,18 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
         Cx::post_action(MakepadServoAction::CursorChanged {
             webview_id: webview.id(),
             cursor,
+        });
+        SignalToUI::set_ui_signal();
+    }
+
+    fn notify_hppr_page_info_changed(
+        &self,
+        webview: libhavi::WebView,
+        page_info: Option<libhavi::HpprPageInfo>,
+    ) {
+        Cx::post_action(MakepadServoAction::HpprPageInfoChanged {
+            webview_id: webview.id(),
+            page_info,
         });
         SignalToUI::set_ui_signal();
     }

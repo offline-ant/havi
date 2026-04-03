@@ -19,6 +19,7 @@ use crate::PageResponse;
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
 use crate::hppr::resolve::resolve_listing;
+use crate::hppr::util::render_hppr_error_page;
 use crate::hppr::url::{HAVIAddress, via_url};
 use crate::hppr::util::{PATH_SEGMENT_ENCODE_SET, html_escape};
 
@@ -61,7 +62,13 @@ pub async fn handle_request(
             );
             PageResponse::html(html)
         }
-        Err(e) => PageResponse::error("Browse Error", &e, None),
+        Err(error) => PageResponse::html(render_hppr_error_page(
+            "Browse Error",
+            &error.message,
+            None,
+            Some(&error.lookup_trace),
+        ))
+        .with_hppr_lookup_trace(error.lookup_trace),
     }
 }
 

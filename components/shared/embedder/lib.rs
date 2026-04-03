@@ -419,6 +419,123 @@ pub use hppr_client::ViaSpec as HpprViaSpec;
 pub use hppr_client::HpprError as HpprClientError;
 
 
+#[derive(Clone, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize)]
+pub struct HpprLookupStep {
+    pub phase: String,
+    pub query: Option<String>,
+    pub endpoint: Option<String>,
+    pub result: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize)]
+pub struct HpprLookupTrace {
+    pub requested_url: String,
+    pub page_kind: String,
+    pub final_target: Option<String>,
+    pub terminal_error: Option<String>,
+    pub steps: Vec<HpprLookupStep>,
+}
+
+impl HpprLookupTrace {
+    pub fn new(requested_url: impl Into<String>, page_kind: impl Into<String>) -> Self {
+        Self {
+            requested_url: requested_url.into(),
+            page_kind: page_kind.into(),
+            final_target: None,
+            terminal_error: None,
+            steps: Vec::new(),
+        }
+    }
+
+    pub fn push_step(
+        &mut self,
+        phase: impl Into<String>,
+        query: Option<String>,
+        endpoint: Option<String>,
+        result: impl Into<String>,
+        detail: Option<String>,
+    ) {
+        self.steps.push(HpprLookupStep {
+            phase: phase.into(),
+            query,
+            endpoint,
+            result: result.into(),
+            detail,
+        });
+    }
+
+    pub fn set_final_target(&mut self, final_target: impl Into<String>) {
+        self.final_target = Some(final_target.into());
+    }
+
+    pub fn set_terminal_error(&mut self, terminal_error: impl Into<String>) {
+        self.terminal_error = Some(terminal_error.into());
+    }
+
+    pub fn format_text(&self) -> String {
+        use std::fmt::Write;
+
+        let mut out = String::new();
+        let _ = writeln!(out, "Request");
+        let _ = writeln!(out, "  URL: {}", self.requested_url);
+        let _ = writeln!(out, "  Kind: {}", self.page_kind);
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Lookup trace");
+
+        if self.steps.is_empty() {
+            let _ = writeln!(out, "  (no lookup steps recorded)");
+        } else {
+            for (index, step) in self.steps.iter().enumerate() {
+                let _ = writeln!(out, "  {}. {} -> {}", index + 1, step.phase, step.result);
+                if let Some(query) = &step.query {
+                    let _ = writeln!(out, "     query: {}", query);
+                }
+                if let Some(endpoint) = &step.endpoint {
+                    let _ = writeln!(out, "     endpoint: {}", endpoint);
+                }
+                if let Some(detail) = &step.detail {
+                    let _ = writeln!(out, "     detail: {}", detail);
+                }
+            }
+        }
+
+        if let Some(final_target) = &self.final_target {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Final target");
+            let _ = writeln!(out, "  {}", final_target);
+        }
+
+        if let Some(terminal_error) = &self.terminal_error {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Error");
+            let _ = writeln!(out, "  {}", terminal_error);
+        }
+
+        out.trim_end().to_string()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize)]
+pub struct HpprPacketInfo {
+    pub hash: String,
+    pub packet_type: String,
+    pub seal_by: Option<String>,
+    pub content_type: Option<String>,
+    pub data_length: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize)]
+pub struct HpprPageInfo {
+    pub endpoint: Option<String>,
+    pub signer: Option<String>,
+    pub source_kind: Option<String>,
+    pub content_root: Option<String>,
+    pub content_authority: Option<String>,
+    pub packet: Option<HpprPacketInfo>,
+    pub lookup_trace: Option<HpprLookupTrace>,
+}
+
 /// Structured HPPR protocol error that can cross thread boundaries.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HpprProtocolError {
@@ -743,6 +860,8 @@ pub enum EmbedderMsg {
         HpprControlRequest,
         GenericCallback<HpprControlResponse>,
     ),
+    /// Current committed HPPR page info for a top-level page changed.
+    NotifyHpprPageInfoChanged(WebViewId, Option<HpprPageInfo>),
     /// Request current watch mode for a specific WebView from embedder (havishell).
     #[serde(skip)]
     WatchGetMode(WebViewId, Sender<String>),

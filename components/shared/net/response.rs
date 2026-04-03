@@ -143,6 +143,8 @@ pub struct Response {
     /// HPPR: parsed packet for document.packet / window.packet.
     #[ignore_malloc_size_of = "hppr_packet::Packet"]
     pub hppr_packet: Option<hppr_packet::Packet>,
+    /// HPPR: canonical lookup trace for the current page load.
+    pub hppr_lookup_trace: Option<crate::HpprLookupTrace>,
     /// HPPR: endpoint address used to fetch this content.
     pub hppr_endpoint: Option<String>,
     /// HPPR: pre-built signer for ring2 auth (window.route).
@@ -183,6 +185,7 @@ impl Response {
             range_requested: false,
             redirect_taint: Default::default(),
             hppr_packet: None,
+            hppr_lookup_trace: None,
             hppr_endpoint: None,
             hppr_signer: None,
             hppr_content_authority: None,
@@ -226,6 +229,7 @@ impl Response {
             range_requested: false,
             redirect_taint: Default::default(),
             hppr_packet: None,
+            hppr_lookup_trace: None,
             hppr_endpoint: None,
             hppr_signer: None,
             hppr_content_authority: None,
@@ -364,6 +368,9 @@ impl Response {
                 .tls_security_info
                 .clone_from(&response.tls_security_info);
             metadata.hppr_packet.clone_from(&response.hppr_packet);
+            metadata
+                .hppr_lookup_trace
+                .clone_from(&response.hppr_lookup_trace);
             metadata.hppr_endpoint.clone_from(&response.hppr_endpoint);
             metadata
                 .hppr_content_authority

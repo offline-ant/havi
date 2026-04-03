@@ -13,10 +13,11 @@ use embedder_traits::{
     AlertResponse, AllowOrDeny, AuthenticationResponse, ConfirmResponse, ConsoleLogLevel,
     ContextMenuAction, ContextMenuElementInformation, ContextMenuItem, Cursor, EmbedderControlId,
     EmbedderControlResponse, FilePickerRequest, FilterPattern, HpprControlRequest,
-    HpprControlResponse, InputEventId, InputEventResult, InputMethodType, LoadStatus,
-    MediaSessionEvent, NewWebViewDetails, Notification, PermissionFeature, PromptResponse,
-    RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup, SimpleDialogRequest,
-    TraversalId, WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
+    HpprControlResponse, HpprPageInfo, InputEventId, InputEventResult, InputMethodType,
+    LoadStatus, MediaSessionEvent, NewWebViewDetails, Notification, PermissionFeature,
+    PromptResponse, RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup,
+    SimpleDialogRequest, TraversalId, WebResourceRequest, WebResourceResponse,
+    WebResourceResponseMsg,
 };
 use dpi::PhysicalSize;
 use euclid::Point2D;
@@ -917,6 +918,8 @@ pub trait WebViewDelegate {
     /// The favicon of the currently loaded page in this [`WebView`] has changed. The new
     /// favicon [`Image`] can accessed via [`WebView::favicon`].
     fn notify_favicon_changed(&self, _webview: WebView) {}
+    /// The committed HPPR page info for this [`WebView`] changed.
+    fn notify_hppr_page_info_changed(&self, _webview: WebView, _page_info: Option<HpprPageInfo>) {}
     /// Notify the embedder that it needs to present a new frame.
     fn notify_new_frame_ready(
         &self,

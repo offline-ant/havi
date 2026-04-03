@@ -5,6 +5,44 @@ use libhavi::hppr::credentials::global_credential_store;
 use libhavi::hppr::resolve;
 use libhavi::hppr::util::mime_from_path;
 
+fn format_hppr_page_info(page_info: Option<&libhavi::HpprPageInfo>) -> (String, String, String, String) {
+    match page_info {
+        Some(info) => {
+            let page = format!(
+                "Page\n  endpoint: {}\n  signer: {}",
+                info.endpoint.as_deref().unwrap_or("(none)"),
+                info.signer.as_deref().unwrap_or("(none)"),
+            );
+            let source = format!(
+                "Source\n  kind: {}\n  content_root: {}\n  content_authority: {}",
+                info.source_kind.as_deref().unwrap_or("(none)"),
+                info.content_root.as_deref().unwrap_or("(none)"),
+                info.content_authority.as_deref().unwrap_or("(none)"),
+            );
+            let packet = info.packet.as_ref().map(|packet| {
+                format!(
+                    "Packet\n  hash: {}\n  type: {}\n  seal_by: {}\n  content_type: {}\n  data_length: {}",
+                    packet.hash,
+                    packet.packet_type,
+                    packet.seal_by.as_deref().unwrap_or("(none)"),
+                    packet.content_type.as_deref().unwrap_or("(none)"),
+                    packet.data_length,
+                )
+            }).unwrap_or_else(|| "Packet\n  (no packet info)".to_string());
+            let trace = info.lookup_trace.as_ref().map(|trace| {
+                format!("Lookup trace\n{}", trace.format_text())
+            }).unwrap_or_else(|| "Lookup trace\n  (no HPPR lookup trace available)".to_string());
+            (page, source, packet, trace)
+        },
+        None => (
+            "Page\n  (no HPPR page info available)".to_string(),
+            "Source\n  (non-HPPR page or no committed info)".to_string(),
+            "Packet\n  (none)".to_string(),
+            "Lookup trace\n  (no HPPR lookup trace available)".to_string(),
+        ),
+    }
+}
+
 fn composite_rgba_over_white(image: &mut libhavi::RgbaImage) {
     for pixel in image.pixels_mut() {
         let alpha = pixel[3] as u32;
@@ -159,7 +197,9 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
         } else {
             format!("hppr://{}/{}/{}", parts.group, parts.app, path)
         };
-        let resolved = runtime.block_on(async { resolve::resolve_document(&file_url, &client, &creds).await })?;
+        let resolved = runtime
+            .block_on(async { resolve::resolve_document(&file_url, &client, &creds).await })
+            .map_err(|error| error.to_string())?;
         let content_type = resolved
             .packet
             .header("Content-Type")
@@ -187,7 +227,9 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
         } else {
             format!("hppr://{}/{}/{}/", parts.group, parts.app, dir)
         };
-        let listing = match runtime.block_on(async { resolve::resolve_listing(&list_url, &client, &creds).await }) {
+        let listing = match runtime
+            .block_on(async { resolve::resolve_listing(&list_url, &client, &creds).await })
+        {
             Ok(listing) => listing,
             Err(_) if dir == seed_dir => {
                 copy_file(&runtime, &location)?;
@@ -390,6 +432,42 @@ impl App {
     }
 }
 
+impl App {
+    pub(super) fn sync_info_panel(&self, cx: &mut Cx) {
+        let visible = self
+            .tabs
+            .get(self.active_tab_idx)
+            .map(|tab| tab.inspector.panel_open)
+            .unwrap_or(false);
+        self.ui.view(cx, ids!(info_panel)).set_visible(cx, visible);
+        if !visible {
+            return;
+        }
+        let page_info = self.active_inspector_state().and_then(|state| state.page_info.as_ref());
+        let (page, source, packet, trace) = format_hppr_page_info(page_info);
+        self.ui.label(cx, ids!(page_section)).set_text(cx, &page);
+        self.ui.label(cx, ids!(source_section)).set_text(cx, &source);
+        self.ui.label(cx, ids!(packet_section)).set_text(cx, &packet);
+        self.ui.label(cx, ids!(trace_section)).set_text(cx, &trace);
+    }
+
+    pub(super) fn hide_info_panel(&mut self, cx: &mut Cx) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+            tab.inspector.panel_open = false;
+        }
+        self.sync_info_panel(cx);
+        cx.redraw_all();
+    }
+
+    pub(super) fn toggle_info_panel(&mut self, cx: &mut Cx) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
+            tab.inspector.panel_open = !tab.inspector.panel_open;
+        }
+        self.sync_info_panel(cx);
+        cx.redraw_all();
+    }
+}
+
 impl MatchEvent for App {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
         let mut nav_action: Option<NavCommand> = None;
@@ -411,6 +489,9 @@ impl MatchEvent for App {
                 self.hide_pylon_menu(cx);
             }
             nav_action = Some(NavCommand::Forward);
+        }
+        if self.ui.button(cx, ids!(info_btn)).clicked(actions) {
+            self.toggle_info_panel(cx);
         }
         if self.ui.button(cx, ids!(reload_btn)).clicked(actions) {
             if self.overflow_menu_open {
@@ -476,6 +557,30 @@ impl MatchEvent for App {
             self.toggle_shadow_for_active_tab();
             if self.overflow_menu_open {
                 self.hide_overflow_menu(cx);
+            }
+        }
+        if self.ui.button(cx, ids!(copy_trace_btn)).clicked(actions) {
+            if let Some(trace) = self
+                .active_inspector_state()
+                .and_then(|state| state.page_info.as_ref())
+                .and_then(|info| info.lookup_trace.as_ref())
+            {
+                cx.copy_to_clipboard(&trace.format_text());
+            }
+        }
+        if self.ui.button(cx, ids!(open_diagnostics_btn)).clicked(actions) {
+            nav_action = Some(NavCommand::Navigate("havi:///diagnostics".into()));
+        }
+        if self.ui.button(cx, ids!(open_target_btn)).clicked(actions) {
+            if let Some(target) = self
+                .active_inspector_state()
+                .and_then(|state| state.page_info.as_ref())
+                .and_then(|info| info.lookup_trace.as_ref())
+                .and_then(|trace| trace.final_target.clone())
+            {
+                if let Some(stripped) = target.strip_prefix("//") {
+                    nav_action = Some(NavCommand::Navigate(format!("hppr-browse://{}", stripped)));
+                }
             }
         }
         if self.ui.button(cx, ids!(share_btn)).clicked(actions) {
@@ -703,6 +808,17 @@ impl MatchEvent for App {
                             self.attach_active_browser_state(cx);
                             self.request_active_page_redraw(cx);
                             self.maybe_start_screenshot_capture(cx);
+                        }
+                    }
+                },
+                Some(MakepadServoAction::HpprPageInfoChanged {
+                    webview_id,
+                    page_info,
+                }) => {
+                    if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        self.tabs[idx].inspector.page_info = page_info.clone();
+                        if idx == self.active_tab_idx {
+                            self.sync_info_panel(cx);
                         }
                     }
                 },

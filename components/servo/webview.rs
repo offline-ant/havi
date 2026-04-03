@@ -12,10 +12,10 @@ use base::id::{PainterId, WebViewId};
 use crate::constellation::{EmbedderToConstellationMessage, TraversalDirection};
 use dpi::PhysicalSize;
 use embedder_traits::{
-    ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest, Image,
-    InputEvent, InputEventAndId, InputEventId, JSValue, JavaScriptEvaluationError, LoadStatus,
-    MediaSessionActionType, NewWebViewDetails, ScreenshotCaptureError, ScreenGeometry, Theme,
-    TraversalId, ViewportDetails, WebViewRect,
+    ContextMenuAction, ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlRequest,
+    HpprPageInfo, Image, InputEvent, InputEventAndId, InputEventId, JSValue,
+    JavaScriptEvaluationError, LoadStatus, MediaSessionActionType, NewWebViewDetails,
+    ScreenshotCaptureError, ScreenGeometry, Theme, TraversalId, ViewportDetails, WebViewRect,
 };
 use euclid::{Scale, Size2D};
 use image::RgbaImage;
@@ -80,6 +80,7 @@ pub(crate) struct WebViewInner {
     focused: bool,
     animating: bool,
     cursor: Cursor,
+    hppr_page_info: Option<HpprPageInfo>,
 
     /// The back / forward list of this WebView.
     back_forward_list: Vec<BrowserUrl>,
@@ -149,6 +150,7 @@ impl WebView {
             focused: false,
             animating: false,
             cursor: Cursor::Pointer,
+            hppr_page_info: None,
             back_forward_list: Default::default(),
             back_forward_list_index: 0,
             user_content_manager: builder.user_content_manager.clone(),
@@ -342,12 +344,24 @@ impl WebView {
         self.inner().cursor
     }
 
+    pub fn hppr_page_info(&self) -> Option<HpprPageInfo> {
+        self.inner().hppr_page_info.clone()
+    }
+
     pub(crate) fn set_cursor(self, new_value: Cursor) {
         if self.inner().cursor == new_value {
             return;
         }
         self.inner_mut().cursor = new_value;
         self.delegate().notify_cursor_changed(self, new_value);
+    }
+
+    pub(crate) fn set_hppr_page_info(self, new_value: Option<HpprPageInfo>) {
+        if self.inner().hppr_page_info == new_value {
+            return;
+        }
+        self.inner_mut().hppr_page_info = new_value.clone();
+        self.delegate().notify_hppr_page_info_changed(self, new_value);
     }
 
     pub fn focus(&self) {
