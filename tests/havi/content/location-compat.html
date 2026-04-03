@@ -32,30 +32,33 @@
             assertEqual(window.location.pathname, '/testapp/location-compat.html', 'pathname projects app and location');
             assertEqual(window.location.search, '', 'initial search empty');
             assertEqual(window.location.hash, '', 'initial hash empty');
-            assert(!document.URL.includes('{'), 'initial canonical document.URL has no jsonqa');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL is projected legacy document URL');
+            assertContains(warns[1], 'document.URL', 'document.URL warns separately on first access');
 
             log('--- hash setter maps to jsonqa ---');
             window.location.hash = '#/2';
             assertEqual(window.location.hash, '#/2', 'hash getter reflects compat fragment');
-            assertContains(document.URL, '#:/2', 'hash setter stores fragment in jsonqa');
+            assertContains(window.address.href, '#:/2', 'hash setter stores fragment in exact address jsonqa');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL stays projected and stripped');
 
             log('--- search setter maps to jsonqa ---');
             window.location.search = '?receiver=1&tag=a&tag=b';
             assertEqual(window.location.search, '?receiver=1&tag=a&tag=b', 'search getter reflects compat projection');
             assertEqual(window.location.hash, '#/2', 'search setter preserves fragment');
-            assertContains(document.URL, 'receiver:1', 'search setter stores scalar key in jsonqa');
-            assertContains(document.URL, 'tag:[a,b]', 'search setter stores repeated keys as array in jsonqa');
+            assertContains(window.address.href, 'receiver:1', 'search setter stores scalar key in exact address jsonqa');
+            assertContains(window.address.href, 'tag:[a,b]', 'search setter stores repeated keys as array in exact address jsonqa');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL remains stripped after search changes');
 
             log('--- history.replaceState rewrite ---');
             history.replaceState(null, '', '#/3');
             assertEqual(window.location.hash, '#/3', 'replaceState rewrites compat hash');
-            assertContains(document.URL, '#:/3', 'replaceState stores compat hash in canonical URL');
+            assertContains(window.address.href, '#:/3', 'replaceState stores compat hash in canonical address');
 
             history.replaceState(null, '', window.location.pathname + window.location.search);
             assertEqual(window.location.hash, '', 'pathname + search replaceState clears compat hash');
             assertEqual(window.location.search, '?receiver=1&tag=a&tag=b', 'pathname + search replaceState keeps search');
-            assertContains(document.URL, 'receiver:1', 'pathname + search replaceState keeps jsonqa search');
-            assertContains(document.URL, 'tag:[a,b]', 'pathname + search replaceState keeps jsonqa array');
+            assertContains(window.address.href, 'receiver:1', 'pathname + search replaceState keeps jsonqa search');
+            assertContains(window.address.href, 'tag:[a,b]', 'pathname + search replaceState keeps jsonqa array');
 
             log('--- strict jsonqa rejection ---');
             let err = null;

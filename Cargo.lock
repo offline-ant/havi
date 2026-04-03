@@ -8187,7 +8187,9 @@ version = "0.0.1"
 dependencies = [
  "encoding_rs",
  "hppr-packet",
+ "jsonqa",
  "malloc_size_of_derive",
+ "percent-encoding",
  "serde",
  "serde_json",
  "servo_arc",

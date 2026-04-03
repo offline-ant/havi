@@ -169,11 +169,20 @@
         assert(window.address !== null, 'window.address exists');
         assert(window.address !== undefined, 'window.address is defined');
         assertEqual(window.address.scheme, 'hppr', 'window.address.scheme is hppr');
-        assertEqual(window.address.group, 'urctest', 'window.address.group matches test group');
+        assertEqual(window.address.group, '~urctest', 'window.address.group matches test group');
         assertEqual(window.address.app, 'testapp', 'window.address.app matches test app');
         assertEqual(window.address.location, 'urc.html', 'window.address.location matches file');
         assertContains(window.address.href, 'hppr://', 'window.address.href contains scheme');
         assertContains(window.address.href, 'urctest', 'window.address.href contains group');
+
+        log('--- document identity tests ---');
+        assertEqual(document.URL, 'hppr://~urctest/testapp/urc.html', 'document.URL projects legacy document URL');
+        assert(document.packet !== null, 'document.packet exists for hppr document');
+        assertEqual(
+            document.URC,
+            '//~urctest/testapp/urc.html/|/seal/' + document.packet.sealBy + '/' + document.packet.tai + '/' + document.packet.hash,
+            'document.URC exposes exact sealed packet identity'
+        );
     }
 
     // Auto-run suite

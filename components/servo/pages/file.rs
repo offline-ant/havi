@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use servo_url::BrowserUrl;
+
 use crate::PageResponse;
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
@@ -59,27 +61,12 @@ pub async fn handle_request(
 
 /// Parse a file path from a file:// URL, handling percent-decoding.
 fn parse_file_path(url: &str) -> Result<String, String> {
-    let raw = url
-        .strip_prefix("file://")
-        .ok_or_else(|| format!("not a file:// URL: {}", url))?;
-
-    // file:///path/to/file → /path/to/file
-    // file://localhost/path → /path
-    let path_part = if let Some(rest) = raw.strip_prefix("localhost") {
-        rest
-    } else {
-        raw
-    };
-
-    let decoded = percent_encoding::percent_decode_str(path_part)
-        .decode_utf8()
-        .map_err(|e| format!("invalid UTF-8 in path: {}", e))?;
-
-    if decoded.is_empty() {
-        return Ok("/".to_string());
-    }
-
-    Ok(decoded.into_owned())
+    let parsed = BrowserUrl::parse(url)
+        .map_err(|e| format!("invalid file URL: {}", e))?;
+    let path = parsed
+        .to_file_path()
+        .map_err(|_| format!("not a file:// URL: {}", url))?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// Render a file's content as a PageResponse.

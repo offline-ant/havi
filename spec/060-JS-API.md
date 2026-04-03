@@ -7,7 +7,7 @@ HAVI exposes HPPR APIs on `window`.
 
 ## Window globals
 
-- `window.address`: current HPPR address object
+- `window.address`: current exact HAVI address object
 - `window.home`: home repo client (always available)
 - `window.route`: route repo client (nullable)
 - `window.resolve(input)`: browser-owned document source resolver
@@ -224,6 +224,15 @@ HTML attributes use standard RFC 3986 resolution (href mode).
 For `hppr://` documents, `document.packet` returns the source `HpprPacket`.
 For non-HPPR pages, it returns `null`.
 
+`document.URC` is the exact HPPR packet identity surface.
+When the loaded packet is a Plex or Seal with coordinate identity, it returns the
+full exact versioned coordinate including hash. For packetless pages, helper
+schemes, file pages, and Blob-only pages it returns `null`.
+
+`document.URL` is a legacy projected document URL. It warns on first access.
+For HPPR-backed documents it strips `/|/...` exact selectors and JSONqa state.
+For file documents it returns the stripped file URL without JSONqa view state.
+
 Loaded HPPR documents also carry browser metadata for the resolved content
 signer.
 For app-content URLs this metadata comes from `Content-Authority`.
@@ -254,13 +263,21 @@ values, not HPPR core via syntax.
 `window.address` is the exact HAVI address API.
 Setting `window.address = url` or `window.address.href = url` navigates
 (`PutForwards=href`).
-Setting `scheme`, `endpoint`, `group`, `app`, or `location` recomputes the full
-URL and navigates.
+On HPPR pages it exposes scheme, endpoint, coordinate fields, JSONqa, and
+fragment. On file pages it exposes a dedicated file-address shape:
+
+- `scheme`
+- `href`
+- `pathname`
+- `qa`
+- `fragment`
+- `isListing`
 
 HAVI also installs a `window.location` and `document.location` compatibility
 shim on `hppr://` and `file://` pages.
 The shim logs a warning on first use and projects common web fields onto HAVI
-state:
+state. It derives compatibility state from `window.address`, not from
+`document.URL`:
 
 - `hash` maps to JSONqa fragment (`{#:...}`)
 - `search` maps to projected top-level JSONqa key/value pairs

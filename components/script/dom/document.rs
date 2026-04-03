@@ -956,6 +956,7 @@ impl Document {
 
     pub(crate) fn set_url(&self, url: BrowserUrl) {
         *self.url.borrow_mut() = url;
+        self.window.invalidate_address();
     }
 
     pub(crate) fn about_base_url(&self) -> Option<BrowserUrl> {

@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="urc"
-TEST_GROUP="urctest"
+TEST_GROUP="~urctest"
 TEST_APP="testapp"
 
 start_server

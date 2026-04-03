@@ -12,6 +12,8 @@
     var nativeHistoryPushState = window.__haviNativeHistoryPushState || null;
     var warned = false;
     var compatLocation = null;
+    var compatHistoryHref = null;
+    var compatHistoryHash = null;
 
     if (!nativeWindowLocationDesc) {
         try { nativeWindowLocationDesc = Object.getOwnPropertyDescriptor(window, 'location'); } catch (e) {}
@@ -73,9 +75,17 @@
     }
 
     function currentSchemeName() {
-        var url = String(document.URL || '');
-        var colon = url.indexOf(':');
-        return colon >= 0 ? url.slice(0, colon).toLowerCase() : '';
+        var href = '';
+        try {
+            if (window.address && typeof window.address.href === 'string') {
+                href = String(window.address.href);
+            }
+        } catch (e) {}
+        if (!href) {
+            href = String((window.__haviNativeLocation && window.__haviNativeLocation.href) || '');
+        }
+        var colon = href.indexOf(':');
+        return colon >= 0 ? href.slice(0, colon).toLowerCase() : '';
     }
 
     function isHpprPage() {
@@ -125,8 +135,11 @@
         var addr;
         var qa;
         try {
-            addr = new Address(String(document.URL || ''));
+            addr = window.address;
         } catch (e) {
+            return null;
+        }
+        if (!addr) {
             return null;
         }
         qa = cloneQaValue(addr.qa);
@@ -466,6 +479,41 @@
         window.dispatchEvent(event);
     }
 
+    function currentCompatHistoryState() {
+        if (isHpprPage()) {
+            var hppr = requireHpprState();
+            return {
+                href: buildCompatHpprHref(hppr),
+                hash: projectedHash(hppr.qa)
+            };
+        }
+        if (isFilePage()) {
+            var file = requireFileState();
+            return {
+                href: file.href,
+                hash: file.hash || ''
+            };
+        }
+        return null;
+    }
+
+    function syncCompatHistoryState() {
+        var state = currentCompatHistoryState();
+        compatHistoryHref = state ? state.href : null;
+        compatHistoryHash = state ? state.hash : null;
+    }
+
+    function dispatchCompatTraversalHashChange() {
+        var current = currentCompatHistoryState();
+        var oldHref = compatHistoryHref;
+        var oldHash = compatHistoryHash;
+        compatHistoryHref = current ? current.href : null;
+        compatHistoryHash = current ? current.hash : null;
+        if (current && oldHref !== null && oldHash !== current.hash) {
+            dispatchCompatHashChange(oldHref, current.href);
+        }
+    }
+
     function commitHpprSameDocument(result, replaceHistory, dispatchHash) {
         if (!result || result.external) {
             return;
@@ -473,7 +521,7 @@
         if (!result.sameDocument) {
             return;
         }
-        if (String(document.URL || '') === result.canonicalHref) {
+        if (window.address && String(window.address.href || '') === result.canonicalHref) {
             return;
         }
         if (replaceHistory) {
@@ -481,6 +529,8 @@
         } else {
             nativeHistoryPushState(null, '', result.canonicalHref);
         }
+        window.__haviCurrentExactHref = result.canonicalHref;
+        syncCompatHistoryState();
         if (dispatchHash && result.hashChanged) {
             dispatchCompatHashChange(buildCompatHpprHref(result.current), result.compatHref);
         }
@@ -723,7 +773,7 @@
                 return;
             }
             if (window.address) {
-                window.address.href = String(document.URL || '');
+                window.address.href = String(window.address.href || '');
                 return;
             }
             throw new TypeError('HAVI location compatibility cannot reload without window.address');
@@ -744,32 +794,29 @@
     }
 
     function currentFileState() {
+        var addr;
         var resolved;
-        var href = String(document.URL || '');
-        var pathname;
+        var qa;
         try {
-            resolved = new URL(href);
+            addr = window.address;
+            resolved = new URL(String(addr.href || ''));
         } catch (e) {
             return null;
         }
-        pathname = resolved.pathname || '/';
+        qa = ((window.__haviCloneQa || cloneQa)(addr.qa)) || {};
         return {
-            href: resolved.href,
+            href: String(addr.href || ''),
             protocol: 'file:',
             host: '',
             hostname: '',
             port: '',
             origin: 'file://',
-            pathname: pathname,
-            search: resolved.search || '',
-            hash: resolved.hash || '',
-            fakeAddress: {
-                scheme: 'file',
-                group: '#',
-                app: '#',
-                location: pathname.replace(/^\/+/, ''),
-                isListing: /\/$/.test(pathname)
-            }
+            pathname: String(addr.pathname || resolved.pathname || '/'),
+            search: projectedSearch(qa),
+            hash: projectedHash(qa),
+            qa: qa,
+            fragment: addr.fragment == null ? null : String(addr.fragment),
+            isListing: !!addr.isListing
         };
     }
 
@@ -784,8 +831,12 @@
     function resolveCompatFileTarget(input) {
         var current = requireFileState();
         var resolved;
+        var baseHref = current.href;
+        if (typeof window.__haviNormalizeFileAddressHref === 'function') {
+            baseHref = window.__haviNormalizeFileAddressHref('', current.href);
+        }
         try {
-            resolved = new URL(String(input), current.href);
+            resolved = new URL(String(input), baseHref);
         } catch (e) {
             throw new TypeError('Invalid file compatibility URL: ' + input);
         }
@@ -829,6 +880,8 @@
         } else {
             nativeHistoryPushState(null, '', newHref);
         }
+        window.__haviCurrentExactHref = newHref;
+        syncCompatHistoryState();
         if (dispatchHash && result.hashChanged) {
             dispatchCompatHashChange(oldHref, newHref);
         }
@@ -971,6 +1024,32 @@
         return result.canonicalHref;
     }
 
+    function rewriteFileHistoryUrl(url) {
+        var current;
+        var exactBase;
+        var qa;
+        if (url === undefined || url === null || typeof url !== 'string') {
+            return url;
+        }
+        warnOnce();
+        current = requireFileState();
+        exactBase = (window.__haviSplitJsonqa ? window.__haviSplitJsonqa(current.href) : [current.href, ''])[0];
+        if (!/[{}]/.test(url)) {
+            if (url.charAt(0) === '#') {
+                qa = applyProjectedSearchAndHash(current.qa, current.search, url);
+                return exactBase + (window.__haviFileQaSuffix ? window.__haviFileQaSuffix(qa) : '');
+            }
+            if (url.charAt(0) === '?') {
+                qa = applyProjectedSearchAndHash(current.qa, url, current.hash);
+                return exactBase + (window.__haviFileQaSuffix ? window.__haviFileQaSuffix(qa) : '');
+            }
+        }
+        if (typeof window.__haviNormalizeFileAddressHref === 'function') {
+            return window.__haviNormalizeFileAddressHref(url, current.href);
+        }
+        return url;
+    }
+
     function patchHistory() {
         var replaceImpl = nativeHistoryReplaceState;
         var pushImpl = nativeHistoryPushState;
@@ -989,6 +1068,29 @@
                         return nativeHistoryPushState(state, title, url);
                     }
                     return nativeHistoryPushState(state, title, rewriteHpprHistoryUrl(url));
+                };
+            }
+        } else if (isFilePage()) {
+            if (nativeHistoryReplaceState) {
+                replaceImpl = function(state, title, url) {
+                    var rewritten;
+                    if (arguments.length < 3 || url === undefined || url === null || url === '') {
+                        return nativeHistoryReplaceState(state, title, url);
+                    }
+                    rewritten = rewriteFileHistoryUrl(url);
+                    window.__haviCurrentExactHref = rewritten;
+                    return nativeHistoryReplaceState(state, title, rewritten);
+                };
+            }
+            if (nativeHistoryPushState) {
+                pushImpl = function(state, title, url) {
+                    var rewritten;
+                    if (arguments.length < 3 || url === undefined || url === null || url === '') {
+                        return nativeHistoryPushState(state, title, url);
+                    }
+                    rewritten = rewriteFileHistoryUrl(url);
+                    window.__haviCurrentExactHref = rewritten;
+                    return nativeHistoryPushState(state, title, rewritten);
                 };
             }
         }
@@ -1012,6 +1114,15 @@
                 });
             } catch (e2) {}
         }
+        if (!window.__haviCompatPopstateHooked) {
+            window.__haviCompatPopstateHooked = true;
+            try {
+                window.addEventListener('popstate', function() {
+                    dispatchCompatTraversalHashChange();
+                });
+            } catch (e3) {}
+        }
+        syncCompatHistoryState();
     }
 
     function ensureCompatLocation() {

@@ -20,7 +20,9 @@ use std::path::Path;
 use std::str::FromStr;
 
 use hppr_packet::urc::URC;
+use jsonqa::{Qa, QaValue};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
+use percent_encoding::percent_decode_str;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use servo_arc::Arc;
@@ -85,6 +87,13 @@ pub struct HpprUrlData {
     jsonqa: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct FileDocumentUrlData {
+    raw: String,
+    document_url: Url,
+    jsonqa: String,
+}
+
 impl HpprUrlData {
     /// Parse an HPPR URL string into data.
     fn parse(input: &str) -> Result<Self, url::ParseError> {
@@ -110,6 +119,48 @@ impl HpprUrlData {
     }
 
     /// The JSONqa suffix (including braces), or empty.
+    pub fn jsonqa(&self) -> &str {
+        &self.jsonqa
+    }
+}
+
+impl FileDocumentUrlData {
+    fn parse(input: &str) -> Result<Self, url::ParseError> {
+        let (url_part, jsonqa_part) = split_jsonqa(input);
+        let decoded_jsonqa = decode_jsonqa_suffix(jsonqa_part)?;
+        let parsed = Url::parse(url_part)?;
+        if parsed.scheme() != "file" {
+            return Err(url::ParseError::RelativeUrlWithoutBase);
+        }
+        if !decoded_jsonqa.is_empty() && (parsed.query().is_some() || parsed.fragment().is_some()) {
+            return Err(url::ParseError::InvalidDomainCharacter);
+        }
+
+        let mut document_url = parsed.clone();
+        document_url.set_query(None);
+        document_url.set_fragment(None);
+
+        let jsonqa = if decoded_jsonqa.is_empty() {
+            qa_from_query_and_fragment(parsed.query(), parsed.fragment())?
+        } else {
+            decoded_jsonqa
+        };
+
+        Ok(Self {
+            raw: format!("{}{}", document_url.as_str(), jsonqa),
+            document_url,
+            jsonqa,
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.raw
+    }
+
+    pub fn document_url(&self) -> &Url {
+        &self.document_url
+    }
+
     pub fn jsonqa(&self) -> &str {
         &self.jsonqa
     }
@@ -146,6 +197,37 @@ impl MallocSizeOf for HpprUrlData {
     }
 }
 
+impl PartialEq for FileDocumentUrlData {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+impl Eq for FileDocumentUrlData {}
+
+impl Hash for FileDocumentUrlData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+impl PartialOrd for FileDocumentUrlData {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FileDocumentUrlData {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.raw.cmp(&other.raw)
+    }
+}
+
+impl MallocSizeOf for FileDocumentUrlData {
+    fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize {
+        self.raw.len() + self.jsonqa.len()
+    }
+}
+
 // ── BrowserUrl ───────────────────────────────────────────────────────
 
 /// URL type for the HAVI browser.
@@ -154,23 +236,28 @@ impl MallocSizeOf for HpprUrlData {
 /// UTF-8 strings without percent-encoding damage. Web URLs wrap `url::Url`.
 #[derive(Clone)]
 pub enum BrowserUrl {
-    /// Standard web URL (http, https, about, data, file, etc.).
+    /// Standard web URL (http, https, about, data, etc.).
     Web(#[allow(unused)] Arc<Url>),
     /// HPPR-family URL (hppr, hppr-sandbox, hppr-setup, hppr-browse, hppr-editor, hppr-join, havi).
     Hppr(Arc<HpprUrlData>),
+    /// Top-level file document URL with exact HAVI JSONqa state separated from load identity.
+    FileDocument(Arc<FileDocumentUrlData>),
 }
 
 
 
 impl BrowserUrl {
     pub fn from_url(url: Url) -> Self {
-        // Detect HPPR URLs coming through the Url path and convert them.
         let scheme = url.scheme();
         if scheme == "hppr" || scheme.starts_with("hppr-") {
-            // Percent-decode JSONqa characters that were encoded to survive Url::parse.
             let decoded = hppr::percent_decode_jsonqa(url.as_str());
             if let Ok(data) = HpprUrlData::parse(&decoded) {
                 return BrowserUrl::Hppr(Arc::new(data));
+            }
+        }
+        if scheme == "file" {
+            if let Ok(data) = FileDocumentUrlData::parse(url.as_str()) {
+                return BrowserUrl::FileDocument(Arc::new(data));
             }
         }
         BrowserUrl::Web(Arc::new(url))
@@ -179,6 +266,12 @@ impl BrowserUrl {
     pub fn parse_with_base(base: Option<&Self>, input: &str) -> Result<Self, url::ParseError> {
         if is_hppr_input(input) {
             return HpprUrlData::parse(input).map(|d| BrowserUrl::Hppr(Arc::new(d)));
+        }
+        if input.starts_with("file:") {
+            return FileDocumentUrlData::parse(input).map(|d| BrowserUrl::FileDocument(Arc::new(d)));
+        }
+        if matches!(base, Some(BrowserUrl::FileDocument(_))) {
+            return base.expect("checked Some").join(input);
         }
         let base_url: Option<&Url> = base.and_then(|b| b.as_web_url());
         Url::options()
@@ -191,6 +284,7 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => String::from((*u).clone()),
             BrowserUrl::Hppr(d) => d.raw.clone(),
+            BrowserUrl::FileDocument(d) => d.raw.clone(),
         }
     }
 
@@ -198,11 +292,10 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => (*u).clone(),
             BrowserUrl::Hppr(d) => {
-                // Construct a Url for HTTP-only code paths.
-                // Percent-encodes JSONqa characters to survive Url::parse.
                 let encoded = encode_for_url_parse(&d.raw);
                 Url::parse(&encoded).expect("BrowserUrl::Hppr should round-trip through Url")
             },
+            BrowserUrl::FileDocument(d) => d.document_url.clone(),
         }
     }
 
@@ -213,12 +306,14 @@ impl BrowserUrl {
                 let encoded = encode_for_url_parse(&d.raw);
                 Arc::new(Url::parse(&encoded).expect("BrowserUrl::Hppr should round-trip"))
             },
+            BrowserUrl::FileDocument(d) => Arc::new(d.document_url.clone()),
         }
     }
 
     pub fn as_url(&self) -> &Url {
         match self {
             BrowserUrl::Web(u) => u,
+            BrowserUrl::FileDocument(d) => &d.document_url,
             BrowserUrl::Hppr(_) => panic!("as_url() called on HPPR URL — use BrowserUrl methods"),
         }
     }
@@ -227,6 +322,7 @@ impl BrowserUrl {
     pub fn as_web_url(&self) -> Option<&Url> {
         match self {
             BrowserUrl::Web(u) => Some(u),
+            BrowserUrl::FileDocument(d) => Some(&d.document_url),
             BrowserUrl::Hppr(_) => None,
         }
     }
@@ -235,7 +331,7 @@ impl BrowserUrl {
     pub fn as_hppr(&self) -> Option<&HpprUrlData> {
         match self {
             BrowserUrl::Hppr(d) => Some(d),
-            BrowserUrl::Web(_) => None,
+            BrowserUrl::Web(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
@@ -243,35 +339,38 @@ impl BrowserUrl {
         if is_hppr_input(input) {
             return HpprUrlData::parse(input).map(|d| BrowserUrl::Hppr(Arc::new(d)));
         }
+        if input.starts_with("file:") {
+            return FileDocumentUrlData::parse(input).map(|d| BrowserUrl::FileDocument(Arc::new(d)));
+        }
         Url::parse(input).map(Self::from_url)
     }
 
     pub fn cannot_be_a_base(&self) -> bool {
         match self {
             BrowserUrl::Web(u) => u.cannot_be_a_base(),
-            BrowserUrl::Hppr(_) => false,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => false,
         }
     }
 
     pub fn domain(&self) -> Option<&str> {
         match self {
             BrowserUrl::Web(u) => u.domain(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn fragment(&self) -> Option<&str> {
         match self {
             BrowserUrl::Web(u) => u.fragment(),
-            BrowserUrl::Hppr(_) => None, // HPPR uses JSONqa, not fragments
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn path(&self) -> &str {
         match self {
             BrowserUrl::Web(u) => u.path(),
+            BrowserUrl::FileDocument(d) => d.document_url.path(),
             BrowserUrl::Hppr(d) => {
-                // Return the URC portion as the "path" for compatibility.
                 let s = d.address.urc().as_ref();
                 if s.starts_with("//") { s } else { "" }
             },
@@ -284,11 +383,8 @@ impl BrowserUrl {
                 hppr_origin_for_address(&d.address)
                     .unwrap_or_else(|| ImmutableOrigin::new_opaque())
             },
-            BrowserUrl::Web(u) => {
-                // Check if this is an HPPR URL that came through the Web variant
-                // (shouldn't happen with proper construction, but defensive)
-                ImmutableOrigin::new(u.origin())
-            },
+            BrowserUrl::Web(u) => ImmutableOrigin::new(u.origin()),
+            BrowserUrl::FileDocument(d) => ImmutableOrigin::new(d.document_url.origin()),
         }
     }
 
@@ -296,6 +392,7 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => u.scheme(),
             BrowserUrl::Hppr(d) => d.address.scheme().prefix().trim_end_matches(':'),
+            BrowserUrl::FileDocument(_) => "file",
         }
     }
 
@@ -324,13 +421,9 @@ impl BrowserUrl {
     /// <https://url.spec.whatwg.org/#url-equivalence>
     pub fn is_equal_excluding_fragments(&self, other: &BrowserUrl) -> bool {
         match (self, other) {
-            (BrowserUrl::Web(a), BrowserUrl::Web(b)) => {
-                a[..Position::AfterQuery] == b[..Position::AfterQuery]
-            },
-            (BrowserUrl::Hppr(a), BrowserUrl::Hppr(b)) => {
-                // For HPPR, compare everything (no fragment concept)
-                a.raw == b.raw
-            },
+            (BrowserUrl::Web(a), BrowserUrl::Web(b)) => a[..Position::AfterQuery] == b[..Position::AfterQuery],
+            (BrowserUrl::Hppr(a), BrowserUrl::Hppr(b)) => a.raw == b.raw,
+            (BrowserUrl::FileDocument(a), BrowserUrl::FileDocument(b)) => a.raw == b.raw,
             _ => false,
         }
     }
@@ -339,14 +432,16 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => u.as_str(),
             BrowserUrl::Hppr(d) => &d.raw,
+            BrowserUrl::FileDocument(d) => &d.raw,
         }
     }
 
     pub fn as_mut_url(&mut self) -> &mut Url {
         match self {
             BrowserUrl::Web(u) => Arc::make_mut(u),
+            BrowserUrl::FileDocument(d) => &mut Arc::make_mut(d).document_url,
             BrowserUrl::Hppr(_) => {
-                panic!("as_mut_url() called on HPPR URL — only valid for web URLs")
+                panic!("as_mut_url() called on HPPR URL — only valid for mutable standard URLs")
             },
         }
     }
@@ -376,20 +471,21 @@ impl BrowserUrl {
     pub fn username(&self) -> &str {
         match self {
             BrowserUrl::Web(u) => u.username(),
-            BrowserUrl::Hppr(_) => "",
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => "",
         }
     }
 
     pub fn password(&self) -> Option<&str> {
         match self {
             BrowserUrl::Web(u) => u.password(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn to_file_path(&self) -> Result<::std::path::PathBuf, UrlError> {
         match self {
             BrowserUrl::Web(u) => u.to_file_path().map_err(|_| UrlError::ToFilePath),
+            BrowserUrl::FileDocument(d) => d.document_url.to_file_path().map_err(|_| UrlError::ToFilePath),
             BrowserUrl::Hppr(_) => Err(UrlError::ToFilePath),
         }
     }
@@ -397,37 +493,37 @@ impl BrowserUrl {
     pub fn host(&self) -> Option<url::Host<&str>> {
         match self {
             BrowserUrl::Web(u) => u.host(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn host_str(&self) -> Option<&str> {
         match self {
             BrowserUrl::Web(u) => u.host_str(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn port(&self) -> Option<u16> {
         match self {
             BrowserUrl::Web(u) => u.port(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn port_or_known_default(&self) -> Option<u16> {
         match self {
             BrowserUrl::Web(u) => u.port_or_known_default(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
     pub fn join(&self, input: &str) -> Result<BrowserUrl, url::ParseError> {
         match self {
             BrowserUrl::Hppr(d) => self.join_hppr(input, &d.address),
+            BrowserUrl::FileDocument(d) => join_file_document(d, input),
             BrowserUrl::Web(_) => {
-                // Check if the input itself is HPPR
-                if is_hppr_input(input) {
+                if is_hppr_input(input) || input.starts_with("file:") {
                     return BrowserUrl::parse(input);
                 }
                 match self {
@@ -528,12 +624,14 @@ impl BrowserUrl {
                 let encoded = encode_for_url_parse(&d.raw);
                 Url::parse(&encoded).unwrap()
             },
+            BrowserUrl::FileDocument(d) => d.document_url.clone(),
         }
     }
 
     pub fn path_segments(&self) -> Option<::std::str::Split<'_, char>> {
         match self {
             BrowserUrl::Web(u) => u.path_segments(),
+            BrowserUrl::FileDocument(d) => d.document_url.path_segments(),
             BrowserUrl::Hppr(_) => None,
         }
     }
@@ -541,7 +639,7 @@ impl BrowserUrl {
     pub fn query(&self) -> Option<&str> {
         match self {
             BrowserUrl::Web(u) => u.query(),
-            BrowserUrl::Hppr(_) => None,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => None,
         }
     }
 
@@ -577,6 +675,15 @@ impl BrowserUrl {
                 s
             },
             BrowserUrl::Hppr(d) => d.raw.as_str(),
+            BrowserUrl::FileDocument(d) => {
+                let path = d.document_url.path();
+                let i = path.rfind('/');
+                let i = i.map(|i| path[..i].rfind('/').unwrap_or(i));
+                match i {
+                    None | Some(0) => path,
+                    Some(i) => &path[i + 1..],
+                }
+            },
         }
     }
 
@@ -594,7 +701,7 @@ impl BrowserUrl {
     /// <https://html.spec.whatwg.org/multipage/#matches-about:blank>
     pub fn matches_about_blank(&self) -> bool {
         match self {
-            BrowserUrl::Hppr(_) => false,
+            BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_) => false,
             BrowserUrl::Web(u) => {
                 u.scheme() == "about" &&
                     u.path() == "blank" &&
@@ -613,6 +720,7 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => &u[..Position::AfterQuery],
             BrowserUrl::Hppr(d) => &d.raw,
+            BrowserUrl::FileDocument(d) => &d.raw,
         }
     }
 
@@ -622,6 +730,7 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => &u[Position::BeforeFragment..],
             BrowserUrl::Hppr(d) => &d.raw,
+            BrowserUrl::FileDocument(d) => &d.raw,
         }
     }
 
@@ -634,6 +743,7 @@ impl BrowserUrl {
                 let prefix = d.address.scheme().prefix();
                 &d.raw[prefix.len()..]
             },
+            BrowserUrl::FileDocument(d) => &d.raw[5..],
         }
     }
 
@@ -642,10 +752,10 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => &u[url::Position::BeforeHost..],
             BrowserUrl::Hppr(d) => {
-                // For HPPR: strip scheme prefix to get `//group/app/loc{jsonqa}`
                 let prefix = d.address.scheme().prefix();
                 &d.raw[prefix.len()..]
             },
+            BrowserUrl::FileDocument(d) => &d.raw[5..],
         }
     }
 
@@ -654,6 +764,7 @@ impl BrowserUrl {
         match self {
             BrowserUrl::Web(u) => &u[Position::AfterPath..],
             BrowserUrl::Hppr(d) => &d.jsonqa,
+            BrowserUrl::FileDocument(d) => &d.jsonqa,
         }
     }
 
@@ -668,6 +779,7 @@ impl fmt::Display for BrowserUrl {
         match self {
             BrowserUrl::Web(u) => u.fmt(formatter),
             BrowserUrl::Hppr(d) => d.raw.fmt(formatter),
+            BrowserUrl::FileDocument(d) => d.raw.fmt(formatter),
         }
     }
 }
@@ -746,6 +858,7 @@ impl MallocSizeOf for BrowserUrl {
         match self {
             BrowserUrl::Web(u) => u.size_of(ops),
             BrowserUrl::Hppr(d) => d.size_of(ops),
+            BrowserUrl::FileDocument(d) => d.size_of(ops),
         }
     }
 }
@@ -788,12 +901,16 @@ impl From<Url> for BrowserUrl {
 
 impl From<Arc<Url>> for BrowserUrl {
     fn from(url: Arc<Url>) -> Self {
-        // Check if this is an HPPR URL
         let scheme = url.scheme();
         if scheme == "hppr" || scheme.starts_with("hppr-") {
             let decoded = hppr::percent_decode_jsonqa(url.as_str());
             if let Ok(data) = HpprUrlData::parse(&decoded) {
                 return BrowserUrl::Hppr(Arc::new(data));
+            }
+        }
+        if scheme == "file" {
+            if let Ok(data) = FileDocumentUrlData::parse(url.as_str()) {
+                return BrowserUrl::FileDocument(Arc::new(data));
             }
         }
         BrowserUrl::Web(url)
@@ -842,6 +959,94 @@ fn encode_for_url_parse(input: &str) -> String {
         }
     }
     out
+}
+
+fn decode_jsonqa_suffix(input: &str) -> Result<String, url::ParseError> {
+    if input.is_empty() {
+        return Ok(String::new());
+    }
+    let decoded = percent_decode_str(input)
+        .decode_utf8()
+        .map_err(|_| url::ParseError::InvalidDomainCharacter)?
+        .into_owned();
+    let qa = Qa::parse(&decoded).map_err(|_| url::ParseError::InvalidDomainCharacter)?;
+    Ok(qa.to_string())
+}
+
+fn format_qa_atom(text: &str) -> String {
+    if text.is_empty() || text.chars().any(|c| c.is_whitespace() || matches!(c, '{' | '}' | '[' | ']' | ',' | ':' | '\\' | '"' | '\'')) {
+        format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        text.to_string()
+    }
+}
+
+fn format_qa_value(value: &QaValue) -> String {
+    match value {
+        QaValue::String(text) => format_qa_atom(text),
+        QaValue::Array(items) => {
+            let inner = items.iter().map(format_qa_value).collect::<Vec<_>>().join(",");
+            format!("[{inner}]")
+        },
+        QaValue::Object(entries) => {
+            let inner = entries
+                .iter()
+                .map(|(key, value)| format!("{}:{}", format_qa_atom(key), format_qa_value(value)))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{{{inner}}}")
+        },
+    }
+}
+
+fn qa_from_query_and_fragment(query: Option<&str>, fragment: Option<&str>) -> Result<String, url::ParseError> {
+    let mut entries: Vec<(String, Vec<String>)> = Vec::new();
+    if let Some(query) = query {
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            if let Some((_, values)) = entries.iter_mut().find(|(existing, _)| existing == &key) {
+                values.push(value.into_owned());
+            } else {
+                entries.push((key.into_owned(), vec![value.into_owned()]));
+            }
+        }
+    }
+
+    let mut parts = Vec::new();
+    for (key, values) in entries {
+        let value = if values.len() == 1 {
+            QaValue::String(values.into_iter().next().unwrap())
+        } else {
+            QaValue::Array(values.into_iter().map(QaValue::String).collect())
+        };
+        parts.push(format!("{}:{}", format_qa_atom(&key), format_qa_value(&value)));
+    }
+    if let Some(fragment) = fragment.filter(|fragment| !fragment.is_empty()) {
+        parts.push(format!("#:{}", format_qa_atom(fragment)));
+    }
+    if parts.is_empty() {
+        return Ok(String::new());
+    }
+    let qa = format!("{{{}}}", parts.join(","));
+    let qa = Qa::parse(&qa).map_err(|_| url::ParseError::InvalidDomainCharacter)?;
+    Ok(qa.to_string())
+}
+
+fn join_file_document(base: &FileDocumentUrlData, input: &str) -> Result<BrowserUrl, url::ParseError> {
+    if input.starts_with("file:") {
+        return BrowserUrl::parse(input);
+    }
+    let (path_input, jsonqa_input) = split_jsonqa(input);
+    let resolved = if path_input.is_empty() {
+        base.document_url.clone()
+    } else {
+        Url::options().base_url(Some(&base.document_url)).parse(path_input)?
+    };
+    let merged = if jsonqa_input.is_empty() {
+        resolved.to_string()
+    } else {
+        format!("{}{}", resolved.as_str(), jsonqa_input)
+    };
+    FileDocumentUrlData::parse(&merged).map(|d| BrowserUrl::FileDocument(Arc::new(d)))
 }
 
 #[cfg(test)]
@@ -1278,5 +1483,48 @@ mod tests {
         let base = BrowserUrl::parse("https://example.com/dir/page.html").unwrap();
         let result = BrowserUrl::parse_with_base(Some(&base), "style.css").unwrap();
         assert_eq!(result.as_str(), "https://example.com/dir/style.css");
+    }
+
+    #[test]
+    fn parse_file_native_fragment_normalizes_to_jsonqa() {
+        let url = BrowserUrl::parse("file:///tmp/example.html#slide-3").unwrap();
+        assert!(matches!(url, BrowserUrl::FileDocument(_)));
+        assert_eq!(url.as_str(), "file:///tmp/example.html{#:slide-3}");
+        assert_eq!(url.path(), "/tmp/example.html");
+        assert!(url.fragment().is_none());
+    }
+
+    #[test]
+    fn parse_file_native_query_and_fragment_normalizes_to_jsonqa() {
+        let url = BrowserUrl::parse("file:///tmp/example.html?page=2&tag=a&tag=b#slide-3").unwrap();
+        assert_eq!(url.as_str(), "file:///tmp/example.html{page:2,tag:[a,b],#:slide-3}");
+        assert_eq!(url.query(), None);
+    }
+
+    #[test]
+    fn parse_file_explicit_jsonqa_preserves_stripped_identity() {
+        let url = BrowserUrl::parse("file:///tmp/example.html{page:2,#:slide-3}").unwrap();
+        assert_eq!(url.as_str(), "file:///tmp/example.html{page:2,#:slide-3}");
+        assert_eq!(url.to_file_path().unwrap(), std::path::PathBuf::from("/tmp/example.html"));
+    }
+
+    #[test]
+    fn parse_file_mixed_native_and_jsonqa_rejected() {
+        assert!(BrowserUrl::parse("file:///tmp/example.html#0{#:1}").is_err());
+        assert!(BrowserUrl::parse("file:///tmp/example.html?x=1{y:2}").is_err());
+    }
+
+    #[test]
+    fn join_file_relative_uses_stripped_base_identity() {
+        let base = BrowserUrl::parse("file:///tmp/slides/index.html{#:2}").unwrap();
+        let result = base.join("./theme.css").unwrap();
+        assert_eq!(result.as_str(), "file:///tmp/slides/theme.css");
+    }
+
+    #[test]
+    fn parse_with_base_file_fragment_normalizes_to_jsonqa() {
+        let base = BrowserUrl::parse("file:///tmp/example.html{page:2}").unwrap();
+        let result = BrowserUrl::parse_with_base(Some(&base), "#slide-3").unwrap();
+        assert_eq!(result.as_str(), "file:///tmp/example.html{#:slide-3}");
     }
 }

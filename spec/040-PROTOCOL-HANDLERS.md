@@ -123,10 +123,18 @@ Local filesystem content rendered as a browser page.
 - `window.route` is `null`
 - `window.ring0` is `null`
 - `document.packet` is `null`
-- disabled web APIs installed the same way as `hppr://`
+- `document.URC` is `null`
+- `document.URL` is the stripped file document URL without JSONqa view state
+- `window.address` is the exact file address surface and preserves canonical
+  `{...}` JSONqa state
 - `window.location` is a compatibility shim, not the native `Location` object
+- legacy native file `?` and `#` input normalize into file JSONqa during
+  navigation; mixed native `?`/`#` with explicit JSONqa is invalid
 - content type from file extension
 - directory paths render HTML listing
+
+Filesystem I/O, origin, and relative-base resolution use the stripped file URL.
+JSONqa never becomes part of the filesystem path.
 
 All `file://` pages share one browser-defined local origin and one browser-defined
 site identity.

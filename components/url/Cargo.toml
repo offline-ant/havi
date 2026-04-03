@@ -18,9 +18,11 @@ serde_json = { workspace = true }
 [dependencies]
 encoding_rs = { workspace = true }
 hppr-packet = { workspace = true }
+jsonqa = { workspace = true }
 malloc_size_of = { workspace = true }
 malloc_size_of_derive = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 servo_arc = { workspace = true }
+percent-encoding = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["serde"] }

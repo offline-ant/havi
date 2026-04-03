@@ -3773,7 +3773,14 @@ impl ScriptThread {
                 .expect("havi_location_compat.js must be valid UTF-8");
             let compat = serde_json::to_string(compat)
                 .expect("havi_location_compat.js must be serializable as a JS string literal");
-            let script = format!("window.__haviLocationCompatSource = {};\n{}", compat, bootstrap);
+            let exact_url = serde_json::to_string(final_url.as_str())
+                .expect("final_url must be serializable as a JS string literal");
+            let script = format!(
+                "window.__haviExactInitialUrl = {};\nwindow.__haviLocationCompatSource = {};\n{}",
+                exact_url,
+                compat,
+                bootstrap
+            );
             let _ = window.as_global_scope().evaluate_js_on_global(
                 cx,
                 script.into(),

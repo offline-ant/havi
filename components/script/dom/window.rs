@@ -514,6 +514,10 @@ impl Window {
         self.exists_mut_observer.set(true);
     }
 
+    pub(crate) fn invalidate_address(&self) {
+        self.address.set(None);
+    }
+
     #[expect(unsafe_code)]
     pub(crate) fn clear_js_runtime_for_script_deallocation(&self) {
         self.as_global_scope()

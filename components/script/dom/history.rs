@@ -34,6 +34,7 @@ use crate::dom::globalscope::GlobalScope;
 use crate::dom::hashchangeevent::HashChangeEvent;
 use crate::dom::popstateevent::PopStateEvent;
 use crate::dom::window::Window;
+use crate::realms::enter_auto_realm;
 use crate::script_runtime::CanGc;
 
 enum PushOrReplace {
@@ -53,6 +54,29 @@ pub(crate) struct History {
 }
 
 impl History {
+    fn sync_exact_havi_href(&self, url: &BrowserUrl) {
+        let scheme = url.scheme();
+        if scheme != "file" && !scheme.starts_with("hppr") {
+            return;
+        }
+        let Ok(exact_url) = serde_json::to_string(url.as_str()) else {
+            return;
+        };
+        #[expect(unsafe_code)]
+        let mut cx = unsafe { js::context::JSContext::from_ptr(js::rust::Runtime::get().unwrap()) };
+        let mut realm = enter_auto_realm(&mut cx, &*self.window);
+        let cx = &mut realm.current_realm();
+        rooted!(&in(cx) let mut rval = UndefinedValue());
+        let script = format!("window.__haviCurrentExactHref = {};", exact_url);
+        let _ = self.window.as_global_scope().evaluate_js_on_global(
+            cx,
+            script.into(),
+            "<havi-history>",
+            None,
+            rval.handle_mut(),
+        );
+    }
+
     pub(crate) fn new_inherited(window: &Window) -> History {
         History {
             reflector_: Reflector::new(),
@@ -95,6 +119,7 @@ impl History {
         let document = self.window.Document();
         let old_url = document.url().clone();
         document.set_url(url.clone());
+        self.sync_exact_havi_href(&url);
 
         // Step 6
         let hash_changed = old_url.fragment() != url.fragment();
