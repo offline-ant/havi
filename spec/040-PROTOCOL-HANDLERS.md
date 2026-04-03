@@ -125,8 +125,9 @@ Local filesystem content rendered as a browser page.
 - `document.packet` is `null`
 - `document.URC` is `null`
 - `document.URL` is the stripped file document URL without JSONqa view state
-- `window.address` is the exact file address surface and preserves canonical
-  `{...}` JSONqa state
+- `document.documentURI` matches `document.URL`
+- `window.address` is the exact native file address surface and preserves
+  canonical `{...}` JSONqa state
 - `window.location` is a compatibility shim, not the native `Location` object
 - legacy native file `?` and `#` input normalize into file JSONqa during
   navigation; mixed native `?`/`#` with explicit JSONqa is invalid
@@ -138,3 +139,21 @@ JSONqa never becomes part of the filesystem path.
 
 All `file://` pages share one browser-defined local origin and one browser-defined
 site identity.
+
+## Helper schemes
+
+Helper documents such as `havi:///overview` are browser-owned pages.
+
+- `window.address` exists natively and exposes the exact helper `href` and
+  `scheme`
+- `window.address.qa` is `null`
+- `document.URL` is the helper document URL
+- `document.documentURI` matches `document.URL`
+- `document.URC` is `null`
+- `document.packet` is `null` unless one real HPPR packet was loaded into that
+  helper page for rendering
+- `window.location` keeps normal platform behavior; the HAVI compatibility shim
+  is only installed on `hppr://` and `file://` pages
+
+Unsupported non-HAVI schemes keep normal platform behavior and do not receive a
+dummy HPPR fallback address surface.

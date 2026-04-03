@@ -37,6 +37,9 @@ const IDL_FILES = [
   "StreamSub.webidl",
   "URC.webidl",
   "Address.webidl",
+  "WindowAddress.webidl",
+  "HpprWindowAddress.webidl",
+  "FileWindowAddress.webidl",
   "HpprResult.webidl",
   "HpprError.webidl",
   "HpprRepoInfo.webidl",
@@ -124,7 +127,7 @@ function emitInterface(def) {
     if (member.type === "const") {
       lines.push(`  readonly ${member.name}: ${mapType(member.idlType)};`);
     } else if (member.type === "attribute") {
-      const qaOverride = (def.name === "URC" || def.name === "Address") && member.name === "qa";
+      const qaOverride = (def.name === "URC" || def.name === "Address" || def.name === "WindowAddress") && member.name === "qa";
       const memberType = qaOverride ? "Qa" : mapType(member.idlType);
       lines.push(`  ${member.readonly ? "readonly " : ""}${member.name}: ${memberType};`);
     } else if (member.type === "operation") {
@@ -202,6 +205,9 @@ const wanted = new Set([
 
   "URC",
   "Address",
+  "WindowAddress",
+  "HpprWindowAddress",
+  "FileWindowAddress",
   "HpprResult",
   "HpprError",
   "HpprRepoInfo",
@@ -227,7 +233,7 @@ for (const def of allDefs) {
 // General hppr:// globals.
 // General hppr:// globals.
 hpprHtml += `interface Window {
-  readonly address: Address;
+  readonly address: WindowAddress | null;
   readonly home: HpprClient;
   readonly route: HpprClient | null;
   readonly packet: HpprPacket | null;
@@ -235,6 +241,9 @@ hpprHtml += `interface Window {
 
 interface Document {
   readonly packet: HpprPacket | null;
+  readonly URC: string | null;
+  readonly URL: string;
+  readonly documentURI: string;
 }
 `;
 

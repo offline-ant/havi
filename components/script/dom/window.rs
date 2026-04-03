@@ -154,9 +154,10 @@ use crate::dom::element::Element;
 use crate::dom::event::{Event, EventBubbles, EventCancelable};
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::fetchlaterresult::FetchLaterResult;
+use crate::dom::filewindowaddress::FileWindowAddress;
 use crate::dom::globalscope::GlobalScope;
-use crate::dom::address::Address;
 use crate::dom::history::History;
+use crate::dom::hpprwindowaddress::HpprWindowAddress;
 use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresolveresult::HpprResolveResult;
@@ -474,8 +475,8 @@ pub(crate) struct Window {
     #[no_trace]
     last_activation_timestamp: Cell<UserActivationTimestamp>,
 
-    /// HPPR: cached Address DOM object for this window
-    address: MutNullableDom<Address>,
+    /// HPPR: cached live exact address DOM object for this window
+    address: MutNullableDom<crate::dom::windowaddress::WindowAddress>,
     /// HPPR: cached home repo HpprClient for `window.home`
     hppr_home: MutNullableDom<HpprClient>,
     /// HPPR: cached route repo HpprClient (Ring2 from document credentials)
@@ -512,10 +513,6 @@ impl Window {
 
     pub(crate) fn set_exists_mut_observer(&self) {
         self.exists_mut_observer.set(true);
-    }
-
-    pub(crate) fn invalidate_address(&self) {
-        self.address.set(None);
     }
 
     #[expect(unsafe_code)]
@@ -1429,12 +1426,25 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
             .or_init(|| Storage::new(self, WebStorageType::Local, CanGc::note()))
     }
 
-    /// Current page's Address (replaces window.location).
-    fn Address(&self) -> DomRoot<Address> {
-        self.address.or_init(|| {
-            let url = self.Document().url().to_string();
-            Address::new_from_url(self.upcast::<GlobalScope>(), &url, CanGc::note())
-        })
+    /// Current page's live exact address surface.
+    fn GetAddress(&self) -> Option<DomRoot<crate::dom::windowaddress::WindowAddress>> {
+        let url = self.Document().url();
+        match url {
+            BrowserUrl::Hppr(_) => Some(self.address.or_init(|| {
+                DomRoot::upcast::<crate::dom::windowaddress::WindowAddress>(
+                    HpprWindowAddress::new(self, CanGc::note()),
+                )
+            })),
+            BrowserUrl::FileDocument(_) => Some(self.address.or_init(|| {
+                DomRoot::upcast::<crate::dom::windowaddress::WindowAddress>(
+                    FileWindowAddress::new(self, CanGc::note()),
+                )
+            })),
+            BrowserUrl::Web(ref web) if web.scheme() == "havi" => {
+                Some(self.address.or_init(|| crate::dom::windowaddress::WindowAddress::new(self, CanGc::note())))
+            },
+            BrowserUrl::Web(_) => None,
+        }
     }
 
     /// HPPR home repo client (ring1 sandbox account).

@@ -11,7 +11,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="address-navigate"
-TEST_GROUP="navtest"
+TEST_GROUP="~navtest"
 TEST_APP="testapp"
 
 start_server

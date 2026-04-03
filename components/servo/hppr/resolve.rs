@@ -19,6 +19,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use hppr_client::{Packet, Signer, ViaSpec, parse_via};
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
+use hppr_packet::urc::UrcMethod;
 use net_traits::{HpprDocumentSource, HpprDocumentSourceSnapshot};
 
 use super::client::{ContentPointerInfo, HpprdClientAsync};
@@ -340,6 +341,24 @@ pub async fn resolve_document_source(
     credential_store: &CredentialStoreHandle,
     reuse: Option<&HpprDocumentSourceSnapshot>,
 ) -> Result<RouteResolvedDocumentSource, HpprResolveError> {
+    if matches!(address.urc().method(), UrcMethod::Hash) {
+        let request = address.urc_string();
+        let mut lookup_trace = embedder_traits::HpprLookupTrace::new(
+            format!("hppr:{}", request),
+            "document",
+        );
+        lookup_trace.push_step("request", Some(request), None, "start", Some("direct hash request".to_string()));
+        return Ok(RouteResolvedDocumentSource {
+            snapshot: HpprDocumentSourceSnapshot {
+                group: String::new(),
+                app: String::new(),
+                source: HpprDocumentSource::Repo,
+            },
+            source: RouteEndpointSource::HomeFallback,
+            lookup_trace,
+        });
+    }
+
     let parts = address.parts();
     let mut lookup_trace = embedder_traits::HpprLookupTrace::new(
         format!("hppr://{}/{}/{}", parts.group, parts.app, address.location_with_slash()),
@@ -531,6 +550,33 @@ fn resolve_access(
     snapshot: &HpprDocumentSourceSnapshot,
     is_listing: bool,
 ) -> Result<ResolvedAccess, String> {
+    if matches!(address.urc().method(), UrcMethod::Hash) {
+        let urc = address.urc_string();
+        if let Some(endpoint) = address.endpoint_string()
+            && endpoint != "repo"
+        {
+            let via = parse_via(&endpoint).map_err(|error| error.to_string())?;
+            let signer = Signer::anyone();
+            let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), signer.clone()));
+            return Ok(ResolvedAccess {
+                endpoint: via,
+                signer: Some(signer),
+                content_authority: seal_authority_from_urc(&urc),
+                is_repo: false,
+                client,
+                urc,
+            });
+        }
+        return Ok(ResolvedAccess {
+            endpoint: repo_client.target(),
+            signer: None,
+            content_authority: seal_authority_from_urc(&urc),
+            is_repo: true,
+            client: repo_client.clone(),
+            urc,
+        });
+    }
+
     let parts = address.parts();
     let requested_location = address.location_with_slash();
 

@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use hppr_client::Signer;
+use hppr_packet::urc::UrcMethod;
 
 use crate::PageResponse;
 use crate::hppr::client::HpprdClientAsync;
@@ -79,7 +80,9 @@ async fn handle_get(
     credential_store: &CredentialStoreHandle,
     reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
 ) -> PageResponse {
-    if group.is_empty() || app.is_empty() {
+    if (group.is_empty() || app.is_empty())
+        && !matches!(HAVIAddress::parse(url).ok().map(|address| address.urc().method()), Some(UrcMethod::Hash))
+    {
         return PageResponse::error(
             "HPPR Error",
             "Group and app are required",
@@ -115,6 +118,16 @@ async fn handle_get(
         .header("Content-Type")
         .unwrap_or("")
         .to_string();
+    let context_group = if group.is_empty() {
+        resolved.packet.header("Group").unwrap_or("").to_string()
+    } else {
+        group.to_string()
+    };
+    let context_app = if app.is_empty() {
+        resolved.packet.header("App").unwrap_or("").to_string()
+    } else {
+        app.to_string()
+    };
     let path = url.split("://").nth(1).unwrap_or("");
     let mime = response_mime(&content_type, path);
 
@@ -134,8 +147,8 @@ async fn handle_get(
         resolved.signer.as_ref(),
         resolved.content_authority.as_deref(),
         Some(&resolved.hppr_source),
-        group,
-        app,
+        &context_group,
+        &context_app,
         client,
         credential_store,
     )

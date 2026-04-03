@@ -15,17 +15,29 @@
   <div id="status">Loading...</div>
   <pre id="results"></pre>
 
-  <!-- Load shared utilities -->
   <script src="test-utils.js"></script>
-
-  <!-- Inline test suite -->
   <script>
     async function suite_direct() {
-        log('--- Content loading tests ---');
+        log('--- content loading tests ---');
         assert(document.packet !== null, 'document.packet exists');
         assertEqual(document.packet.type, 'Seal', 'document.packet is a Seal');
-        assertEqual(document.packet.group, 'directtest', 'document.packet.group is directtest');
+        assertEqual(document.packet.group, '~directtest', 'document.packet.group is ~directtest');
         assertEqual(document.packet.app, 'testapp', 'document.packet.app is testapp');
+
+        log('--- exact vs projected identity ---');
+        assertContains(window.address.href, 'hppr:////S.', 'window.address keeps direct-hash exact address');
+        assertEqual(window.address.scheme, 'hppr', 'window.address.scheme is hppr');
+        assertEqual(window.address.group, null, 'direct-hash window.address.group is null');
+        assertEqual(window.address.app, null, 'direct-hash window.address.app is null');
+        assert(window.address.urc === window.address.urc, 'window.address.urc is SameObject');
+        assertEqual(window.address.urc.method, 'hash', 'window.address.urc stays a hash URC');
+        assertEqual(document.URL, 'hppr://~directtest/testapp/direct.html', 'document.URL projects packet coordinate identity');
+        assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
+        assertEqual(
+            document.URC,
+            '//~directtest/testapp/direct.html/|/seal/' + document.packet.sealBy + '/' + document.packet.tai + '/' + document.packet.hash,
+            'document.URC derives exact versioned coordinate from loaded packet'
+        );
 
         log('--- window.home tests ---');
         assert(window.home !== null, 'window.home exists');
@@ -42,12 +54,9 @@
         assert(window.route === null, 'window.route is null for direct connection (no identity)');
     }
 
-    // Auto-run suite
     (async function() {
       const summary = await window.runTests(suite_direct, 'direct');
-
       window.testResults = summary;
-
       document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
       document.getElementById('status').textContent = summary.failed === 0
         ? 'All tests passed!'

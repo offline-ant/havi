@@ -76,6 +76,33 @@ impl HpprPacket {
         Ok(reflect_dom_object(Box::new(packet), global, can_gc))
     }
 
+    pub(crate) fn projected_document_url(&self) -> Option<String> {
+        let group = self.plex_field(|u| u.group)?;
+        let app = self.plex_field(|u| u.app)?;
+        let location = self.plex_field(|u| u.location)?;
+        Some(format!("hppr://{group}/{app}/{location}"))
+    }
+
+    pub(crate) fn versioned_coordinate(&self) -> Option<String> {
+        let group = self.plex_field(|u| u.group)?;
+        let app = self.plex_field(|u| u.app)?;
+        let location = self.plex_field(|u| u.location)?;
+        let tai = self.plex_field(|u| u.tai.map(|v| v.to_string()))?;
+        let hash = self.packet().pkt_hash().to_string();
+        match self.packet().packet_type() {
+            hppr_packet::PacketType::Seal => {
+                let seal_by = self.packet().unpack().seal_by?;
+                Some(format!(
+                    "//{group}/{app}/{location}/|/seal/{seal_by}/{tai}/{hash}"
+                ))
+            },
+            hppr_packet::PacketType::Plex => {
+                Some(format!("//{group}/{app}/{location}/|/plex/{tai}/{hash}"))
+            },
+            hppr_packet::PacketType::Blob | hppr_packet::PacketType::Null => None,
+        }
+    }
+
     /// Get raw packet bytes.
     pub(crate) fn as_bytes(&self) -> &[u8] {
         self.raw.as_bytes()

@@ -42,31 +42,41 @@
             assertEqual(window.location.search, '', 'initial file search empty');
             assertEqual(window.address.scheme, 'file', 'window.address uses dedicated file variant');
             assertContains(window.address.pathname, 'file-location-compat.html', 'window.address.pathname exposes stripped file path');
-            const strippedHref = href.split('{')[0];
-            assertEqual(document.URL, strippedHref, 'document.URL initially matches stripped file URL');
-            assertContains(warns[1], 'document.URL', 'document.URL warns separately on first access');
+            const strippedHref = document.URL;
+            assertContains(strippedHref, 'file://', 'document.URL returns stripped file URL');
+            assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
             assertEqual(document.URC, null, 'file pages have no document.URC');
+
+            log('--- stored live file address stays stable ---');
+            const liveAddress = window.address;
+            assert(liveAddress === window.address, 'window.address is SameObject before history changes');
 
             log('--- history hash still works under shim ---');
             history.replaceState(null, '', '#file-compat');
+            assert(window.address === liveAddress, 'window.address identity survives replaceState');
             assertEqual(window.location.hash, '#file-compat', 'history.replaceState updates file hash');
             assertContains(window.address.href, '{#:file-compat}', 'exact file address stores compat hash in jsonqa');
+            assertContains(liveAddress.href, '{#:file-compat}', 'stored file address reflects replaceState hash');
             assertEqual(document.URL, strippedHref, 'document.URL stays stripped after view-state changes');
 
             log('--- history traversal keeps exact file address in sync ---');
             history.pushState(null, '', '#file-next');
+            assert(window.address === liveAddress, 'window.address identity survives pushState');
             assertEqual(window.location.hash, '#file-next', 'history.pushState updates compat hash');
             assertContains(window.address.href, '{#:file-next}', 'history.pushState stores next hash in exact address');
+            assertContains(liveAddress.href, '{#:file-next}', 'stored file address reflects pushState hash');
             let pop = waitForEvent(window, 'popstate');
             let hash = waitForEvent(window, 'hashchange');
             history.back();
             await Promise.all([pop, hash]);
+            assert(window.address === liveAddress, 'window.address identity survives history.back');
             assertEqual(window.location.hash, '#file-compat', 'history.back restores compat hash');
             assertContains(window.address.href, '{#:file-compat}', 'history.back restores exact file address');
             pop = waitForEvent(window, 'popstate');
             hash = waitForEvent(window, 'hashchange');
             history.forward();
             await Promise.all([pop, hash]);
+            assert(window.address === liveAddress, 'window.address identity survives history.forward');
             assertEqual(window.location.hash, '#file-next', 'history.forward restores compat hash');
             assertContains(window.address.href, '{#:file-next}', 'history.forward restores exact file address');
         } finally {

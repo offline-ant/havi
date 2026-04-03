@@ -33,26 +33,41 @@
             assertEqual(window.location.search, '', 'initial search empty');
             assertEqual(window.location.hash, '', 'initial hash empty');
             assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL is projected legacy document URL');
-            assertContains(warns[1], 'document.URL', 'document.URL warns separately on first access');
+            assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
+
+            log('--- live window.address objects survive same-document updates ---');
+            const liveAddress = window.address;
+            const liveUrc = window.address.urc;
+            assert(liveAddress === window.address, 'window.address is SameObject before mutation');
+            assert(liveUrc === window.address.urc, 'window.address.urc is SameObject before mutation');
 
             log('--- hash setter maps to jsonqa ---');
             window.location.hash = '#/2';
+            assert(window.address === liveAddress, 'window.address identity survives hash setter');
+            assert(window.address.urc === liveUrc, 'window.address.urc identity survives hash setter');
             assertEqual(window.location.hash, '#/2', 'hash getter reflects compat fragment');
             assertContains(window.address.href, '#:/2', 'hash setter stores fragment in exact address jsonqa');
+            assertContains(liveUrc.href, '#:/2', 'stored urc reflects updated same-document fragment');
             assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL stays projected and stripped');
 
             log('--- search setter maps to jsonqa ---');
             window.location.search = '?receiver=1&tag=a&tag=b';
+            assert(window.address === liveAddress, 'window.address identity survives search setter');
+            assert(window.address.urc === liveUrc, 'window.address.urc identity survives search setter');
             assertEqual(window.location.search, '?receiver=1&tag=a&tag=b', 'search getter reflects compat projection');
             assertEqual(window.location.hash, '#/2', 'search setter preserves fragment');
             assertContains(window.address.href, 'receiver:1', 'search setter stores scalar key in exact address jsonqa');
             assertContains(window.address.href, 'tag:[a,b]', 'search setter stores repeated keys as array in exact address jsonqa');
+            assertContains(liveUrc.href, 'receiver:1', 'stored urc reflects updated search state');
             assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL remains stripped after search changes');
 
             log('--- history.replaceState rewrite ---');
             history.replaceState(null, '', '#/3');
+            assert(window.address === liveAddress, 'window.address identity survives history.replaceState');
+            assert(window.address.urc === liveUrc, 'window.address.urc identity survives history.replaceState');
             assertEqual(window.location.hash, '#/3', 'replaceState rewrites compat hash');
             assertContains(window.address.href, '#:/3', 'replaceState stores compat hash in canonical address');
+            assertContains(liveUrc.href, '#:/3', 'stored urc reflects replaceState hash');
 
             history.replaceState(null, '', window.location.pathname + window.location.search);
             assertEqual(window.location.hash, '', 'pathname + search replaceState clears compat hash');

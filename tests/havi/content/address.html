@@ -15,49 +15,59 @@
   <div id="status">Loading...</div>
   <pre id="results"></pre>
 
-  <!-- Load shared utilities -->
   <script src="test-utils.js"></script>
-
-  <!-- Inline test suite -->
   <script>
     async function suite_address() {
-        // --- Constructor and basic attributes ---
-        log('--- Address constructor ---');
+        log('--- detached Address constructor ---');
         const addr1 = new Address('hppr://chess/game/board.html');
         assert(addr1 !== null, 'constructor works');
         assertEqual(addr1.href, 'hppr://chess/game/board.html', 'href matches input');
         assertEqual(addr1.scheme, 'hppr', 'scheme is hppr');
-        assertEqual(addr1.endpoint, null, 'endpoint null for routed');
         assertEqual(addr1.group, 'chess', 'group accessor');
         assertEqual(addr1.app, 'game', 'app accessor');
         assertEqual(addr1.location, 'board.html', 'location accessor');
         assertEqual(addr1.isListing, false, 'isListing false for file');
-        assertEqual(addr1.hasDirectEndpoint, false, 'hasDirectEndpoint false');
+        assertEqual(addr1.qa, null, 'qa null when absent');
+        assertEqual(addr1.fragment, null, 'fragment null when absent');
 
-        // --- Endpoint parsing ---
-        log('--- Endpoint parsing ---');
+        log('--- exact via stays in qa ---');
         const direct = new Address('hppr://g/a/p{via:10.0.0.1}');
-        assertEqual(direct.endpoint, '10.0.0.1:4777', 'default port appended');
-        assertEqual(direct.hasDirectEndpoint, true, 'hasDirectEndpoint true');
+        assertEqual(direct.qa.via, '10.0.0.1', 'exact via text stays in qa.via');
+        assertContains(direct.href, 'via:10.0.0.1', 'href keeps exact via syntax in qa');
 
         const withPort = new Address('hppr://g/a/p{via:10.0.0.1:9000}');
-        assertEqual(withPort.endpoint, '10.0.0.1:9000', 'explicit port preserved');
+        assertEqual(withPort.qa.via, '10.0.0.1:9000', 'explicit port preserved in qa.via');
 
-        // --- Coordinate ---
-        log('--- Coordinate ---');
+        log('--- coordinate and urc ---');
         assertContains(addr1.coordinate, '//chess/game/board.html', 'coordinate contains path');
-
-        // --- URC [SameObject] ---
-        log('--- URC SameObject ---');
         const u1 = addr1.urc;
         const u2 = addr1.urc;
         assert(u1 === u2, 'urc returns same object');
         assertEqual(u1.group, 'chess', 'urc.group matches');
 
-        // --- Scheme variants ---
-        log('--- Scheme variants ---');
+        log('--- detached mutation keeps same urc object ---');
+        const addr2 = new Address('hppr://g/a/p');
+        const addr2Urc = addr2.urc;
+        addr2.qa = { test: 'value', '#': 'frag' };
+        assert(addr2.urc === addr2Urc, 'detached urc identity stays stable after qa mutation');
+        assertEqual(addr2.qa.test, 'value', 'qa getter reflects new value');
+        assertContains(addr2.href, 'test', 'href reflects new qa key after setter');
+        assertContains(addr2.urc.href, '#:frag', 'urc href reflects updated fragment');
+        addr2.location = 'next.html';
+        assert(addr2.urc === addr2Urc, 'detached urc identity stays stable after location mutation');
+        assertEqual(addr2.location, 'next.html', 'location setter mutates detached address');
+        assertContains(addr2.href, 'next.html', 'href reflects detached location mutation');
+
+        log('--- qa clearing ---');
+        const addr3 = new Address('hppr://g/a/p{k:v}');
+        addr3.qa = null;
+        assertEqual(addr3.qa, null, 'qa is null after clearing');
+        assertEqual(addr3.href, 'hppr://g/a/p', 'href has no qa after clearing');
+
+        log('--- scheme variants ---');
         const setup = new Address('hppr-setup://g/a/{via:host}');
         assertEqual(setup.scheme, 'hppr-setup', 'hppr-setup scheme');
+        assertEqual(setup.qa.via, 'host', 'hppr-setup keeps exact via text in qa');
 
         const sandbox = new Address('hppr-sandbox://g/a/{via:host}');
         assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme');
@@ -67,129 +77,58 @@
 
         const editor = new Address('hppr-editor://g/a/');
         assertEqual(editor.scheme, 'hppr-editor', 'hppr-editor scheme');
-        assertEqual(editor.hasDirectEndpoint, false, 'editor hasDirectEndpoint false (not hppr scheme)');
 
         const join = new Address('hppr-join://g/a/');
         assertEqual(join.scheme, 'hppr-join', 'hppr-join scheme');
-        assertEqual(join.hasDirectEndpoint, false, 'hppr-join hasDirectEndpoint false');
 
-        // --- Error cases ---
-        log('--- Error cases ---');
-        let err;
-        err = null;
+        log('--- error cases ---');
+        let err = null;
         try { new Address('http://example.com'); } catch (e) { err = e; }
         assert(err !== null, 'throws on unknown scheme');
         assertEqual(err.name, 'SyntaxError', 'SyntaxError for unknown scheme');
 
         err = null;
         try { new Address('hppr-setup://g/a/'); } catch (e) { err = e; }
-        assert(err !== null, 'hppr-setup requires endpoint');
+        assert(err !== null, 'hppr-setup requires via in qa');
 
         err = null;
         try { new Address('hppr-editor://g/a/{via:host}'); } catch (e) { err = e; }
-        assert(err !== null, 'hppr-editor forbids endpoint');
+        assert(err !== null, 'hppr-editor forbids via');
 
-        // --- qa getter on parsed Address ---
-        log('--- qa getter on parsed Address ---');
-        const withQa = new Address('hppr://g/a/p{key:val}');
-        assert(withQa.qa !== null, 'qa not null when parsed with metadata');
-        assertEqual(withQa.qa.key, 'val', 'qa.key from parsed input');
-        assertContains(withQa.href, '{', 'href includes qa from parse');
-        assertContains(withQa.href, 'key', 'href includes qa key');
-
-        // --- fragment delegation ---
-        log('--- fragment delegation ---');
-        const withFrag = new Address('hppr://g/a/p{#:frag}');
-        assertEqual(withFrag.fragment, 'frag', 'fragment delegates to urc');
-
-        // --- qa null when no metadata ---
-        log('--- qa null when absent ---');
-        assertEqual(addr1.qa, null, 'qa null when no metadata');
-        assertEqual(addr1.fragment, null, 'fragment null when no metadata');
-
-        // --- BUG TEST: qa setter then href ---
-        // Address.SetQa delegates to URC, but Address.Href reads from its
-        // own immutable qa field. After setting qa, href should reflect
-        // the new value but currently returns the stale original.
-        log('--- qa setter updates href ---');
-        const addr2 = new Address('hppr://g/a/p');
-        assertEqual(addr2.qa, null, 'initially null qa');
-        assertEqual(addr2.href, 'hppr://g/a/p', 'initial href has no qa');
-
-        addr2.qa = { test: 'value' };
-        assertEqual(addr2.qa.test, 'value', 'qa getter reflects new value');
-        assertContains(addr2.href, 'test', 'href reflects new qa key after setter');
-        assertContains(addr2.href, 'value', 'href reflects new qa value after setter');
-
-        // --- BUG TEST: qa setter overwrites existing qa in href ---
-        log('--- qa setter overwrites existing qa in href ---');
-        const addr3 = new Address('hppr://g/a/p{old:data}');
-        assertEqual(addr3.qa.old, 'data', 'initial qa from parse');
-        assertContains(addr3.href, 'old', 'initial href has old key');
-
-        addr3.qa = { new: 'stuff' };
-        assertEqual(addr3.qa.new, 'stuff', 'qa getter shows new value');
-        assertEqual(addr3.qa.old, undefined, 'old qa key gone');
-        assertContains(addr3.href, 'new', 'href contains new key after overwrite');
-        assert(!addr3.href.includes('old'), 'href does not contain old key after overwrite');
-
-        // --- qa setter to null clears href suffix ---
-        log('--- qa setter to null ---');
-        const addr4 = new Address('hppr://g/a/p{k:v}');
-        assertContains(addr4.href, '{', 'href has qa before clearing');
-        addr4.qa = null;
-        assertEqual(addr4.qa, null, 'qa is null after clearing');
-        assertEqual(addr4.href, 'hppr://g/a/p', 'href has no qa after clearing');
-
-        // --- setter availability ---
         log('--- setter availability ---');
         const hrefDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'href');
         assert(typeof hrefDesc.set === 'function', 'href has setter');
         const schemeDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'scheme');
-        assert(typeof schemeDesc.set === 'function', 'scheme has setter');
-        const endpointDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'endpoint');
-        assert(typeof endpointDesc.set === 'function', 'endpoint has setter');
+        assert(schemeDesc.set === undefined, 'scheme has no setter');
         const groupDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'group');
         assert(typeof groupDesc.set === 'function', 'group has setter');
         const appDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'app');
         assert(typeof appDesc.set === 'function', 'app has setter');
         const locDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'location');
         assert(typeof locDesc.set === 'function', 'location has setter');
-
-        // coordinate, isListing, hasDirectEndpoint, fragment stay readonly
         const coordDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'coordinate');
         assert(coordDesc.set === undefined, 'coordinate has no setter');
         const listDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'isListing');
         assert(listDesc.set === undefined, 'isListing has no setter');
-        const hdepDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'hasDirectEndpoint');
-        assert(hdepDesc.set === undefined, 'hasDirectEndpoint has no setter');
         const fragDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'fragment');
         assert(fragDesc.set === undefined, 'fragment has no setter');
 
-        // PutForwards: window.address assignment should work (sets href)
-        // Can't actually assign (would navigate), but verify the descriptor
+        log('--- window.address live surface ---');
         const winDesc = Object.getOwnPropertyDescriptor(window, 'address');
-        // PutForwards makes it settable despite being readonly in IDL
         assert(winDesc !== undefined, 'window.address descriptor exists');
-
-        // --- window.address ---
-        // --- window.address ---
-        log('--- window.address ---');
         assert(window.address !== null, 'window.address exists');
         assert(window.address !== undefined, 'window.address is defined');
         assertEqual(window.address.scheme, 'hppr', 'window.address.scheme');
-        assertEqual(window.address.group, 'addrtest', 'window.address.group');
+        assertEqual(window.address.group, '~addrtest', 'window.address.group');
         assertEqual(window.address.app, 'testapp', 'window.address.app');
         assertEqual(window.address.location, 'address.html', 'window.address.location');
         assertContains(window.address.href, 'hppr://', 'window.address.href has scheme');
+        assert(window.address.urc === window.address.urc, 'window.address.urc is SameObject');
     }
 
-    // Auto-run suite
     (async function() {
       const summary = await window.runTests(suite_address, 'address');
-
       window.testResults = summary;
-
       document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
       document.getElementById('status').textContent = summary.failed === 0
         ? 'All tests passed!'

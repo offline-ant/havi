@@ -13,9 +13,7 @@ interface Document : Node {
   [Throws] constructor();
   [SameObject]
   readonly attribute DOMImplementation implementation;
-  [Constant]
   readonly attribute USVString URL;
-  [Constant]
   readonly attribute USVString documentURI;
   // readonly attribute USVString origin;
   readonly attribute DOMString compatMode;
@@ -236,6 +234,8 @@ partial interface Document {
 partial interface Document {
   [Pref="dom_hppr_enabled"]
   readonly attribute HpprPacket? packet;
+  [Pref="dom_hppr_enabled"]
+  readonly attribute DOMString? URC;
 };
 
 // https://html.spec.whatwg.org/multipage/#dom-document-nameditem-filter

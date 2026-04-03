@@ -132,6 +132,7 @@ async function accept() {
         }
 
         const appPart = APP ? '/' + APP : '';
+        if (!window.address) throw new Error('window.address unavailable');
         window.address.href = 'hppr://' + GROUP + appPart + '/';
     } catch (e) {
         showError('Failed to save route: ' + (e instanceof Error ? e.message : String(e)));
@@ -146,6 +147,7 @@ function cancel() {
     if (history.length > 1) {
         history.back();
     } else {
+        if (!window.address) throw new Error('window.address unavailable');
         window.address.href = 'havi:///overview';
     }
 }

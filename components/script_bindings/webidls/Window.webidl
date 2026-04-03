@@ -191,7 +191,7 @@ partial interface Window {
 
 // HPPR browser integration
 partial interface Window {
-  [PutForwards=href, Pref="dom_hppr_enabled", SameObject] readonly attribute Address address;
+  [PutForwards=href, Pref="dom_hppr_enabled", SameObject] readonly attribute WindowAddress? address;
   [Pref="dom_hppr_enabled", SameObject] readonly attribute HpprClient home;
   [Pref="dom_hppr_enabled"] readonly attribute HpprClient? route;
   [Pref="dom_hppr_enabled"] readonly attribute HpprPacket? packet;

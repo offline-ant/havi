@@ -87,6 +87,7 @@ use crate::dom::bindings::codegen::Bindings::ElementBinding::ScrollLogicalPositi
 use crate::dom::bindings::codegen::Bindings::EventBinding::Event_Binding::EventMethods;
 use crate::dom::bindings::codegen::Bindings::HTMLIFrameElementBinding::HTMLIFrameElement_Binding::HTMLIFrameElementMethods;
 use crate::dom::bindings::codegen::Bindings::HTMLOrSVGElementBinding::FocusOptions;
+use crate::dom::bindings::codegen::Bindings::LocationBinding::Location_Binding::LocationMethods;
 #[cfg(any(feature = "webxr", feature = "gamepad"))]
 use crate::dom::bindings::codegen::Bindings::NavigatorBinding::Navigator_Binding::NavigatorMethods;
 use crate::dom::bindings::codegen::Bindings::NodeBinding::NodeMethods;
@@ -118,6 +119,7 @@ use crate::dom::bindings::xmlname::matches_name_production;
 use crate::dom::cdatasection::CDATASection;
 use crate::dom::comment::Comment;
 use crate::dom::compositionevent::CompositionEvent;
+use crate::dom::console::Console;
 use crate::dom::css::cssstylesheet::CSSStyleSheet;
 use crate::dom::css::fontfaceset::FontFaceSet;
 use crate::dom::css::stylesheetlist::{StyleSheetList, StyleSheetListOwner};
@@ -192,6 +194,7 @@ use crate::dom::virtualmethods::vtable_for;
 use crate::dom::watchsocket::WatchSocket;
 use crate::dom::websocket::WebSocket;
 use crate::dom::window::Window;
+use crate::dom::windowaddress::build_coordinate;
 use crate::dom::windowproxy::WindowProxy;
 use crate::dom::xpathevaluator::XPathEvaluator;
 use crate::dom::xpathexpression::XPathExpression;
@@ -327,6 +330,7 @@ pub(crate) struct Document {
     /// <https://html.spec.whatwg.org/multipage/#the-document%27s-address>
     #[no_trace]
     url: DomRefCell<BrowserUrl>,
+    havi_document_url_warned: Cell<bool>,
     /// <https://html.spec.whatwg.org/multipage/#concept-document-about-base-url>
     #[no_trace]
     about_base_url: DomRefCell<Option<BrowserUrl>>,
@@ -956,7 +960,6 @@ impl Document {
 
     pub(crate) fn set_url(&self, url: BrowserUrl) {
         *self.url.borrow_mut() = url;
-        self.window.invalidate_address();
     }
 
     pub(crate) fn about_base_url(&self) -> Option<BrowserUrl> {
@@ -965,6 +968,68 @@ impl Document {
 
     pub(crate) fn set_about_base_url(&self, about_base_url: Option<BrowserUrl>) {
         *self.about_base_url.borrow_mut() = about_base_url;
+    }
+
+    fn current_document_url(&self) -> BrowserUrl {
+        let url = self.url();
+        if url.matches_about_blank()
+            && let Ok(href) = self.window.Location().GetHref()
+            && let Ok(parsed) = BrowserUrl::parse(&href.0)
+        {
+            return parsed;
+        }
+        url
+    }
+
+    fn should_warn_projected_document_url(&self) -> bool {
+        matches!(self.current_document_url(), BrowserUrl::Hppr(_) | BrowserUrl::FileDocument(_))
+    }
+
+    fn warn_projected_document_url_once(&self) {
+        if !self.should_warn_projected_document_url() || self.havi_document_url_warned.replace(true)
+        {
+            return;
+        }
+        Console::internal_warn(
+            self.window.as_global_scope(),
+            DOMString::from(
+                "HAVI legacy document.URL projection accessed. Use window.address for exact address state and document.URC for exact HPPR packet identity.",
+            ),
+        );
+    }
+
+    fn projected_document_url_value(&self) -> String {
+        if let Some(packet) = self.hppr_packet() {
+            if let Some(projected) = packet.projected_document_url() {
+                return projected;
+            }
+        }
+
+        match self.current_document_url() {
+            BrowserUrl::Hppr(data) => {
+                let parts = data.address().parts();
+                if !parts.group.is_empty() {
+                    return format!(
+                        "{}:{}",
+                        data.address().scheme().prefix().trim_end_matches(':'),
+                        build_coordinate(
+                            &parts.group,
+                            &parts.app,
+                            &parts.location,
+                            data.address().is_listing(),
+                        ),
+                    );
+                }
+                let href = data.as_str();
+                href.split('{').next().unwrap_or(href).to_string()
+            },
+            BrowserUrl::FileDocument(data) => data.document_url().as_str().to_string(),
+            BrowserUrl::Web(url) => url.as_str().to_string(),
+        }
+    }
+
+    fn document_urc_value(&self) -> Option<String> {
+        self.hppr_packet()?.versioned_coordinate()
     }
 
     /// <https://html.spec.whatwg.org/multipage/#fallback-base-url>
@@ -4031,6 +4096,7 @@ impl Document {
             content_type,
             last_modified,
             url: DomRefCell::new(url),
+            havi_document_url_warned: Cell::new(false),
             about_base_url: DomRefCell::new(about_base_url),
             // https://dom.spec.whatwg.org/#concept-document-quirks
             quirks_mode: Cell::new(QuirksMode::NoQuirks),
@@ -5115,6 +5181,7 @@ impl Document {
             return;
         };
         let time = if let Some(time_string) = captures.name("time") {
+            // UTF-8 Lossy: declarative refresh metadata is only used as ASCII digits here.
             u64::from_str(&String::from_utf8_lossy(time_string.as_bytes())).unwrap_or(0)
         } else {
             0
@@ -5127,6 +5194,7 @@ impl Document {
         if let Some(url_match) = captured_url {
             url_record = if let Ok(url) = BrowserUrl::parse_with_base(
                 Some(&url_record),
+                // UTF-8 Lossy: refresh URLs are only used for best-effort parsing from byte regex captures.
                 &String::from_utf8_lossy(url_match.as_bytes()),
             ) {
                 info!("Refresh to {}", url.debug_compact());
@@ -5430,7 +5498,8 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
 
     /// <https://dom.spec.whatwg.org/#dom-document-url>
     fn URL(&self) -> USVString {
-        USVString(String::from(self.url().as_str()))
+        self.warn_projected_document_url_once();
+        USVString(self.projected_document_url_value())
     }
 
     /// <https://html.spec.whatwg.org/multipage/#dom-document-activeelement>
@@ -5534,7 +5603,7 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
 
     /// <https://dom.spec.whatwg.org/#dom-document-documenturi>
     fn DocumentURI(&self) -> USVString {
-        self.URL()
+        USVString(self.projected_document_url_value())
     }
 
     /// <https://dom.spec.whatwg.org/#dom-document-compatmode>
@@ -6856,6 +6925,10 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
     /// HPPR: the packet that loaded this document.
     fn GetPacket(&self) -> Option<DomRoot<HpprPacket>> {
         self.hppr_packet.get()
+    }
+
+    fn GetURC(&self) -> Option<DOMString> {
+        self.document_urc_value().map(DOMString::from)
     }
 
     /// <https://w3c.github.io/selection-api/#dom-document-getselection>

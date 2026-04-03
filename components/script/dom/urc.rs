@@ -28,32 +28,43 @@ use crate::dom::bindings::codegen::Bindings::URCBinding::{URCMethods, URCSelecto
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object_with_proto};
-use crate::dom::bindings::root::DomRoot;
+use crate::dom::bindings::root::{DomRoot, MutNullableDom};
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::globalscope::GlobalScope;
+use crate::dom::hpprwindowaddress::HpprWindowAddress;
 use crate::dom::window::Window;
 use crate::realms::enter_realm;
 use crate::script_runtime::{CanGc, JSContext as SafeJSContext};
 
-/// DOM representation of an HPPR URC with optional JSONqa metadata.
+/// DOM representation of a detached or live HPPR URC.
 #[dom_struct]
 pub(crate) struct URC {
     reflector_: Reflector,
     #[ignore_malloc_size_of = "hppr_packet::urc::URC"]
     #[no_trace]
-    inner: hppr_packet::urc::URC,
-    /// JSONqa metadata parsed from `{...}` suffix.
+    detached_inner: RefCell<Option<hppr_packet::urc::URC>>,
     #[ignore_malloc_size_of = "jsonqa::Qa"]
     #[no_trace]
-    qa: RefCell<Option<Qa>>,
+    detached_qa: RefCell<Option<Qa>>,
+    live_address: MutNullableDom<HpprWindowAddress>,
 }
 
 impl URC {
     fn new_inherited(inner: hppr_packet::urc::URC, qa: Option<Qa>) -> Self {
         Self {
             reflector_: Reflector::new(),
-            inner,
-            qa: RefCell::new(qa),
+            detached_inner: RefCell::new(Some(inner)),
+            detached_qa: RefCell::new(qa),
+            live_address: MutNullableDom::new(None),
+        }
+    }
+
+    fn new_live_inherited(address: &HpprWindowAddress) -> Self {
+        Self {
+            reflector_: Reflector::new(),
+            detached_inner: RefCell::new(None),
+            detached_qa: RefCell::new(None),
+            live_address: MutNullableDom::new(Some(address)),
         }
     }
 
@@ -65,6 +76,19 @@ impl URC {
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object_with_proto(Box::new(Self::new_inherited(inner, qa)), global, proto, can_gc)
+    }
+
+    pub(crate) fn new_live(
+        global: &GlobalScope,
+        address: &HpprWindowAddress,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        reflect_dom_object_with_proto(
+            Box::new(Self::new_live_inherited(address)),
+            global,
+            None,
+            can_gc,
+        )
     }
 
     /// Create a new URC from a parsed hppr_packet::urc::URC.
@@ -84,6 +108,28 @@ impl URC {
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         Self::new_with_proto(global, None, inner, qa, can_gc)
+    }
+
+    pub(crate) fn current_inner(&self) -> hppr_packet::urc::URC {
+        if let Some(address) = self.live_address.get() {
+            return address.current_urc_state().0;
+        }
+        self.detached_inner
+            .borrow()
+            .clone()
+            .expect("detached URC missing inner state")
+    }
+
+    pub(crate) fn current_qa(&self) -> Option<Qa> {
+        if let Some(address) = self.live_address.get() {
+            return address.current_urc_state().1;
+        }
+        self.detached_qa.borrow().clone()
+    }
+
+    pub(crate) fn set_detached_state(&self, inner: hppr_packet::urc::URC, qa: Option<Qa>) {
+        *self.detached_inner.borrow_mut() = Some(inner);
+        *self.detached_qa.borrow_mut() = qa;
     }
 
     /// Parse input string, splitting off any `{...}` JSONqa suffix.
@@ -111,10 +157,10 @@ impl URC {
 
     /// Get the fragment value from JSONqa (qa["#"]).
     pub(crate) fn get_fragment(&self) -> Option<DOMString> {
-        let qa = self.qa.borrow();
-        qa.as_ref()
+        self.current_qa()
+            .as_ref()
             .and_then(|q| q.fragment())
-            .map(|s| DOMString::from(s))
+            .map(DOMString::from)
     }
 }
 
@@ -199,6 +245,16 @@ fn qa_to_jsval(cx: SafeJSContext, qa: &Qa, mut rval: MutableHandleValue) {
         }
 
         rval.set(ObjectValue(js_obj.get()));
+    }
+}
+
+pub(crate) fn qa_to_js_object(cx: SafeJSContext, qa: &Qa) -> Option<NonNull<JSObject>> {
+    rooted!(in(*cx) let mut rval = UndefinedValue());
+    qa_to_jsval(cx, qa, rval.handle_mut());
+    if rval.is_object() {
+        NonNull::new(rval.to_object())
+    } else {
+        None
     }
 }
 
@@ -422,9 +478,8 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns the full URC string including JSONqa suffix (stringifier).
     fn Href(&self) -> USVString {
-        let base = self.inner.to_string();
-        let qa = self.qa.borrow();
-        if let Some(ref qa) = *qa {
+        let base = self.current_inner().to_string();
+        if let Some(qa) = self.current_qa() {
             USVString(format!("{}{}", base, qa))
         } else {
             USVString(base)
@@ -433,7 +488,7 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns the URC method: "hash" or "index".
     fn Method(&self) -> DOMString {
-        match self.inner.method() {
+        match self.current_inner().method() {
             UrcMethod::Hash => DOMString::from("hash"),
             UrcMethod::Index => DOMString::from("index"),
         }
@@ -441,28 +496,28 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns the group component (index URCs only).
     fn GetGroup(&self) -> Option<DOMString> {
-        self.inner
+        self.current_inner()
             .group_app_loc()
             .map(|(g, _)| DOMString::from(g))
     }
 
     /// Returns the app component (index URCs only).
     fn GetApp(&self) -> Option<DOMString> {
-        self.inner
+        self.current_inner()
             .group_app_loc()
             .and_then(|(_, rest)| rest.map(|(a, _)| DOMString::from(a)))
     }
 
     /// Returns the location component (index URCs only).
     fn GetLocation(&self) -> Option<DOMString> {
-        self.inner
+        self.current_inner()
             .group_app_loc()
             .and_then(|(_, rest)| rest.and_then(|(_, loc)| loc.map(DOMString::from)))
     }
 
     /// Returns the full coordinate (//<group>/<app>/<location>).
     fn GetCoordinate(&self) -> Option<DOMString> {
-        match self.inner.group_app_loc() {
+        match self.current_inner().group_app_loc() {
             Some((group, Some((app, Some(loc))))) => {
                 Some(DOMString::from(format!("//{}/{}/{}", group, app, loc)))
             }
@@ -476,12 +531,12 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns whether this is a listing URC (ends with /).
     fn IsListing(&self) -> bool {
-        self.inner.is_listing()
+        self.current_inner().is_listing()
     }
 
     /// Returns the selector if present.
     fn GetSelector(&self) -> Option<URCSelector> {
-        self.inner.meta().map(|sel| match sel {
+        self.current_inner().meta().map(|sel| match sel {
             CoordinateVersion::Empty => URCSelector {
                 type_: Some(DOMString::from("empty")),
                 verifyingKey: None,
@@ -509,29 +564,25 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns the JSONqa metadata as a JS object, or null if none.
     fn GetQa(&self, cx: SafeJSContext) -> Fallible<Option<NonNull<JSObject>>> {
-        let qa = self.qa.borrow();
-        let qa_ref = match qa.as_ref() {
-            Some(q) => q,
+        let qa = match self.current_qa() {
+            Some(qa) => qa,
             None => return Ok(None),
         };
 
         let global = self.global();
         let _ac = enter_realm(&*global);
 
-        rooted!(in(*cx) let mut rval = UndefinedValue());
-        qa_to_jsval(cx, qa_ref, rval.handle_mut());
-
-        if rval.is_object() {
-            Ok(NonNull::new(rval.to_object()))
-        } else {
-            Ok(None)
-        }
+        Ok(qa_to_js_object(cx, &qa))
     }
 
     /// Sets the JSONqa metadata from a JS object.
     fn SetQa(&self, cx: SafeJSContext, qa: *mut JSObject) -> Fallible<()> {
         let new_qa = jsobj_to_qa(cx, qa)?;
-        *self.qa.borrow_mut() = new_qa;
+        if let Some(address) = self.live_address.get() {
+            address.set_live_qa(new_qa)?;
+        } else {
+            *self.detached_qa.borrow_mut() = new_qa;
+        }
         Ok(())
     }
 
@@ -543,7 +594,7 @@ impl URCMethods<crate::DomTypeHolder> for URC {
     /// Join a relative coordinate to this URC, returning a new URC.
     fn Join(&self, coordinate: USVString) -> Fallible<DomRoot<Self>> {
         let joined = self
-            .inner
+            .current_inner()
             .join(&coordinate.0)
             .map_err(|e| Error::Syntax(Some(e.to_string())))?;
         // Joining clears the qa - it applies to the new coordinate
@@ -552,9 +603,7 @@ impl URCMethods<crate::DomTypeHolder> for URC {
 
     /// Returns a new URC with the listing flag set/unset.
     fn SetListing(&self, is_listing: bool) -> DomRoot<Self> {
-        let new_inner = self.inner.clone().set_listing(is_listing);
-        // Preserve qa when changing listing
-        let qa = self.qa.borrow().clone();
-        Self::new_with_qa(&self.global(), new_inner, qa, CanGc::note())
+        let new_inner = self.current_inner().set_listing(is_listing);
+        Self::new_with_qa(&self.global(), new_inner, self.current_qa(), CanGc::note())
     }
 }

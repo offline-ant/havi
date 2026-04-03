@@ -6,7 +6,6 @@
     }
     var hasOwn = Object.prototype.hasOwnProperty;
     var nativeWindowLocationDesc = window.__haviNativeWindowLocationDesc || null;
-    var nativeDocumentLocationDesc = window.__haviNativeDocumentLocationDesc || null;
     var nativeLocation = window.__haviNativeLocation || null;
     var nativeHistoryReplaceState = window.__haviNativeHistoryReplaceState || null;
     var nativeHistoryPushState = window.__haviNativeHistoryPushState || null;
@@ -17,9 +16,6 @@
 
     if (!nativeWindowLocationDesc) {
         try { nativeWindowLocationDesc = Object.getOwnPropertyDescriptor(window, 'location'); } catch (e) {}
-    }
-    if (!nativeDocumentLocationDesc) {
-        try { nativeDocumentLocationDesc = Object.getOwnPropertyDescriptor(document, 'location'); } catch (e) {}
     }
     if (!nativeLocation) {
         try {
@@ -106,6 +102,11 @@
         }
     }
 
+    function splitJsonqa(href) {
+        var idx = String(href || '').indexOf('{');
+        return idx >= 0 ? [String(href).slice(0, idx), String(href).slice(idx)] : [String(href || ''), ''];
+    }
+
     function cloneQaValue(value) {
         var i;
         var out;
@@ -148,7 +149,6 @@
         }
         return {
             scheme: addr.scheme ? String(addr.scheme) : 'hppr',
-            endpoint: addr.endpoint == null ? null : String(addr.endpoint),
             group: addr.group == null ? '' : String(addr.group),
             app: addr.app == null ? '' : String(addr.app),
             location: addr.location == null ? '' : String(addr.location),
@@ -160,7 +160,6 @@
     function cloneHpprState(state) {
         return {
             scheme: state.scheme,
-            endpoint: state.endpoint,
             group: state.group,
             app: state.app,
             location: state.location,
@@ -529,7 +528,6 @@
         } else {
             nativeHistoryPushState(null, '', result.canonicalHref);
         }
-        window.__haviCurrentExactHref = result.canonicalHref;
         syncCompatHistoryState();
         if (dispatchHash && result.hashChanged) {
             dispatchCompatHashChange(buildCompatHpprHref(result.current), result.compatHref);
@@ -595,7 +593,7 @@
         value = String(value || '');
         rejectJsonqaInput(value);
         if (value.indexOf(':') !== -1) {
-            throw new TypeError('window.location.host cannot set endpoint ports in HAVI. Use window.address.endpoint');
+            throw new TypeError('window.location.host cannot set direct routing in HAVI. Use window.address.href with {via:...}');
         }
         state.group = value;
         navigateCompatHppr(buildCompatHpprHref(state), false, false);
@@ -711,7 +709,7 @@
                 },
                 set: function() {
                     warnOnce();
-                    throw new TypeError('window.location.port is not available in HAVI compatibility mode. Use window.address.endpoint');
+                    throw new TypeError('window.location.port is not available in HAVI compatibility mode. Use window.address.href with {via:...}');
                 },
                 configurable: true
             },
@@ -799,21 +797,24 @@
         var qa;
         try {
             addr = window.address;
-            resolved = new URL(String(addr.href || ''));
+            resolved = new URL(splitJsonqa(String(addr.href || ''))[0] || 'file:///');
         } catch (e) {
             return null;
         }
-        qa = ((window.__haviCloneQa || cloneQa)(addr.qa)) || {};
+        qa = cloneQaValue(addr.qa) || {};
+        var pathname = String(addr.pathname || resolved.pathname || '/');
+        var search = projectedSearch(qa);
+        var hash = projectedHash(qa);
         return {
-            href: String(addr.href || ''),
+            href: 'file://' + pathname + search + hash,
             protocol: 'file:',
             host: '',
             hostname: '',
             port: '',
             origin: 'file://',
-            pathname: String(addr.pathname || resolved.pathname || '/'),
-            search: projectedSearch(qa),
-            hash: projectedHash(qa),
+            pathname: pathname,
+            search: search,
+            hash: hash,
             qa: qa,
             fragment: addr.fragment == null ? null : String(addr.fragment),
             isListing: !!addr.isListing
@@ -831,10 +832,8 @@
     function resolveCompatFileTarget(input) {
         var current = requireFileState();
         var resolved;
-        var baseHref = current.href;
-        if (typeof window.__haviNormalizeFileAddressHref === 'function') {
-            baseHref = window.__haviNormalizeFileAddressHref('', current.href);
-        }
+        var baseHref = splitJsonqa(current.href)[0] || current.href;
+        rejectJsonqaInput(input);
         try {
             resolved = new URL(String(input), baseHref);
         } catch (e) {
@@ -880,7 +879,6 @@
         } else {
             nativeHistoryPushState(null, '', newHref);
         }
-        window.__haviCurrentExactHref = newHref;
         syncCompatHistoryState();
         if (dispatchHash && result.hashChanged) {
             dispatchCompatHashChange(oldHref, newHref);
@@ -912,12 +910,11 @@
 
     function fileHashSetter(value) {
         var state = requireFileState();
-        var next = state.href.replace(/#.*$/, '');
         value = String(value || '');
         if (value !== '' && value.charAt(0) !== '#') {
             value = '#' + value;
         }
-        navigateCompatFile(next + value, false, true);
+        navigateCompatFile('file://' + state.pathname + state.search + value, false, true);
     }
 
     function makeFileCompatLocation() {
@@ -1024,73 +1021,47 @@
         return result.canonicalHref;
     }
 
-    function rewriteFileHistoryUrl(url) {
-        var current;
-        var exactBase;
-        var qa;
-        if (url === undefined || url === null || typeof url !== 'string') {
-            return url;
-        }
-        warnOnce();
-        current = requireFileState();
-        exactBase = (window.__haviSplitJsonqa ? window.__haviSplitJsonqa(current.href) : [current.href, ''])[0];
-        if (!/[{}]/.test(url)) {
-            if (url.charAt(0) === '#') {
-                qa = applyProjectedSearchAndHash(current.qa, current.search, url);
-                return exactBase + (window.__haviFileQaSuffix ? window.__haviFileQaSuffix(qa) : '');
-            }
-            if (url.charAt(0) === '?') {
-                qa = applyProjectedSearchAndHash(current.qa, url, current.hash);
-                return exactBase + (window.__haviFileQaSuffix ? window.__haviFileQaSuffix(qa) : '');
-            }
-        }
-        if (typeof window.__haviNormalizeFileAddressHref === 'function') {
-            return window.__haviNormalizeFileAddressHref(url, current.href);
-        }
-        return url;
-    }
-
     function patchHistory() {
         var replaceImpl = nativeHistoryReplaceState;
         var pushImpl = nativeHistoryPushState;
         if (isHpprPage()) {
             if (nativeHistoryReplaceState) {
                 replaceImpl = function(state, title, url) {
+                    var result;
                     if (arguments.length < 3 || url === undefined || url === null || url === '') {
-                        return nativeHistoryReplaceState(state, title, url);
+                        result = nativeHistoryReplaceState(state, title, url);
+                    } else {
+                        result = nativeHistoryReplaceState(state, title, rewriteHpprHistoryUrl(url));
                     }
-                    return nativeHistoryReplaceState(state, title, rewriteHpprHistoryUrl(url));
+                    syncCompatHistoryState();
+                    return result;
                 };
             }
             if (nativeHistoryPushState) {
                 pushImpl = function(state, title, url) {
+                    var result;
                     if (arguments.length < 3 || url === undefined || url === null || url === '') {
-                        return nativeHistoryPushState(state, title, url);
+                        result = nativeHistoryPushState(state, title, url);
+                    } else {
+                        result = nativeHistoryPushState(state, title, rewriteHpprHistoryUrl(url));
                     }
-                    return nativeHistoryPushState(state, title, rewriteHpprHistoryUrl(url));
+                    syncCompatHistoryState();
+                    return result;
                 };
             }
         } else if (isFilePage()) {
             if (nativeHistoryReplaceState) {
                 replaceImpl = function(state, title, url) {
-                    var rewritten;
-                    if (arguments.length < 3 || url === undefined || url === null || url === '') {
-                        return nativeHistoryReplaceState(state, title, url);
-                    }
-                    rewritten = rewriteFileHistoryUrl(url);
-                    window.__haviCurrentExactHref = rewritten;
-                    return nativeHistoryReplaceState(state, title, rewritten);
+                    var result = nativeHistoryReplaceState(state, title, url);
+                    syncCompatHistoryState();
+                    return result;
                 };
             }
             if (nativeHistoryPushState) {
                 pushImpl = function(state, title, url) {
-                    var rewritten;
-                    if (arguments.length < 3 || url === undefined || url === null || url === '') {
-                        return nativeHistoryPushState(state, title, url);
-                    }
-                    rewritten = rewriteFileHistoryUrl(url);
-                    window.__haviCurrentExactHref = rewritten;
-                    return nativeHistoryPushState(state, title, rewritten);
+                    var result = nativeHistoryPushState(state, title, url);
+                    syncCompatHistoryState();
+                    return result;
                 };
             }
         }

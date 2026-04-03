@@ -225,13 +225,22 @@ For `hppr://` documents, `document.packet` returns the source `HpprPacket`.
 For non-HPPR pages, it returns `null`.
 
 `document.URC` is the exact HPPR packet identity surface.
+It is derived from the loaded packet, not from the navigable URL.
 When the loaded packet is a Plex or Seal with coordinate identity, it returns the
-full exact versioned coordinate including hash. For packetless pages, helper
-schemes, file pages, and Blob-only pages it returns `null`.
+full exact versioned coordinate including hash. This includes direct-hash HPPR
+pages that loaded a Plex or Seal packet. Packetless pages, helper schemes, file
+pages, and Blob-only pages return `null`.
 
-`document.URL` is a legacy projected document URL. It warns on first access.
+`document.URL` is a native legacy projected document URL.
 For HPPR-backed documents it strips `/|/...` exact selectors and JSONqa state.
+For direct-hash HPPR documents that loaded a Plex or Seal packet, it projects to
+`hppr://<group>/<app>/<location>` from the loaded packet.
 For file documents it returns the stripped file URL without JSONqa view state.
+For helper documents such as `havi:///overview`, it returns the helper document
+URL unchanged. On HPPR and file documents it warns on first access.
+
+`document.documentURI` mirrors the same projected value as `document.URL` but
+never warns.
 
 Loaded HPPR documents also carry browser metadata for the resolved content
 signer.
@@ -253,25 +262,58 @@ Packet fields include:
 ## URC and Address
 
 `URC` models coordinate syntax.
-`Address` wraps scheme/endpoint and an inner `URC`. For `hppr://...{via:...}`,
-`endpoint` returns the raw `via` value.
-When that value names a remote endpoint, it follows HPPR via syntax from
-`../../hppr/spec/031-VIA-SYNTAX.md`.
-Browser-defined address shorthands such as `repo` are HAVI address-layer
-values, not HPPR core via syntax.
 
-`window.address` is the exact HAVI address API.
-Setting `window.address = url` or `window.address.href = url` navigates
-(`PutForwards=href`).
-On HPPR pages it exposes scheme, endpoint, coordinate fields, JSONqa, and
-fragment. On file pages it exposes a dedicated file-address shape:
+`Address` is a detached parsed HPPR-family value object.
+`new Address(...)` parses an exact HPPR-family address and does not navigate the
+current page. It exposes:
 
 - `scheme`
 - `href`
-- `pathname`
+- `coordinate`
+- `urc`
+- `group`
+- `app`
+- `location`
 - `qa`
 - `fragment`
 - `isListing`
+
+Exact explicit routing syntax remains in JSONqa.
+For `hppr://...{via:...}`, use `address.qa['via']`.
+`via` still follows HPPR via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+Browser-defined shorthands such as `repo` remain HAVI address-layer values,
+not HPPR core via syntax.
+
+`window.address` is the browser-owned live exact address API.
+Setting `window.address = url` or `window.address.href = url` navigates
+(`PutForwards=href`).
+It is a stable `[SameObject]` live view over the current exact address state.
+Same-document updates keep the same object and update it in place.
+
+Shared live fields:
+
+- `scheme`
+- `href`
+- `qa`
+- `fragment`
+- `isListing`
+
+HPPR live subtype fields:
+
+- `coordinate`
+- `urc`
+- `group`
+- `app`
+- `location`
+
+File live subtype field:
+
+- `pathname`
+
+On helper documents such as `havi:///overview`, `window.address` returns the
+shared live exact-address surface with helper `href` and `scheme`, `qa === null`,
+and `document.URC === null`.
+On unsupported non-HAVI pages, `window.address` is `null`.
 
 HAVI also installs a `window.location` and `document.location` compatibility
 shim on `hppr://` and `file://` pages.
@@ -288,7 +330,8 @@ Compatibility input is strict.
 `window.location` does not accept raw JSONqa syntax.
 Pages that need exact HAVI semantics use `window.address`.
 
-`qa` and `fragment` exist on `URC` and are delegated through `Address`.
+`qa` and `fragment` exist on `URC` and are delegated through detached
+`Address`. `window.address.urc` is a live `[SameObject]` view on HPPR pages.
 See `075-JSONQA.md`.
 
 ## WatchSocket

@@ -181,15 +181,13 @@ declare var URC: {
 };
 interface Address {
   href: string;
-  scheme: string;
-  endpoint: string | null;
+  readonly scheme: string;
   readonly coordinate: string | null;
   readonly urc: URC;
   group: string | null;
   app: string | null;
   location: string | null;
   readonly isListing: boolean;
-  readonly hasDirectEndpoint: boolean;
   qa: Qa;
   readonly fragment: string | null;
 }
@@ -197,6 +195,23 @@ declare var Address: {
   prototype: Address;
   new (input: string): Address;
 };
+interface WindowAddress {
+  href: string;
+  readonly scheme: string;
+  readonly qa: Qa;
+  readonly fragment: string | null;
+  readonly isListing: boolean;
+}
+interface HpprWindowAddress extends WindowAddress {
+  readonly coordinate: string | null;
+  readonly urc: URC;
+  group: string | null;
+  app: string | null;
+  location: string | null;
+}
+interface FileWindowAddress extends WindowAddress {
+  pathname: string;
+}
 interface HpprResult {
   readonly value: any;
 }
@@ -222,7 +237,7 @@ declare namespace H3 {
   function generateKey(): HpprKeyPair;
 }
 interface Window {
-  readonly address: Address;
+  readonly address: WindowAddress | null;
   readonly home: HpprClient;
   readonly route: HpprClient | null;
   readonly packet: HpprPacket | null;
@@ -230,4 +245,7 @@ interface Window {
 
 interface Document {
   readonly packet: HpprPacket | null;
+  readonly URC: string | null;
+  readonly URL: string;
+  readonly documentURI: string;
 }

@@ -18,6 +18,9 @@ if (input) {
                 value = 'hppr://' + value;
             }
 
+            if (!window.address) {
+                throw new Error('window.address unavailable');
+            }
             window.address.href = value;
         }
     });

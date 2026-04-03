@@ -215,6 +215,8 @@ pub(crate) mod abortsignal;
 pub(crate) mod abstractrange;
 pub(crate) mod activation;
 pub(crate) mod address;
+pub(crate) mod filewindowaddress;
+pub(crate) mod hpprwindowaddress;
 pub(crate) mod animationevent;
 pub(crate) mod attr;
 pub(crate) mod audio;
@@ -462,6 +464,7 @@ pub(crate) mod virtualmethods;
 pub(crate) mod visibilitystateentry;
 pub(crate) mod visualviewport;
 pub(crate) mod watchsocket;
+pub(crate) mod windowaddress;
 
 pub(crate) mod websocket;
 #[cfg(feature = "webxr")]
