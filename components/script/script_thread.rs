@@ -78,7 +78,7 @@ use net_traits::request::{Referrer, RequestId};
 use net_traits::response::ResponseInit;
 use net_traits::{
     FetchMetadata, FetchResponseMsg, Metadata, NetworkError, ResourceFetchTiming, ResourceThreads,
-    ResourceTimingType,
+    ResourceTimingType, clear_hppr_document_source,
 };
 use paint_api::{CrossProcessPaintApi, PinchZoomInfos, PipelineExitSource};
 use percent_encoding::percent_decode;
@@ -3255,6 +3255,7 @@ impl ScriptThread {
         layout_api::remove_shared_layout_fragment_tree_for_pipeline(pipeline_id);
         layout_api::remove_shared_scroll_state_for_pipeline(pipeline_id);
         layout_api::remove_shared_committed_scroll_offsets_for_pipeline(pipeline_id);
+        clear_hppr_document_source(pipeline_id);
 
         self.devtools_state.notify_pipeline_exited(pipeline_id);
 
@@ -3681,6 +3682,9 @@ impl ScriptThread {
         }
         if let Some(signer) = metadata.hppr_signer {
             document.set_hppr_signer(signer);
+        }
+        if let Some(source) = metadata.hppr_source {
+            document.set_hppr_source(source);
         }
         if let Some(content_authority) = metadata.hppr_content_authority {
             document.set_hppr_content_authority(content_authority);

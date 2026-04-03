@@ -54,5 +54,6 @@ fn page_response_to_servo(
         }
     }
     response.hppr_content_authority = page.hppr_content_authority;
+    response.hppr_source = page.hppr_source;
     response
 }

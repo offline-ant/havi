@@ -40,6 +40,7 @@ use crate::response::{HttpsState, Response, ResponseInit};
 
 pub mod blob_url_store;
 pub mod filemanager_thread;
+pub mod hppr_source;
 pub mod http_status;
 pub mod image_cache;
 pub mod mime_classifier;
@@ -51,6 +52,10 @@ pub mod response;
 
 // Re-export HPPR types for use in CoreResourceMsg
 pub use embedder_traits::{ HpprRequest, HpprResponse, HpprSigner, HpprViaSpec, HpprProtocolError, HpprProtocolResponse};
+pub use hppr_source::{
+    HpprDocumentSource, HpprDocumentSourceSnapshot, clear_hppr_document_source,
+    get_hppr_document_source, set_hppr_document_source,
+};
 
 /// <https://fetch.spec.whatwg.org/#document-accept-header-value>
 pub const DOCUMENT_ACCEPT_HEADER_VALUE: HeaderValue =
@@ -1182,6 +1187,9 @@ pub struct Metadata {
     pub hppr_endpoint: Option<String>,
     /// HPPR: resolved content authority for the loaded content.
     pub hppr_content_authority: Option<String>,
+    /// HPPR: canonical resolved document source snapshot.
+    #[ignore_malloc_size_of = "HPPR document source"]
+    pub hppr_source: Option<HpprDocumentSource>,
     /// HPPR: site ring1 credentials (ring1_name, signing_key) for the home repo (window.home).
     pub site_credentials: Option<(String, String)>,
     /// HPPR: pre-built signer for ring2 auth (window.route).
@@ -1210,6 +1218,7 @@ impl Metadata {
             hppr_packet: None,
             hppr_endpoint: None,
             hppr_content_authority: None,
+            hppr_source: None,
             site_credentials: None,
             hppr_signer: None,
             admin_credentials: None,

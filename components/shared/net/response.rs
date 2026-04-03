@@ -150,6 +150,9 @@ pub struct Response {
     pub hppr_signer: Option<crate::HpprSigner>,
     /// HPPR: resolved content authority for the loaded content.
     pub hppr_content_authority: Option<String>,
+    /// HPPR: canonical resolved document source snapshot.
+    #[ignore_malloc_size_of = "HPPR document source"]
+    pub hppr_source: Option<crate::HpprDocumentSource>,
     /// HPPR: site credentials (ring1_name, signing_key) for the home repo (`window.home`).
     pub site_credentials: Option<(String, String)>,
     /// HPPR: admin credentials (account, token) for `window.ring0`.
@@ -183,6 +186,7 @@ impl Response {
             hppr_endpoint: None,
             hppr_signer: None,
             hppr_content_authority: None,
+            hppr_source: None,
             site_credentials: None,
             admin_credentials: None,
         }
@@ -225,6 +229,7 @@ impl Response {
             hppr_endpoint: None,
             hppr_signer: None,
             hppr_content_authority: None,
+            hppr_source: None,
             site_credentials: None,
             admin_credentials: None,
         }
@@ -363,6 +368,7 @@ impl Response {
             metadata
                 .hppr_content_authority
                 .clone_from(&response.hppr_content_authority);
+            metadata.hppr_source.clone_from(&response.hppr_source);
             metadata
                 .site_credentials
                 .clone_from(&response.site_credentials);

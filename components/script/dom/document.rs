@@ -643,6 +643,10 @@ pub(crate) struct Document {
     #[ignore_malloc_size_of = "hppr_client::Signer"]
     #[no_trace]
     hppr_signer: DomRefCell<Option<hppr_client::Signer>>,
+    /// HPPR: canonical resolved document source snapshot.
+    #[ignore_malloc_size_of = "net_traits::HpprDocumentSource"]
+    #[no_trace]
+    hppr_source: DomRefCell<Option<net_traits::HpprDocumentSource>>,
     /// HPPR: resolved content authority for the loaded document.
     hppr_content_authority: DomRefCell<Option<String>>,
     /// HPPR: the packet that was used to load this document (route navigation)
@@ -3757,6 +3761,24 @@ impl Document {
         *self.hppr_signer.borrow_mut() = Some(signer);
     }
 
+    pub(crate) fn hppr_source(&self) -> Option<net_traits::HpprDocumentSource> {
+        self.hppr_source.borrow().clone()
+    }
+
+    pub(crate) fn set_hppr_source(&self, source: net_traits::HpprDocumentSource) {
+        match &source {
+            net_traits::HpprDocumentSource::Repo => {
+                *self.hppr_endpoint.borrow_mut() = None;
+                *self.hppr_signer.borrow_mut() = None;
+            },
+            net_traits::HpprDocumentSource::Remote { endpoint, signer, .. } => {
+                *self.hppr_endpoint.borrow_mut() = Some(endpoint.to_string());
+                *self.hppr_signer.borrow_mut() = Some(signer.clone());
+            },
+        }
+        *self.hppr_source.borrow_mut() = Some(source);
+    }
+
     pub(crate) fn hppr_content_authority(&self) -> Option<String> {
         self.hppr_content_authority.borrow().clone()
     }
@@ -4146,6 +4168,7 @@ impl Document {
             hppr_admin_credentials: DomRefCell::new(None),
             hppr_endpoint: DomRefCell::new(None),
             hppr_signer: DomRefCell::new(None),
+            hppr_source: DomRefCell::new(None),
             hppr_content_authority: DomRefCell::new(None),
             hppr_packet: Default::default(),
             watch_pool: DomRefCell::new(HashMapTracedValues::new()),

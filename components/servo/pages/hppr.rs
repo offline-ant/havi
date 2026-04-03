@@ -15,7 +15,8 @@ use crate::PageResponse;
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
 use crate::hppr::resolve::{
-    resolve_document, resolve_listing, route_configured_for_direct_endpoint,
+    resolve_document_with_snapshot, resolve_listing_with_snapshot,
+    route_configured_for_direct_endpoint,
 };
 use crate::hppr::url::{HAVIAddress, via_url};
 use crate::hppr::util::{html_escape, markdown_to_html, mime_from_path};
@@ -25,6 +26,7 @@ pub async fn handle_request(
     url: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
+    reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
 ) -> PageResponse {
     log::info!("hppr::handle_request url={}", url);
 
@@ -63,9 +65,9 @@ pub async fn handle_request(
     }
 
     if address.is_listing() {
-        handle_list(url, &parts.group, &parts.app, client, credential_store).await
+        handle_list(url, &parts.group, &parts.app, client, credential_store, reuse_source).await
     } else {
-        handle_get(url, &parts.group, &parts.app, client, credential_store).await
+        handle_get(url, &parts.group, &parts.app, client, credential_store, reuse_source).await
     }
 }
 
@@ -75,6 +77,7 @@ async fn handle_get(
     app: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
+    reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
 ) -> PageResponse {
     if group.is_empty() || app.is_empty() {
         return PageResponse::error(
@@ -84,7 +87,7 @@ async fn handle_get(
         );
     }
 
-    let resolved = match resolve_document(url, client, credential_store).await {
+    let resolved = match resolve_document_with_snapshot(url, client, credential_store, reuse_source).await {
         Ok(resolved) => resolved,
         Err(error) => {
             if let Ok(address) = HAVIAddress::parse(url)
@@ -124,6 +127,7 @@ async fn handle_get(
         &resolved.endpoint.to_string(),
         resolved.signer.as_ref(),
         resolved.content_authority.as_deref(),
+        Some(&resolved.hppr_source),
         group,
         app,
         client,
@@ -140,8 +144,9 @@ async fn handle_list(
     app: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
+    reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
 ) -> PageResponse {
-    match resolve_listing(url, client, credential_store).await {
+    match resolve_listing_with_snapshot(url, client, credential_store, reuse_source).await {
         Ok(resolved) => {
             let path = url.split("://").nth(1).unwrap_or("");
             let entries: Vec<(String, bool)> = resolved
@@ -155,6 +160,7 @@ async fn handle_list(
                 &resolved.endpoint.to_string(),
                 resolved.signer.as_ref(),
                 resolved.content_authority.as_deref(),
+                Some(&resolved.hppr_source),
                 group,
                 app,
                 client,
@@ -180,6 +186,7 @@ async fn apply_page_context(
     endpoint: &str,
     signer: Option<&Signer>,
     content_authority: Option<&str>,
+    hppr_source: Option<&net_traits::HpprDocumentSource>,
     group: &str,
     app: &str,
     client: &Arc<HpprdClientAsync>,
@@ -201,6 +208,7 @@ async fn apply_page_context(
 
     response.hppr_signer = signer.and_then(signer_identity_string);
     response.hppr_content_authority = content_authority.map(str::to_string);
+    response.hppr_source = hppr_source.cloned();
 }
 
 fn signer_identity_string(signer: &Signer) -> Option<String> {

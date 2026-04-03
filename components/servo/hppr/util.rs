@@ -21,7 +21,6 @@ pub enum RouteEndpointSource {
     LocalRoute,
     PublicNetwork,
     DirectVia,
-    ParentRoute,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +39,6 @@ impl RouteEndpointSource {
             RouteEndpointSource::LocalRoute => "local-route",
             RouteEndpointSource::PublicNetwork => "public-network",
             RouteEndpointSource::DirectVia => "direct-via",
-            RouteEndpointSource::ParentRoute => "parent-route",
         }
     }
 }
@@ -351,7 +349,8 @@ async fn resolve_exact_group_route(
     let mut parent_group = "u".to_string();
     let mut used_local = root_override.is_some();
 
-    for exact_group in exact_groups(group)? {
+    let exact_groups = exact_groups(group)?;
+    for exact_group in exact_groups.iter().cloned() {
         if let Some(repo_vkey) = repo_vkey.as_deref()
             && let Ok(local_group) = repo_client.get_local_route_group(&exact_group, repo_vkey).await
         {
@@ -367,8 +366,12 @@ async fn resolve_exact_group_route(
         if !public_name {
             break;
         }
-        let Some(target) = current_target.as_ref() else { break; };
-        let Some(expected) = route_authority_key.as_ref() else { break; };
+        let target = current_target
+            .as_ref()
+            .ok_or_else(|| format!("public route lookup failed for //{}/{}", group, app))?;
+        let expected = route_authority_key
+            .as_ref()
+            .ok_or_else(|| format!("public route lookup failed for //{}/{}", group, app))?;
         let child_label = if parent_group == "u" && !exact_group.contains('.') {
             exact_group.clone()
         } else {
@@ -379,10 +382,9 @@ async fn resolve_exact_group_route(
                 .to_string()
         };
         let urc = format!("//{}/route/group/{}", parent_group, child_label);
-        let packet = match fetch_public_packet_via(target, &urc).await {
-            Ok(packet) => packet,
-            Err(_) => break,
-        };
+        let packet = fetch_public_packet_via(target, &urc)
+            .await
+            .map_err(|_| format!("public route lookup failed for //{}/{}", group, app))?;
         let record = hppr_client::network::parse_group_record(&packet, expected, &parent_group, &child_label)
             .map_err(|e| e.to_string())?;
         current_target = Some(record.upstream.clone());
@@ -390,6 +392,10 @@ async fn resolve_exact_group_route(
         upstream_verification_key = record.upstream_verification_key.clone();
         home_app = record.home_app.clone();
         parent_group = record.resolved_group;
+    }
+
+    if public_name && !exact_groups.is_empty() && parent_group != group {
+        return Err(format!("public route lookup failed for //{}/{}", group, app));
     }
 
     if let (Some(endpoint), Some(route_authority_key)) = (current_target, route_authority_key) {
@@ -471,6 +477,18 @@ pub async fn resolve_route_endpoint(
         None
     };
 
+    if public_name && local_app.is_none() && public_app.is_none() {
+        report_route_resolution(
+            group,
+            app,
+            RouteEndpointSource::PublicNetwork,
+            &repo_target,
+            None,
+            Some("public-app-missing"),
+        );
+        return Err(format!("public route lookup failed for //{}/{}", group, app));
+    }
+
     let content_authority = if let Some(local_app) = &local_app {
         local_app.content_authority.clone()
     } else if let Some(public_app) = &public_app {
@@ -495,6 +513,10 @@ pub async fn resolve_route_endpoint(
         .or_else(|| public_app.as_ref().and_then(|r| r.upstream.clone()))
         .or_else(|| {
             if group == "u" || matches!(exact.source, RouteEndpointSource::HomeFallback) {
+                None
+            } else if public_name && public_app.is_none() && local_app.is_some() {
+                Some(exact.endpoint.clone())
+            } else if public_name {
                 None
             } else {
                 Some(exact.endpoint.clone())

@@ -19,8 +19,9 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use hppr_client::{Packet, Signer, ViaSpec, parse_via};
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
+use net_traits::{HpprDocumentSource, HpprDocumentSourceSnapshot};
 
-use super::client::HpprdClientAsync;
+use super::client::{ContentPointerInfo, HpprdClientAsync};
 use super::credentials::CredentialStoreHandle;
 use super::url::HAVIAddress;
 use super::state_db::global_state_db;
@@ -42,6 +43,7 @@ pub struct ResolvedDocument {
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
+    pub hppr_source: HpprDocumentSource,
     pub source: ResolvedSourceRef,
 }
 
@@ -52,6 +54,7 @@ pub struct ResolvedMediaSource {
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
+    pub hppr_source: HpprDocumentSource,
     pub source: ResolvedSourceRef,
 }
 
@@ -62,14 +65,7 @@ pub struct ResolvedListing {
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
-}
-
-#[derive(Clone, Debug)]
-struct ResolvedTarget {
-    endpoint: ViaSpec,
-    upstream_key: Option<String>,
-    content_authority_pin: Option<String>,
-    source: RouteEndpointSource,
+    pub hppr_source: HpprDocumentSource,
 }
 
 struct ResolvedAccess {
@@ -79,6 +75,12 @@ struct ResolvedAccess {
     is_repo: bool,
     client: Arc<HpprdClientAsync>,
     urc: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RouteResolvedDocumentSource {
+    pub snapshot: HpprDocumentSourceSnapshot,
+    pub source: RouteEndpointSource,
 }
 
 static PACKET_CACHE: LazyLock<Mutex<HashMap<String, Arc<Vec<u8>>>>> =
@@ -107,12 +109,22 @@ pub async fn resolve_document(
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> Result<ResolvedDocument, String> {
+    resolve_document_with_snapshot(url, repo_client, credential_store, None).await
+}
+
+pub async fn resolve_document_with_snapshot(
+    url: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+    snapshot: Option<&HpprDocumentSourceSnapshot>,
+) -> Result<ResolvedDocument, String> {
     let address = HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     if address.is_listing() {
         return Err("listing URL cannot resolve to a document source".to_string());
     }
 
-    let access = resolve_access(&address, repo_client, credential_store, false).await?;
+    let route_source = resolve_document_source(&address, repo_client, credential_store, snapshot).await?;
+    let access = resolve_access(&address, repo_client, &route_source.snapshot, false)?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
     let content_authority = access.content_authority.or_else(|| packet_content_authority(&packet));
     let source = ResolvedSourceRef {
@@ -129,6 +141,7 @@ pub async fn resolve_document(
         signer: access.signer,
         content_authority,
         is_repo: access.is_repo,
+        hppr_source: route_source.snapshot.source.clone(),
         source,
     })
 }
@@ -143,7 +156,8 @@ pub async fn resolve_media(
         return Err("listing URL cannot resolve to a media source".to_string());
     }
 
-    let access = resolve_access(&address, repo_client, credential_store, false).await?;
+    let route_source = resolve_document_source(&address, repo_client, credential_store, None).await?;
+    let access = resolve_access(&address, repo_client, &route_source.snapshot, false)?;
     let packet = access.client.get_packet_authenticated(&access.urc).await?;
     let content_authority = access.content_authority.or_else(|| packet_content_authority(&packet));
     let source = ResolvedSourceRef {
@@ -160,6 +174,7 @@ pub async fn resolve_media(
         signer: access.signer,
         content_authority,
         is_repo: access.is_repo,
+        hppr_source: route_source.snapshot.source.clone(),
         source,
     })
 }
@@ -169,8 +184,18 @@ pub async fn resolve_listing(
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> Result<ResolvedListing, String> {
+    resolve_listing_with_snapshot(url, repo_client, credential_store, None).await
+}
+
+pub async fn resolve_listing_with_snapshot(
+    url: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+    snapshot: Option<&HpprDocumentSourceSnapshot>,
+) -> Result<ResolvedListing, String> {
     let address = HAVIAddress::parse(url).map_err(|e| e.to_string())?;
-    let access = resolve_access(&address, repo_client, credential_store, true).await?;
+    let route_source = resolve_document_source(&address, repo_client, credential_store, snapshot).await?;
+    let access = resolve_access(&address, repo_client, &route_source.snapshot, true)?;
     let children = access.client.list(&access.urc).await?;
     Ok(ResolvedListing {
         children,
@@ -178,6 +203,7 @@ pub async fn resolve_listing(
         signer: access.signer,
         content_authority: access.content_authority,
         is_repo: access.is_repo,
+        hppr_source: route_source.snapshot.source,
     })
 }
 
@@ -197,138 +223,200 @@ pub async fn resolve_embed_content_authority(
     credential_store: &CredentialStoreHandle,
 ) -> Result<Option<String>, String> {
     let address = HAVIAddress::parse(url).map_err(|e| e.to_string())?;
-    let access = resolve_access(&address, repo_client, credential_store, address.is_listing()).await?;
+    let route_source = resolve_document_source(&address, repo_client, credential_store, None).await?;
+    let access = resolve_access(&address, repo_client, &route_source.snapshot, address.is_listing())?;
     Ok(access
         .content_authority
         .or_else(|| seal_authority_from_urc(&access.urc)))
 }
 
-async fn resolve_access(
+pub async fn resolve_document_source(
     address: &HAVIAddress,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
-    is_listing: bool,
-) -> Result<ResolvedAccess, String> {
+    reuse: Option<&HpprDocumentSourceSnapshot>,
+) -> Result<RouteResolvedDocumentSource, String> {
     let parts = address.parts();
-    if !parts.group.starts_with('~')
-        && global_state_db().shadow_override_enabled(&parts.group, &parts.app)?
+    if let Some(snapshot) = reuse
+        && !address.has_direct_endpoint()
+        && snapshot.group == parts.group
+        && snapshot.app == parts.app
     {
-        let requested_location = address.location_with_slash();
-        let target = append_location(&shadow_root(&parts.group, &parts.app), &requested_location);
-        let urc = if is_listing {
-            format!("{}/", target.trim_end_matches('/'))
-        } else {
-            target
-        };
-        return Ok(ResolvedAccess {
-            endpoint: repo_client.target(),
-            signer: None,
-            content_authority: None,
-            is_repo: true,
-            client: repo_client.clone(),
-            urc,
+        return Ok(RouteResolvedDocumentSource {
+            snapshot: snapshot.clone(),
+            source: match snapshot.source {
+                HpprDocumentSource::Repo => RouteEndpointSource::HomeFallback,
+                HpprDocumentSource::Remote { .. } => RouteEndpointSource::DirectVia,
+            },
         });
     }
 
-    let target = resolve_target(address, repo_client, credential_store, None).await?;
-    let is_repo = matches!(target.source, RouteEndpointSource::HomeFallback);
-    let network_content_authority_pin = target.content_authority_pin.clone();
-    let signer = if is_repo {
-        None
-    } else {
-        Some(build_route_signer(&parts.group, &parts.app, repo_client).await?)
-    };
-    let client = if let Some(signer) = &signer {
-        Arc::new(HpprdClientAsync::new_with_signer(
-            target.endpoint.clone(),
-            signer.clone(),
-        ))
-    } else {
-        repo_client.clone()
-    };
+    if !parts.group.starts_with('~')
+        && global_state_db().shadow_override_enabled(&parts.group, &parts.app)?
+    {
+        return Ok(RouteResolvedDocumentSource {
+            snapshot: HpprDocumentSourceSnapshot {
+                group: parts.group,
+                app: parts.app,
+                source: HpprDocumentSource::Repo,
+            },
+            source: RouteEndpointSource::HomeFallback,
+        });
+    }
 
-    let requested_location = address.location_with_slash();
-    let (urc, content_authority) = if is_repo {
-        (
-            HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location),
-            None,
-        )
-    } else {
-        resolve_content_pointer_target(
+    if let Some(endpoint) = address.endpoint_string() {
+        if endpoint == "repo" {
+            return Ok(RouteResolvedDocumentSource {
+                snapshot: HpprDocumentSourceSnapshot {
+                    group: parts.group,
+                    app: parts.app,
+                    source: HpprDocumentSource::Repo,
+                },
+                source: RouteEndpointSource::HomeFallback,
+            });
+        }
+
+        let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
+        let (_, upstream_key, content_authority_pin, _) =
+            resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await?;
+        let signer = build_route_signer(&parts.group, &parts.app, repo_client).await?;
+        let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), signer.clone()));
+        let content_pointer = resolve_content_pointer(
             &client,
             &parts.group,
             &parts.app,
-            &requested_location,
-            target.upstream_key.as_deref(),
-            is_listing,
-            network_content_authority_pin.as_deref(),
+            upstream_key.as_deref(),
+            content_authority_pin.as_deref(),
         )
-        .await?
-    };
-
-    Ok(ResolvedAccess {
-        endpoint: target.endpoint,
-        signer,
-        content_authority,
-        is_repo,
-        client,
-        urc,
-    })
-}
-
-async fn resolve_target(
-    url: &HAVIAddress,
-    repo_client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
-    page_endpoint: Option<&ViaSpec>,
-) -> Result<ResolvedTarget, String> {
-    let repo_target = repo_client.target();
-    let parts = url.parts();
-
-    let (endpoint, upstream_key, content_authority_pin, source) = if let Some(endpoint) = url.endpoint_string() {
-        if endpoint == "repo" {
-            (repo_target, None, None, RouteEndpointSource::HomeFallback)
-        } else {
-            let via = parse_via(&endpoint).map_err(|e| e.to_string())?;
-            eprintln!(
-                "[havi] route resolve: //{}/{} source={} endpoint={}",
-                parts.group,
-                parts.app,
-                RouteEndpointSource::DirectVia.as_str(),
-                via
-            );
-            (via, None, None, RouteEndpointSource::DirectVia)
-        }
-    } else if let Some(endpoint) = page_endpoint {
+        .await?;
         eprintln!(
             "[havi] route resolve: //{}/{} source={} endpoint={}",
             parts.group,
             parts.app,
-            RouteEndpointSource::ParentRoute.as_str(),
-            endpoint
+            RouteEndpointSource::DirectVia.as_str(),
+            via
         );
-        (endpoint.clone(), None, None, RouteEndpointSource::ParentRoute)
-    } else {
-        resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await?
-    };
+        return Ok(RouteResolvedDocumentSource {
+            snapshot: HpprDocumentSourceSnapshot {
+                group: parts.group,
+                app: parts.app,
+                source: HpprDocumentSource::Remote {
+                    endpoint: via,
+                    signer,
+                    content_root: content_pointer.root,
+                    content_authority: content_pointer.authority,
+                },
+            },
+            source: RouteEndpointSource::DirectVia,
+        });
+    }
 
-    Ok(ResolvedTarget {
-        endpoint,
-        upstream_key,
-        content_authority_pin,
+    let (endpoint, upstream_key, content_authority_pin, source) =
+        resolve_route_endpoint(&parts.group, &parts.app, repo_client, credential_store).await?;
+    if matches!(source, RouteEndpointSource::HomeFallback) {
+        return Ok(RouteResolvedDocumentSource {
+            snapshot: HpprDocumentSourceSnapshot {
+                group: parts.group,
+                app: parts.app,
+                source: HpprDocumentSource::Repo,
+            },
+            source,
+        });
+    }
+
+    let signer = build_route_signer(&parts.group, &parts.app, repo_client).await?;
+    let client = Arc::new(HpprdClientAsync::new_with_signer(endpoint.clone(), signer.clone()));
+    let content_pointer = resolve_content_pointer(
+        &client,
+        &parts.group,
+        &parts.app,
+        upstream_key.as_deref(),
+        content_authority_pin.as_deref(),
+    )
+    .await?;
+
+    Ok(RouteResolvedDocumentSource {
+        snapshot: HpprDocumentSourceSnapshot {
+            group: parts.group,
+            app: parts.app,
+            source: HpprDocumentSource::Remote {
+                endpoint,
+                signer,
+                content_root: content_pointer.root,
+                content_authority: content_pointer.authority,
+            },
+        },
         source,
     })
 }
 
-async fn resolve_content_pointer_target(
+fn resolve_access(
+    address: &HAVIAddress,
+    repo_client: &Arc<HpprdClientAsync>,
+    snapshot: &HpprDocumentSourceSnapshot,
+    is_listing: bool,
+) -> Result<ResolvedAccess, String> {
+    let parts = address.parts();
+    let requested_location = address.location_with_slash();
+
+    match &snapshot.source {
+        HpprDocumentSource::Repo => {
+            let urc = if !parts.group.starts_with('~')
+                && global_state_db().shadow_override_enabled(&parts.group, &parts.app)?
+            {
+                let target = append_location(&shadow_root(&parts.group, &parts.app), &requested_location);
+                if is_listing {
+                    format!("{}/", target.trim_end_matches('/'))
+                } else {
+                    target
+                }
+            } else {
+                HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location)
+            };
+            Ok(ResolvedAccess {
+                endpoint: repo_client.target(),
+                signer: None,
+                content_authority: None,
+                is_repo: true,
+                client: repo_client.clone(),
+                urc,
+            })
+        },
+        HpprDocumentSource::Remote {
+            endpoint,
+            signer,
+            content_root,
+            content_authority,
+        } => {
+            let client = Arc::new(HpprdClientAsync::new_with_signer(
+                endpoint.clone(),
+                signer.clone(),
+            ));
+            let target = append_location(content_root, &requested_location);
+            let urc = if is_listing {
+                format!("{}/", target.trim_end_matches('/'))
+            } else {
+                format!("{}/|/seal/{}", target, content_authority)
+            };
+            Ok(ResolvedAccess {
+                endpoint: endpoint.clone(),
+                signer: Some(signer.clone()),
+                content_authority: Some(content_authority.clone()),
+                is_repo: false,
+                client,
+                urc,
+            })
+        },
+    }
+}
+
+async fn resolve_content_pointer(
     route_client: &Arc<HpprdClientAsync>,
     group: &str,
     app: &str,
-    requested_location: &str,
     upstream_key: Option<&str>,
-    is_listing: bool,
     network_content_authority_pin: Option<&str>,
-) -> Result<(String, Option<String>), String> {
+) -> Result<ContentPointerInfo, String> {
     let repo_vkey = match upstream_key {
         Some(key) => key.to_string(),
         None => route_client.get_admin_identity().await?,
@@ -336,7 +424,6 @@ async fn resolve_content_pointer_target(
 
     let content_pointer = route_client.get_content_pointer(group, app, &repo_vkey).await?;
 
-    // MUST enforce Content-Authority pin from public network against deploy pointer
     if let Some(pin) = network_content_authority_pin {
         if content_pointer.authority != pin {
             return Err(format!(
@@ -346,13 +433,7 @@ async fn resolve_content_pointer_target(
         }
     }
 
-    let target = append_location(&content_pointer.root, requested_location);
-    let urc = if is_listing {
-        format!("{}/", target.trim_end_matches('/'))
-    } else {
-        format!("{}/|/seal/{}", target, content_pointer.authority)
-    };
-    Ok((urc, Some(content_pointer.authority)))
+    Ok(content_pointer)
 }
 
 async fn build_route_signer(
