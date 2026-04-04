@@ -43,6 +43,11 @@ pub enum MakepadServoAction {
         webview_id: WebViewId,
         status: libhavi::LoadStatus,
     },
+    /// A webview animation state changed.
+    AnimatingChanged {
+        webview_id: WebViewId,
+        animating: bool,
+    },
     /// A webview has new content to paint.
     NewFrameReady {
         webview_id: WebViewId,
@@ -143,6 +148,14 @@ impl std::fmt::Debug for MakepadServoAction {
                 .debug_struct("LoadStatusChanged")
                 .field("webview_id", webview_id)
                 .field("status", status)
+                .finish(),
+            Self::AnimatingChanged {
+                webview_id,
+                animating,
+            } => f
+                .debug_struct("AnimatingChanged")
+                .field("webview_id", webview_id)
+                .field("animating", animating)
                 .finish(),
             Self::NewFrameReady {
                 webview_id,
@@ -454,6 +467,14 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
         SignalToUI::set_ui_signal();
     }
 
+    fn notify_animating_changed(&self, webview: libhavi::WebView, animating: bool) {
+        Cx::post_action(MakepadServoAction::AnimatingChanged {
+            webview_id: webview.id(),
+            animating,
+        });
+        SignalToUI::set_ui_signal();
+    }
+
     fn notify_new_frame_ready(
         &self,
         webview: libhavi::WebView,
@@ -601,6 +622,7 @@ impl libhavi::EventLoopWaker for MakepadEventLoopWaker {
 
     fn wake(&self) {
         Cx::post_action(MakepadServoAction::Wake);
+        SignalToUI::set_ui_signal();
     }
 }
 

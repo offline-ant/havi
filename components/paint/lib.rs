@@ -22,6 +22,7 @@ pub use crate::paint::Paint;
 #[macro_use]
 mod tracing;
 
+mod animation;
 mod paint;
 mod screenshot;
 pub mod src_bridge;

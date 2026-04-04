@@ -794,6 +794,17 @@ impl MatchEvent for App {
                         }
                     }
                 },
+                Some(MakepadServoAction::AnimatingChanged {
+                    webview_id,
+                    animating,
+                }) => {
+                    if let Some(idx) = self.tab_index_for_webview(*webview_id) {
+                        self.tabs[idx].animating = *animating;
+                        if *animating {
+                            self.request_spin(cx);
+                        }
+                    }
+                },
                 Some(MakepadServoAction::NewFrameReady {
                     webview_id,
                     pipeline_id,
@@ -1384,7 +1395,9 @@ impl AppMain for App {
             // Continue the frame loop while there's recent activity.
             // When idle, stop to save CPU/GPU. The Wake action will restart it.
             // Keep running in control mode so stdin messages are polled.
+            let shell_animating = self.tabs.iter().any(|tab| tab.animating);
             let keep_spinning = self.idle_frames < MAX_IDLE_FRAMES
+                || shell_animating
                 || scroll_fading
                 || self.screenshot_mode.is_some()
                 || Cx::has_studio_web_socket();

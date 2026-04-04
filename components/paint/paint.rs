@@ -13,13 +13,14 @@ use constellation_traits::{EmbedderToConstellationMessage, WindowSizeType};
 use crossbeam_channel::Sender;
 use dpi::PhysicalSize;
 use embedder_traits::{
-    InputEventAndId, InputEventId, InputEventResult, ScreenshotCaptureError,
-    ShutdownState, ViewportDetails, WebViewRect,
+    AnimationState, EventLoopWaker, InputEventAndId, InputEventId,
+    InputEventResult, ScreenshotCaptureError, ShutdownState, ViewportDetails,
+    WebViewRect,
 };
 use euclid::{Point2D, Scale, Size2D};
 use image::RgbaImage;
 use ipc_channel::ipc;
-use log::debug;
+use log::{debug, warn};
 use smallvec::SmallVec;
 use paint_api::{ExternalImageIdRegistry, PaintMessage, WebViewTrait};
 use profile_traits::mem::{
@@ -37,6 +38,7 @@ use webrender_api::units::{DevicePixel, DevicePoint, LayoutVector2D};
 use webrender_api::{FontInstanceKey, FontKey, ImageKey};
 
 use crate::InitialPaintState;
+use crate::animation::{AnimationStateTracker, AnimationTickDriver};
 use crate::screenshot::ScreenshotTaker;
 use crate::src_bridge::ScreenshotBridge;
 use crate::touch::TouchHandler;
@@ -70,6 +72,9 @@ pub struct Paint {
 
     /// Tracks whether we are in the process of shutting down.
     shutdown_state: Rc<Cell<ShutdownState>>,
+
+    /// Wake the embedder event loop when animation ticks need processing.
+    event_loop_waker: Box<dyn EventLoopWaker>,
 
     /// The port on which we receive messages.
     paint_receiver: RoutedReceiver<PaintMessage>,
@@ -117,6 +122,12 @@ pub struct Paint {
     /// Touch gesture handler for touch-to-scroll conversion.
     pub(crate) touch_handler: RefCell<TouchHandler>,
 
+    /// Current animation state per webview/pipeline.
+    animation_state_tracker: RefCell<AnimationStateTracker>,
+
+    /// Timer-driven animation tick sender.
+    animation_tick_driver: RefCell<AnimationTickDriver>,
+
     /// Shared image source store for forwarding image updates to the render layer.
     pub(crate) image_source_store: paint_api::SharedImageSourceStore,
 }
@@ -141,6 +152,11 @@ impl Paint {
         );
 
         let external_image_id_registry = ExternalImageIdRegistry::default();
+        let event_loop_waker = state.event_loop_waker;
+        let animation_tick_driver = AnimationTickDriver::new(
+            state.embedder_to_constellation_sender.clone(),
+            event_loop_waker.clone(),
+        );
 
         // TODO: WebXR init needs rework after WebGL removal
         #[cfg(feature = "webxr")]
@@ -153,6 +169,7 @@ impl Paint {
             webviews: Default::default(),
             pending_frame_notifications: Default::default(),
             shutdown_state: state.shutdown_state,
+            event_loop_waker,
             paint_receiver: state.receiver,
             embedder_to_constellation_sender: state.embedder_to_constellation_sender.clone(),
             external_image_id_registry,
@@ -169,6 +186,8 @@ impl Paint {
             pending_wheel_events: Default::default(),
             webview_pipelines: Default::default(),
             touch_handler: RefCell::new(TouchHandler::new()),
+            animation_state_tracker: Default::default(),
+            animation_tick_driver: RefCell::new(animation_tick_driver),
             image_source_store: paint_api::SharedImageSourceStore::new(),
         }))
     }
@@ -210,12 +229,101 @@ impl Paint {
 
     pub fn finish_shutting_down(&self) {
         while self.paint_receiver.try_recv().is_ok() {}
+        self.animation_tick_driver.borrow_mut().shutdown();
 
         if let Ok((sender, receiver)) = ipc::channel() {
             self.time_profiler_chan
                 .send(profile_time::ProfilerMsg::Exit(sender));
             let _ = receiver.recv();
         }
+    }
+
+    fn send_tick_animation(&self, webview_ids: Vec<WebViewId>) {
+        if webview_ids.is_empty() {
+            return;
+        }
+        if let Err(error) = self
+            .embedder_to_constellation_sender
+            .send(EmbedderToConstellationMessage::TickAnimation(webview_ids))
+        {
+            warn!("Sending tick to constellation failed ({error:?}).");
+            return;
+        }
+        self.event_loop_waker.wake();
+    }
+
+    fn set_webview_animating(&self, webview_id: WebViewId, is_animating: bool) {
+        if let Some(webview) = self.webviews.borrow().get(&webview_id) {
+            webview.set_animating(is_animating);
+        }
+    }
+
+    fn handle_change_running_animations_state(
+        &self,
+        webview_id: WebViewId,
+        pipeline_id: PipelineId,
+        animation_state: AnimationState,
+    ) {
+        if !self.webviews.borrow().contains_key(&webview_id) {
+            return;
+        }
+        let (update, animating_webviews) = {
+            let mut tracker = self.animation_state_tracker.borrow_mut();
+            let update = tracker.change_running_animations_state(
+                webview_id,
+                pipeline_id,
+                animation_state,
+            );
+            let animating_webviews = tracker.animating_webviews();
+            (update, animating_webviews)
+        };
+        self.set_webview_animating(webview_id, update.is_animating);
+        self.animation_tick_driver
+            .borrow()
+            .set_animating_webviews(animating_webviews);
+        if update.started_animating {
+            self.send_tick_animation(vec![webview_id]);
+        }
+    }
+
+    fn handle_set_throttled(
+        &self,
+        webview_id: WebViewId,
+        pipeline_id: PipelineId,
+        throttled: bool,
+    ) {
+        if !self.webviews.borrow().contains_key(&webview_id) {
+            return;
+        }
+        let (update, animating_webviews) = {
+            let mut tracker = self.animation_state_tracker.borrow_mut();
+            let update = tracker.set_throttled(webview_id, pipeline_id, throttled);
+            let animating_webviews = tracker.animating_webviews();
+            (update, animating_webviews)
+        };
+        self.set_webview_animating(webview_id, update.is_animating);
+        self.animation_tick_driver
+            .borrow()
+            .set_animating_webviews(animating_webviews);
+        if update.started_animating {
+            self.send_tick_animation(vec![webview_id]);
+        }
+    }
+
+    fn handle_pipeline_exited(&self, webview_id: WebViewId, pipeline_id: PipelineId) {
+        if !self.webviews.borrow().contains_key(&webview_id) {
+            return;
+        }
+        let (update, animating_webviews) = {
+            let mut tracker = self.animation_state_tracker.borrow_mut();
+            let update = tracker.remove_pipeline(webview_id, pipeline_id);
+            let animating_webviews = tracker.animating_webviews();
+            (update, animating_webviews)
+        };
+        self.set_webview_animating(webview_id, update.is_animating);
+        self.animation_tick_driver
+            .borrow()
+            .set_animating_webviews(animating_webviews);
     }
 
     fn handle_browser_message(&self, msg: PaintMessage) {
@@ -234,16 +342,24 @@ impl Paint {
             PaintMessage::CollectMemoryReport(sender) => {
                 self.collect_memory_report(sender);
             },
-            PaintMessage::ChangeRunningAnimationsState(..) => {
-                // TODO(havi-render): Forward animation state to Makepad.
+            PaintMessage::ChangeRunningAnimationsState(webview_id, pipeline_id, animation_state) => {
+                self.handle_change_running_animations_state(
+                    webview_id,
+                    pipeline_id,
+                    animation_state,
+                );
             },
             PaintMessage::SetFrameTreeForWebView(webview_id, frame_tree) => {
                 self.webview_pipelines
                     .borrow_mut()
                     .insert(webview_id, frame_tree.pipeline.id);
             },
-            PaintMessage::SetThrottled(..) => {},
-            PaintMessage::PipelineExited(..) => {},
+            PaintMessage::SetThrottled(webview_id, pipeline_id, throttled) => {
+                self.handle_set_throttled(webview_id, pipeline_id, throttled);
+            },
+            PaintMessage::PipelineExited(webview_id, pipeline_id, ..) => {
+                self.handle_pipeline_exited(webview_id, pipeline_id);
+            },
             PaintMessage::ScrollViewportByDelta(webview_id, delta) => {
                 self.notify_scroll_default_action(webview_id, None, delta);
             },
@@ -258,8 +374,7 @@ impl Paint {
                         .filter(|webview_id| PainterId::from(*webview_id) == painter_id)
                         .collect();
                     for webview_id in webview_ids {
-                        if let Some(webview) = webviews.get(&webview_id) {
-                            webview.set_animating(true);
+                        if webviews.contains_key(&webview_id) {
                             pending.insert(webview_id);
                         }
                     }
@@ -319,6 +434,11 @@ impl Paint {
         self.page_zooms.borrow_mut().remove(&webview_id);
         self.hidpi_scale_factors.borrow_mut().remove(&webview_id);
         self.webview_pipelines.borrow_mut().remove(&webview_id);
+        self.animation_state_tracker.borrow_mut().remove_webview(webview_id);
+        let animating_webviews = self.animation_state_tracker.borrow().animating_webviews();
+        self.animation_tick_driver
+            .borrow()
+            .set_animating_webviews(animating_webviews);
         self.screenshot_taker.fail_webview(webview_id);
         // TODO(havi-render): Clean up webview state.
     }
