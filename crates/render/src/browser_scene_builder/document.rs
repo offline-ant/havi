@@ -49,7 +49,7 @@ pub(super) fn build_browser_document(
     };
     let mut scene = MpScene::new(ids.alloc_scene_id(), viewport_rect);
     let root_spatial_id = scene.root_spatial_id;
-    let root_clip_chain_id = scene.root_clip_chain_id;
+    let root_clip_chain_id = scene.install_root_viewport_clip(viewport_rect);
 
     let mut state = BuildState {
         glyph_runs: Default::default(),

@@ -454,11 +454,13 @@ Current retained clip execution covers:
 - rounded-rect clips
 - image-mask clips
 - plane-set clips
+- explicit scene-boundary viewport clips for document scenes and nested task scenes
 
-The current retained browser path still has one known spatial issue: clip
-execution is not yet consistently derived from the same full draw-time basis as
-geometry when outer draw-list placement is involved. The redesign plan for that
-work lives in `../havi-makepad-simplify.md`.
+Retained document scenes now keep viewport clipping as structural root
+clip-chain data. Nested task scenes intersect explicit boundary clips into
+emitted clip chains before task-local rebase. Placement remains explicit
+through `host_rect`, and text, primitives, and pictures all evaluate clip state
+against the same effective draw-time basis as their geometry.
 
 Current retained picture/task execution covers:
 

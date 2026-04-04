@@ -1108,14 +1108,7 @@ fn build_pattern_tile_document(
         size: tile_size,
     };
     let mut scene = MpScene::new(makepad_browser_scene::MpSceneId(0), viewport);
-    let clip_id = scene.push_clip(MpClipNode {
-        spatial_id: scene.root_spatial_id,
-        kind: MpClipKind::Rect { rect: viewport },
-    });
-    let clip_chain_id = scene.push_clip_chain(MpClipChain {
-        parent: Some(scene.root_clip_chain_id),
-        clips: vec![clip_id],
-    });
+    let clip_chain_id = scene.install_root_viewport_clip(viewport);
     let content_affine = resolve_pattern_tile_content_transform(pattern, object_bounding_box, tile_rect);
     let spatial_id = if content_affine == identity_affine() {
         scene.root_spatial_id
