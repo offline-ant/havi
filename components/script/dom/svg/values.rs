@@ -13,7 +13,7 @@ pub(crate) use layout_api::{
     parse_svg_enumeration, parse_svg_length, parse_svg_length_list, parse_svg_number,
     parse_svg_number_list, parse_svg_preserve_aspect_ratio, parse_svg_transform_list,
     parse_svg_view_box, serialize_svg_enumeration, serialize_svg_length,
-    serialize_svg_length_list, serialize_svg_number, serialize_svg_number_list,
+    serialize_svg_length_list, serialize_svg_number_list,
     serialize_svg_preserve_aspect_ratio, serialize_svg_transform_list,
 };
 

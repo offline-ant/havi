@@ -31,10 +31,10 @@ use super::values::{
     SVGLengthValue, SVGPreserveAspectRatioValue, SVGTransformValue, SVG_LENGTHTYPE_NUMBER,
     SVG_LENGTHTYPE_UNKNOWN, SVG_MEETORSLICE_MEET, SVG_PRESERVEASPECTRATIO_XMIDYMID,
     SVG_TRANSFORM_MATRIX, compose_svg_transform_list, parse_svg_length, parse_svg_length_list,
-    parse_svg_number, parse_svg_number_list, parse_svg_preserve_aspect_ratio,
-    parse_svg_transform_list, serialize_svg_length, serialize_svg_length_list,
-    serialize_svg_number, serialize_svg_number_list, serialize_svg_preserve_aspect_ratio,
-    serialize_svg_transform_list, set_svg_attribute_value, svg_attribute_value,
+    parse_svg_number_list, parse_svg_preserve_aspect_ratio, parse_svg_transform_list,
+    serialize_svg_length, serialize_svg_length_list, serialize_svg_number_list,
+    serialize_svg_preserve_aspect_ratio, serialize_svg_transform_list, set_svg_attribute_value,
+    svg_attribute_value,
 };
 
 #[derive(Clone, JSTraceable, MallocSizeOf)]
@@ -55,11 +55,6 @@ enum SVGLengthSource {
 
 #[derive(Clone, JSTraceable, MallocSizeOf)]
 enum SVGNumberSource {
-    Attribute {
-        owner: Dom<SVGElement>,
-        #[no_trace]
-        attribute: LocalName,
-    },
     ListItem {
         owner: Dom<SVGElement>,
         #[no_trace]
@@ -76,7 +71,6 @@ enum SVGPreserveAspectRatioSource {
         #[no_trace]
         attribute: LocalName,
     },
-    Detached,
 }
 
 #[derive(Clone, JSTraceable, MallocSizeOf)]
@@ -446,28 +440,6 @@ impl SVGNumber {
         }
     }
 
-    pub(crate) fn new_for_attribute(
-        global: &GlobalScope,
-        owner: &SVGElement,
-        attribute: LocalName,
-        read_only: bool,
-        can_gc: CanGc,
-    ) -> DomRoot<Self> {
-        let value = parse_svg_number(svg_attribute_value(owner, &attribute).as_deref());
-        reflect_dom_object(
-            Box::new(Self::new_inherited(
-                SVGNumberSource::Attribute {
-                    owner: Dom::from_ref(owner),
-                    attribute,
-                },
-                value,
-                read_only,
-            )),
-            global,
-            can_gc,
-        )
-    }
-
     pub(crate) fn new_for_list_item(
         global: &GlobalScope,
         owner: &SVGElement,
@@ -505,9 +477,6 @@ impl SVGNumber {
 
     pub(crate) fn current_value(&self) -> f32 {
         match &self.source {
-            SVGNumberSource::Attribute { owner, attribute } => {
-                parse_svg_number(svg_attribute_value(owner, attribute).as_deref())
-            },
             SVGNumberSource::ListItem {
                 owner,
                 attribute,
@@ -525,14 +494,6 @@ impl SVGNumber {
             return Err(Error::NoModificationAllowed(None));
         }
         match &self.source {
-            SVGNumberSource::Attribute { owner, attribute } => {
-                set_svg_attribute_value(
-                    owner,
-                    attribute,
-                    Some(serialize_svg_number(value)),
-                    CanGc::note(),
-                );
-            },
             SVGNumberSource::ListItem {
                 owner,
                 attribute,
@@ -681,22 +642,14 @@ impl SVGNumberListMethods<crate::DomTypeHolder> for SVGNumberList {
 pub(crate) struct SVGPreserveAspectRatio {
     reflector_: Reflector,
     source: SVGPreserveAspectRatioSource,
-    #[no_trace]
-    #[ignore_malloc_size_of = "plain SVG value"]
-    detached_value: Cell<SVGPreserveAspectRatioValue>,
     read_only: bool,
 }
 
 impl SVGPreserveAspectRatio {
-    fn new_inherited(
-        source: SVGPreserveAspectRatioSource,
-        value: SVGPreserveAspectRatioValue,
-        read_only: bool,
-    ) -> Self {
+    fn new_inherited(source: SVGPreserveAspectRatioSource, read_only: bool) -> Self {
         Self {
             reflector_: Reflector::new(),
             source,
-            detached_value: Cell::new(value),
             read_only,
         }
     }
@@ -708,31 +661,13 @@ impl SVGPreserveAspectRatio {
         read_only: bool,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
-        let value = parse_svg_preserve_aspect_ratio(svg_attribute_value(owner, &attribute).as_deref());
         reflect_dom_object(
             Box::new(Self::new_inherited(
                 SVGPreserveAspectRatioSource::Attribute {
                     owner: Dom::from_ref(owner),
                     attribute,
                 },
-                value,
                 read_only,
-            )),
-            global,
-            can_gc,
-        )
-    }
-
-    pub(crate) fn new_detached(
-        global: &GlobalScope,
-        value: SVGPreserveAspectRatioValue,
-        can_gc: CanGc,
-    ) -> DomRoot<Self> {
-        reflect_dom_object(
-            Box::new(Self::new_inherited(
-                SVGPreserveAspectRatioSource::Detached,
-                value,
-                false,
             )),
             global,
             can_gc,
@@ -744,7 +679,6 @@ impl SVGPreserveAspectRatio {
             SVGPreserveAspectRatioSource::Attribute { owner, attribute } => {
                 parse_svg_preserve_aspect_ratio(svg_attribute_value(owner, attribute).as_deref())
             },
-            SVGPreserveAspectRatioSource::Detached => self.detached_value.get(),
         }
     }
 
@@ -761,7 +695,6 @@ impl SVGPreserveAspectRatio {
                     CanGc::note(),
                 );
             },
-            SVGPreserveAspectRatioSource::Detached => self.detached_value.set(value),
         }
         Ok(())
     }

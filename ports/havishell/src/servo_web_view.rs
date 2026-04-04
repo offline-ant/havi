@@ -99,10 +99,6 @@ static BROWSER_SURFACE_CACHE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
         Ok(value) if matches!(value.as_str(), "0" | "false" | "no")
     )
 });
-static BROWSER_SURFACE_CACHE_STATS_ENABLED: LazyLock<bool> = LazyLock::new(|| {
-    matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1")
-});
-
 fn hash_browser_scroll_state(scroll_state: &havi_render::ScrollState) -> u64 {
     let mut entries: Vec<_> = scroll_state.iter().collect();
     entries.sort_by_key(|(id, _)| (id.1.0, id.1.1, id.0));
