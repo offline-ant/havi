@@ -54,8 +54,9 @@ Environment variables:
 - `HAVI_SCREENSHOT` — internal screenshot output path set by
   `--screenshot <output.png>`; screenshot mode bypasses single-instance reuse
 - `HAVI_BROWSER_SURFACE_CACHE` — set to `0` to disable the browser-owned
-  retained output-surface cache; by default HAVI promotes stable page content
-  into an offscreen texture and reuses it on unchanged frames
+  retained output-surface cache; by default HAVI promotes only exact-present
+  page output into an offscreen texture and reuses it on unchanged frames when
+  physical placement, clip state, and renderer visual generation still match
 
 Desktop HAVI embeds its browser-owned runtime resources and its Makepad package
 resources by default through `mach-havi` using embedded-resource builds with the
@@ -71,6 +72,7 @@ Screenshot mode waits for the active page to reach load-complete and then for
 active-page visual updates to go quiet. Shell chrome redraws and generic event
 loop wakeups do not extend screenshot settling. The final PNG is captured from
 the browser-owned page output surface, not from shell chrome composition.
+Stable surface-cache reuse is separate from this capture path.
 
 When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
 location.

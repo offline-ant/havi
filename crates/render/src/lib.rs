@@ -101,6 +101,9 @@ pub struct FrameDrawListState {
     pub(crate) browser_renderer: Option<MpBrowserRenderer>,
     pub(crate) browser_document_cache: Option<BrowserDocumentCacheEntry>,
     pub(crate) shared_image_source_keys: HashSet<MpImageKey>,
+    browser_surface_visual_generation: u64,
+    browser_surface_renderer_generation: u64,
+    browser_surface_async_visual_work_pending: bool,
     pub counters: RenderPathCounters,
 }
 
@@ -108,6 +111,33 @@ impl FrameDrawListState {
     pub fn clear(&mut self) {
         self.browser_document_cache = None;
         self.shared_image_source_keys.clear();
+        self.browser_surface_visual_generation = 0;
+        self.browser_surface_renderer_generation = 0;
+        self.browser_surface_async_visual_work_pending = false;
+    }
+
+    pub fn browser_surface_visual_generation(&self) -> u64 {
+        self.browser_surface_visual_generation
+    }
+
+    pub fn browser_surface_async_visual_work_pending(&self) -> bool {
+        self.browser_surface_async_visual_work_pending
+    }
+
+    fn update_browser_surface_visual_state(
+        &mut self,
+        renderer_resource_generation: u64,
+        stats: &makepad_browser_scene::MpRendererStats,
+    ) {
+        if self.browser_surface_renderer_generation != renderer_resource_generation
+            || stats.msdf_request_queue_count > 0
+            || stats.msdf_completion_count > 0
+        {
+            self.browser_surface_visual_generation =
+                self.browser_surface_visual_generation.wrapping_add(1);
+        }
+        self.browser_surface_renderer_generation = renderer_resource_generation;
+        self.browser_surface_async_visual_work_pending = stats.async_visual_work_pending;
     }
 }
 
@@ -380,7 +410,12 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
             let retained_scene = cache.lowered_scene.as_mut().unwrap();
             renderer.patch_retained_scene_host_rect(retained_scene, document_rect);
             let stats = renderer.draw_retained_scene(cx, retained_scene);
+            let surface_renderer_generation = renderer.resource_generation();
             accumulate_frame_counters(&mut frame_draw_lists.counters, &stats);
+            frame_draw_lists.update_browser_surface_visual_state(
+                surface_renderer_generation,
+                &stats,
+            );
             if log_render_stats {
                 eprintln!(
                     "[havi][render] browser_document hit fragment_ptr={} lowered_scene=hit scroll_changed={} resource_changed={}",
@@ -409,7 +444,12 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
                 frame_draw_lists.counters.scene_submit_count += 1;
                 frame_draw_lists.counters.browser_scene_present_count += 1;
                 let stats = renderer.draw_retained_scene(cx, cache.lowered_scene.as_mut().unwrap());
+                let surface_renderer_generation = renderer.resource_generation();
                 accumulate_frame_counters(&mut frame_draw_lists.counters, &stats);
+                frame_draw_lists.update_browser_surface_visual_state(
+                    surface_renderer_generation,
+                    &stats,
+                );
                 if log_render_stats {
                     eprintln!(
                         "[havi][render] browser_document hit fragment_ptr={} lowered_scene=miss scroll_changed={} resource_changed={}",
@@ -480,7 +520,12 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
             frame_draw_lists.counters.scene_submit_count += 1;
             frame_draw_lists.counters.browser_scene_present_count += 1;
             let stats = renderer.draw_retained_scene(cx, &mut retained_scene);
+            let surface_renderer_generation = renderer.resource_generation();
             accumulate_frame_counters(&mut frame_draw_lists.counters, &stats);
+            frame_draw_lists.update_browser_surface_visual_state(
+                surface_renderer_generation,
+                &stats,
+            );
             if log_render_stats {
                 log_browser_scene_stats(&stats);
             }

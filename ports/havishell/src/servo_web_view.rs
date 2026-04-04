@@ -19,7 +19,10 @@ script_mod! {
         image: texture_2d(float)
 
         pixel: fn() {
-            return self.image.sample(self.pos)
+            let tex_size = self.image.size()
+            let max_texel = max(tex_size - vec2(1.0, 1.0), vec2(0.0, 0.0))
+            let texel = clamp(floor(self.pos * tex_size), vec2(0.0, 0.0), max_texel) + vec2(0.5, 0.5)
+            return self.image.sample_nearest(texel / tex_size)
         }
     }
 
@@ -41,11 +44,31 @@ struct DrawCachedSurface {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BrowserSurfacePresentationRect {
+    x_px: i32,
+    y_px: i32,
+    width_px: u32,
+    height_px: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BrowserSurfacePresentationClip {
+    has_clip: bool,
+    shift_x_px: i32,
+    shift_y_px: i32,
+    clip_min_x_px: i32,
+    clip_min_y_px: i32,
+    clip_max_x_px: i32,
+    clip_max_y_px: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct BrowserSurfaceCacheKey {
     fragment_ptr: usize,
-    viewport_width_bits: u64,
-    viewport_height_bits: u64,
+    presentation_rect: BrowserSurfacePresentationRect,
+    presentation_clip: BrowserSurfacePresentationClip,
     dpi_bits: u64,
+    visual_generation: u64,
     scroll_hash: u64,
     selection_hash: u64,
 }
@@ -99,6 +122,140 @@ static BROWSER_SURFACE_CACHE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
         Ok(value) if matches!(value.as_str(), "0" | "false" | "no")
     )
 });
+static SURFACE_CACHE_STATS_ENABLED: LazyLock<bool> =
+    LazyLock::new(|| matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1"));
+
+fn transform_is_translation_only(transform: Mat4f) -> bool {
+    transform.v[0] == 1.0
+        && transform.v[1] == 0.0
+        && transform.v[2] == 0.0
+        && transform.v[3] == 0.0
+        && transform.v[4] == 0.0
+        && transform.v[5] == 1.0
+        && transform.v[6] == 0.0
+        && transform.v[7] == 0.0
+        && transform.v[8] == 0.0
+        && transform.v[9] == 0.0
+        && transform.v[10] == 1.0
+        && transform.v[11] == 0.0
+        && transform.v[14] == 0.0
+        && transform.v[15] == 1.0
+}
+
+fn transform_translation(transform: Mat4f) -> DVec2 {
+    dvec2(transform.v[12] as f64, transform.v[13] as f64)
+}
+
+fn quantize_surface_pixel(value: f64) -> Option<i64> {
+    let rounded = value.round();
+    if (value - rounded).abs() > 0.001 {
+        return None;
+    }
+    Some(rounded as i64)
+}
+
+fn exact_copy_eligible(
+    cx: &Cx2d,
+    area: Area,
+) -> Option<(BrowserSurfacePresentationRect, BrowserSurfacePresentationClip)> {
+    let rect = area.rect(cx);
+
+    let draw_list_transform = cx.current_draw_list_view_transform();
+    if !transform_is_translation_only(draw_list_transform) {
+        return None;
+    }
+
+    let presentation_rect = rect.translate(transform_translation(draw_list_transform));
+    if presentation_rect.size.x <= 0.0 || presentation_rect.size.y <= 0.0 {
+        return None;
+    }
+
+    let dpi = cx.current_dpi_factor();
+    let Some(x_px) = quantize_surface_pixel(presentation_rect.pos.x * dpi) else {
+        return None;
+    };
+    let Some(y_px) = quantize_surface_pixel(presentation_rect.pos.y * dpi) else {
+        return None;
+    };
+    let Some(width_px) = quantize_surface_pixel(presentation_rect.size.x * dpi) else {
+        return None;
+    };
+    let Some(height_px) = quantize_surface_pixel(presentation_rect.size.y * dpi) else {
+        return None;
+    };
+    if width_px <= 0 || height_px <= 0 {
+        return None;
+    }
+
+    let presentation_clip = if cx.current_draw_list_has_clip() {
+        let view_shift = cx.current_draw_list_view_shift();
+        let view_clip = cx.current_draw_list_view_clip();
+        let Some(shift_x_px) = quantize_surface_pixel(view_shift.x as f64 * dpi) else {
+            return None;
+        };
+        let Some(shift_y_px) = quantize_surface_pixel(view_shift.y as f64 * dpi) else {
+            return None;
+        };
+        let Some(clip_min_x_px) = quantize_surface_pixel(view_clip.x as f64 * dpi) else {
+            return None;
+        };
+        let Some(clip_min_y_px) = quantize_surface_pixel(view_clip.y as f64 * dpi) else {
+            return None;
+        };
+        let Some(clip_max_x_px) = quantize_surface_pixel(view_clip.z as f64 * dpi) else {
+            return None;
+        };
+        let Some(clip_max_y_px) = quantize_surface_pixel(view_clip.w as f64 * dpi) else {
+            return None;
+        };
+        BrowserSurfacePresentationClip {
+            has_clip: true,
+            shift_x_px: i32::try_from(shift_x_px).ok()?,
+            shift_y_px: i32::try_from(shift_y_px).ok()?,
+            clip_min_x_px: i32::try_from(clip_min_x_px).ok()?,
+            clip_min_y_px: i32::try_from(clip_min_y_px).ok()?,
+            clip_max_x_px: i32::try_from(clip_max_x_px).ok()?,
+            clip_max_y_px: i32::try_from(clip_max_y_px).ok()?,
+        }
+    } else {
+        BrowserSurfacePresentationClip {
+            has_clip: false,
+            shift_x_px: 0,
+            shift_y_px: 0,
+            clip_min_x_px: 0,
+            clip_min_y_px: 0,
+            clip_max_x_px: 0,
+            clip_max_y_px: 0,
+        }
+    };
+
+    Some((
+        BrowserSurfacePresentationRect {
+            x_px: i32::try_from(x_px).ok()?,
+            y_px: i32::try_from(y_px).ok()?,
+            width_px: u32::try_from(width_px).ok()?,
+            height_px: u32::try_from(height_px).ok()?,
+        },
+        presentation_clip,
+    ))
+}
+
+fn log_surface_cache_event(event: &str, key: BrowserSurfaceCacheKey) {
+    if !*SURFACE_CACHE_STATS_ENABLED {
+        return;
+    }
+    eprintln!(
+        "[havi][render] browser_surface_cache event={} fragment_ptr={} rect=({},{} {}x{}) visual_generation={}",
+        event,
+        key.fragment_ptr,
+        key.presentation_rect.x_px,
+        key.presentation_rect.y_px,
+        key.presentation_rect.width_px,
+        key.presentation_rect.height_px,
+        key.visual_generation,
+    );
+}
+
 fn hash_browser_scroll_state(scroll_state: &havi_render::ScrollState) -> u64 {
     let mut entries: Vec<_> = scroll_state.iter().collect();
     entries.sort_by_key(|(id, _)| (id.1.0, id.1.1, id.0));
@@ -456,7 +613,8 @@ impl Widget for ServoWebView {
         // rect() may return 0x0 when sizing is not yet resolved.
         cx.turtle_mut().set_used(peek_rect.size.x, peek_rect.size.y);
         self.draw_bg.end(cx);
-        let rect = self.draw_bg.area().rect(cx);
+        let area = self.draw_bg.area();
+        let rect = area.rect(cx);
 
         if frag_ptr != 0 {
             // Rebuild stacking context tree only when fragments change.
@@ -510,13 +668,19 @@ impl Widget for ServoWebView {
             });
 
             let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_sources.is_empty() {
-                Some(BrowserSurfaceCacheKey {
-                    fragment_ptr: frag_ptr,
-                    viewport_width_bits: rect.size.x.to_bits(),
-                    viewport_height_bits: rect.size.y.to_bits(),
-                    dpi_bits: cx.current_dpi_factor().to_bits(),
-                    scroll_hash: hash_browser_scroll_state(&render_scroll),
-                    selection_hash: hash_selection_highlight(selection_highlight.as_ref()),
+                exact_copy_eligible(cx, area).map(|(presentation_rect, presentation_clip)| {
+                    BrowserSurfaceCacheKey {
+                        fragment_ptr: frag_ptr,
+                        presentation_rect,
+                        presentation_clip,
+                        dpi_bits: cx.current_dpi_factor().to_bits(),
+                        visual_generation: self
+                            .frame_draw_lists
+                            .0
+                            .browser_surface_visual_generation(),
+                        scroll_hash: hash_browser_scroll_state(&render_scroll),
+                        selection_hash: hash_selection_highlight(selection_highlight.as_ref()),
+                    }
                 })
             } else {
                 None
@@ -531,6 +695,10 @@ impl Widget for ServoWebView {
             let cached_fragments = havi_render::CachedFragmentSource::new(frag_ptr);
 
             let capture_requested = self.capture_surface_requested;
+            let pending_visual_work = self
+                .frame_draw_lists
+                .0
+                .browser_surface_async_visual_work_pending();
             let mut render_into_surface = capture_requested;
             let mut draw_from_surface = capture_requested;
             let mut reusable_surface_key = None;
@@ -539,11 +707,16 @@ impl Widget for ServoWebView {
                 self.browser_surface_cache.observe(surface_cache_key);
                 reusable_surface_key = Some(surface_cache_key);
 
-                if self.browser_surface_cache.can_reuse(surface_cache_key) {
+                if pending_visual_work {
+                    render_into_surface = true;
                     draw_from_surface = true;
+                } else if self.browser_surface_cache.can_reuse(surface_cache_key) {
+                    draw_from_surface = true;
+                    log_surface_cache_event("reuse", surface_cache_key);
                 } else if self.browser_surface_cache.should_promote(surface_cache_key) {
                     render_into_surface = true;
                     draw_from_surface = true;
+                    log_surface_cache_event("promote", surface_cache_key);
                 }
             } else {
                 self.browser_surface_cache.invalidate();
@@ -707,9 +880,10 @@ impl ServoWebViewRef {
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.
             // Surface passes are reconfigured each frame so reuse is safe.
-            // The browser surface cache keys itself by fragment pointer, viewport,
-            // scroll state, and selection state. Let draw_walk invalidate it only
-            // when the rendered content key actually changes.
+            // The browser surface cache keys itself by fragment pointer, exact
+            // physical presentation state, renderer visual generation, scroll
+            // state, and selection state. Let draw_walk invalidate it only when
+            // the rendered content key actually changes.
             inner.redraw(cx);
         }
     }

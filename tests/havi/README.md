@@ -2,7 +2,9 @@
 
 Each `*-test.sh` script starts an hpprd server, imports test content, launches
 HAVI, and runs either JS assertions through the DevTools protocol or screenshot
-assertions through the native `--screenshot` path.
+assertions through the native `--screenshot` path. Some shell-layout and final
+presentation tests instead drive desktop HAVI through `havi-makepad-cli` and
+capture the final Makepad window output.
 
 ## Running
 

@@ -379,13 +379,17 @@ Steady-state frames therefore hit the retained document cache instead of
 rebuilding scene data every draw.
 
 `ServoWebView` owns one browser-output surface cache on top of that retained
-document. When the browser output key stays stable across consecutive frames,
-HAVI promotes the rendered page content into a dedicated offscreen pass texture
-and reuses that texture on later unchanged frames. The key includes fragment
-pointer, viewport size, pass DPI, scroll hash, and selection hash. Dynamic
-image overrides disable this cache. Screenshot capture also reads back this
-browser-owned surface instead of shell chrome composition. Set
-`HAVI_BROWSER_SURFACE_CACHE=0` to disable stable-surface reuse.
+document. When the browser output stays stable across consecutive frames and
+HAVI can present the cached result by exact physical-pixel copy, it promotes the
+rendered page content into a dedicated offscreen pass texture and reuses that
+texture on later unchanged frames. The key includes fragment pointer, final
+physical presentation rect, pass DPI, renderer visual generation, scroll hash,
+and selection hash. Unsupported outer clip or transform cases fall back to the
+live retained draw path instead of reusing the surface. Dynamic image overrides
+disable this cache. Screenshot capture also reads back this browser-owned
+surface instead of shell chrome composition, but that capture path is separate
+from stable surface-cache reuse. Set `HAVI_BROWSER_SURFACE_CACHE=0` to disable
+stable-surface reuse.
 
 Files:
 
