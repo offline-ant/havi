@@ -12,19 +12,6 @@ use std::sync::LazyLock;
 
 script_mod! {
     use mod.prelude.widgets.*
-    use mod.draw
-
-    mod.widgets.DrawCachedSurface = mod.std.set_type_default() do #(DrawCachedSurface::script_shader(vm)) {
-        ..draw.DrawQuad
-        image: texture_2d(float)
-
-        pixel: fn() {
-            let tex_size = self.image.size()
-            let max_texel = max(tex_size - vec2(1.0, 1.0), vec2(0.0, 0.0))
-            let texel = clamp(floor(self.pos * tex_size), vec2(0.0, 0.0), max_texel) + vec2(0.5, 0.5)
-            return self.image.sample_nearest(texel / tex_size)
-        }
-    }
 
     mod.widgets.ServoWebViewBase = #(ServoWebView::register_widget(vm))
     mod.widgets.ServoWebView = set_type_default() do mod.widgets.ServoWebViewBase{
@@ -36,37 +23,10 @@ script_mod! {
 #[derive(Default)]
 struct FrameDrawLists(havi_render::FrameDrawListState);
 
-#[derive(Script, ScriptHook, Debug)]
-#[repr(C)]
-struct DrawCachedSurface {
-    #[deref]
-    draw_super: DrawQuad,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct BrowserSurfacePresentationRect {
-    x_px: i32,
-    y_px: i32,
-    width_px: u32,
-    height_px: u32,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct BrowserSurfacePresentationClip {
-    has_clip: bool,
-    shift_x_px: i32,
-    shift_y_px: i32,
-    clip_min_x_px: i32,
-    clip_min_y_px: i32,
-    clip_max_x_px: i32,
-    clip_max_y_px: i32,
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct BrowserSurfaceCacheKey {
     fragment_identity: havi_render::FragmentSourceIdentity,
-    presentation_rect: BrowserSurfacePresentationRect,
-    presentation_clip: BrowserSurfacePresentationClip,
+    presentation: ExactPassSurfaceCopy,
     dpi_bits: u64,
     visual_generation: u64,
     scroll_hash: u64,
@@ -76,7 +36,6 @@ struct BrowserSurfaceCacheKey {
 struct BrowserSurfaceCache {
     pass: DrawPass,
     draw_list: DrawList2d,
-    color_texture: Texture,
     size: DVec2,
 }
 
@@ -125,121 +84,6 @@ static BROWSER_SURFACE_CACHE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
 static SURFACE_CACHE_STATS_ENABLED: LazyLock<bool> =
     LazyLock::new(|| matches!(std::env::var("HAVI_RENDER_STATS"), Ok(value) if value == "1"));
 
-fn transform_is_translation_only(transform: Mat4f) -> bool {
-    transform.v[0] == 1.0
-        && transform.v[1] == 0.0
-        && transform.v[2] == 0.0
-        && transform.v[3] == 0.0
-        && transform.v[4] == 0.0
-        && transform.v[5] == 1.0
-        && transform.v[6] == 0.0
-        && transform.v[7] == 0.0
-        && transform.v[8] == 0.0
-        && transform.v[9] == 0.0
-        && transform.v[10] == 1.0
-        && transform.v[11] == 0.0
-        && transform.v[14] == 0.0
-        && transform.v[15] == 1.0
-}
-
-fn transform_translation(transform: Mat4f) -> DVec2 {
-    dvec2(transform.v[12] as f64, transform.v[13] as f64)
-}
-
-fn quantize_surface_pixel(value: f64) -> Option<i64> {
-    let rounded = value.round();
-    if (value - rounded).abs() > 0.001 {
-        return None;
-    }
-    Some(rounded as i64)
-}
-
-fn exact_copy_eligible(
-    cx: &Cx2d,
-    area: Area,
-) -> Option<(BrowserSurfacePresentationRect, BrowserSurfacePresentationClip)> {
-    let rect = area.rect(cx);
-
-    let draw_list_transform = cx.current_draw_list_view_transform();
-    if !transform_is_translation_only(draw_list_transform) {
-        return None;
-    }
-
-    let presentation_rect = rect.translate(transform_translation(draw_list_transform));
-    if presentation_rect.size.x <= 0.0 || presentation_rect.size.y <= 0.0 {
-        return None;
-    }
-
-    let dpi = cx.current_dpi_factor();
-    let Some(x_px) = quantize_surface_pixel(presentation_rect.pos.x * dpi) else {
-        return None;
-    };
-    let Some(y_px) = quantize_surface_pixel(presentation_rect.pos.y * dpi) else {
-        return None;
-    };
-    let Some(width_px) = quantize_surface_pixel(presentation_rect.size.x * dpi) else {
-        return None;
-    };
-    let Some(height_px) = quantize_surface_pixel(presentation_rect.size.y * dpi) else {
-        return None;
-    };
-    if width_px <= 0 || height_px <= 0 {
-        return None;
-    }
-
-    let presentation_clip = if cx.current_draw_list_has_clip() {
-        let view_shift = cx.current_draw_list_view_shift();
-        let view_clip = cx.current_draw_list_view_clip();
-        let Some(shift_x_px) = quantize_surface_pixel(view_shift.x as f64 * dpi) else {
-            return None;
-        };
-        let Some(shift_y_px) = quantize_surface_pixel(view_shift.y as f64 * dpi) else {
-            return None;
-        };
-        let Some(clip_min_x_px) = quantize_surface_pixel(view_clip.x as f64 * dpi) else {
-            return None;
-        };
-        let Some(clip_min_y_px) = quantize_surface_pixel(view_clip.y as f64 * dpi) else {
-            return None;
-        };
-        let Some(clip_max_x_px) = quantize_surface_pixel(view_clip.z as f64 * dpi) else {
-            return None;
-        };
-        let Some(clip_max_y_px) = quantize_surface_pixel(view_clip.w as f64 * dpi) else {
-            return None;
-        };
-        BrowserSurfacePresentationClip {
-            has_clip: true,
-            shift_x_px: i32::try_from(shift_x_px).ok()?,
-            shift_y_px: i32::try_from(shift_y_px).ok()?,
-            clip_min_x_px: i32::try_from(clip_min_x_px).ok()?,
-            clip_min_y_px: i32::try_from(clip_min_y_px).ok()?,
-            clip_max_x_px: i32::try_from(clip_max_x_px).ok()?,
-            clip_max_y_px: i32::try_from(clip_max_y_px).ok()?,
-        }
-    } else {
-        BrowserSurfacePresentationClip {
-            has_clip: false,
-            shift_x_px: 0,
-            shift_y_px: 0,
-            clip_min_x_px: 0,
-            clip_min_y_px: 0,
-            clip_max_x_px: 0,
-            clip_max_y_px: 0,
-        }
-    };
-
-    Some((
-        BrowserSurfacePresentationRect {
-            x_px: i32::try_from(x_px).ok()?,
-            y_px: i32::try_from(y_px).ok()?,
-            width_px: u32::try_from(width_px).ok()?,
-            height_px: u32::try_from(height_px).ok()?,
-        },
-        presentation_clip,
-    ))
-}
-
 fn log_surface_cache_event(event: &str, key: BrowserSurfaceCacheKey) {
     if !*SURFACE_CACHE_STATS_ENABLED {
         return;
@@ -249,10 +93,10 @@ fn log_surface_cache_event(event: &str, key: BrowserSurfaceCacheKey) {
         event,
         key.fragment_identity.webview_id,
         key.fragment_identity.generation,
-        key.presentation_rect.x_px,
-        key.presentation_rect.y_px,
-        key.presentation_rect.width_px,
-        key.presentation_rect.height_px,
+        key.presentation.dst_x_px,
+        key.presentation.dst_y_px,
+        key.presentation.width_px,
+        key.presentation.height_px,
         key.visual_generation,
     );
 }
@@ -309,7 +153,6 @@ fn ensure_browser_surface_cache<'a>(
         BrowserSurfaceCache {
             pass,
             draw_list: DrawList2d::new(cx),
-            color_texture,
             size,
         }
     });
@@ -319,21 +162,6 @@ fn ensure_browser_surface_cache<'a>(
         cache_state.cached_key = None;
     }
     cache
-}
-
-fn draw_cached_browser_surface(
-    draw_cached_surface: &mut DrawCachedSurface,
-    cx: &mut Cx2d,
-    rect: Rect,
-    cache: &BrowserSurfaceCache,
-) {
-    draw_cached_surface
-        .draw_super
-        .draw_vars
-        .set_texture(0, &cache.color_texture);
-    draw_cached_surface.draw_super.draw_abs(cx, rect);
-    let area = draw_cached_surface.draw_super.draw_vars.area;
-    cx.set_pass_area_with_origin(&cache.pass, area, dvec2(0.0, 0.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -421,8 +249,6 @@ pub struct ServoWebView {
     draw_bg: DrawColor,
     #[live]
     draw_content_bg: DrawColor,
-    #[live]
-    draw_cached_surface: DrawCachedSurface,
     #[rust]
     frame_draw_lists: FrameDrawLists,
     #[rust]
@@ -680,11 +506,10 @@ impl Widget for ServoWebView {
             });
 
             let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_sources.is_empty() {
-                exact_copy_eligible(cx, area).map(|(presentation_rect, presentation_clip)| {
-                    BrowserSurfaceCacheKey {
+                cx.resolve_exact_pass_surface_copy(area)
+                    .map(|presentation| BrowserSurfaceCacheKey {
                         fragment_identity,
-                        presentation_rect,
-                        presentation_clip,
+                        presentation,
                         dpi_bits: cx.current_dpi_factor().to_bits(),
                         visual_generation: self
                             .frame_draw_lists
@@ -692,8 +517,7 @@ impl Widget for ServoWebView {
                             .browser_surface_visual_generation(),
                         scroll_hash: hash_browser_scroll_state(&render_scroll),
                         selection_hash: hash_selection_highlight(selection_highlight.as_ref()),
-                    }
-                })
+                    })
             } else {
                 None
             };
@@ -712,7 +536,7 @@ impl Widget for ServoWebView {
                 .0
                 .browser_surface_async_visual_work_pending();
             let mut render_into_surface = capture_requested;
-            let mut draw_from_surface = capture_requested;
+            let mut present_from_surface = false;
             let mut reusable_surface_key = None;
 
             if let Some(surface_cache_key) = surface_cache_key {
@@ -721,13 +545,13 @@ impl Widget for ServoWebView {
 
                 if pending_visual_work {
                     render_into_surface = true;
-                    draw_from_surface = true;
+                    present_from_surface = true;
                 } else if self.browser_surface_cache.can_reuse(surface_cache_key) {
-                    draw_from_surface = true;
+                    present_from_surface = true;
                     log_surface_cache_event("reuse", surface_cache_key);
                 } else if self.browser_surface_cache.should_promote(surface_cache_key) {
                     render_into_surface = true;
-                    draw_from_surface = true;
+                    present_from_surface = true;
                     log_surface_cache_event("promote", surface_cache_key);
                 }
             } else {
@@ -748,10 +572,26 @@ impl Widget for ServoWebView {
                 self.browser_surface_cache.cached_key = reusable_surface_key;
             }
 
-            if draw_from_surface {
-                let cache = ensure_browser_surface_cache(cx.cx, &mut self.browser_surface_cache, rect.size);
-                draw_cached_browser_surface(&mut self.draw_cached_surface, cx, rect, cache);
+            let copied_from_surface = if present_from_surface {
+                reusable_surface_key.is_some_and(|surface_cache_key| {
+                    let cache = ensure_browser_surface_cache(
+                        cx.cx,
+                        &mut self.browser_surface_cache,
+                        rect.size,
+                    );
+                    if cx.copy_pass_surface_exact(&cache.pass, surface_cache_key.presentation) {
+                        log_surface_cache_event("copy", surface_cache_key);
+                        true
+                    } else {
+                        self.browser_surface_cache.invalidate();
+                        false
+                    }
+                })
             } else {
+                false
+            };
+
+            if !copied_from_surface {
                 havi_render::render_fragments_clipped(
                     cx,
                     havi_render::RenderFragmentsClippedParams {

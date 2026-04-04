@@ -190,13 +190,17 @@ INNER"""
 
     if mode == "on":
         for _ in range(300):
-            if "browser_surface_cache event=reuse" in log.read_text():
+            log_text = log.read_text()
+            if (
+                "browser_surface_cache event=reuse" in log_text
+                and "browser_surface_cache event=copy" in log_text
+            ):
                 break
             if proc.poll() is not None:
                 raise SystemExit(log.read_text())
             time.sleep(0.1)
         else:
-            raise SystemExit("Did not observe browser surface cache reuse in mode=on")
+            raise SystemExit("Did not observe browser surface cache reuse+copy in mode=on")
     else:
         time.sleep(1)
 
