@@ -5072,6 +5072,10 @@ name = "makepad-objc-sys"
 version = "1.0.0"
 
 [[package]]
+name = "makepad-package-resource"
+version = "0.1.0"
+
+[[package]]
 name = "makepad-platform"
 version = "2.0.0"
 dependencies = [
@@ -5086,10 +5090,12 @@ dependencies = [
  "makepad-live-reload-core",
  "makepad-network",
  "makepad-objc-sys",
+ "makepad-package-resource",
  "makepad-script",
  "makepad-script-std",
  "makepad-shared-bytes",
  "makepad-studio-protocol",
+ "makepad-tsdf",
  "makepad-wasm-bridge",
  "makepad-zune-png",
  "naga 27.0.3",
@@ -5158,6 +5164,14 @@ version = "1.0.0"
 dependencies = [
  "makepad-html",
  "makepad-live-id",
+]
+
+[[package]]
+name = "makepad-tsdf"
+version = "0.1.0"
+dependencies = [
+ "makepad-math",
+ "makepad-micro-serde",
 ]
 
 [[package]]

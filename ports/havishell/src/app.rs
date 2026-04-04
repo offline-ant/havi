@@ -218,43 +218,8 @@ fn start_hpprd_with_runtime(
 struct ResourceReader;
 
 impl libhavi::resources::ResourceReaderMethods for ResourceReader {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    fn read(&self, file: libhavi::resources::Resource) -> Vec<u8> {
-        let mut path = std::env::current_exe().unwrap().canonicalize().unwrap();
-        while path.pop() {
-            path.push("resources");
-            if path.is_dir() {
-                path.push(file.filename());
-                return std::fs::read(&path).expect("Can't read resource file");
-            }
-            path.pop();
-        }
-        panic!("Can't find resources directory");
-    }
-
-    #[cfg(any(target_os = "android", target_os = "ios"))]
     fn read(&self, res: libhavi::resources::Resource) -> Vec<u8> {
-        use libhavi::resources::Resource;
-        Vec::from(match res {
-            Resource::HstsPreloadList => {
-                &include_bytes!("../resources/servo/hsts_preload.fstmap")[..]
-            },
-            Resource::BadCertHTML => &include_bytes!("../resources/servo/badcert.html")[..],
-            Resource::NetErrorHTML => &include_bytes!("../resources/servo/neterror.html")[..],
-            Resource::BrokenImageIcon => &include_bytes!("../resources/servo/rippy.png")[..],
-            Resource::DomainList => &include_bytes!("../resources/servo/public_domains.txt")[..],
-            Resource::BluetoothBlocklist => {
-                &include_bytes!("../resources/servo/gatt_blocklist.txt")[..]
-            },
-            Resource::CrashHTML => &include_bytes!("../resources/servo/crash.html")[..],
-            Resource::DirectoryListingHTML => {
-                &include_bytes!("../resources/servo/directory-listing.html")[..]
-            },
-            Resource::AboutMemoryHTML => {
-                &include_bytes!("../resources/servo/about-memory.html")[..]
-            },
-            Resource::DebuggerJS => &include_bytes!("../resources/servo/debugger.js")[..],
-        })
+        libhavi::resources::embedded_default_bytes(res).to_owned()
     }
 
     fn sandbox_access_files_dirs(&self) -> Vec<std::path::PathBuf> {

@@ -55,6 +55,7 @@ pub fn sandbox_access_files_dirs() -> Vec<PathBuf> {
         .map(|reader| reader.sandbox_access_files_dirs())
         .unwrap_or_default()
 }
+
 pub enum Resource {
     /// A list of GATT services that are blocked from being used by web bluetooth.
     /// The format of the file is a list of UUIDs, one per line, with an optional second word to specify the
@@ -101,30 +102,40 @@ pub enum Resource {
     /// RPC script for the Debugger API on behalf of devtools.
     DebuggerJS,
 }
-impl Resource {
-    pub fn filename(&self) -> &'static str {
-        match self {
-            Resource::BluetoothBlocklist => "gatt_blocklist.txt",
-            Resource::DomainList => "public_domains.txt",
-            Resource::HstsPreloadList => "hsts_preload.fstmap",
-            Resource::BadCertHTML => "badcert.html",
-            Resource::NetErrorHTML => "neterror.html",
-            Resource::BrokenImageIcon => "rippy.png",
-            Resource::CrashHTML => "crash.html",
-            Resource::DirectoryListingHTML => "directory-listing.html",
-            Resource::AboutMemoryHTML => "about-memory.html",
-            Resource::DebuggerJS => "debugger.js",
+
+pub fn embedded_default_bytes(res: Resource) -> &'static [u8] {
+    match res {
+        Resource::BluetoothBlocklist => {
+            &include_bytes!("../../../resources/gatt_blocklist.txt")[..]
         }
+        Resource::DomainList => &include_bytes!("../../../resources/public_domains.txt")[..],
+        Resource::HstsPreloadList => {
+            &include_bytes!("../../../resources/hsts_preload.fstmap")[..]
+        }
+        Resource::BadCertHTML => &include_bytes!("../../../resources/badcert.html")[..],
+        Resource::NetErrorHTML => &include_bytes!("../../../resources/neterror.html")[..],
+        Resource::BrokenImageIcon => &include_bytes!("../../../resources/rippy.png")[..],
+        Resource::CrashHTML => &include_bytes!("../../../resources/crash.html")[..],
+        Resource::DirectoryListingHTML => {
+            &include_bytes!("../../../resources/directory-listing.html")[..]
+        }
+        Resource::AboutMemoryHTML => {
+            &include_bytes!("../../../resources/about-memory.html")[..]
+        }
+        Resource::DebuggerJS => &include_bytes!("../../../resources/debugger.js")[..],
     }
 }
+
 pub trait ResourceReaderMethods {
     fn read(&self, res: Resource) -> Vec<u8>;
     fn sandbox_access_files(&self) -> Vec<PathBuf>;
     fn sandbox_access_files_dirs(&self) -> Vec<PathBuf>;
 }
+
 /// Provides baked in resources for tests.
 ///
-/// Embedder builds should use [`set`] and ship the resources themselves.
+/// Alternate embedders may still set a custom reader. HAVI uses
+/// [`embedded_default_bytes`] directly for its built-in desktop resource set.
 #[cfg(feature = "baked-default-resources")]
 fn resources_for_tests() -> Box<dyn ResourceReaderMethods + Sync + Send> {
     struct ResourceReader;
@@ -136,29 +147,7 @@ fn resources_for_tests() -> Box<dyn ResourceReaderMethods + Sync + Send> {
             vec![]
         }
         fn read(&self, file: Resource) -> Vec<u8> {
-            match file {
-                Resource::BluetoothBlocklist => {
-                    &include_bytes!("../../../resources/gatt_blocklist.txt")[..]
-                },
-                Resource::DomainList => {
-                    &include_bytes!("../../../resources/public_domains.txt")[..]
-                },
-                Resource::HstsPreloadList => {
-                    &include_bytes!("../../../resources/hsts_preload.fstmap")[..]
-                },
-                Resource::BadCertHTML => &include_bytes!("../../../resources/badcert.html")[..],
-                Resource::NetErrorHTML => &include_bytes!("../../../resources/neterror.html")[..],
-                Resource::BrokenImageIcon => &include_bytes!("../../../resources/rippy.png")[..],
-                Resource::CrashHTML => &include_bytes!("../../../resources/crash.html")[..],
-                Resource::DirectoryListingHTML => {
-                    &include_bytes!("../../../resources/directory-listing.html")[..]
-                },
-                Resource::AboutMemoryHTML => {
-                    &include_bytes!("../../../resources/about-memory.html")[..]
-                },
-                Resource::DebuggerJS => &include_bytes!("../../../resources/debugger.js")[..],
-            }
-            .to_owned()
+            embedded_default_bytes(file).to_owned()
         }
     }
     Box::new(ResourceReader)
