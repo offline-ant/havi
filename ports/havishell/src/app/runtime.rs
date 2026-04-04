@@ -469,14 +469,6 @@ impl App {
             return;
         }
 
-        log!(
-            "Resizing rendering context: {}x{} → {}x{}",
-            cur_w,
-            cur_h,
-            new_width,
-            new_height
-        );
-
         self.content_size = (new_width as usize, new_height as usize);
 
         let phys_size = dpi::PhysicalSize::new(new_width, new_height);
