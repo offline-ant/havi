@@ -64,7 +64,7 @@ struct BrowserSurfacePresentationClip {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct BrowserSurfaceCacheKey {
-    fragment_ptr: usize,
+    fragment_identity: havi_render::FragmentSourceIdentity,
     presentation_rect: BrowserSurfacePresentationRect,
     presentation_clip: BrowserSurfacePresentationClip,
     dpi_bits: u64,
@@ -245,9 +245,10 @@ fn log_surface_cache_event(event: &str, key: BrowserSurfaceCacheKey) {
         return;
     }
     eprintln!(
-        "[havi][render] browser_surface_cache event={} fragment_ptr={} rect=({},{} {}x{}) visual_generation={}",
+        "[havi][render] browser_surface_cache event={} fragment_identity={}#{} rect=({},{} {}x{}) visual_generation={}",
         event,
-        key.fragment_ptr,
+        key.fragment_identity.webview_id,
+        key.fragment_identity.generation,
         key.presentation_rect.x_px,
         key.presentation_rect.y_px,
         key.presentation_rect.width_px,
@@ -434,11 +435,13 @@ pub struct ServoWebView {
     shared_layout_fragments: Option<libhavi::layout::SharedLayoutFragmentTree>,
     #[rust]
     shared_webview_id: Option<libhavi::base::id::WebViewId>,
-    /// Data pointer of the last rendered fragment Arc, used to detect when the
-    /// fragment tree is replaced (navigation) so GPU caches can be cleared.
+    /// Identity of the last published fragment generation rendered by this
+    /// widget, used to invalidate browser-owned caches on navigation and tab
+    /// switches.
     #[rust]
-    last_fragment_ptr: usize,
-    /// Cached fragment source, rebuilt only when the fragment Arc changes.
+    last_fragment_identity: Option<havi_render::FragmentSourceIdentity>,
+    /// Cached fragment source, rebuilt only when the published fragment
+    /// identity changes.
     #[rust]
     cached_fragment_source: Option<havi_render::CachedFragmentSource>,
 
@@ -589,16 +592,24 @@ impl Widget for ServoWebView {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
-        let frag_ptr = self
-            .shared_layout_fragments
-            .as_ref()
-            .and_then(|sf| sf.payload_ptr())
-            .unwrap_or(0);
+        let fragment_identity = self
+            .shared_webview_id
+            .zip(
+                self.shared_layout_fragments
+                    .as_ref()
+                    .and_then(|shared| shared.payload_generation()),
+            )
+            .filter(|(_, generation)| *generation != 0)
+            .map(|(webview_id, generation)| havi_render::FragmentSourceIdentity {
+                webview_id,
+                generation,
+            });
         let peek_rect = cx.peek_walk_turtle(walk);
 
-        // Detect fragment tree replacement (navigation) and clear image textures.
-        if frag_ptr != self.last_fragment_ptr {
-            self.last_fragment_ptr = frag_ptr;
+        // Detect fragment source replacement (navigation or active-tab switch)
+        // and clear image textures.
+        if fragment_identity != self.last_fragment_identity {
+            self.last_fragment_identity = fragment_identity;
             self.cached_fragment_source = None;
             self.browser_surface_cache.invalidate();
         }
@@ -616,15 +627,16 @@ impl Widget for ServoWebView {
         let area = self.draw_bg.area();
         let rect = area.rect(cx);
 
-        if frag_ptr != 0 {
-            // Rebuild stacking context tree only when fragments change.
+        if let Some(fragment_identity) = fragment_identity {
+            // Rebuild stacking context tree only when the published fragment
+            // identity changes.
             let needs_rebuild = self
                 .cached_fragment_source
                 .as_ref()
-                .is_none_or(|c| !c.is_valid_for(frag_ptr));
+                .is_none_or(|cached| !cached.is_valid_for(fragment_identity));
             if needs_rebuild {
                 self.cached_fragment_source =
-                    Some(havi_render::CachedFragmentSource::new(frag_ptr));
+                    Some(havi_render::CachedFragmentSource::new(fragment_identity));
             }
 
             // Use the resolved widget area after draw_bg.end(). This gives the
@@ -670,7 +682,7 @@ impl Widget for ServoWebView {
             let surface_cache_key = if *BROWSER_SURFACE_CACHE_ENABLED && image_sources.is_empty() {
                 exact_copy_eligible(cx, area).map(|(presentation_rect, presentation_clip)| {
                     BrowserSurfaceCacheKey {
-                        fragment_ptr: frag_ptr,
+                        fragment_identity,
                         presentation_rect,
                         presentation_clip,
                         dpi_bits: cx.current_dpi_factor().to_bits(),
@@ -686,13 +698,13 @@ impl Widget for ServoWebView {
                 None
             };
 
-            let webview_id = self.shared_webview_id.expect("shared webview id");
+            let webview_id = fragment_identity.webview_id;
             let Some(root_pipeline_id) = self.browser_scroll_controller.root_pipeline_id() else {
                 self.capture_surface_requested = false;
                 self.draw_scroll_overlay(cx, &rect);
                 return DrawStep::done();
             };
-            let cached_fragments = havi_render::CachedFragmentSource::new(frag_ptr);
+            let cached_fragments = havi_render::CachedFragmentSource::new(fragment_identity);
 
             let capture_requested = self.capture_surface_requested;
             let pending_visual_work = self
@@ -880,10 +892,11 @@ impl ServoWebViewRef {
             // not properly clean up freed entries — dropped passes remain in the
             // pool with stale paint_dirty/parent fields, causing cycle panics.
             // Surface passes are reconfigured each frame so reuse is safe.
-            // The browser surface cache keys itself by fragment pointer, exact
-            // physical presentation state, renderer visual generation, scroll
-            // state, and selection state. Let draw_walk invalidate it only when
-            // the rendered content key actually changes.
+            // The browser surface cache keys itself by fragment source
+            // identity, exact physical presentation state, renderer visual
+            // generation, scroll state, and selection state. Let draw_walk
+            // invalidate it only when the rendered content key actually
+            // changes.
             inner.redraw(cx);
         }
     }
@@ -927,7 +940,7 @@ impl ServoWebViewRef {
         if inner
             .shared_layout_fragments
             .as_ref()
-            .and_then(|shared| shared.payload_ptr())
+            .and_then(|shared| shared.payload_generation())
             .unwrap_or(0)
             == 0
         {

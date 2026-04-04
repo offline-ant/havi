@@ -360,7 +360,7 @@ entry that contains:
 
 Fast path:
 
-- same published arena pointer
+- same published fragment source identity (`webview_id` + published generation)
 - same viewport size
 - same renderer resource-generation identity
 - retained lowered-scene reuse without relowering
@@ -382,14 +382,14 @@ rebuilding scene data every draw.
 document. When the browser output stays stable across consecutive frames and
 HAVI can present the cached result by exact physical-pixel copy, it promotes the
 rendered page content into a dedicated offscreen pass texture and reuses that
-texture on later unchanged frames. The key includes fragment pointer, final
-physical presentation rect, pass DPI, renderer visual generation, scroll hash,
-and selection hash. Unsupported outer clip or transform cases fall back to the
-live retained draw path instead of reusing the surface. Dynamic image overrides
-disable this cache. Screenshot capture also reads back this browser-owned
-surface instead of shell chrome composition, but that capture path is separate
-from stable surface-cache reuse. Set `HAVI_BROWSER_SURFACE_CACHE=0` to disable
-stable-surface reuse.
+texture on later unchanged frames. The key includes fragment source identity
+(`webview_id` + published generation), final physical presentation rect, pass
+DPI, renderer visual generation, scroll hash, and selection hash. Unsupported
+outer clip or transform cases fall back to the live retained draw path instead
+of reusing the surface. Dynamic image overrides disable this cache. Screenshot
+capture also reads back this browser-owned surface instead of shell chrome
+composition, but that capture path is separate from stable surface-cache reuse.
+Set `HAVI_BROWSER_SURFACE_CACHE=0` to disable stable-surface reuse.
 
 Files:
 

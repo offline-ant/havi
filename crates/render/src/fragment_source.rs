@@ -1,13 +1,25 @@
+use libhavi::base::id::WebViewId;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct FragmentSourceIdentity {
+    pub webview_id: WebViewId,
+    pub generation: u64,
+}
+
 pub struct CachedFragmentSource {
-    frag_ptr: usize,
+    identity: FragmentSourceIdentity,
 }
 
 impl CachedFragmentSource {
-    pub fn new(frag_ptr: usize) -> Self {
-        Self { frag_ptr }
+    pub fn new(identity: FragmentSourceIdentity) -> Self {
+        Self { identity }
     }
 
-    pub fn is_valid_for(&self, frag_ptr: usize) -> bool {
-        self.frag_ptr == frag_ptr
+    pub fn identity(&self) -> FragmentSourceIdentity {
+        self.identity
+    }
+
+    pub fn is_valid_for(&self, identity: FragmentSourceIdentity) -> bool {
+        self.identity == identity
     }
 }

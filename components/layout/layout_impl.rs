@@ -1492,8 +1492,10 @@ impl LayoutThread {
                 .refresh_background_images(image_resolver)
                 .generation()
         };
-        self.shared_layout_fragments.set(published.clone());
-        self.shared_layout_fragments_by_pipeline.set(published.clone());
+        self.shared_layout_fragments
+            .set_with_generation(fragment_tree_generation, published.clone());
+        self.shared_layout_fragments_by_pipeline
+            .set_with_generation(fragment_tree_generation, published.clone());
         self.published_fragment_tree_generation = Some(fragment_tree_generation);
         self.published_image_animation_revision = image_animation_revision;
         self.published_layout_fragments = Some(published);

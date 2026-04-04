@@ -75,34 +75,61 @@ use webrender_api::{ExternalScrollId, ImageKey};
 ///
 /// `layout_api` cannot depend on the concrete `layout` crate, so the payload is
 /// type-erased here and downcast by the render side.
+#[derive(Clone)]
+struct SharedLayoutFragmentPublication {
+    generation: u64,
+    payload: Arc<dyn Any + Send + Sync>,
+}
+
+#[derive(Clone)]
+pub struct SharedLayoutFragmentSnapshot<T> {
+    pub generation: u64,
+    pub payload: Arc<T>,
+}
+
 #[derive(Clone, Default)]
-pub struct SharedLayoutFragmentTree(Arc<RwLock<Option<Arc<dyn Any + Send + Sync>>>>);
+pub struct SharedLayoutFragmentTree(Arc<RwLock<Option<SharedLayoutFragmentPublication>>>);
 
 impl SharedLayoutFragmentTree {
-    pub fn set<T>(&self, fragments: Arc<T>)
+    pub fn set_with_generation<T>(&self, generation: u64, fragments: Arc<T>)
     where
         T: Any + Send + Sync + 'static,
     {
-        let fragments: Arc<dyn Any + Send + Sync> = fragments;
-        *self.0.write() = Some(fragments);
+        let payload: Arc<dyn Any + Send + Sync> = fragments;
+        *self.0.write() = Some(SharedLayoutFragmentPublication { generation, payload });
     }
 
     pub fn clear(&self) {
         *self.0.write() = None;
     }
 
+    pub fn snapshot<T>(&self) -> Option<SharedLayoutFragmentSnapshot<T>>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let publication = self.0.read().as_ref().cloned()?;
+        Some(SharedLayoutFragmentSnapshot {
+            generation: publication.generation,
+            payload: publication.payload.downcast::<T>().ok()?,
+        })
+    }
+
     pub fn get<T>(&self) -> Option<Arc<T>>
     where
         T: Any + Send + Sync + 'static,
     {
-        self.0.read().as_ref().cloned()?.downcast::<T>().ok()
+        self.snapshot::<T>().map(|snapshot| snapshot.payload)
+    }
+
+    pub fn payload_generation(&self) -> Option<u64> {
+        self.0.read().as_ref().map(|publication| publication.generation)
     }
 
     pub fn payload_ptr(&self) -> Option<usize> {
         self.0
             .read()
             .as_ref()
-            .map(|payload| Arc::as_ptr(payload) as *const () as usize)
+            .map(|publication| Arc::as_ptr(&publication.payload) as *const () as usize)
     }
 }
 

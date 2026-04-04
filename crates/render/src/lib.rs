@@ -41,7 +41,7 @@ use makepad_widgets::*;
 use style::computed_values::overflow_x::T as ComputedOverflow;
 use webrender_api::{ExternalScrollId, PipelineId};
 
-pub use fragment_source::CachedFragmentSource;
+pub use fragment_source::{CachedFragmentSource, FragmentSourceIdentity};
 pub use shaders::{
     DrawBoxShadow, DrawGradient, DrawRoundedColor, DrawVideoYuv,
 };
@@ -82,7 +82,7 @@ pub struct RenderPathCounters {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct RetainedBrowserSceneStructuralKey {
-    fragment_ptr: usize,
+    fragment_identity: FragmentSourceIdentity,
     viewport_size: DVec2,
     resource_generation: u64,
 }
@@ -308,10 +308,11 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         size: viewport_size,
     };
     let layout_source = layout_adapter::LayoutFragmentSource::new(webview_id);
-    let Some(fragments) = layout_source.fragments_arc() else {
+    let Some(fragment_snapshot) = layout_source.snapshot() else {
         return;
     };
-    let frag_ptr = std::sync::Arc::as_ptr(&fragments) as usize;
+    let fragment_identity = fragment_snapshot.identity;
+    let fragments = fragment_snapshot.fragments;
     let scroll_hash = hash_scroll_state(scroll_state);
     let log_render_stats = render_stats_enabled();
 
@@ -331,7 +332,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         .unwrap()
         .resource_generation();
     let structural_key = RetainedBrowserSceneStructuralKey {
-        fragment_ptr: frag_ptr,
+        fragment_identity,
         viewport_size,
         resource_generation: renderer_resource_generation,
     };
@@ -340,7 +341,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
         .browser_document_cache
         .as_ref()
         .map(|cache| {
-            cache.structural_key.fragment_ptr == frag_ptr
+            cache.structural_key.fragment_identity == fragment_identity
                 && cache.structural_key.viewport_size == viewport_size
         })
         .unwrap_or(false);
@@ -418,8 +419,9 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
             );
             if log_render_stats {
                 eprintln!(
-                    "[havi][render] browser_document hit fragment_ptr={} lowered_scene=hit scroll_changed={} resource_changed={}",
-                    frag_ptr,
+                    "[havi][render] browser_document hit fragment_identity={}#{} lowered_scene=hit scroll_changed={} resource_changed={}",
+                    fragment_identity.webview_id,
+                    fragment_identity.generation,
                     scroll_changed,
                     resource_changed,
                 );
@@ -452,8 +454,9 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
                 );
                 if log_render_stats {
                     eprintln!(
-                        "[havi][render] browser_document hit fragment_ptr={} lowered_scene=miss scroll_changed={} resource_changed={}",
-                        frag_ptr,
+                        "[havi][render] browser_document hit fragment_identity={}#{} lowered_scene=miss scroll_changed={} resource_changed={}",
+                        fragment_identity.webview_id,
+                        fragment_identity.generation,
                         scroll_changed,
                         resource_changed,
                     );
@@ -473,8 +476,9 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
 
     if log_render_stats {
         eprintln!(
-            "[havi][render] browser_document miss fragment_ptr={} viewport=({:.1},{:.1})",
-            frag_ptr,
+            "[havi][render] browser_document miss fragment_identity={}#{} viewport=({:.1},{:.1})",
+            fragment_identity.webview_id,
+            fragment_identity.generation,
             viewport_size.x,
             viewport_size.y,
         );
@@ -483,7 +487,7 @@ pub fn render_fragments_clipped(cx: &mut Cx2d, params: RenderFragmentsClippedPar
     let previous_document = frame_draw_lists
         .browser_document_cache
         .as_ref()
-        .filter(|cache| cache.structural_key.fragment_ptr == frag_ptr)
+        .filter(|cache| cache.structural_key.fragment_identity == fragment_identity)
         .map(|cache| &cache.document);
     let browser_document = match browser_scene_builder::try_build_browser_document(
         cx,
