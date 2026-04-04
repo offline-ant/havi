@@ -437,6 +437,13 @@ impl App {
     }
 
     fn webview_host_rect(&mut self, cx: &mut Cx) -> Rect {
+        let web_view_area = self.ui.servo_web_view(cx, ids!(web_view)).area();
+        if !web_view_area.is_empty() {
+            let rect = web_view_area.rect(cx);
+            if rect.size.x > 0.0 && rect.size.y > 0.0 {
+                return rect;
+            }
+        }
         self.ui.view(cx, ids!(content_area)).area().rect(cx)
     }
 
