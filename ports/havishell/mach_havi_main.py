@@ -53,6 +53,7 @@ TRIPLE_TO_ABI = {
 DEFAULT_ANDROID_TRIPLE = "aarch64-linux-android"
 EMULATOR_TRIPLE = "x86_64-linux-android"
 DEFAULT_IOS_NAME = "havi"
+HAVI_RESOURCE_FLAGS = ["--embed-resources", "--small-fonts"]
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +647,14 @@ def _cargo_makepad_cmd_base() -> list[str]:
     ]
 
 
+def _append_havi_resource_flags(cmd: list[str]) -> list[str]:
+    if not any(arg.startswith("--embed-resources") for arg in cmd):
+        cmd.append("--embed-resources")
+    if "--small-fonts" not in cmd:
+        cmd.append("--small-fonts")
+    return cmd
+
+
 def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> list[str]:
     cmd = _cargo_makepad_cmd_base()
     cmd.extend(["android", f"--abi={abi}"])
@@ -654,13 +663,13 @@ def _cargo_makepad_android_cmd(abi: str, package_name: str | None = None) -> lis
         cmd.append(f"--sdk-path={cm_sdk}")
     if package_name:
         cmd.append(f"--package-name={package_name}")
-    return cmd
+    return _append_havi_resource_flags(cmd)
 
 
 def _cargo_makepad_desktop_cmd() -> list[str]:
     cmd = _cargo_makepad_cmd_base()
     cmd.append("desktop")
-    return cmd
+    return _append_havi_resource_flags(cmd)
 
 
 def _load_ios_env() -> dict[str, str]:
@@ -694,7 +703,7 @@ def _cargo_makepad_ios_cmd(cert: str | None = None,
         cmd.append(f"--profile={profile}")
     if device_id:
         cmd.append(f"--device={device_id}")
-    return cmd
+    return _append_havi_resource_flags(cmd)
 
 
 def _copy_windows_angle_dlls(profile: str) -> int:

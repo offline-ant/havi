@@ -57,6 +57,16 @@ Environment variables:
   retained output-surface cache; by default HAVI promotes stable page content
   into an offscreen texture and reuses it on unchanged frames
 
+Desktop HAVI embeds its browser-owned runtime resources and its Makepad package
+resources by default through `mach-havi` using embedded-resource builds with the
+small-font profile. It does not require an adjacent Makepad `makepad/`
+resource tree or a browser `resources/` directory for the browser's built-in
+HSTS list, error pages, broken-image placeholder, or DevTools helper script.
+
+The default small-font build does not guarantee full emoji or CJK coverage.
+HAVI does not currently rely on system emoji fallback as a supported runtime
+font path.
+
 Screenshot mode waits for the active page to reach load-complete and then for
 active-page visual updates to go quiet. Shell chrome redraws and generic event
 loop wakeups do not extend screenshot settling. The final PNG is captured from
