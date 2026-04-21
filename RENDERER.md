@@ -380,16 +380,19 @@ rebuilding scene data every draw.
 
 `ServoWebView` owns one browser-output surface cache on top of that retained
 document. When the browser output stays stable across consecutive frames and
-HAVI can present the cached result by exact physical-pixel copy, it promotes the
-rendered page content into a dedicated offscreen pass texture and reuses that
-texture on later unchanged frames. The key includes fragment source identity
-(`webview_id` + published generation), final physical presentation rect, pass
-DPI, renderer visual generation, scroll hash, and selection hash. Unsupported
-outer clip or transform cases fall back to the live retained draw path instead
-of reusing the surface. Dynamic image overrides disable this cache. Screenshot
-capture also reads back this browser-owned surface instead of shell chrome
-composition, but that capture path is separate from stable surface-cache reuse.
-Set `HAVI_BROWSER_SURFACE_CACHE=0` to disable stable-surface reuse.
+HAVI can present the cached result through Makepad's exact pass-surface copy
+API, it promotes the rendered page content into a dedicated offscreen child pass
+and reuses that pass output on later unchanged frames. HAVI resolves final
+presentation through `Cx2d::resolve_exact_pass_surface_copy(area)` and presents
+through `Cx2d::copy_pass_surface_exact(&cache.pass, presentation)`. The key
+includes fragment source identity (`webview_id` + published generation), the
+resolved `ExactPassSurfaceCopy`, pass DPI, renderer visual generation, scroll
+hash, and selection hash. Unsupported outer clip or transform cases fall back
+to the live retained draw path instead of reusing the surface. Dynamic image
+overrides disable this cache. Screenshot capture also reads back this
+browser-owned surface instead of shell chrome composition, but that capture path
+is separate from stable surface-cache reuse. Set `HAVI_BROWSER_SURFACE_CACHE=0`
+to disable stable-surface reuse.
 
 Files:
 
