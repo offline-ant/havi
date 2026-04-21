@@ -5,7 +5,7 @@ set -euo pipefail
 
 TEST_NAME="chrome-shell-layout"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HAVI_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/havi-build.bash"
 
 log() { echo "[$TEST_NAME] $*" >&2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -46,11 +46,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-log "Building HAVI via ./mach-havi build..."
-(
-    cd "$HAVI_ROOT"
-    ./mach-havi build >/dev/null
-)
+ensure_havi_built
 
 HTML_FILE="$(mktemp /tmp/havi-shell-layout-XXXXXX.html)"
 cat >"$HTML_FILE" <<'HTML'

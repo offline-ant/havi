@@ -5,21 +5,14 @@ set -euo pipefail
 
 TEST_NAME="surface-cache-navigation-return"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HAVI_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-HAVI_BIN="$HAVI_ROOT/target/debug/havi"
+source "$SCRIPT_DIR/havi-build.bash"
 
 log() { echo "[$TEST_NAME] $*" >&2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 pkill -f "$HAVI_BIN --foreground --no-pylon" 2>/dev/null || true
 
-if [[ ! -x "$HAVI_BIN" ]]; then
-    log "Building HAVI via ./mach-havi build..."
-    (
-        cd "$HAVI_ROOT"
-        ./mach-havi build >/dev/null
-    )
-fi
+ensure_havi_built
 
 PAGE_A="$(mktemp /tmp/havi-surface-cache-nav-a-XXXXXX.html)"
 PAGE_B="$(mktemp /tmp/havi-surface-cache-nav-b-XXXXXX.html)"

@@ -12,6 +12,7 @@ set -euo pipefail
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+source "$SCRIPT_DIR/havi-build.bash"
 if [[ -n "${FORGE_ROOT:-}" ]]; then
     HPPR_ROOT="$FORGE_ROOT/hppr"
     HAVI_ROOT="$FORGE_ROOT/havi"
@@ -37,15 +38,6 @@ export PATH="$HPPR_ROOT/target/debug:$HPPR_ROOT/bin:$PATH"
 HPPR="$HPPR_ROOT/target/debug/hppr"
 HPPR_FUSE="$HPPR_ROOT/target/debug/hppr-fuse"
 HPPR_NFS="$HPPR_ROOT/target/debug/hppr-nfs"
-
-HAVI_BUILD_READY=""
-
-ensure_havi_built() {
-    [[ -n "$HAVI_BUILD_READY" ]] && return 0
-    echo "[${TEST_NAME:-test}] Building havi via ./mach-havi build..." >&2
-    (cd "$HAVI_ROOT" && ./mach-havi build >/dev/null)
-    HAVI_BUILD_READY=1
-}
 
 ensure_havi_built
 

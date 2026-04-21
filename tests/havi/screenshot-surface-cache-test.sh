@@ -6,10 +6,7 @@ source "$SCRIPT_DIR/test-prelude.bash"
 
 TEST_NAME="screenshot-surface-cache"
 
-havi_bin="$HAVI_ROOT/target/debug/havi"
-if [[ ! -x "$havi_bin" ]]; then
-    ./mach-havi build >/dev/null
-fi
+havi_bin="$HAVI_BIN"
 
 html=$(mktemp /tmp/havi-surface-cache-XXXXXX.html)
 cat >"$html" <<'HTML'

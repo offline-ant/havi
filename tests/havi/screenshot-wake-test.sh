@@ -14,10 +14,7 @@ HPPR_SIGNER='ring1:ring0|init' "$HPPR" add //u/test/screenshot-wake.html \
     -H "Seal-By: oldest" -H "Content-Type: text/html" \
     <<< '<!doctype html><style>html,body{margin:0;background:#ffffff}.box{position:absolute;left:0;top:0;width:120px;height:120px;background:#008000}</style><div class="box"></div><script>setInterval(()=>{window.__tick=(window.__tick||0)+1},50)</script>'
 
-havi_bin="$HAVI_ROOT/target/debug/havi"
-if [[ ! -x "$havi_bin" ]]; then
-    cargo build -q --manifest-path "$HAVI_ROOT/ports/havishell/Cargo.toml"
-fi
+havi_bin="$HAVI_BIN"
 
 SCREENSHOT="/tmp/havi-screenshot-wake-$$.png"
 rm -f "$SCREENSHOT"
