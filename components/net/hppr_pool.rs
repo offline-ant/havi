@@ -350,7 +350,7 @@ pub async fn resolve_endpoint(endpoint: &str) -> Result<SocketAddr> {
 /// Async HPPR state with connection pool and default target.
 pub struct HpprAsyncState {
     pub pool: Arc<HpprAsyncPool>,
-    /// Default repo target (home repo).
+    /// Default repo target for browser-local compatibility routing.
     pub default_target: ViaSpec,
 }
 

@@ -344,7 +344,7 @@ copy_into_mount() {
 # Import content directory as sealed packets via filesystem mount + cp.
 import_content() {
     local content_dir="$1" group="$2" app="$3"
-    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with oldest
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with ring0
     copy_into_mount "$content_dir"
     fs_unmount
 }
@@ -353,97 +353,72 @@ import_content() {
 import_content_paths() {
     local content_dir="$1" group="$2" app="$3"
     shift 3
-    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with oldest
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with ring0
     copy_into_mount "$content_dir" "$@"
     fs_unmount
 }
 
 # Import content to remote repo via filesystem mount + cp.
+# Remote deployed content is authored under the explicit remote content key so
+# deploy-pointer authority and later remote writes share one content signer.
 import_remote_content() {
     local content_dir="$1" group="$2" app="$3"
-    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0|init" "//$group/$app" --seal-with oldest
+    [[ -n "${REMOTE_SECRET_KEY:-}" ]] || fail "remote content import requires create_remote_key first"
+    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0|init" "//$group/$app" --seal-with "$REMOTE_SECRET_KEY"
     copy_into_mount "$content_dir"
     fs_unmount
 }
 
 # Set up local exact-app route record pointing to remote repo.
-# Uses ring0/init identity so the record is sealed by the repo admin key
-# (Seal-By: oldest). This matches what get_admin_identity() returns.
 setup_route() {
     local group="$1" app="$2"
-    HPPR_SIGNER='ring1:ring0|init' $HPPR add "//repo/route/app/$group/$app" \
-        -H "Seal-By: oldest" \
-        -H "Upstream: tcp+127.0.0.1:$REMOTE_PORT" \
-        -H "Upstream-Verification-Key: $REMOTE_SIGNING_KEY" <<< ""
+
+    HPPR_SIGNER='ring1:ring0|init' $HPPR route local app set \
+        --verify \
+        --signer 'ring1:ring0|init' \
+        "//$group/$app" \
+        "tcp+127.0.0.1:$REMOTE_PORT" >/dev/null
 }
 
 # Set up app content pointer on remote repo.
 # Resolver reads //<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>.
+# Remote deployed content is authored under REMOTE_SIGNING_KEY, so the content
+# authority published here must match that signer.
 setup_remote_deploy() {
     local group="$1" app="$2"
+    [[ -n "${REMOTE_SIGNING_KEY:-}" ]] || fail "remote deploy setup requires create_remote_key first"
+
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+        $HPPR ring1 acl anyone add r.l "//$group/admin/deploy/" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR add "//$group/admin/deploy/$app" \
-        -H "Seal-By: oldest" \
+        -H "Seal-By: ring0" \
         -H "Content-Root: //$group/$app" \
         -H "Content-Authority: $REMOTE_SIGNING_KEY" <<< ""
 }
 
-# Set up ring2 on remote repo and pre-create site ring1 account locally.
-#
-# Creates a site keypair and a local route auth keypair, configures ring2 on the remote
-# with both keys as members, and creates the matching ring1 account and
-# route auth packet on the home repo so HAVI finds it at page load.
+# Set up remote Ring2 and local route auth for routed access.
 setup_remote_ring2() {
     local group="$1" app="$2"
-    local ring1_name="site:${group}#${app}"
 
-    # Generate site keypair (for window.home ring1 identity)
-    local keyname="site-$$"
-    $HPPR key generate "$keyname" >/dev/null
-    local site_sk site_vk
-    site_sk=$($HPPR key show "$keyname")
-    site_vk=$($HPPR key pubkey "$keyname")
-
-    # Generate local route auth keypair (for routed Ring2 identity)
     local route_keyname="route-$$"
     $HPPR key generate "$route_keyname" >/dev/null
     local route_sk route_vk
     route_sk=$($HPPR key show "$route_keyname")
     route_vk=$($HPPR key pubkey "$route_keyname")
 
-    # Ring2 setup on remote
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 setup "//$group" --init
+        $HPPR ring2 setup "//$group" --init >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 setup "//$group" acl add r.l "//$group/$app/"
-    # Register both site key and local route auth key as ring2 members
+        $HPPR ring2 setup "//$group" acl add r.l "//$group/$app/" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 members "//$group" add "$site_vk"
+        $HPPR ring2 setup "//$group" acl add r.l "//$group/admin/deploy/" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 members "//$group" add "$route_vk"
+        $HPPR ring2 members "//$group" add "$route_vk" >/dev/null
 
-    # Create site ring1 account on home repo with that key.
-    # Setup must be sealed by ring0's oldest key (Seal-By: oldest).
-    # Keys packet is self-signed by the site key.
-    HPPR_SIGNER='ring1:ring0|init' $HPPR add \
-        "//repo/admin/ring1/${ring1_name}/setup" \
-        -H "Seal-By: oldest" \
-        -H "Member: $site_vk" \
-        -H "Ring1-Name: $ring1_name" \
-        -H "ACL-Rule: rdl //$group/$app/" \
-        -H "ACL-Rule: rwl //$group/$app/user/" \
-        -H "ACL-Rule: rwl //repo/admin/ring1/${ring1_name}/" \
-        -H "ACL-Rule: r.l //repo/route/app/" \
-        -H "ACL-Rule: r.l //repo/route/group/" \
-        -H "ACL-Rule: r.. //repo/route/auth/" <<< ""
-    HPPR_SIGNER='ring1:ring0|init' $HPPR add -k "$site_sk" \
-        "//repo/admin/ring1/${ring1_name}/keys" \
-        -H "Secret-Key: $site_sk" <<< ""
-
-    # Store local route auth on home repo so routed access finds it.
     HPPR_SIGNER='ring1:ring0|init' $HPPR add \
         "//repo/route/auth/$group" \
-        -H "Seal-By: oldest" \
+        -H "Seal-By: ring0" \
         -H "Auth: ring2:$group|$route_sk" <<< ""
 }
 
@@ -535,7 +510,7 @@ run_js_tests() {
 }
 
 # ============================================================================
-# JS Injection for Generated Pages
+# JS Helpers
 # ============================================================================
 
 # Execute JS and return the result value
@@ -543,102 +518,4 @@ run_js() {
     local js="$1"
     local debugtool="$HAVI_ROOT/havi-devtools-cli"
     "$debugtool" --timeout 3 eval "$js" 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1
-}
-
-# Inject test suite into hppr-setup:// page (generated by protocol handler)
-# Waits for page init(), then injects test-utils and test suite, sets window.testResults
-inject_hppr_setup_tests() {
-    local debugtool="$HAVI_ROOT/havi-devtools-cli"
-
-    log "Waiting for hppr-setup page to initialize..."
-
-    # Wait for page content to load (init() completes) or error
-    for _ in {1..100}; do
-        local content_visible error_visible
-        content_visible=$(run_js "document.getElementById('content')?.style.display === 'block'")
-        error_visible=$(run_js "document.getElementById('error')?.style.display === 'block'")
-
-        [[ "$content_visible" == "true" ]] && break
-        [[ "$error_visible" == "true" ]] && break
-        sleep 0.1
-    done
-
-    log "Injecting test suite..."
-
-    # Inject test-utils functions and test suite
-    # Uses heredoc for readability - the JS runs assertions and sets window.testResults
-    "$debugtool" --timeout 15 eval "$(cat <<'TESTJS'
-(function() {
-    // test-utils.js inline
-    const results = [];
-    function log(msg) { results.push(msg); console.log('[test] ' + msg); }
-    function assert(condition, name) {
-        if (condition) { log('PASS: ' + name); return true; }
-        else { log('FAIL: ' + name); return false; }
-    }
-    function assertEqual(actual, expected, name) {
-        if (actual === expected) { log('PASS: ' + name); return true; }
-        else { log('FAIL: ' + name + ' (expected: ' + expected + ', got: ' + actual + ')'); return false; }
-    }
-    function assertContains(str, substr, name) {
-        if (str && str.includes(substr)) { log('PASS: ' + name); return true; }
-        else { log('FAIL: ' + name + ' (expected to contain: ' + substr + ', got: ' + str + ')'); return false; }
-    }
-    function summarize() {
-        let passed = 0, failed = 0;
-        for (const r of results) {
-            if (r.startsWith('PASS:')) passed++;
-            if (r.startsWith('FAIL:')) failed++;
-        }
-        return { passed, failed, results };
-    }
-
-    // Test suite for hppr-setup page
-    log('--- hppr-setup page tests ---');
-
-    // Check for error first
-    const errorEl = document.getElementById('error');
-    const errorVisible = errorEl?.style.display === 'block';
-    if (errorVisible) {
-        log('FAIL: Page shows error: ' + (errorEl?.textContent || 'unknown'));
-        window.testResults = summarize();
-        return;
-    }
-
-    // Content should be visible
-    const contentEl = document.getElementById('content');
-    assert(contentEl?.style.display === 'block', 'Content is visible');
-
-    // Repo info should be displayed
-    const serverKey = document.getElementById('repo-key')?.textContent;
-    assert(serverKey && serverKey.length > 10, 'Repo key displayed');
-
-    const serverId = document.getElementById('repo-id')?.textContent;
-    assert(serverId && serverId.length > 0, 'Repo ID displayed');
-
-    // Greeting should be parsed (global var from page)
-    assert(typeof greeting !== 'undefined' && greeting !== null, 'greeting object exists');
-    assert(greeting?.verifyingKey !== null, 'greeting.verifyingKey parsed');
-
-    // Preview xframe should be configured
-    const previewFrame = document.getElementById('preview-frame');
-    const previewSrc = previewFrame?.src || '';
-    assert(previewSrc.includes('hppr-sandbox:'), 'Preview xframe uses hppr-sandbox');
-
-    // Accept button should be ready
-    const acceptBtn = document.getElementById('accept-btn');
-    assert(acceptBtn && !acceptBtn.disabled, 'Accept button enabled');
-
-    // Route checkbox should be checked by default
-    assert(document.getElementById('set-endpoint')?.checked, 'Set endpoint checkbox checked');
-
-    // window.ring0 should be available (pre-fetched admin credentials)
-    assert(window.ring0 !== null && window.ring0 !== undefined, 'window.ring0 available');
-
-    window.testResults = summarize();
-})();
-TESTJS
-)" >/dev/null 2>&1
-
-    log "Test suite injected"
 }

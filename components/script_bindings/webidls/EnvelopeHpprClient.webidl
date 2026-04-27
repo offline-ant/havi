@@ -4,9 +4,6 @@
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface EnvelopeHpprClient {
-    // Repo client using site's signing key via SealRing1
-    [NewObject, Throws] static Promise<EnvelopeHpprClient> home();
-
     // Remote client with optional identity string
     // Omitted or empty: anyone (no authentication)
     // Identity formats: ring1:<name>|<password>, ring1:<name>|&.key.H3,
@@ -35,9 +32,6 @@ interface EnvelopeHpprClient {
 
     // Get repo greeting via HELLO command (remote clients only)
     [NewObject] Promise<HpprResult> hello();
-
-    // Admin-only sub-objects (null for non-ring0 clients)
-    [SameObject] readonly attribute HpprRepoInfo? repo;
 
     // WATCH streaming - monitors coordinate prefix for changes
     // Returns WatchSocket with WebSocket-like event interface

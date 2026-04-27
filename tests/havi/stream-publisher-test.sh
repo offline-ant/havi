@@ -11,16 +11,21 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="stream-publisher"
-TEST_GROUP="streampubtest"
+TEST_GROUP="~streampubtest"
 TEST_APP="testapp"
 
 start_server
-setup_acl "$TEST_GROUP" "$TEST_APP"
-create_key
-import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
+start_remote_server
+setup_remote_acl "$TEST_GROUP" "$TEST_APP" "rwl"
+create_remote_key
+import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-# Store the signing key as a packet so the JS test page can fetch it
-echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+# Store the signing key as a packet so the JS test page can fetch it.
+echo -n "$REMOTE_SECRET_KEY" | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/testkey"
+
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
+setup_route "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/stream-publisher-test.html"
 run_js_tests 30

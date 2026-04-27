@@ -11,6 +11,7 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use pulldown_cmark::{Options, Parser, html};
 
 use super::client::HpprdClientAsync;
+use super::local_route::BrowserRouteHandle;
 
 // Re-export credential types from credentials module
 pub use super::credentials::{CredentialStoreHandle, global_credential_store};
@@ -326,11 +327,10 @@ async fn fetch_public_packet_via(via: &ViaSpec, urc: &str) -> Result<hppr_client
 async fn resolve_exact_group_route(
     group: &str,
     app: &str,
-    repo_client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
+    handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<ExactGroupRoute, String> {
-    let repo_target = repo_client.target();
+    let repo_target = handle.target();
     if group.is_empty() || app.is_empty() {
         return Ok(ExactGroupRoute {
             endpoint: repo_target,
@@ -345,36 +345,29 @@ async fn resolve_exact_group_route(
     let mut root_override = None;
     let mut repo_vkey = None;
 
-    if credential_store.get_admin().is_some() {
-        match repo_client.get_admin_identity().await {
-            Ok(vkey) => {
-                repo_vkey = Some(vkey.clone());
-                let root_query = format!("//repo/route/group/u/|/seal/{}", vkey);
-                match repo_client.get_local_route_group("u", &vkey).await {
-                    Ok(root) => {
-                        lookup_trace.push_step(
-                            "local-route-group",
-                            Some(root_query),
-                            Some(repo_client.target().to_string()),
-                            "hit",
-                            Some(format!("upstream={} group=u", root.upstream)),
-                        );
-                        root_override = Some(root);
-                    },
-                    Err(error) => {
-                        lookup_trace.push_step(
-                            "local-route-group",
-                            Some(root_query),
-                            Some(repo_client.target().to_string()),
-                            "miss",
-                            Some(error),
-                        );
-                    },
-                }
-            }
-            Err(e) => {
-                log::debug!("Failed to get admin identity for local route lookup: {}", e);
-            }
+    if let Some(vkey) = handle.admin_identity().await {
+        repo_vkey = Some(vkey.clone());
+        let root_query = format!("//repo/route/group/u/|/seal/{}", vkey);
+        match handle.local_route_group("u", &vkey).await {
+            Ok(root) => {
+                lookup_trace.push_step(
+                    "local-route-group",
+                    Some(root_query),
+                    Some(handle.target().to_string()),
+                    "hit",
+                    Some(format!("upstream={} group=u", root.upstream)),
+                );
+                root_override = Some(root);
+            },
+            Err(error) => {
+                lookup_trace.push_step(
+                    "local-route-group",
+                    Some(root_query),
+                    Some(handle.target().to_string()),
+                    "miss",
+                    Some(error),
+                );
+            },
         }
     }
 
@@ -402,12 +395,12 @@ async fn resolve_exact_group_route(
     for exact_group in exact_groups.iter().cloned() {
         if let Some(repo_vkey) = repo_vkey.as_deref() {
             let local_query = format!("//repo/route/group/{}/|/seal/{}", exact_group, repo_vkey);
-            match repo_client.get_local_route_group(&exact_group, repo_vkey).await {
+            match handle.local_route_group(&exact_group, repo_vkey).await {
                 Ok(local_group) => {
                     lookup_trace.push_step(
                         "local-route-group",
                         Some(local_query),
-                        Some(repo_client.target().to_string()),
+                        Some(handle.target().to_string()),
                         "hit",
                         Some(format!("upstream={} group={}", local_group.upstream, exact_group)),
                     );
@@ -423,7 +416,7 @@ async fn resolve_exact_group_route(
                     lookup_trace.push_step(
                         "local-route-group",
                         Some(local_query),
-                        Some(repo_client.target().to_string()),
+                        Some(handle.target().to_string()),
                         "miss",
                         Some(error),
                     );
@@ -515,14 +508,8 @@ pub async fn resolve_group_home_app(
         format!("hppr://{group}/home"),
         "route-home-app",
     );
-    let exact = resolve_exact_group_route(
-        group,
-        "home",
-        repo_client,
-        credential_store,
-        &mut lookup_trace,
-    )
-    .await?;
+    let handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
+    let exact = resolve_exact_group_route(group, "home", &handle, &mut lookup_trace).await?;
     Ok(exact.home_app)
 }
 
@@ -539,60 +526,52 @@ pub async fn resolve_route_endpoint(
         format!("hppr://{group}/{app}"),
         "route-only",
     );
-    resolve_route_endpoint_with_trace(group, app, repo_client, credential_store, &mut lookup_trace).await
+    let handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
+    resolve_route_endpoint_with_trace(group, app, &handle, &mut lookup_trace).await
 }
 
 pub async fn resolve_route_endpoint_with_trace(
     group: &str,
     app: &str,
-    repo_client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
+    handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<(ViaSpec, Option<String>, Option<String>, RouteEndpointSource), String> {
-    let repo_target = repo_client.target();
-    let exact = resolve_exact_group_route(group, app, repo_client, credential_store, lookup_trace)
-        .await?;
+    let repo_target = handle.target();
+    let exact = resolve_exact_group_route(group, app, handle, lookup_trace).await?;
     let public_name = hppr_client::is_public_name(group, app);
     let mut local_app = None;
 
-    if credential_store.get_admin().is_some() {
-        match repo_client.get_admin_identity().await {
-            Ok(vkey) => {
-                let local_query = format!("//repo/route/app/{}/{}/|/seal/{}", group, app, vkey);
-                match repo_client.get_local_route_app(group, app, &vkey).await {
-                    Ok(info) => {
-                        lookup_trace.push_step(
-                            "local-route-app",
-                            Some(local_query),
-                            Some(repo_client.target().to_string()),
-                            "hit",
-                            Some(format!(
-                                "upstream={} content_authority={}",
-                                info.upstream
-                                    .as_ref()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| "(inherit)".to_string()),
-                                info.content_authority
-                                    .clone()
-                                    .unwrap_or_else(|| "(inherit)".to_string())
-                            )),
-                        );
-                        local_app = Some(info);
-                    },
-                    Err(error) => {
-                        lookup_trace.push_step(
-                            "local-route-app",
-                            Some(local_query),
-                            Some(repo_client.target().to_string()),
-                            "miss",
-                            Some(error),
-                        );
-                    },
-                }
-            }
-            Err(e) => {
-                log::debug!("Failed to get admin identity for local route lookup: {}", e);
-            }
+    if let Some(vkey) = handle.admin_identity().await {
+        let local_query = format!("//repo/route/app/{}/{}/|/seal/{}", group, app, vkey);
+        match handle.local_route_app(group, app, &vkey).await {
+            Ok(info) => {
+                lookup_trace.push_step(
+                    "local-route-app",
+                    Some(local_query),
+                    Some(handle.target().to_string()),
+                    "hit",
+                    Some(format!(
+                        "upstream={} content_authority={}",
+                        info.upstream
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| "(inherit)".to_string()),
+                        info.content_authority
+                            .clone()
+                            .unwrap_or_else(|| "(inherit)".to_string())
+                    )),
+                );
+                local_app = Some(info);
+            },
+            Err(error) => {
+                lookup_trace.push_step(
+                    "local-route-app",
+                    Some(local_query),
+                    Some(handle.target().to_string()),
+                    "miss",
+                    Some(error),
+                );
+            },
         }
     }
 
@@ -697,10 +676,17 @@ pub async fn resolve_route_endpoint_with_trace(
         .or_else(|| exact.upstream_verification_key.clone());
 
     if let Some(endpoint) = endpoint {
+        let source = if local_app.is_some() {
+            RouteEndpointSource::LocalRoute
+        } else if public_app.is_some() {
+            RouteEndpointSource::PublicNetwork
+        } else {
+            exact.source
+        };
         report_route_resolution(
             group,
             app,
-            exact.source,
+            source,
             &endpoint,
             upstream_verification_key.as_deref(),
             None,
@@ -710,9 +696,9 @@ pub async fn resolve_route_endpoint_with_trace(
             Some(format!("//{group}/{app}")),
             Some(endpoint.to_string()),
             "selected",
-            Some(format!("source={}", exact.source.as_str())),
+            Some(format!("source={}", source.as_str())),
         );
-        return Ok((endpoint, upstream_verification_key, content_authority, exact.source));
+        return Ok((endpoint, upstream_verification_key, content_authority, source));
     }
 
     if public_name {

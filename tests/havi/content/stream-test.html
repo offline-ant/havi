@@ -19,12 +19,14 @@
 
   <script>
     async function suite_stream() {
-        const homeRepo = window.home;
-        const streamRepo = await HpprClient.connect(homeRepo.endpoint, 'anyone');
+        const source = window.source;
+        const streamRepo = source.client;
         const group = document.packet.group;
         const app = document.packet.app;
 
-        // --- StreamSub creation ---
+        assert(source !== null, 'window.source exists');
+        assertEqual(source.kind, 'remote', 'window.source.kind is remote for transport-backed stream test');
+
         log('--- StreamSub creation ---');
         const sout = streamRepo.streamSub('//' + group + '/' + app + '/live');
         assert(sout !== null && sout !== undefined, 'streamSub() returns object');
@@ -34,9 +36,7 @@
         assert(sout.stream !== null && sout.stream !== undefined, 'StreamSub has stream attribute');
         assert(sout.stream instanceof ReadableStream, 'StreamSub.stream is ReadableStream');
 
-        // --- StreamSub receives data ---
         log('--- StreamSub receives data ---');
-        // The publisher is feeding data with a delay. Wait for onopen, then read.
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('StreamSub onopen timeout')), 15000);
             if (sout.readyState === 1) {
@@ -50,7 +50,6 @@
         assertEqual(sout.readyState, 1, 'StreamSub readyState is OPEN after onopen');
 
         const reader = sout.stream.getReader();
-        // Read with a timeout: publisher sends data after a delay
         const readResult = await Promise.race([
             reader.read(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('StreamSub read timeout')), 20000))
@@ -59,7 +58,6 @@
         assert(readResult.value instanceof Uint8Array, 'StreamSub read value is Uint8Array');
         assert(readResult.value.length > 0, 'StreamSub received non-empty data (' + readResult.value.length + ' bytes)');
 
-        // The ReadableStream delivers decoded payload bytes (not raw trailer format).
         const decoder = new TextDecoder();
         const text = decoder.decode(readResult.value);
         assertContains(text, 'hello-havi', 'received payload bytes match published content');
@@ -67,11 +65,10 @@
         reader.releaseLock();
         sout.close();
 
-        const keyPacket = await homeRepo.get('//' + group + '/' + app + '/testkey');
+        const keyPacket = await streamRepo.get('//' + group + '/' + app + '/testkey');
         const key = keyPacket.text();
         assert(key.startsWith('&.'), 'Signing key loaded for streamPub');
 
-        // --- StreamPub creation ---
         log('--- StreamPub creation ---');
         const sin = streamRepo.streamPub('//' + group + '/' + app + '/live2', { key });
         assert(sin !== null && sin !== undefined, 'streamPub() returns object');
@@ -79,7 +76,6 @@
         assert(typeof sin.prefix === 'string', 'StreamPub has prefix');
         assertEqual(sin.prefix, '//' + group + '/' + app + '/live2', 'StreamPub prefix matches');
 
-        // --- StreamPub onopen ---
         log('--- StreamPub onopen ---');
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('StreamPub onopen timeout')), 10000);
@@ -93,9 +89,8 @@
         });
         assertEqual(sin.readyState, 1, 'StreamPub readyState is OPEN after onopen');
 
-        // --- StreamPub write ---
         log('--- StreamPub write ---');
-        const testData = new Uint8Array([72, 69, 76, 76, 79]); // "HELLO"
+        const testData = new Uint8Array([72, 69, 76, 76, 79]);
         const writeResult = await sin.write(testData);
         assertEqual(writeResult, undefined, 'StreamPub write resolves to undefined');
 

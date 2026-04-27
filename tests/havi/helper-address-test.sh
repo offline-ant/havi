@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 TEST_NAME="helper-address"
 
 start_server
-start_servo "havi:///overview"
+start_servo "havi:///diagnostics"
 
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
@@ -15,7 +15,7 @@ addr_exists=$($debugtool --text eval 'window.address !== null' 2>/dev/null || tr
 [[ "${addr_exists,,}" == "true" ]] || fail "window.address should exist on helper pages"
 
 addr_href=$($debugtool --text eval 'window.address.href' 2>/dev/null || true)
-[[ "$addr_href" == "havi:///overview" ]] || fail "unexpected helper address href: $addr_href"
+[[ "$addr_href" == "havi:///diagnostics" ]] || fail "unexpected helper address href: $addr_href"
 
 addr_scheme=$($debugtool --text eval 'window.address.scheme' 2>/dev/null || true)
 [[ "$addr_scheme" == "havi" ]] || fail "unexpected helper address scheme: $addr_scheme"
@@ -24,10 +24,10 @@ addr_qa=$($debugtool --text eval 'window.address.qa === null' 2>/dev/null || tru
 [[ "${addr_qa,,}" == "true" ]] || fail "helper address qa should be null"
 
 addr_listing=$($debugtool --text eval 'window.address.isListing' 2>/dev/null || true)
-[[ "${addr_listing,,}" == "false" ]] || fail "overview helper page should not be a listing"
+[[ "${addr_listing,,}" == "false" ]] || fail "diagnostics helper page should not be a listing"
 
 doc_url=$($debugtool --text eval 'document.URL' 2>/dev/null || true)
-[[ "$doc_url" == "havi:///overview" ]] || fail "unexpected helper document.URL: $doc_url"
+[[ "$doc_url" == "havi:///diagnostics" ]] || fail "unexpected helper document.URL: $doc_url"
 
 doc_uri=$($debugtool --text eval 'document.documentURI' 2>/dev/null || true)
 [[ "$doc_uri" == "$doc_url" ]] || fail "document.documentURI should mirror document.URL"

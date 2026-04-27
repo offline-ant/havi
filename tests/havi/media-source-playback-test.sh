@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="media-source-playback"
-TEST_GROUP="mediasource"
+TEST_GROUP="~mediasource"
 TEST_APP="testapp"
 
 start_server

@@ -19,13 +19,17 @@
 
   <script>
     async function suite_chunk_seek() {
-        const ring1 = window.home;
+        const source = window.source;
+        const client = source.client;
         const group = document.packet.group;
         const app = document.packet.app;
 
+        assert(source !== null, 'window.source exists');
+        assertEqual(source.kind, 'remote', 'window.source.kind is remote for routed chunk seek test');
+
         // --- Full reassembly of flat chunked content ---
         log('--- flat chunk reassembly ---');
-        const fullPacket = await ring1.get('//' + group + '/' + app + '/chunked/data.txt');
+        const fullPacket = await client.get('//' + group + '/' + app + '/chunked/data.txt');
         assert(fullPacket !== null, 'flat chunked packet retrieved');
         const fullText = fullPacket.text();
         assert(fullText.length > 5000, 'flat chunked data length (got ' + fullText.length + ')');
@@ -38,7 +42,7 @@
         // --- Multi-chunk manifest reassembly ---
         // Manually constructed flat manifest: blob1="AAAAAAAAAA" + blob2="BBBBBBBBBB" + blob3="CCCCCCCCCC"
         log('--- multi-chunk manifest reassembly ---');
-        const nestedPacket = await ring1.get('//' + group + '/' + app + '/chunked/nested.bin');
+        const nestedPacket = await client.get('//' + group + '/' + app + '/chunked/nested.bin');
         assert(nestedPacket !== null, 'multi-chunk packet retrieved');
         const nestedText = nestedPacket.text();
         assertEqual(nestedText.length, 30, 'multi-chunk data is 30 chars (got ' + nestedText.length + ')');
@@ -47,21 +51,10 @@
         assertEqual(nestedText, 'AAAAAAAAAABBBBBBBBBBCCCCCCCCCC',
             'multi-chunk content matches expected (got ' + nestedText + ')');
 
-        // --- document.packet on this page (chunk manifest) ---
-        log('--- document.packet manifest metadata ---');
+        // --- document.packet on this page ---
+        log('--- document.packet metadata ---');
         assert(document.packet !== null, 'document.packet exists');
-
-        // This test page is also chunked (1024-byte chunks, page is >1KB)
-        // If it loaded correctly via chunk manifest, document.packet should have Chunk+Link
-        const chunkLinks = document.packet.getHeaders('Chunk+Link');
-        if (chunkLinks.length > 0) {
-            log('PASS: document.packet has Chunk+Link headers (manifest page, count: ' + chunkLinks.length + ')');
-            const totalLen = document.packet.getHeader('Content-Total-Length');
-            assert(totalLen !== null, 'manifest has Content-Total-Length');
-        } else {
-            // Page might be small enough to not be chunked - that's ok
-            log('PASS: document.packet loaded (non-chunked page, skipping manifest checks)');
-        }
+        assertEqual(document.packet.type, 'Seal', 'document.packet exposes rendered sealed page, not a raw chunk manifest');
     }
 
     (async function() {

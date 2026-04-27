@@ -14,7 +14,7 @@ HAVI_DEVTOOLS=6000 ./havi/havi-cli publish //u/site/index.html ./index.html
 
 What it does:
 
-1. `hppr add --seal-by oldest` with inferred `Content-Type`
+1. `hppr add --seal-by ring0` with inferred `Content-Type`
 2. navigates HAVI to `hppr://u/site/index.html`
 
 Use this for quick iteration on one file.
@@ -28,7 +28,7 @@ Use this for quick iteration on one file.
 export HPPR_SIGNER='ring1:ring0|init'
 
 # publish content
-hppr add --seal-by oldest \
+hppr add --seal-by ring0 \
   -H 'Content-Type: text/html; charset=utf-8' \
   //u/site/index.html < ./index.html
 ```
@@ -92,7 +92,7 @@ For whole-site import/export, use filesystem mount + copy.
 
 ```bash
 # mount repo subtree with write enabled
-pylon mount /mnt/hppr --root //u/site --rw --seal_with oldest
+pylon mount /mnt/hppr --root //u/site --rw --seal-with ring0
 
 # copy directory contents into mounted tree
 cp -a ./site/. /mnt/hppr/
@@ -110,7 +110,7 @@ does not provide `dir-pac`, use mount+copy.
 
 ```bash
 hppr-nfs --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
-  --root //u/site --rw --seal-with oldest --bind 127.0.0.1:3049
+  --root //u/site --rw --seal-with ring0 --bind 127.0.0.1:3049
 ```
 
 Then mount and copy using your OS NFS client.

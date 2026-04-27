@@ -17,14 +17,16 @@ function truncateKey(key) {
     return key.substring(0, 10) + '...' + key.substring(key.length - 6);
 }
 
+const adminClient = window.havi?.admin?.client ?? null;
+
 /** @type {string|null} */
 let localAdminKey = null;
 
 async function getLocalAdminKey() {
     if (localAdminKey) return localAdminKey;
     try {
-        if (!window.ring0) return null;
-        const greeting = await window.ring0.hello();
+        if (!adminClient) return null;
+        const greeting = await adminClient.hello();
         if (greeting.verifyingKey) {
             localAdminKey = greeting.verifyingKey;
             return localAdminKey;
@@ -40,24 +42,24 @@ async function loadRoutes() {
     if (!list) return;
     try {
         const adminKey = await getLocalAdminKey();
-        if (!adminKey || !window.ring0) {
+        if (!adminKey || !adminClient) {
             list.innerHTML = '<p class="empty">Unable to get local admin key</p>';
             return;
         }
 
-        const groups = await window.ring0.list('//repo/route/app/');
+        const groups = await adminClient.list('//repo/route/app/');
         /** @type {{ group: string, app: string, packet: HpprPacket }[]} */
         const routes = [];
 
         for (const group of groups) {
             const cleanGroup = group.replace(/\/$/, '');
             try {
-                const apps = await window.ring0.list('//repo/route/app/' + cleanGroup + '/');
+                const apps = await adminClient.list('//repo/route/app/' + cleanGroup + '/');
                 for (const app of apps) {
                     const cleanApp = app.replace(/\/$/, '');
                     try {
                         const routeUrc = '//repo/route/app/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
-                        const packet = await window.ring0.get(routeUrc);
+                        const packet = await adminClient.get(routeUrc);
                         routes.push({ group: cleanGroup, app: cleanApp, packet });
                     } catch (_e) {
                         // No route for this app
@@ -120,8 +122,8 @@ async function loadRoutes() {
 async function removeRoute(group, app, hash) {
     if (!confirm('Remove route for "//' + group + '/' + app + '"?')) return;
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        await window.ring0.detach(hash);
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+        await adminClient.detach(hash);
         showMessage('Removed route: //' + group + '/' + app, false);
         loadRoutes();
     } catch (e) {

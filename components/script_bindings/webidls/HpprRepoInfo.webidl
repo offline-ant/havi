@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 // HPPR Repo Info Interface
-// Only available on havi:// origin through window.ring0.repo
+// Only available on internal helper pages through window.havi.admin.repo
 // https://github.com/user/hppr
 
 [Exposed=Window, Pref="dom_hppr_enabled"]

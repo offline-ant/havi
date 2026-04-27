@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# window-packet-test.sh - Test window.packet API migration
-# Verifies that window.packet works and window.route.packet is removed
+# window-packet-test.sh - Test current window.packet/document.packet surfaces
+# Verifies that packet access matches the committed-source model
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="window-packet"
-TEST_GROUP="packettest"
+TEST_GROUP="~packettest"
 TEST_APP="testapp"
 
 start_server

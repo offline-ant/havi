@@ -15,18 +15,17 @@ use hppr_packet::chunk_loader::{ChunkLoader, LoaderConfig};
 use crate::hppr_pool::HpprAsyncState;
 /// Batch fetch chunk blobs via EXCHANGE, then reassemble with ChunkLoader.
 ///
-/// Tries repo first, then route for missing blobs (when endpoint != repo).
+/// Chunks are fetched directly from `endpoint` (the content's own endpoint).
 pub async fn batch_reassemble_chunks(
     hppr_state: &Arc<HpprAsyncState>,
     endpoint: &ViaSpec,
-    is_repo: bool,
     manifest: &ChunkManifest,
 ) -> Result<Vec<u8>, String> {
     let all_hashes: Vec<&str> = manifest.chunks.iter().map(|c| c.hash.as_str()).collect();
     if all_hashes.is_empty() {
         return Ok(Vec::new());
     }
-    let mut blobs = fetch_chunk_blobs(hppr_state, endpoint, is_repo, &all_hashes).await?;
+    let mut blobs = fetch_chunk_blobs(hppr_state, endpoint, &all_hashes).await?;
     let config = LoaderConfig {
         cache_capacity: 0,
         prefetch_ahead: 0,
@@ -41,13 +40,15 @@ pub async fn batch_reassemble_chunks(
         })
         .map_err(|e| format!("chunk reassembly: {e}"))
 }
-/// Fetch chunk blobs by hash via EXCHANGE (repo first, route fallback).
+/// Fetch chunk blobs by hash via EXCHANGE from `endpoint`.
 ///
-/// Returns a hash->data map. Auto-caches route-fetched blobs to home repo.
+/// Chunks are always fetched from `endpoint` — the content's own endpoint.
+/// The old repo-first strategy assumed remote chunks were auto-cached in the
+/// browser-local compatibility repo; that auto-STORE behavior was removed and
+/// this path is now direct.
 pub async fn fetch_chunk_blobs(
     hppr_state: &Arc<HpprAsyncState>,
     endpoint: &ViaSpec,
-    is_repo: bool,
     hashes: &[&str],
 ) -> Result<HashMap<String, Vec<u8>>, String> {
     if hashes.is_empty() {
@@ -57,57 +58,18 @@ pub async fn fetch_chunk_blobs(
         .iter()
         .map(|h| ExchangeItem::Need(format!("////{h}")))
         .collect();
-    // EXCHANGE on repo
-    let repo_target = &hppr_state.default_target;
-    let mut repo_pooled = hppr_state
-        .get_pooled(repo_target, Signer::anyone())
+    let mut pooled = hppr_state
+        .get_pooled(endpoint, Signer::anyone())
         .await
-        .map_err(|e| format!("chunk exchange connect (repo): {e}"))?;
-    let repo_resp = repo_pooled
+        .map_err(|e| format!("chunk exchange connect: {e}"))?;
+    let resp = pooled
         .connection_mut()
-        .send(IoRequest::Exchange { items: items.clone() })
+        .send(IoRequest::Exchange { items })
         .await
-        .map_err(|e| format!("chunk exchange (repo): {e}"))?;
+        .map_err(|e| format!("chunk exchange: {e}"))?;
     let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();
-    if let ResponseKind::Exchange(result) = repo_resp.kind {
+    if let ResponseKind::Exchange(result) = resp.kind {
         parse_exchange_into_blobs(&result.received, &mut blobs)?;
-    }
-    // Route fallback for missing hashes
-    let missing: Vec<&str> = hashes
-        .iter()
-        .filter(|h| !blobs.contains_key(**h))
-        .copied()
-        .collect();
-    if !missing.is_empty() && !is_repo {
-        let missing_items: Vec<ExchangeItem> = missing
-            .iter()
-            .map(|h| ExchangeItem::Need(format!("////{h}")))
-            .collect();
-        let mut route_pooled = hppr_state
-            .get_pooled(endpoint, Signer::anyone())
-            .await
-            .map_err(|e| format!("chunk exchange connect (route): {e}"))?;
-        let route_resp = route_pooled
-            .connection_mut()
-            .send(IoRequest::Exchange { items: missing_items })
-            .await
-            .map_err(|e| format!("chunk exchange (route): {e}"))?;
-        if let ResponseKind::Exchange(result) = route_resp.kind {
-            // Auto-cache: STORE route-fetched chunk blobs to home repo
-            for raw in &result.received {
-                let state = Arc::clone(hppr_state);
-                let cache_bytes = raw.clone();
-                tokio::spawn(async move {
-                    if let Ok(mut p) = state.get_pooled(&state.default_target, Signer::anyone()).await {
-                        let _ = p
-                            .connection_mut()
-                            .send(IoRequest::Store { packet: cache_bytes })
-                            .await;
-                    }
-                });
-            }
-            parse_exchange_into_blobs(&result.received, &mut blobs)?;
-        }
     }
     Ok(blobs)
 }

@@ -236,7 +236,7 @@ async fn watch_stream_with_notify(
         return Err(format!("Failed to read stream marker: {}", e));
     }
     if line != TRAILER_OPEN {
-        // Check for Null packet (error response per 030-BASIC-COMMANDS.md)
+        // Check for Null packet (error response per 030-REPOSITORY-COMMANDS.md)
         // Null packet markline: 🖧: 0.H3
         if line.starts_with("🖧: 0.") {
             let err_msg = read_null_packet_error(&mut reader, &line).await;

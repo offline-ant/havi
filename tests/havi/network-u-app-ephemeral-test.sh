@@ -21,14 +21,14 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring2 setup "//u
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/$TEST_APP/"
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/admin/deploy/"
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/$TEST_APP/index.html" \
-    -H 'Seal-By: oldest' \
+    -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Network U App Ephemeral</title>
 <h1>Network U App Ephemeral</h1>
 EOF
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/admin/deploy/$TEST_APP" \
-    -H 'Seal-By: oldest' \
+    -H 'Seal-By: ring0' \
     -H "Content-Root: //u/$TEST_APP" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 

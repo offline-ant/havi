@@ -11,19 +11,25 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="video-chat-path"
-TEST_GROUP="videochatpath"
+TEST_GROUP="~videochatpath"
 TEST_APP="testapp"
 
 start_server
-setup_acl "$TEST_GROUP" "$TEST_APP"
-create_key
+start_remote_server
+setup_remote_acl "$TEST_GROUP" "$TEST_APP" "rwl"
+create_remote_key
 
-# Import only the pages this test uses (no mount helper needed).
-HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/test-utils.js" < "$SCRIPT_DIR/content/test-utils.js"
-HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/video-chat-path-test.html" < "$SCRIPT_DIR/content/video-chat-path-test.html"
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/test-utils.js" < "$SCRIPT_DIR/content/test-utils.js"
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/video-chat-path-test.html" < "$SCRIPT_DIR/content/video-chat-path-test.html"
 
-# Store signing key so JS test page can create a cooked StreamPub
-echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+# Store signing key so JS test page can create a cooked StreamPub.
+echo -n "$REMOTE_SECRET_KEY" | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/testkey"
+
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
+setup_route "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat-path-test.html"
 run_js_tests 30

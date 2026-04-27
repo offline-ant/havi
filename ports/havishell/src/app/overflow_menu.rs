@@ -1,6 +1,6 @@
 use makepad_widgets::*;
 
-use super::{context_menu, dock_button_text, App};
+use super::{dock_button_text, App};
 
 const MENU_WIDTH: f64 = 220.0;
 
@@ -20,16 +20,6 @@ impl App {
         self.overflow_menu_open = true;
         self.sync_toolbar_state(cx);
 
-        let current_url = self
-            .tabs
-            .get(self.active_tab_idx)
-            .map(|tab| tab.url.as_str())
-            .unwrap_or_default()
-            .to_string();
-
-        self.ui
-            .button(cx, ids!(edit_btn))
-            .set_visible(cx, context_menu::editor_url_for(&current_url).is_some());
         self.ui
             .view(cx, ids!(shadow_control))
             .set_visible(cx, self.supports_shadow_menu_for_active_tab());

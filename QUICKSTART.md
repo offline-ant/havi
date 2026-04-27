@@ -37,12 +37,17 @@ HAVI is a browser on top of this model.
 
 ## HAVI model
 
-HAVI has a **home repo** (local persistent store) and optional **route repos**
-(remote endpoints).
+HAVI has a browser-owned local runtime plus committed document sources.
 
-- `window.home`: always local, persistent, offline-capable
-- `window.route`: remote route client, nullable when no routed endpoint exists
-  for the current source
+Ordinary pages get one ambient repo story:
+
+- `window.source`: committed source descriptor
+- `window.source.client`: client for the actual committed source
+- `window.source.kind`: `"repo"` or `"remote"`
+
+Ordinary pages do not get `window.home` or `window.route`.
+Extra repo power uses browser-mediated named clients instead of a second ambient
+repo handle.
 
 Route and app content pointer config are separate. Route packet structure,
 local route auth storage, and identity text are general HPPR route-scheme
@@ -66,16 +71,14 @@ scheme://group/app/location{via:endpoint}
 Supported schemes:
 
 - `hppr://` — normal content navigation
-- `hppr-setup://` — endpoint route setup flow
 - `hppr-sandbox://` — untrusted preview (JS blocked, strict CSP)
 - `hppr-browse://` — coordinate tree browser
-- `hppr-editor://` — local packet editor (home + ring0 tools)
-- `havi://` — internal admin pages (`overview`, routes, ring0 approvals)
+- `havi://` — internal privileged pages (`diagnostics`)
 
 Routing behavior:
 
 - `{via:endpoint}` forces a direct upstream endpoint
-- `hppr://...` without `via` uses automatic route lookup from the home repo
+- `hppr://...` without `via` uses automatic route lookup from browser-local route state
 
 Trailing slash means LIST view; no trailing slash means GET and render content.
 
@@ -87,8 +90,9 @@ For routed origins, HAVI resolves content through a group app content pointer
 
 ACL enforcement still happens server-side in `hpprd` for every command.
 
-Each site gets an isolated Ring1 identity (`site:<group>#<app>`), so cross-site
-privilege sharing does not happen implicitly.
+Ordinary pages do not get hidden per-site Ring1 credentials.
+Ambient repo access comes only from the committed `window.source` descriptor,
+and extra repo power requires an explicit named-client grant.
 
 ## Content type resolution
 
@@ -109,14 +113,16 @@ From the project/package root:
 ./bin/havi
 ```
 
-HAVI uses embedded home repo at `~/.config/HAVI/repo` by default.
+Current desktop HAVI runtime still uses the hpprd/pylon compatibility repo at
+`~/.config/HAVI/repo` when `HAVI_HOME` is unset. Browser-local non-repo state
+stays in `~/.config/HAVI/havi.sqlite`.
 
-Import a local directory into home repo:
+Import a local directory into the current compatibility repo:
 
 ```bash
 export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
 export HPPR_SIGNER='ring1:ring0|init'
-pylon mount /mnt/hppr --root //u/showcase --rw --seal-with oldest
+pylon mount /mnt/hppr --root //u/showcase --rw --seal-with ring0
 cp -a showcase/. /mnt/hppr/
 pylon unmount /mnt/hppr
 ```
@@ -143,7 +149,7 @@ export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
 export HPPR_SIGNER='ring1:ring0|init'
 ```
 
-HAVI embedded repo must be running.
+The local compatibility `hpprd` must be running.
 If you use an external `hpprd`, set `HPPR_HOME` to that endpoint instead.
 
 Create content with CLI:
@@ -158,19 +164,15 @@ cat > /tmp/index.html <<'HTML'
 <script>
 (async () => {
   try {
-    const p = await window.home.get('//u/demo/data/msg.txt');
+    if (!window.source) throw new Error('No repo-backed source');
+    const p = await window.source.client.get('//u/demo/data/msg.txt');
     const text = await p.text();
     const lines = [];
     lines.push(`Current address: ${window.address.href}`);
+    lines.push(`Source kind: ${window.source.kind}`);
     lines.push(`Packet hash: ${p.hash}`);
     lines.push(`Coordinate: ${p.coordinate}`);
     lines.push(`Data: ${text}`);
-
-    if (window.route) {
-      lines.push('Route client: available');
-    } else {
-      lines.push('Route client: null');
-    }
 
     document.getElementById('out').textContent = lines.join('\n');
   } catch (e) {
@@ -180,7 +182,7 @@ cat > /tmp/index.html <<'HTML'
 })();
 </script>
 HTML
-pylon mount /mnt/hppr --root //u/demo/site --rw --seal-with oldest
+pylon mount /mnt/hppr --root //u/demo/site --rw --seal-with ring0
 cp -a /tmp/. /mnt/hppr/
 pylon unmount /mnt/hppr
 ```
@@ -196,9 +198,8 @@ hppr://u/demo/site/index.html
 Globals:
 
 - `window.address` — HPPR-aware address object (navigation by assignment)
-- `window.home` — local `HpprClient`
-- `window.route` — routed `HpprClient | null`
-- `window.ring0` — privileged client on setup/editor/internal pages
+- `window.source` — committed source descriptor for ordinary repo-backed pages
+- `window.havi.admin.client` — explicit internal admin client on privileged `havi://` pages
 - `document.packet` — source `HpprPacket` for `hppr://` documents
 
 `HpprClient` core methods:

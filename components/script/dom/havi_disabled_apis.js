@@ -131,7 +131,7 @@
     var net = ['WebSocket', 'XMLHttpRequest', 'EventSource'];
     for (var i = 0; i < net.length; i++) {
         try {
-            Object.defineProperty(window, net[i], disabled(net[i] + ' is disabled in HAVI. Use window.home or window.route'));
+            Object.defineProperty(window, net[i], disabled(net[i] + ' is disabled in HAVI. Use window.source.client when available'));
         } catch (e) {}
     }
 

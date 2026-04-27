@@ -17,7 +17,7 @@ HPPR_SIGNER='ring1:ring0|init' $HPPR ring1 acl testuser add rwl "//repo/admin/ri
 # rules deny ring1 writes to //repo/admin/ring1/ to prevent ACL self-modification)
 log "Writing proxy request..."
 HPPR_SIGNER='ring1:ring0|init' $HPPR add "//repo/admin/ring1/testuser/LIST" \
-    -H "Seal-By: oldest" <<< "//repo/admin/"
+    -H "Seal-By: ring0" <<< "//repo/admin/"
 
 # Start servo on havi:///ring0
 start_servo "havi:///ring0"
@@ -59,17 +59,17 @@ log "Triggering approve action..."
 "$debugtool" --timeout 10 eval "
 (async () => {
     try {
-        const reqPacket = await window.ring0.get('//repo/admin/ring1/testuser/LIST/|');
+        const reqPacket = await window.havi.admin.client.get('//repo/admin/ring1/testuser/LIST/|');
         const targetCoord = (await reqPacket.text()).trim();
-        const entries = await window.ring0.list(targetCoord);
+        const entries = await window.havi.admin.client.list(targetCoord);
         const now = Math.floor(Date.now() / 1000) + ':000000000';
-        await window.ring0.add({
+        await window.havi.admin.client.add({
             headers: [
                 'Group: repo',
                 'App: admin',
                 'Location: ring1/testuser/LIST/reply',
                 'TAI: ' + now,
-                'Link: request ' + reqPacket.hash
+                '+Link: request ' + reqPacket.hash
             ],
             data: entries.join('\\n')
         });

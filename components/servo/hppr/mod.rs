@@ -5,8 +5,8 @@
 pub mod client;
 pub mod config;
 pub mod credentials;
-pub mod join_fixture;
 pub mod local_ip;
+pub mod local_route;
 pub mod pylon;
 pub mod repo_target;
 pub mod resolve;

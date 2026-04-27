@@ -9,7 +9,7 @@
 //!
 //! Connects as anyone to the remote repo (no credentials) and fetches
 //! content with a strict Content-Security-Policy that disables scripts,
-//! forms, and navigation. Used by hppr-setup:// to show a safe preview
+//! forms, and navigation. Used for safe direct preview flows.
 //! before the user trusts a remote repo.
 
 use hppr_client::parse_via;

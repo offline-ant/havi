@@ -65,21 +65,12 @@
         assertEqual(addr3.href, 'hppr://g/a/p', 'href has no qa after clearing');
 
         log('--- scheme variants ---');
-        const setup = new Address('hppr-setup://g/a/{via:host}');
-        assertEqual(setup.scheme, 'hppr-setup', 'hppr-setup scheme');
-        assertEqual(setup.qa.via, 'host', 'hppr-setup keeps exact via text in qa');
-
         const sandbox = new Address('hppr-sandbox://g/a/{via:host}');
         assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme');
 
         const browse = new Address('hppr-browse://g/a/');
         assertEqual(browse.scheme, 'hppr-browse', 'hppr-browse scheme');
 
-        const editor = new Address('hppr-editor://g/a/');
-        assertEqual(editor.scheme, 'hppr-editor', 'hppr-editor scheme');
-
-        const join = new Address('hppr-join://g/a/');
-        assertEqual(join.scheme, 'hppr-join', 'hppr-join scheme');
 
         log('--- error cases ---');
         let err = null;
@@ -89,11 +80,15 @@
 
         err = null;
         try { new Address('hppr-setup://g/a/'); } catch (e) { err = e; }
-        assert(err !== null, 'hppr-setup requires via in qa');
+        assert(err !== null, 'removed hppr-setup scheme rejects parsing');
 
         err = null;
-        try { new Address('hppr-editor://g/a/{via:host}'); } catch (e) { err = e; }
-        assert(err !== null, 'hppr-editor forbids via');
+        try { new Address('hppr-editor://g/a/'); } catch (e) { err = e; }
+        assert(err !== null, 'removed hppr-editor scheme rejects parsing');
+
+        err = null;
+        try { new Address('hppr-join://g/a/'); } catch (e) { err = e; }
+        assert(err !== null, 'removed hppr-join scheme rejects parsing');
 
         log('--- setter availability ---');
         const hrefDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'href');

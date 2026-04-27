@@ -83,15 +83,9 @@ mod tests {
     use super::{classify_nav_input, parse_navigation_url, NavInput};
 
     #[test]
-    fn preserves_hppr_join_url() {
-        let url = parse_navigation_url("hppr-join://sol/chat/").unwrap();
-        assert_eq!(url.as_str(), "hppr-join://sol/chat/");
-    }
-
-    #[test]
     fn preserves_havi_admin_url() {
-        let url = parse_navigation_url("havi:///services").unwrap();
-        assert_eq!(url.as_str(), "havi:///services");
+        let url = parse_navigation_url("havi:///diagnostics").unwrap();
+        assert_eq!(url.as_str(), "havi:///diagnostics");
     }
 
     #[test]

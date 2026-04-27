@@ -2,16 +2,14 @@
 
 (function() {
     const outputEl = document.getElementById('diagOutput');
-    const fixtureEl = document.getElementById('joinFixtureState');
     const groupEl = document.getElementById('diagGroup');
     const appEl = document.getElementById('diagApp');
     const locationEl = document.getElementById('diagLocation');
     const messageEl = document.getElementById('message');
 
-    if (!outputEl || !fixtureEl || !groupEl || !appEl || !locationEl || !messageEl) return;
+    if (!outputEl || !groupEl || !appEl || !locationEl || !messageEl) return;
 
     const output = /** @type {HTMLElement} */ (outputEl);
-    const fixture = /** @type {HTMLElement} */ (fixtureEl);
     const groupInput = /** @type {HTMLInputElement} */ (groupEl);
     const appInput = /** @type {HTMLInputElement} */ (appEl);
     const locationInput = /** @type {HTMLInputElement} */ (locationEl);
@@ -39,27 +37,6 @@
         return json.data;
     }
 
-    async function refreshJoinFixture() {
-        try {
-            const data = await diagnosticsRequest('join_fixture_get');
-            fixture.textContent = String(data.state || 'none');
-        } catch (e) {
-            fixture.textContent = 'error';
-            showMessage(e instanceof Error ? e.message : String(e), 'error');
-        }
-    }
-
-    /** @param {'none'|'pending'|'approved'} state */
-    async function setJoinFixture(state) {
-        try {
-            const data = await diagnosticsRequest('join_fixture_set', { state });
-            fixture.textContent = String(data.state || state);
-            showMessage('Join fixture set: ' + fixture.textContent, 'success');
-        } catch (e) {
-            showMessage(e instanceof Error ? e.message : String(e), 'error');
-        }
-    }
-
     async function runDiagnostics() {
         const group = groupInput.value.trim();
         const app = appInput.value.trim();
@@ -81,10 +58,7 @@
         }
     }
 
-    /** @type {{ runDiagnostics?: () => Promise<void>, setJoinFixture?: (state: 'none'|'pending'|'approved') => Promise<void> }} */
+    /** @type {{ runDiagnostics?: () => Promise<void> }} */
     const g = /** @type {any} */ (window);
     g.runDiagnostics = runDiagnostics;
-    g.setJoinFixture = setJoinFixture;
-
-    refreshJoinFixture();
 })();

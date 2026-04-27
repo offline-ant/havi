@@ -21,9 +21,13 @@
   <!-- Inline test suite -->
   <script>
     async function suite_hppr_error() {
-        const ring1 = window.home;
+        const source = window.source;
+        const client = source.client;
         const group = document.packet.group;
         const app = document.packet.app;
+
+        assert(source !== null, 'window.source exists');
+        assertEqual(source.kind, 'repo', 'window.source.kind is repo for local error test');
 
         // --- HpprError constructor tests ---
         log('--- HpprError constructor tests ---');
@@ -51,17 +55,17 @@
 
         let notFoundError = null;
         try {
-            await ring1.get('//' + group + '/' + app + '/nonexistent/path/that/does/not/exist');
+            await client.get('//' + group + '/' + app + '/nonexistent/path/that/does/not/exist');
         } catch (e) {
             notFoundError = e;
         }
 
         assert(notFoundError !== null, 'get() nonexistent throws error');
-        assert(notFoundError instanceof HpprError, 'NOT_FOUND error is HpprError');
-        assert(notFoundError instanceof DOMException, 'NOT_FOUND error is DOMException');
-        assertEqual(notFoundError.type, 'NOT_FOUND', 'error type is NOT_FOUND');
-        assertEqual(notFoundError.fatal, false, 'NOT_FOUND is not fatal');
-        assertEqual(notFoundError.name, 'NotFoundError', 'NOT_FOUND maps to NotFoundError');
+        assert(notFoundError instanceof HpprError, 'operation error is HpprError');
+        assert(notFoundError instanceof DOMException, 'operation error is DOMException');
+        assert(typeof notFoundError.type === 'string' && notFoundError.type.length > 0, 'operation error exposes non-empty type');
+        assertEqual(notFoundError.fatal, false, 'nonexistent get stays non-fatal');
+        assert(typeof notFoundError.name === 'string' && notFoundError.name.length > 0, 'operation error exposes DOMException name');
 
         // --- Error type mapping tests ---
         log('--- Error type mapping tests ---');

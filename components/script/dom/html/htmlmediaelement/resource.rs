@@ -565,6 +565,7 @@ impl HTMLMediaElement {
             origin_url,
             HpprControlRequest::Resolve(embedder_traits::HpprResolveRequest::Media {
                 url: url.to_string(),
+                pipeline_id: window.pipeline_id(),
             }),
             callback,
         ));

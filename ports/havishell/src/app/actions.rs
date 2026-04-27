@@ -523,21 +523,6 @@ impl MatchEvent for App {
             }
             nav_action = Some(NavCommand::Navigate(sanitized));
         }
-        if self.ui.button(cx, ids!(nav_edit_btn)).clicked(actions)
-            || self.ui.button(cx, ids!(edit_btn)).clicked(actions)
-        {
-            if self.overflow_menu_open {
-                self.hide_overflow_menu(cx);
-            }
-            let raw = self.ui.text_input(cx, ids!(url_input)).text();
-            let sanitized = self.read_url_input_sanitized(cx);
-            if sanitized != raw {
-                self.set_url_input_sanitized(cx, &sanitized);
-            }
-            if let Some(edit_url) = context_menu::editor_url_for(&sanitized) {
-                nav_action = Some(NavCommand::Navigate(edit_url));
-            }
-        }
         if self.ui.button(cx, ids!(watch_btn)).clicked(actions) {
             if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {
                 let next_scope = tab.watch.scope().next();
@@ -613,16 +598,6 @@ impl MatchEvent for App {
                 self.hide_overflow_menu(cx);
             }
         }
-        if self
-            .ui
-            .button(cx, ids!(overflow_services_btn))
-            .clicked(actions)
-        {
-            if self.overflow_menu_open {
-                self.hide_overflow_menu(cx);
-            }
-            nav_action = Some(NavCommand::Navigate("havi:///services".into()));
-        }
         if let Some(changed) = self.ui.text_input(cx, ids!(url_input)).changed(actions) {
             let sanitized = Self::sanitize_url_bar_text(&changed);
             if sanitized != changed {
@@ -674,9 +649,7 @@ impl MatchEvent for App {
         }
 
         // --- Context menu ---
-        if let Some(cmd) = self.handle_context_menu_actions(cx, actions) {
-            nav_action = Some(cmd);
-        }
+        self.handle_context_menu_actions(cx, actions);
 
         // --- Pylon dot click ---
         if self
@@ -697,14 +670,6 @@ impl MatchEvent for App {
         }
 
         // --- Pylon menu buttons ---
-        if self
-            .ui
-            .button(cx, ids!(pylon_manage_btn))
-            .clicked(actions)
-        {
-            self.hide_pylon_menu(cx);
-            nav_action = Some(NavCommand::Navigate("havi:///services".into()));
-        }
 
         // --- Tab bar events ---
         if self

@@ -1,6 +1,7 @@
 // @ts-check
 /// <reference path="havi.d.ts" />
 
+const adminClient = window.havi?.admin?.client ?? null;
 const input = /** @type {HTMLInputElement|null} */ (document.getElementById('urlInput'));
 
 if (input) {
@@ -29,27 +30,27 @@ if (input) {
 // Load recent routes as quick links
 async function loadQuickLinks() {
     try {
-        if (!window.ring0) return;
+        if (!adminClient) return;
         const container = document.getElementById('quickLinks');
         if (!container) return;
 
-        const greeting = await window.ring0.hello();
+        const greeting = await adminClient.hello();
         const adminKey = greeting.verifyingKey;
         if (!adminKey) return;
 
-        const groups = await window.ring0.list('//repo/route/app/');
+        const groups = await adminClient.list('//repo/route/app/');
         let count = 0;
         for (const group of groups) {
             if (count >= 5) break;
             const cleanGroup = group.replace(/\/$/, '');
             try {
-                const apps = await window.ring0.list('//repo/route/app/' + cleanGroup + '/');
+                const apps = await adminClient.list('//repo/route/app/' + cleanGroup + '/');
                 for (const app of apps) {
                     if (count >= 5) break;
                     const cleanApp = app.replace(/\/$/, '');
                     try {
                         const routeUrc = '//repo/route/app/' + cleanGroup + '/' + cleanApp + '/|/seal/' + adminKey;
-                        await window.ring0.get(routeUrc);
+                        await adminClient.get(routeUrc);
                         const link = document.createElement('a');
                         link.href = 'hppr://' + cleanGroup + '/' + cleanApp + '/';
                         link.className = 'quick-link';

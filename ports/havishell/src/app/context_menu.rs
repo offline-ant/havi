@@ -1,7 +1,7 @@
 use makepad_widgets::makepad_platform::event::PopupDismissedEvent;
 use makepad_widgets::*;
 
-use super::{App, NavCommand};
+use super::App;
 
 /// Context menu dimensions.
 const MENU_WIDTH: f64 = 220.0;
@@ -9,23 +9,9 @@ const ITEM_HEIGHT: f64 = 28.0;
 const SEPARATOR_HEIGHT: f64 = 9.0;
 const MENU_PADDING: f64 = 8.0; // top + bottom (4 each side)
 
-/// Build an `hppr-editor://` URL from the current page URL.
-/// Returns `None` for non-hppr URLs.
-pub(super) fn editor_url_for(url_text: &str) -> Option<String> {
-    let url = libhavi::BrowserUrl::parse(url_text).ok()?;
-    if url.scheme() != "hppr" {
-        return None;
-    }
-    Some(format!(
-        "hppr-editor://{}",
-        &url.as_str()["hppr://".len()..]
-    ))
-}
-
 #[derive(Clone, Debug)]
 pub(super) enum ContextMenuEntryKind {
     Action(libhavi::ContextMenuAction),
-    GoToEditor,
     Separator,
 }
 
@@ -154,19 +140,6 @@ impl App {
                 },
             }
         }
-
-        let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-        if editor_url_for(&url_text).is_some() {
-            if !self.context_menu_entries.is_empty() {
-                self.push_context_separator();
-            }
-            self.push_context_action(
-                "Go to Editor".to_string(),
-                true,
-                ContextMenuEntryKind::GoToEditor,
-            );
-        }
-
         while self
             .context_menu_entries
             .last()
@@ -179,7 +152,7 @@ impl App {
             self.push_context_action(
                 "No actions".to_string(),
                 false,
-                ContextMenuEntryKind::GoToEditor,
+                ContextMenuEntryKind::Action(libhavi::ContextMenuAction::Copy),
             );
         }
 
@@ -359,7 +332,7 @@ impl App {
         &mut self,
         cx: &mut Cx,
         actions: &Actions,
-    ) -> Option<NavCommand> {
+    ) {
         let clicked_entry_id = {
             let mut clicked = None;
             if let Some(menu) = self.ui.view(cx, ids!(context_menu)).borrow_mut() {
@@ -377,30 +350,27 @@ impl App {
         };
 
         let Some(clicked_entry_id) = clicked_entry_id else {
-            return None;
+            return;
         };
 
-        let entry = self
+        let Some(entry) = self
             .context_menu_entries
             .iter()
-            .find(|entry| entry.widget_id == clicked_entry_id)?
-            .clone();
+            .find(|entry| entry.widget_id == clicked_entry_id)
+            .cloned()
+        else {
+            return;
+        };
 
         if !entry.enabled {
-            return None;
+            return;
         }
 
         match entry.kind {
             ContextMenuEntryKind::Action(action) => {
                 self.select_context_menu_action(cx, action);
-                None
             },
-            ContextMenuEntryKind::GoToEditor => {
-                self.hide_context_menu(cx);
-                let url_text = self.ui.text_input(cx, ids!(url_input)).text();
-                editor_url_for(&url_text).map(NavCommand::Navigate)
-            },
-            ContextMenuEntryKind::Separator => None,
+            ContextMenuEntryKind::Separator => {},
         }
     }
 

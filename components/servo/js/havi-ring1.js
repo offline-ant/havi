@@ -1,11 +1,23 @@
 // @ts-check
 /// <reference path="havi.d.ts" />
 
+const adminClient = window.havi?.admin?.client ?? null;
+
 /**
  * @typedef {{ coord: string, ops: string }} AclRule
- * @typedef {{ name: string, rules: AclRule[], expire: string|null, hash: string|null, isExpired: boolean }} AccountInfo
+ * @typedef {{
+ *   name: string,
+ *   rules: AclRule[],
+ *   expire: string|null,
+ *   authHash: string|null,
+ *   policyHash: string|null,
+ *   membersHash: string|null,
+ *   isExpired: boolean,
+ * }} AccountInfo
  */
 
+/** @type {string|null} */
+let repoVkey = null;
 /** @type {string|null} */
 let editingAccount = null;
 /** @type {AclRule[]} */
@@ -23,9 +35,20 @@ function showMessage(text, isError) {
     setTimeout(() => el.style.display = 'none', 5000);
 }
 
+async function ensureRepoVkey() {
+    if (repoVkey) return repoVkey;
+    if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+    const greeting = await adminClient.hello();
+    if (!greeting.verifyingKey) {
+        throw new Error('repo verifying key unavailable');
+    }
+    repoVkey = greeting.verifyingKey;
+    return repoVkey;
+}
+
 /** @param {string} name */
 function categorize(name) {
-    if (['ring0', 'anyone', 'guest'].includes(name)) return 'system';
+    if (['ring0', 'anyone'].includes(name)) return 'system';
     if (name.startsWith('site:') || name.startsWith('HAVI-site:')) return 'sandbox';
     return 'custom';
 }
@@ -57,10 +80,36 @@ function isExpired(tai) {
  */
 function parseRule(ruleStr) {
     const match = ruleStr.match(/^([rwld.])([rwld.])([rwld.])\s+(.+)$/);
-    if (match) {
-        return { ops: match[1] + match[2] + match[3], coord: match[4] };
+    if (!match) return null;
+    return { ops: match[1] + match[2] + match[3], coord: match[4] };
+}
+
+/** @param {string} name */
+function authPath(name) {
+    return '//repo/admin/ring1/' + name + '/auth/|';
+}
+
+/** @param {string} name */
+function policyPath(name) {
+    return '//repo/admin/ring1/' + name + '/policy/|';
+}
+
+/** @param {string} name @param {string} verifyingKey */
+function membersPath(name, verifyingKey) {
+    return '//repo/admin/ring1/' + name + '/members/|/seal/' + verifyingKey;
+}
+
+/**
+ * @param {string} urc
+ * @returns {Promise<HpprPacket|null>}
+ */
+async function tryGetPacket(urc) {
+    if (!adminClient) return null;
+    try {
+        return await adminClient.get(urc);
+    } catch (_e) {
+        return null;
     }
-    return null;
 }
 
 async function loadAccounts() {
@@ -68,67 +117,39 @@ async function loadAccounts() {
     const accounts = { system: [], sandbox: [], custom: [] };
 
     try {
-        if (!window.ring0) return accounts;
-        const names = await window.ring0.list('//repo/admin/ring1/');
+        if (!adminClient) return accounts;
+        const verifyingKey = await ensureRepoVkey();
+        const names = await adminClient.list('//repo/admin/ring1/');
 
-        for (const name of names) {
-            const cleanName = name.replace(/\/$/, '');
-            try {
-                const packet = await window.ring0.get('//repo/admin/ring1/' + cleanName + '/|');
-                const ruleHeaders = packet.getHeaders('ACL-Rule');
-                const expire = packet.getHeader('Ring1-Expire');
-                const parsedRules = ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null);
+        for (const entry of names) {
+            const name = entry.replace(/\/$/, '');
+            if (!name) continue;
 
-                const category = categorize(cleanName);
-                accounts[category].push({
-                    name: cleanName,
-                    rules: /** @type {AclRule[]} */ (parsedRules),
-                    expire,
-                    hash: packet.hash,
-                    isExpired: isExpired(expire)
-                });
-            } catch (_e) {
-                const category = categorize(cleanName);
-                accounts[category].push({
-                    name: cleanName,
-                    rules: [],
-                    expire: null,
-                    hash: null,
-                    isExpired: false
-                });
-            }
+            const authPacket = await tryGetPacket(authPath(name));
+            const policyPacket = await tryGetPacket(policyPath(name));
+            const membersPacket = await tryGetPacket(membersPath(name, verifyingKey));
+            const ruleHeaders = policyPacket ? policyPacket.getHeaders('ACL-Rule') : [];
+            const parsedRules = /** @type {AclRule[]} */ (
+                ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null)
+            );
+            const expire = authPacket ? authPacket.getHeader('Ring1-Expire') : null;
+            const category = categorize(name);
+
+            accounts[category].push({
+                name,
+                rules: parsedRules,
+                expire,
+                authHash: authPacket ? authPacket.hash : null,
+                policyHash: policyPacket ? policyPacket.hash : null,
+                membersHash: membersPacket ? membersPacket.hash : null,
+                isExpired: isExpired(expire),
+            });
         }
     } catch (_e) {
-        // No ring1 directory yet
+        // no ring1 directory yet
     }
 
     return accounts;
-}
-
-async function loadRequests() {
-    /** @type {{ name: string, rules: AclRule[], hash: string }[]} */
-    const requests = [];
-
-    try {
-        if (!window.ring0) return requests;
-        const names = await window.ring0.list('//repo/admin/request/join/');
-
-        for (const name of names) {
-            const cleanName = name.replace(/\/$/, '');
-            try {
-                const packet = await window.ring0.get('//repo/admin/request/join/' + cleanName + '/|');
-                const ruleHeaders = packet.getHeaders('ACL-Rule');
-                const parsedRules = ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null);
-                requests.push({ name: cleanName, rules: /** @type {AclRule[]} */ (parsedRules), hash: packet.hash });
-            } catch (_e) {
-                // Request directory exists but no setup
-            }
-        }
-    } catch (_e) {
-        // No requests directory
-    }
-
-    return requests;
 }
 
 /** @param {AccountInfo[]} accounts */
@@ -148,9 +169,9 @@ function renderSystemAccounts(accounts) {
 
         if (acc.name === 'ring0') {
             meta = '(admin - full access)';
-        } else if (acc.name === 'anyone' || acc.name === 'guest') {
+        } else if (acc.name === 'anyone') {
             meta = acc.rules.length + ' rule' + (acc.rules.length !== 1 ? 's' : '');
-            buttons = `<a href="havi:///anyone" class="btn-small secondary">Edit on Anyone</a>`;
+            buttons = '<a href="havi:///anyone" class="btn-small secondary">Edit on Anyone</a>';
         }
 
         const rulesHtml = acc.name !== 'ring0' && acc.rules.length > 0
@@ -197,7 +218,7 @@ function sortCoords(a, b) {
     return norm(a).localeCompare(norm(b));
 }
 
-/** @param {string} accountName @returns {string} */
+/** @param {string} accountName */
 function renderInlineEditor(accountName) {
     let rowsHtml = '';
     for (let i = 0; i < editRules.length; i++) {
@@ -208,7 +229,7 @@ function renderInlineEditor(accountName) {
                 <button class="perm-btn ${permClass(rule.ops[0])}" onclick="toggleEditPerm(${i}, 0)">${rule.ops[0]}</button>
                 <button class="perm-btn ${permClass(rule.ops[1])}" onclick="toggleEditPerm(${i}, 1)">${rule.ops[1]}</button>
                 <button class="perm-btn ${permClass(rule.ops[2])}" onclick="toggleEditPerm(${i}, 2)">${rule.ops[2]}</button>
-                <button class="remove-btn" onclick="removeEditRule(${i})" title="Remove rule">\u00d7</button>
+                <button class="remove-btn" onclick="removeEditRule(${i})" title="Remove rule">×</button>
             </div>
         `;
     }
@@ -230,9 +251,9 @@ function renderInlineEditor(accountName) {
                 <div id="editRulesList">${rowsHtml}</div>
                 <div class="add-row">
                     <input type="text" id="editNewCoord" placeholder="//group/app/path">
-                    <button class="perm-btn ${permClass(editNewPerms[0])}" id="editNewR" onclick="toggleEditNewPerm(0)">${editNewPerms[0]}</button>
-                    <button class="perm-btn ${permClass(editNewPerms[1])}" id="editNewW" onclick="toggleEditNewPerm(1)">${editNewPerms[1]}</button>
-                    <button class="perm-btn ${permClass(editNewPerms[2])}" id="editNewL" onclick="toggleEditNewPerm(2)">${editNewPerms[2]}</button>
+                    <button class="perm-btn ${permClass(editNewPerms[0])}" onclick="toggleEditNewPerm(0)">${editNewPerms[0]}</button>
+                    <button class="perm-btn ${permClass(editNewPerms[1])}" onclick="toggleEditNewPerm(1)">${editNewPerms[1]}</button>
+                    <button class="perm-btn ${permClass(editNewPerms[2])}" onclick="toggleEditNewPerm(2)">${editNewPerms[2]}</button>
                     <button class="add-btn" onclick="addEditRule()" title="Add rule">+</button>
                 </div>
             </div>
@@ -277,7 +298,7 @@ function renderSandboxAccounts(accounts) {
                     </div>
                     <div class="btn-group">
                         <button class="btn-small secondary" onclick="startEdit('${acc.name}')">Edit</button>
-                        <button class="btn-small danger" onclick="deleteAccount('${acc.name}', '${acc.hash}')">Delete</button>
+                        <button class="btn-small danger" onclick="deleteAccount('${acc.name}', '${acc.authHash ?? ''}', '${acc.policyHash ?? ''}', '${acc.membersHash ?? ''}')">Delete</button>
                     </div>
                 </div>
                 ${editingAccount !== acc.name ? rulesHtml : ''}
@@ -323,49 +344,11 @@ function renderCustomAccounts(accounts) {
                     </div>
                     <div class="btn-group">
                         <button class="btn-small secondary" onclick="startEdit('${acc.name}')">Edit</button>
-                        <button class="btn-small danger" onclick="deleteAccount('${acc.name}', '${acc.hash}')">Delete</button>
+                        <button class="btn-small danger" onclick="deleteAccount('${acc.name}', '${acc.authHash ?? ''}', '${acc.policyHash ?? ''}', '${acc.membersHash ?? ''}')">Delete</button>
                     </div>
                 </div>
                 ${editingAccount !== acc.name ? rulesHtml : ''}
                 ${editorHtml}
-            </div>
-        `;
-    }
-
-    container.innerHTML = html;
-}
-
-/** @param {{ name: string, rules: AclRule[], hash: string }[]} requests */
-function renderRequests(requests) {
-    const container = document.getElementById('pendingRequests');
-    if (!container) return;
-
-    if (requests.length === 0) {
-        container.innerHTML = '<p class="empty">None</p>';
-        return;
-    }
-
-    let html = '';
-    for (const req of requests) {
-        const rulesHtml = req.rules.length > 0
-            ? '<div class="account-rules">' + req.rules.map(r =>
-                `<div class="account-rule">Wants: ${r.ops} ${r.coord}</div>`
-              ).join('') + '</div>'
-            : '<div class="account-rules"><div class="account-rule empty">No rules specified</div></div>';
-
-        html += `
-            <div class="account-item request-item">
-                <div class="account-header">
-                    <div>
-                        <span class="account-name">${req.name}</span>
-                        <span class="account-meta">(pending)</span>
-                    </div>
-                    <div class="btn-group">
-                        <button class="btn-small" onclick="approveRequest('${req.name}')">Approve</button>
-                        <button class="btn-small danger" onclick="denyRequest('${req.hash}')">Deny</button>
-                    </div>
-                </div>
-                ${rulesHtml}
             </div>
         `;
     }
@@ -379,13 +362,12 @@ async function startEdit(name) {
     editRules = [];
     editNewPerms = ['r', '.', '.'];
 
-    try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        const packet = await window.ring0.get('//repo/admin/ring1/' + name + '/|');
+    const packet = await tryGetPacket(policyPath(name));
+    if (packet) {
         const ruleHeaders = packet.getHeaders('ACL-Rule');
-        editRules = /** @type {AclRule[]} */ (ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null));
-    } catch (_e) {
-        // No setup packet, start with empty rules
+        editRules = /** @type {AclRule[]} */ (
+            ruleHeaders.map(parseRule).filter(/** @param {AclRule|null} r */ r => r !== null)
+        );
     }
 
     loadAll();
@@ -444,38 +426,41 @@ function addEditRule() {
 /** @param {string} name */
 async function saveEdit(name) {
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
         editRules.sort((a, b) => sortCoords(a.coord, b.coord));
 
         const headers = [
             'Group: repo',
             'App: admin',
-            'Location: ring1/' + name + '',
-            'Ring1-Name: ' + name,
+            'Location: ring1/' + name + '/policy',
             ...editRules.map(r => 'ACL-Rule: ' + r.ops + ' ' + r.coord)
         ];
 
-        await window.ring0.add({ headers: headers, data: '' });
-        showMessage('Rules saved for ' + name, false);
+        await adminClient.add({ headers, data: '' });
+        showMessage('Policy saved for ' + name, false);
         editingAccount = null;
         editRules = [];
         loadAll();
     } catch (e) {
-        showMessage('Failed to save rules: ' + (e instanceof Error ? e.message : String(e)), true);
+        showMessage('Failed to save policy: ' + (e instanceof Error ? e.message : String(e)), true);
     }
 }
 
 /**
  * @param {string} name
- * @param {string|null} hash
+ * @param {string} authHash
+ * @param {string} policyHash
+ * @param {string} membersHash
  */
-async function deleteAccount(name, hash) {
-    if (!confirm('Delete account "' + name + '"?')) return;
+async function deleteAccount(name, authHash, policyHash, membersHash) {
+    if (!confirm('Delete ring1 account "' + name + '"?')) return;
 
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        if (hash) {
-            await window.ring0.detach(hash);
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+        for (const hash of [policyHash, membersHash, authHash]) {
+            if (hash) {
+                await adminClient.detach(hash);
+            }
         }
         showMessage('Deleted account: ' + name, false);
         loadAll();
@@ -484,50 +469,11 @@ async function deleteAccount(name, hash) {
     }
 }
 
-/** @param {string} name */
-async function approveRequest(name) {
-    try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        const reqPacket = await window.ring0.get('//repo/admin/request/join/' + name + '/|');
-
-        const ruleHeaders = reqPacket.getHeaders('ACL-Rule');
-        const headers = [
-            'Group: repo',
-            'App: admin',
-            'Location: ring1/' + name + '',
-            'Ring1-Name: ' + name,
-            ...ruleHeaders.map(/** @param {string} r */ r => 'ACL-Rule: ' + r)
-        ];
-
-        await window.ring0.add({ headers: headers, data: reqPacket.text() });
-        await window.ring0.detach(reqPacket.hash);
-        showMessage('Approved account: ' + name, false);
-        loadAll();
-    } catch (e) {
-        showMessage('Failed to approve request: ' + (e instanceof Error ? e.message : String(e)), true);
-    }
-}
-
-/** @param {string} hash */
-async function denyRequest(hash) {
-    try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        await window.ring0.detach(hash);
-        showMessage('Request denied', false);
-        loadAll();
-    } catch (e) {
-        showMessage('Failed to deny request: ' + (e instanceof Error ? e.message : String(e)), true);
-    }
-}
-
 async function loadAll() {
     const accounts = await loadAccounts();
-    const requests = await loadRequests();
-
     renderSystemAccounts(accounts.system);
     renderSandboxAccounts(accounts.sandbox);
     renderCustomAccounts(accounts.custom);
-    renderRequests(requests);
 }
 
 loadAll();

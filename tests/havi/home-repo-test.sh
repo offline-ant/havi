@@ -16,7 +16,7 @@ debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 # Run tests: check that hello() returns greeting, and page elements exist
 output=$(printf '%s\n' \
-    'typeof window.ring0 !== "undefined" && window.ring0 !== null' \
+    'window.havi !== null && window.havi.admin !== null' \
     'document.getElementById("port") !== null' \
     'document.getElementById("status") !== null' \
     'document.getElementById("repoKey") !== null' \
@@ -25,6 +25,8 @@ output=$(printf '%s\n' \
     'document.getElementById("daemonUptime") !== null' \
     'document.getElementById("daemonBackend") !== null' \
     'document.getElementById("daemonVersion") !== null' \
+    'document.getElementById("namedClientsList") !== null' \
+    'document.getElementById("namedClientRevocations") !== null' \
     | "$debugtool" repl)
 
 results=$(echo "$output" | jq -r 'select(.event == "evalResult") | .value')
@@ -35,11 +37,11 @@ while IFS= read -r val; do
     [[ "$val" == "true" ]] || fail "Test $i failed (got: $val)"
 done <<< "$results"
 
-[[ $i -ge 9 ]] || fail "Expected 9 results, got $i"
+[[ $i -ge 11 ]] || fail "Expected 11 results, got $i"
 
 # Test that hello() returns a string with repo info
 hello_result=$("$debugtool" --timeout 10 eval --await \
-    'window.ring0.hello().then(g => (g.repoName && g.verifyingKey && g.sessionId) ? "ok" : "bad")' \
+    'window.havi.admin.client.hello().then(g => (g.repoName && g.verifyingKey && g.sessionId) ? "ok" : "bad")' \
     2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$hello_result" == "ok" ]] || fail "hello() greeting format wrong: $hello_result"
 

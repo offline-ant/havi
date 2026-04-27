@@ -5,7 +5,6 @@
 //! Shared utilities and async HPPR client for hpprd operations.
 //!
 //! Contains:
-//! - `site_ring1_name`: Generate ring1 account names from group/app
 //! - local route record helpers
 //! - local route auth helpers
 //! - `HpprdClientAsync`: Async client for hpprd daemon operations
@@ -15,29 +14,10 @@ use hppr_client::{
     AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, parse_via,
     spawn_connection,
 };
-use hppr_packet::{PacketType, acl_coord_sort_key};
+use hppr_packet::PacketType;
 use tokio::sync::Mutex;
 
-use super::credentials::{
-    DEFAULT_RING0_NAME, DEFAULT_ROOT_TOKEN, SiteCredential, global_credential_store,
-};
-
-// ============================================================================
-// Ring1 Account Helpers
-// ============================================================================
-
-/// Generate ring1 account name for a site sandbox.
-///
-/// Format: `site:<group>#<app>`
-///
-/// Components:
-/// - `site:` - prefix identifying per-site sandbox
-/// - `<group>` - full group name
-/// - `#` - separator (illegal in group/app names per 010-PACKETS.md:80)
-/// - `<app>` - full app name
-pub fn site_ring1_name(group: &str, app: &str) -> String {
-    format!("site:{}#{}", group, app)
-}
+use super::credentials::{DEFAULT_RING0_NAME, DEFAULT_ROOT_TOKEN, global_credential_store};
 
 /// Local exact-app route record information.
 #[derive(Debug, Clone)]
@@ -259,6 +239,11 @@ impl HpprdClientAsync {
         }
     }
 
+    /// Send a raw protocol request.
+    pub async fn execute(&self, request: IoRequest) -> Result<hppr_client::HpprResponse, String> {
+        self.send(request).await
+    }
+
     /// Send a request and extract a Packet from the response.
     async fn request_packet(&self, request: IoRequest) -> Result<Packet, String> {
         let resp = self.send(request).await?;
@@ -471,7 +456,7 @@ impl HpprdClientAsync {
 
         let (signing_key, _verification_key) = generate_keypair();
         let add_args = format!(
-            "Seal-By: oldest\n\
+            "Seal-By: ring0\n\
              Group: repo\n\
              App: route\n\
              Location: auth/{}\n\
@@ -535,107 +520,6 @@ impl HpprdClientAsync {
         Ok(ContentPointerInfo { root, authority })
     }
 
-    // ========================================================================
-    // Site Ring1 Account Methods (Keypair-based)
-    // ========================================================================
-
-    /// Create site ring1 account for a group/app with keypair authentication.
-    ///
-    /// Generates a signing keypair and stores the site in the Ring1 Member list.
-    pub async fn create_site_ring1(
-        &self,
-        group: &str,
-        app: &str,
-    ) -> Result<SiteCredential, String> {
-        let ring1_name = site_ring1_name(group, app);
-        let (signing_key, verification_key) = generate_keypair();
-
-        // 1. Create Ring1 setup with Member header (no token)
-        // Note: ACL-Rule headers must be in canonical order (040-ACCESS-CONTROL.md)
-        let mut rules = vec![
-            ("rdl", format!("//{}/{}/", group, app)),
-            ("rwl", format!("//{}/{}/user/", group, app)),
-            ("r.l", "//repo/route/app/".to_string()),
-            ("r.l", "//repo/route/group/".to_string()),
-            ("r..", "//repo/route/auth/".to_string()),
-            ("rwl", format!("//repo/admin/ring1/{}/", ring1_name)),
-        ];
-        rules.sort_by_key(|(_, path)| acl_coord_sort_key(path));
-        let rules_str = rules
-            .iter()
-            .map(|(ops, path)| format!("ACL-Rule: {} {}", ops, path))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let setup_add_args = format!(
-            "Seal-By: oldest\n\
-             Group: repo\n\
-             App: admin\n\
-             Location: ring1/{}/setup\n\
-             Member: {}\n\
-             Ring1-Name: {}\n\
-             {}\n",
-            ring1_name, verification_key, ring1_name, rules_str
-        );
-
-        self.add(setup_add_args.as_bytes()).await?;
-
-        // 2. Store signing key in Ring1 Keys (self-signed seal)
-        let keys_add_args = format!(
-            "Seal-By: {} {}\n\
-             Group: repo\n\
-             App: admin\n\
-             Location: ring1/{}/keys\n\
-             Secret-Key: {}\n",
-            verification_key, signing_key, ring1_name, signing_key
-        );
-
-        self.add(keys_add_args.as_bytes()).await?;
-
-        Ok(SiteCredential::new(
-            ring1_name,
-            signing_key,
-            verification_key,
-        ))
-    }
-
-    /// Load existing site ring1 credential from Ring1 Keys.
-    pub async fn get_site_ring1_credential(
-        &self,
-        group: &str,
-        app: &str,
-    ) -> Result<SiteCredential, String> {
-        let primary = site_ring1_name(group, app);
-        let legacy = format!("HAVI-site:{}#{}", group, app);
-
-        for ring1_name in [primary.clone(), legacy.clone()] {
-            let keys_path = format!("//repo/admin/ring1/{}/keys/", ring1_name);
-            let keys = match self.list(&keys_path).await {
-                Ok(v) if !v.is_empty() => v,
-                _ => continue,
-            };
-
-            let key_entry = keys.first().ok_or("No keys found for site Ring1")?;
-            let verification_key = key_entry
-                .trim_start_matches("|/seal/")
-                .trim_end_matches('/');
-
-            let key_urc = format!("{}|/seal/{}", keys_path, verification_key);
-            let key_packet = self.get_packet(&key_urc).await?;
-
-            let signing_key = key_packet
-                .header("Secret-Key")
-                .ok_or("Key packet missing Secret-Key header")?
-                .to_string();
-
-            return Ok(SiteCredential::new(
-                primary.clone(),
-                signing_key,
-                verification_key.to_string(),
-            ));
-        }
-
-        Err("No keys found for site Ring1".to_string())
-    }
 }
 
 /// Extract content-type and body from a packet.
@@ -657,52 +541,6 @@ fn generate_keypair() -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_site_ring1_name_short() {
-        // Test with short group/app names
-        let name = site_ring1_name("chess", "game");
-        assert_eq!(name, "site:chess#game");
-    }
-
-    #[test]
-    fn test_site_ring1_name_long() {
-        // Test with long group/app names (no truncation needed)
-        let name = site_ring1_name("verylonggroupname", "verylongappname");
-        assert_eq!(name, "site:verylonggroupname#verylongappname");
-    }
-
-    #[test]
-    fn test_site_ring1_name_single_char() {
-        // Test with minimal names (like spec example //u/web)
-        let name = site_ring1_name("u", "web");
-        assert_eq!(name, "site:u#web");
-    }
-
-    #[test]
-    fn test_site_ring1_name_prefix() {
-        let name = site_ring1_name("any", "app");
-        assert!(name.starts_with("site:"));
-    }
-
-    #[test]
-    fn test_site_ring1_name_deterministic() {
-        // Same input should always produce same output
-        let name1 = site_ring1_name("chess", "game");
-        let name2 = site_ring1_name("chess", "game");
-        assert_eq!(name1, name2);
-    }
-
-    #[test]
-    fn test_site_ring1_name_unique() {
-        // Different inputs should produce different outputs
-        let name1 = site_ring1_name("chess", "game");
-        let name2 = site_ring1_name("chess", "games");
-        let name3 = site_ring1_name("ches", "game");
-        assert_ne!(name1, name2);
-        assert_ne!(name1, name3);
-        assert_ne!(name2, name3);
-    }
 
     #[test]
     fn test_generate_keypair() {

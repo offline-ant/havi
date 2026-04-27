@@ -2,61 +2,61 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! HPPR resolve result DOM binding.
+//! Committed HPPR document source descriptor.
 
 use dom_struct::dom_struct;
 
-use crate::dom::bindings::codegen::Bindings::HpprResolveResultBinding::HpprResolveResultMethods;
+use crate::dom::bindings::codegen::Bindings::HpprSourceBinding::HpprSourceMethods;
 use crate::dom::bindings::reflector::{Reflector, reflect_dom_object};
 use crate::dom::bindings::root::{Dom, DomRoot};
 use crate::dom::bindings::str::DOMString;
 use crate::dom::globalscope::GlobalScope;
-use crate::dom::hpprpacket::HpprPacket;
+use crate::dom::hpprclient::HpprClient;
 use crate::script_runtime::CanGc;
 
 #[dom_struct]
-pub(crate) struct HpprResolveResult {
+pub(crate) struct HpprSource {
     reflector_: Reflector,
-    packet: Dom<HpprPacket>,
+    client: Dom<HpprClient>,
     kind: String,
-    content_authority: Option<String>,
+    authority: Option<String>,
 }
 
-impl HpprResolveResult {
-    fn new_inherited(packet: &HpprPacket, kind: String, content_authority: Option<String>) -> Self {
+impl HpprSource {
+    fn new_inherited(client: &HpprClient, kind: String, authority: Option<String>) -> Self {
         Self {
             reflector_: Reflector::new(),
-            packet: Dom::from_ref(packet),
+            client: Dom::from_ref(client),
             kind,
-            content_authority,
+            authority,
         }
     }
 
     pub(crate) fn new(
         global: &GlobalScope,
-        packet: &HpprPacket,
+        client: &HpprClient,
         kind: String,
-        content_authority: Option<String>,
+        authority: Option<String>,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
         reflect_dom_object(
-            Box::new(Self::new_inherited(packet, kind, content_authority)),
+            Box::new(Self::new_inherited(client, kind, authority)),
             global,
             can_gc,
         )
     }
 }
 
-impl HpprResolveResultMethods<crate::DomTypeHolder> for HpprResolveResult {
-    fn Packet(&self) -> DomRoot<HpprPacket> {
-        DomRoot::from_ref(&self.packet)
+impl HpprSourceMethods<crate::DomTypeHolder> for HpprSource {
+    fn Client(&self) -> DomRoot<HpprClient> {
+        DomRoot::from_ref(&self.client)
     }
 
     fn Kind(&self) -> DOMString {
         DOMString::from(self.kind.as_str())
     }
 
-    fn GetContentAuthority(&self) -> Option<DOMString> {
-        self.content_authority.as_deref().map(DOMString::from)
+    fn GetAuthority(&self) -> Option<DOMString> {
+        self.authority.as_deref().map(DOMString::from)
     }
 }

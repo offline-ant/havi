@@ -41,12 +41,13 @@
 
     async function suite_media_source_playback() {
       log('--- load valid fragmented MP4 bytes through HPPR ---');
-      assert(window.home, 'window.home exists for HPPR byte loading');
+      assert(window.source, 'window.source exists for HPPR byte loading');
+      assertEqual(window.source.kind, 'repo', 'window.source.kind is repo for local playback test');
       assert(document.packet, 'document.packet exists for current page');
 
       const group = document.packet.group;
       const app = document.packet.app;
-      const packet = await window.home.get('//' + group + '/' + app + '/media-source-h264-frag.mp4');
+      const packet = await window.source.client.get('//' + group + '/' + app + '/media-source-h264-frag.mp4');
       const mp4Bytes = new Uint8Array(packet.arrayBuffer());
       assert(mp4Bytes.length > 0, 'fixture bytes loaded from HPPR');
 

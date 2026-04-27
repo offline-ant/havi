@@ -56,7 +56,7 @@ Default target: `localhost:${HAVI_DEVTOOLS:-6000}`.
 ```bash
 havi-devtools-cli -p 6000 eval 'document.title'
 havi-devtools-cli -p 6000 eval --await \
-  'window.home.get("//u/demo/msg.txt").then(p => p.text())'
+  'window.source.client.get("//u/demo/msg.txt").then(p => p.text())'
 havi-devtools-cli -p 6000 navigate 'hppr://u/showcase/index.html'
 havi-devtools-cli -p 6000 set-url 'hppr://sol/chat/'
 havi-devtools-cli -p 6000 select-tab 1

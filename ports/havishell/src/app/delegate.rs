@@ -2,11 +2,13 @@ use super::*;
 use libhavi::hppr::client::HpprdClientAsync;
 use libhavi::hppr::credentials::global_credential_store;
 use libhavi::hppr::resolve;
+use libhavi::hppr::state_db::global_state_db;
 use hppr_client::{Signer, parse_via};
 use libhavi::{
     CameraRequest, ConsoleLogLevel, EmbedderControl, HpprControlRequest, HpprControlResponse,
-    HpprEmbedResolveResponse, HpprResolveRequest, HpprResolveResponse, HpprResolvedDocument,
-    HpprResolvedMediaSource, HpprResolvedSourceRef,
+    HpprEmbedResolveResponse, HpprProtocolError, HpprRequest, HpprResolveRequest,
+    HpprResolveResponse, HpprResolvedDocument, HpprResolvedMediaSource,
+    HpprResolvedSourceRef, get_hppr_document_source,
 };
 use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -393,8 +395,16 @@ fn resolve_response(request: HpprResolveRequest) -> HpprControlResponse {
                             Err(error) => HpprResolveResponse::Error(error.to_string()),
                         }
                     },
-                    HpprResolveRequest::Media { url } => {
-                        match resolve::resolve_media(&url, &client, &creds).await {
+                    HpprResolveRequest::Media { url, pipeline_id } => {
+                        let reuse_source = get_hppr_document_source(pipeline_id);
+                        match resolve::resolve_media_with_snapshot(
+                            &url,
+                            &client,
+                            &creds,
+                            reuse_source.as_ref(),
+                        )
+                        .await
+                        {
                             Ok(result) => map_media(result),
                             Err(error) => HpprResolveResponse::Error(error.to_string()),
                         }
@@ -413,6 +423,140 @@ fn resolve_response(request: HpprResolveRequest) -> HpprControlResponse {
                 };
 
                 HpprControlResponse::Resolve(response)
+            })
+        },
+    )
+}
+
+fn committed_source_protocol_error(detail: impl Into<String>) -> HpprProtocolError {
+    HpprProtocolError {
+        error_type: "INTERNAL".to_string(),
+        detail: detail.into(),
+        fatal: false,
+    }
+}
+
+fn request_origin_scope(origin_url: &str) -> Result<String, String> {
+    let url = libhavi::BrowserUrl::parse(origin_url)
+        .map_err(|error| format!("invalid requesting page URL '{}': {}", origin_url, error))?;
+    let origin = url.origin();
+    if !origin.is_tuple() {
+        return Err(format!(
+            "named clients require a tuple origin, got '{}'",
+            origin_url
+        ));
+    }
+    Ok(origin.ascii_serialization())
+}
+
+fn named_client_protocol_error(detail: impl Into<String>) -> HpprProtocolError {
+    HpprProtocolError {
+        error_type: "INTERNAL".to_string(),
+        detail: detail.into(),
+        fatal: false,
+    }
+}
+
+fn named_client_entry_for_request(
+    origin_url: &str,
+    client_name: &str,
+) -> Result<libhavi::hppr::state_db::NamedClientEntry, String> {
+    let origin = request_origin_scope(origin_url)?;
+    let db = global_state_db();
+    db.resolve_named_client_for_origin(&origin, client_name)?
+        .ok_or_else(|| {
+            format!(
+                "named client '{}' is not granted for origin '{}'",
+                client_name, origin
+            )
+        })
+}
+
+fn named_client_authorize_response(origin_url: String, client_name: String) -> HpprControlResponse {
+    match named_client_entry_for_request(&origin_url, &client_name) {
+        Ok(_) => HpprControlResponse::Ok,
+        Err(error) => HpprControlResponse::Error(error),
+    }
+}
+
+fn named_client_operation_response(
+    origin_url: String,
+    client_name: String,
+    request: HpprRequest,
+) -> HpprControlResponse {
+    with_resolve_runtime(
+        |error| HpprControlResponse::NamedClientOperation(Err(named_client_protocol_error(error))),
+        |runtime| {
+            runtime.block_on(async move {
+                let entry = match named_client_entry_for_request(&origin_url, &client_name) {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        return HpprControlResponse::NamedClientOperation(Err(
+                            named_client_protocol_error(error),
+                        ));
+                    },
+                };
+                let target = match parse_via(&entry.endpoint) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        return HpprControlResponse::NamedClientOperation(Err(
+                            named_client_protocol_error(format!(
+                                "named client '{}' has invalid endpoint '{}': {}",
+                                entry.name, entry.endpoint, error
+                            )),
+                        ));
+                    },
+                };
+                let signer = match Signer::parse(&entry.signer) {
+                    Ok(signer) => signer,
+                    Err(error) => {
+                        return HpprControlResponse::NamedClientOperation(Err(
+                            named_client_protocol_error(format!(
+                                "named client '{}' has invalid signer: {}",
+                                entry.name, error
+                            )),
+                        ));
+                    },
+                };
+                let client = HpprdClientAsync::new_with_signer(target, signer);
+                let response = client.execute(request).await.map_err(|error| {
+                    named_client_protocol_error(format!(
+                        "named client '{}' operation: {}",
+                        entry.name, error
+                    ))
+                });
+                HpprControlResponse::NamedClientOperation(response)
+            })
+        },
+    )
+}
+
+fn committed_source_operation_response(request: HpprRequest) -> HpprControlResponse {
+    with_resolve_runtime(
+        |error| {
+            HpprControlResponse::CommittedSourceOperation(Err(
+                committed_source_protocol_error(error),
+            ))
+        },
+        |runtime| {
+            runtime.block_on(async move {
+                let target = home_repo_target();
+                let client = match HpprdClientAsync::new(target) {
+                    Ok(client) => client,
+                    Err(err) => {
+                        return HpprControlResponse::CommittedSourceOperation(Err(
+                            committed_source_protocol_error(format!(
+                                "committed source client: {err}"
+                            )),
+                        ));
+                    },
+                };
+                let response = client.execute(request).await.map_err(|error| {
+                    committed_source_protocol_error(format!(
+                        "committed source operation: {error}"
+                    ))
+                });
+                HpprControlResponse::CommittedSourceOperation(response)
             })
         },
     )
@@ -558,6 +702,39 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
                     .name("havi-resolve".to_string())
                     .spawn(move || {
                         request.respond(resolve_response(resolve_request));
+                    })
+                    .ok();
+            },
+            HpprControlRequest::CommittedSourceOperation { request: hppr_request } => {
+                std::thread::Builder::new()
+                    .name("havi-committed-source-op".to_string())
+                    .spawn(move || {
+                        request.respond(committed_source_operation_response(hppr_request));
+                    })
+                    .ok();
+            },
+            HpprControlRequest::NamedClientAuthorize { client_name } => {
+                let origin_url = request.origin().to_string();
+                std::thread::Builder::new()
+                    .name("havi-named-client-authorize".to_string())
+                    .spawn(move || {
+                        request.respond(named_client_authorize_response(origin_url, client_name));
+                    })
+                    .ok();
+            },
+            HpprControlRequest::NamedClientOperation {
+                client_name,
+                request: hppr_request,
+            } => {
+                let origin_url = request.origin().to_string();
+                std::thread::Builder::new()
+                    .name("havi-named-client-op".to_string())
+                    .spawn(move || {
+                        request.respond(named_client_operation_response(
+                            origin_url,
+                            client_name,
+                            hppr_request,
+                        ));
                     })
                     .ok();
             },

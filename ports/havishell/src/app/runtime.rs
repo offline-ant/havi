@@ -108,7 +108,7 @@ impl App {
         }
 
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
-        let repo_path = libhavi::hppr::config::repo_dir();
+        let compat_repo_path = libhavi::hppr::config::compat_repo_dir();
         let fallback_target = home
             .as_deref()
             .and_then(|v| hppr_client::parse_via(v).ok())
@@ -143,7 +143,7 @@ impl App {
         // Spawn pylon + hpprd + credential bootstrap on a background thread.
         if pylon_mode != PylonMode::None {
             let home_clone = home.clone();
-            let repo_path_clone = repo_path.clone();
+            let compat_repo_path_clone = compat_repo_path.clone();
             let (pylon_tx, pylon_rx) = std::sync::mpsc::channel();
             self.pylon_init_rx = Some(pylon_rx);
             std::thread::Builder::new()
@@ -156,10 +156,14 @@ impl App {
                             PylonMode::None => unreachable!(),
                         };
 
-                        eprintln!("[havi] pylon-init: mode={:?}, repo={}", host_mode, repo_path_clone.display());
+                        eprintln!(
+                            "[havi] pylon-init: mode={:?}, compat_repo={}",
+                            host_mode,
+                            compat_repo_path_clone.display()
+                        );
 
                         let mut pylon_client = crate::pylon_host::ensure_pylon(
-                            &repo_path_clone,
+                            &compat_repo_path_clone,
                             home_clone.as_deref(),
                             host_mode,
                         ).map_err(|e| {
@@ -280,27 +284,6 @@ impl App {
             crate::protocols::hppr_sandbox::HpprSandboxHandler::new(),
         );
         let _ = protocol_registry.register(
-            "hppr-setup",
-            crate::protocols::hppr_setup::HpprSetupHandler::new(
-                hppr_handler.clone(),
-                credential_store.clone(),
-            ),
-        );
-        let _ = protocol_registry.register(
-            "hppr-join",
-            crate::protocols::hppr_join::HpprJoinHandler::new(
-                hppr_handler.clone(),
-                credential_store.clone(),
-            ),
-        );
-        let _ = protocol_registry.register(
-            "hppr-editor",
-            crate::protocols::hppr_editor::HpprEditorHandler::new(
-                hppr_handler.clone(),
-                credential_store.clone(),
-            ),
-        );
-        let _ = protocol_registry.register(
             "file",
             crate::protocols::file::FileHpprHandler::new(
                 hppr_handler.clone(),
@@ -382,8 +365,6 @@ impl App {
         // Print eval-compatible environment summary.
         // PYLON= is printed later when PylonReady arrives.
         {
-            let repo_dir = libhavi::hppr::config::repo_dir();
-            println!("HPPRD_REPO={}", repo_dir.display());
             println!("HAVI_URL={}", self.start_url);
             eprintln!(
                 "# [havi] startup: state={:?}, start_navigation_done={}",

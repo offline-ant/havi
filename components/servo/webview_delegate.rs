@@ -13,7 +13,7 @@ use embedder_traits::{
     AlertResponse, AllowOrDeny, AuthenticationResponse, ConfirmResponse, ConsoleLogLevel,
     ContextMenuAction, ContextMenuElementInformation, ContextMenuItem, Cursor, EmbedderControlId,
     EmbedderControlResponse, FilePickerRequest, FilterPattern, HpprControlRequest,
-    HpprControlResponse, HpprPageInfo, InputEventId, InputEventResult, InputMethodType,
+    HpprControlResponse, HpprPageInfo, HpprRequest, InputEventId, InputEventResult, InputMethodType,
     LoadStatus, MediaSessionEvent, NewWebViewDetails, Notification, PermissionFeature,
     PromptResponse, RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup,
     SimpleDialogRequest, TraversalId, WebResourceRequest, WebResourceResponse,
@@ -863,6 +863,9 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoStatus => "REPO_STATUS",
             HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
             HpprControlRequest::Resolve(_) => "RESOLVE",
+            HpprControlRequest::CommittedSourceOperation { .. } => "COMMITTED_SOURCE_OP",
+            HpprControlRequest::NamedClientAuthorize { .. } => "NAMED_CLIENT_AUTHORIZE",
+            HpprControlRequest::NamedClientOperation { .. } => "NAMED_CLIENT_OP",
             HpprControlRequest::EmbedResolve { .. } => "EMBED_RESOLVE",
         }
     }
@@ -875,7 +878,28 @@ impl ControlOperationRequest {
                 HpprControlRequest::RepoPathQuery |
                 HpprControlRequest::RepoStatus |
                 HpprControlRequest::Resolve(_) |
+                HpprControlRequest::NamedClientAuthorize { .. } |
                 HpprControlRequest::EmbedResolve { .. }
+        ) || matches!(
+            &self.request,
+            HpprControlRequest::CommittedSourceOperation {
+                request:
+                    HpprRequest::Hello |
+                    HpprRequest::Get { .. } |
+                    HpprRequest::Headers { .. } |
+                    HpprRequest::List { .. } |
+                    HpprRequest::Tips { .. } |
+                    HpprRequest::Members { .. }
+            } | HpprControlRequest::NamedClientOperation {
+                request:
+                    HpprRequest::Hello |
+                    HpprRequest::Get { .. } |
+                    HpprRequest::Headers { .. } |
+                    HpprRequest::List { .. } |
+                    HpprRequest::Tips { .. } |
+                    HpprRequest::Members { .. },
+                ..
+            }
         )
     }
 
@@ -1100,6 +1124,8 @@ impl WebViewDelegate for DefaultWebViewDelegate {}
 #[cfg(test)]
 mod test {
     use super::*;
+    use servo_url::BrowserUrl;
+    use url::Url;
 
     #[test]
     fn test_allow_deny_request() {
@@ -1171,7 +1197,7 @@ mod test {
     fn test_authentication_request() {
         use crate::responders::ServoErrorChannel;
 
-        let url = Url::parse("https://example.com").expect("Guaranteed by argument");
+        let url = BrowserUrl::parse("https://example.com").expect("Guaranteed by argument");
 
         // Explicit response yields that response and nothing else
         let errors = ServoErrorChannel::default();

@@ -584,6 +584,7 @@ pub enum HpprResolveRequest {
     },
     Media {
         url: String,
+        pipeline_id: PipelineId,
     },
     ReadBytes {
         source: HpprResolvedSourceRef,
@@ -649,6 +650,22 @@ pub enum HpprControlRequest {
     AdminCredential,
     /// Shared HPPR source resolution.
     Resolve(HpprResolveRequest),
+    /// Browser-owned committed repo-source operation.
+    ///
+    /// This is the first honest local-client backend seam for committed repo
+    /// sources. The page does not provide endpoint or signer text. The embedder
+    /// owns the local source path.
+    CommittedSourceOperation { request: HpprRequest },
+    /// Check whether the current page origin may access the named client.
+    NamedClientAuthorize { client_name: String },
+    /// Browser-owned named-client operation.
+    ///
+    /// The page only provides the stable named-client identifier. Endpoint and
+    /// signer material remain browser-owned.
+    NamedClientOperation {
+        client_name: String,
+        request: HpprRequest,
+    },
     /// Preflight HPPR embed resolution for <x>.
     EmbedResolve { url: String },
 }
@@ -668,6 +685,10 @@ pub enum HpprControlResponse {
     AdminCredential { ring1_name: String, token: String },
     /// Shared HPPR source resolution response.
     Resolve(HpprResolveResponse),
+    /// Browser-owned committed repo-source operation response.
+    CommittedSourceOperation(HpprProtocolResponse),
+    /// Browser-owned named-client operation response.
+    NamedClientOperation(HpprProtocolResponse),
     /// HPPR embed preflight response.
     EmbedResolve(HpprEmbedResolveResponse),
     /// Error message

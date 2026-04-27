@@ -1,39 +1,43 @@
 # Offline Behavior
 
-HAVI uses a home repo for persistent local state.
+HAVI keeps browser-owned local state and packet history across restarts.
 
-Packets fetched earlier stay available when route repos are unreachable.
+Packets fetched earlier may remain available when remote upstreams are
+unreachable, but ordinary pages do not program against a separate ambient
+`window.home` client anymore.
 
-## Home repo role
+## Browser-owned local role
 
-Home repo stores:
+The browser-owned local runtime stores:
 
-- fetched packets
-- user data under app `user/` paths
+- fetched packets needed for current behavior
 - route and trust config
-- locally created content
+- history and browser settings
+- future capability-management state such as named clients and grants
 
-Data persists across browser restarts.
+This runtime stays browser-owned implementation state.
+It is not itself an ordinary page API.
 
-## `window.home` and `window.route`
+## `window.source`
 
-- `window.home` targets the local home repo and is always available.
-- `window.route` targets the resolved route endpoint when one is available and
-  may fail offline.
-- an effective local route answer, including a terminal local exact-app
-  bootstrap, still counts as route-backed
+Ordinary repo-backed pages program against `window.source`.
 
-Use `window.home` for persistence and offline reads.
-Use `window.route` for fresh remote reads when available.
+- `window.source.kind === "repo"` means the committed document source is local
+  to the browser-owned runtime path
+- `window.source.kind === "remote"` means the committed document source depends
+  on a remote upstream path and may fail offline
+- `window.source === null` on `file://` pages, helper pages, and non-HPPR pages
+
+Use `window.source.client` for ordinary page reads and writes that match the
+committed source capability.
+Use explicit named clients when the app needs extra repo power beyond that
+ambient source.
 
 ## Caching behavior
 
-Route fetches are cached automatically in the home repo.
-
-When `window.route.get()` succeeds, HAVI stores returned packets locally before
-returning them to page code.
-
-Chunk data fetched for manifest reassembly is also cached.
+Remote fetches may still be cached through the browser-owned runtime.
+Media and subresource fetches reuse the committed source snapshot for the
+current document instead of re-deriving a separate ambient repo story.
 
 ## Connectivity detection
 
@@ -41,15 +45,16 @@ HAVI has no dedicated online/offline API.
 
 Practical checks:
 
-- `window.route === null`: no route-backed source exists or no usable route endpoint exists after effective resolution
-- route operation throws fatal error: route is unreachable or session failed
-- absence of local route auth falls back to `anyone`; it does not by itself make
-  `window.route` null
+- `window.source === null`: no ordinary repo-backed source exists for the page
+- `window.source.kind === "remote"` plus fatal repo failure: remote source is
+  unreachable or session failed
+- `window.source.kind === "repo"`: the committed source is already local to the
+  browser-owned runtime path
 
 ## WATCH while offline
 
-Route watches require an active remote connection.
-
-Disconnects end watch streams. Reconnect with backoff when continuous updates
-are required.
+Remote watch and stream behavior still depends on the backend the current client
+actually has.
+Browser-owned local committed-source and named-client watch/stream paths that do
+not yet exist fail explicitly instead of pretending to be transport-backed.
 

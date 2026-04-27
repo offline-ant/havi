@@ -8,18 +8,19 @@
 //! URL format: havi:///[page]
 //!
 //! Pages:
-//! - /overview: Navigation hub to all sections
 //! - /home: Browser home page
 //! - /home-repo: Home repo configuration and status
 //! - /routes: Trusted routes and keys
 //! - /anyone: Edit anyone account ACL
 //! - /ring2: Group membership management (stub)
-//! - /ring1: View account requests (stub)
+//! - /ring1: Ring1 auth/policy management
 //! - /ring0: Ring0 proxy page for ring1 proxy requests
-//! - /diagnostics: Route/deploy/auth/join diagnostics + join fixtures
-//! - /services: Pylon service manager (services, listeners, mounts, nat)
+//! - /diagnostics: privileged diagnostics page
 
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use hppr_client::{Signer, parse_via};
 
 use crate::PageResponse;
 use crate::hppr::client::{HpprdClientAsync, get_admin_credentials};
@@ -29,7 +30,8 @@ use crate::hppr::util::html_escape;
 
 /// Handle an havi:// URL request.
 ///
-/// Returns a PageResponse with admin credentials set for window.ring0 access.
+/// Returns a PageResponse with admin credentials set for
+/// `window.havi.admin.client` access.
 pub async fn handle_request(
     url: &str,
     client: &Arc<HpprdClientAsync>,
@@ -38,12 +40,6 @@ pub async fn handle_request(
     let path = url.strip_prefix("havi:").unwrap_or(url);
     let path = path.trim_start_matches('/');
     let path = format!("/{}", path);
-
-    // Handle services API endpoint
-    if path.starts_with("/services/api") {
-        let json = handle_services_api(&path);
-        return PageResponse::new("application/json", json.into_bytes());
-    }
 
     // Handle diagnostics API endpoint
     if path.starts_with("/diagnostics/api") {
@@ -56,17 +52,20 @@ pub async fn handle_request(
         return PageResponse::new("application/json", json.into_bytes());
     }
 
+    if path.starts_with("/home-repo/api") {
+        let json = handle_home_repo_api(&path);
+        return PageResponse::new("application/json", json.into_bytes());
+    }
+
     let html = match path.as_str() {
         "/home" => render_home_page(),
-        "/overview" | "/" | "" => render_dashboard(),
+        "/" | "" | "/diagnostics" => render_diagnostics_page(),
         "/home-repo" => render_home_repo_page(),
         "/routes" => render_routes_page(),
         "/anyone" => render_anyone_page(),
         "/ring2" => render_groups_page(),
         "/ring1" => render_accounts_page(),
         "/ring0" => render_ring0_proxy_page(),
-        "/diagnostics" => render_diagnostics_page(),
-        "/services" => render_services_page(),
         _ => render_not_found(&path),
     };
 
@@ -293,7 +292,7 @@ fn render_home_page() -> String {
         <a href="hppr://u/" class="quick-link">//u/</a>
     </div>
 
-    <p><a href="havi:///overview" class="admin-link">Open admin pages</a></p>
+    <p><a href="havi:///diagnostics" class="admin-link">Open diagnostics</a></p>
 
     <script>
 {home_js}
@@ -307,7 +306,6 @@ fn render_home_page() -> String {
 /// Render navigation bar.
 fn render_nav(active: &str) -> String {
     let pages = [
-        ("havi:///overview", "Overview"),
         ("havi:///home-repo", "Home Repo"),
         ("havi:///routes", "Routes"),
         ("havi:///anyone", "Anyone"),
@@ -315,7 +313,6 @@ fn render_nav(active: &str) -> String {
         ("havi:///ring1", "Ring1"),
         ("havi:///ring0", "Ring0"),
         ("havi:///diagnostics", "Diagnostics"),
-        ("havi:///services", "Services"),
     ];
 
     let links: Vec<String> = pages
@@ -333,96 +330,140 @@ fn render_nav(active: &str) -> String {
     format!(r#"<nav class="nav"><ul>{}</ul></nav>"#, links.join("\n"))
 }
 
-/// Format a Unix timestamp as a human-readable time diff relative to now.
-fn format_time_diff(ts_unix: i64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let secs = (now - ts_unix).max(0);
-    if secs < 60 {
-        "just now".to_string()
-    } else if secs < 3600 {
-        let m = secs / 60;
-        format!("{}m ago", m)
-    } else if secs < 86400 {
-        let h = secs / 3600;
-        format!("{}h ago", h)
-    } else if secs < 7 * 86400 {
-        let d = secs / 86400;
-        format!("{}d ago", d)
-    } else {
-        // Format as YYYY-MM-DD using days since Unix epoch
-        let days = ts_unix / 86400;
-        let (y, m, d) = unix_days_to_ymd(days as i32);
-        format!("{:04}-{:02}-{:02}", y, m, d)
+
+fn parse_havi_api_params(path: &str) -> HashMap<String, String> {
+    let query = path.split('?').nth(1).unwrap_or("");
+    url::form_urlencoded::parse(query.as_bytes())
+        .into_owned()
+        .collect()
+}
+
+fn normalize_named_client_origin(origin_or_url: &str) -> Result<String, String> {
+    let url = servo_url::BrowserUrl::parse(origin_or_url)
+        .map_err(|error| format!("invalid origin or page URL '{}': {}", origin_or_url, error))?;
+    let normalized = url.origin();
+    if !normalized.is_tuple() {
+        return Err(format!(
+            "named-client grants require a tuple origin or full page URL, got '{}'",
+            origin_or_url
+        ));
     }
+    Ok(normalized.ascii_serialization())
 }
 
-/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
-fn unix_days_to_ymd(z: i32) -> (i32, u32, u32) {
-    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
-    let z = z + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m as u32, d as u32)
-}
+fn handle_home_repo_api(path: &str) -> String {
+    let params = parse_havi_api_params(path);
+    let cmd = params.get("cmd").map(String::as_str).unwrap_or("named_clients");
+    let db = global_state_db();
 
-/// Render the dashboard page.
-fn render_dashboard() -> String {
-    let history_rows = global_state_db().list_history(10).unwrap_or_default();
-
-    let history_html = if history_rows.is_empty() {
-        "<p class=\"empty\">No history yet.</p>".to_string()
-    } else {
-        let items: Vec<String> = history_rows
-            .iter()
-            .map(|row| {
-                let url = html_escape(&row.url);
-                let title = if row.title.trim().is_empty() {
-                    "(untitled)".to_string()
-                } else {
-                    html_escape(&row.title)
-                };
-                format!(
-                    r#"<div class="list-item">
-                        <div>
-                            <div><a href="{url}">{title}</a></div>
-                            <div class="muted">{url}</div>
-                        </div>
-                        <div class="muted">{ts}</div>
-                    </div>"#,
-                    url = url,
-                    title = title,
-                    ts = format_time_diff(row.ts_unix),
-                )
+    let response = match cmd {
+        "named_clients" => {
+            let clients = match db.list_named_clients() {
+                Ok(clients) => clients,
+                Err(error) => {
+                    return serde_json::json!({"ok": false, "error": error}).to_string();
+                },
+            };
+            let grants = match db.list_named_client_grants() {
+                Ok(grants) => grants,
+                Err(error) => {
+                    return serde_json::json!({"ok": false, "error": error}).to_string();
+                },
+            };
+            let revocations = match db.list_named_client_revocations() {
+                Ok(revocations) => revocations,
+                Err(error) => {
+                    return serde_json::json!({"ok": false, "error": error}).to_string();
+                },
+            };
+            serde_json::json!({
+                "ok": true,
+                "data": {
+                    "clients": clients,
+                    "grants": grants,
+                    "revocations": revocations,
+                }
             })
-            .collect();
-        items.join("\n")
+        }
+        "set_named_client" => {
+            let Some(name) = params.get("name") else {
+                return serde_json::json!({"ok": false, "error": "missing name"}).to_string();
+            };
+            let Some(endpoint) = params.get("endpoint") else {
+                return serde_json::json!({"ok": false, "error": "missing endpoint"}).to_string();
+            };
+            let Some(signer) = params.get("signer") else {
+                return serde_json::json!({"ok": false, "error": "missing signer"}).to_string();
+            };
+            if name.trim().is_empty() {
+                return serde_json::json!({"ok": false, "error": "empty name"}).to_string();
+            }
+            if let Err(error) = parse_via(endpoint) {
+                return serde_json::json!({"ok": false, "error": format!("invalid endpoint: {}", error)}).to_string();
+            }
+            if let Err(error) = Signer::parse(signer) {
+                return serde_json::json!({"ok": false, "error": format!("invalid signer: {}", error)}).to_string();
+            }
+            match db.set_named_client(name.trim(), endpoint.trim(), signer.trim()) {
+                Ok(()) => serde_json::json!({"ok": true, "data": {"name": name.trim()}}),
+                Err(error) => serde_json::json!({"ok": false, "error": error}),
+            }
+        }
+        "delete_named_client" => {
+            let Some(name) = params.get("name") else {
+                return serde_json::json!({"ok": false, "error": "missing name"}).to_string();
+            };
+            match db.delete_named_client(name.trim()) {
+                Ok(()) => serde_json::json!({"ok": true, "data": {"name": name.trim()}}),
+                Err(error) => serde_json::json!({"ok": false, "error": error}),
+            }
+        }
+        "grant_named_client" => {
+            let Some(name) = params.get("name") else {
+                return serde_json::json!({"ok": false, "error": "missing name"}).to_string();
+            };
+            let Some(origin) = params.get("origin") else {
+                return serde_json::json!({"ok": false, "error": "missing origin"}).to_string();
+            };
+            let normalized_origin = match normalize_named_client_origin(origin.trim()) {
+                Ok(origin) => origin,
+                Err(error) => {
+                    return serde_json::json!({"ok": false, "error": error}).to_string();
+                }
+            };
+            match db.grant_named_client(&normalized_origin, name.trim()) {
+                Ok(()) => serde_json::json!({
+                    "ok": true,
+                    "data": {"name": name.trim(), "origin": normalized_origin}
+                }),
+                Err(error) => serde_json::json!({"ok": false, "error": error}),
+            }
+        }
+        "revoke_named_client" => {
+            let Some(name) = params.get("name") else {
+                return serde_json::json!({"ok": false, "error": "missing name"}).to_string();
+            };
+            let Some(origin) = params.get("origin") else {
+                return serde_json::json!({"ok": false, "error": "missing origin"}).to_string();
+            };
+            let normalized_origin = match normalize_named_client_origin(origin.trim()) {
+                Ok(origin) => origin,
+                Err(error) => {
+                    return serde_json::json!({"ok": false, "error": error}).to_string();
+                }
+            };
+            match db.revoke_named_client(&normalized_origin, name.trim()) {
+                Ok(()) => serde_json::json!({
+                    "ok": true,
+                    "data": {"name": name.trim(), "origin": normalized_origin}
+                }),
+                Err(error) => serde_json::json!({"ok": false, "error": error}),
+            }
+        }
+        _ => serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)}),
     };
 
-    let body = format!(
-        r#"
-    {nav}
-
-    <div class="card">
-        <div class="muted">recent pages</div>
-        {history_html}
-    </div>
-
-    "#,
-        nav = render_nav("Overview"),
-        history_html = history_html,
-    );
-
-    crate::pages::page_shell::render_page("HAVI", ADMIN_CSS, &body)
+    response.to_string()
 }
 
 /// Render the home repo configuration page.
@@ -496,6 +537,21 @@ fn render_home_repo_page() -> String {
         <div id="nameMessage" class="muted"></div>
     </div>
 
+    <div class="card">
+        <h2>Named Clients</h2>
+        <p class="muted">Explicit extra repo profiles with origin-scoped grants.</p>
+        <div class="inline-row">
+            <input type="text" id="namedClientName" placeholder="Client name">
+            <input type="text" id="namedClientEndpoint" placeholder="Endpoint, e.g. tcp+127.0.0.1:4778">
+            <input type="text" id="namedClientSigner" placeholder="Signer, e.g. ring1:ring0|init">
+            <button onclick="saveNamedClient()">Save Client</button>
+        </div>
+        <div id="namedClientMessage" class="muted"></div>
+        <div id="namedClientsList"><p class="empty">Loading...</p></div>
+        <div class="section-title">Revocation Log</div>
+        <div id="namedClientRevocations"><p class="empty">None</p></div>
+    </div>
+
     <script>
 {home_repo_js}
     </script>"#,
@@ -538,8 +594,8 @@ fn render_accounts_page() -> String {
     <div id="message"></div>
 
     <div class="card">
-        <h2>Account Management</h2>
-        <p class="muted">Manage ring1 accounts and their ACL rules. System accounts cannot be deleted.</p>
+        <h2>Ring1 Auth and Policy</h2>
+        <p class="muted">Manage split Ring1 auth, members, and policy packet families. System accounts cannot be deleted.</p>
 
         <div class="section-title">System Accounts</div>
         <div id="systemAccounts">Loading...</div>
@@ -549,9 +605,6 @@ fn render_accounts_page() -> String {
 
         <div class="section-title">Custom Accounts</div>
         <div id="customAccounts"><p class="empty">None</p></div>
-
-        <div class="section-title">Pending Requests</div>
-        <div id="pendingRequests"><p class="empty">None</p></div>
 
         <p><button onclick="loadAll()" class="secondary">Refresh</button></p>
     </div>
@@ -576,8 +629,9 @@ fn render_groups_page() -> String {
         <h2>Group Management</h2>
         <p class="empty">Group membership management coming soon.</p>
         <p class="muted">
-            Group setup: <code>//<em>group</em>/admin/setup/|</code><br>
-            Membership: <code>//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code>
+            Auth profile: <code>//<em>group</em>/admin/ring2/auth/|/seal/&lt;repo-vkey&gt;</code><br>
+            Membership: <code>//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code><br>
+            Policy: <code>//<em>group</em>/admin/ring2/policy/|/seal/&lt;repo-vkey&gt;</code>
         </p>
     </div>"#,
     )
@@ -673,7 +727,7 @@ fn render_ring0_proxy_page() -> String {
     render_admin_page("Ring0 Proxy", "Ring0", extra_css, &body)
 }
 
-/// Render route/deploy/auth/join diagnostics page.
+/// Render privileged diagnostics page.
 fn render_diagnostics_page() -> String {
     let diagnostics_js = include_str!("../js/havi-diagnostics.js");
     let body = format!(
@@ -681,26 +735,15 @@ fn render_diagnostics_page() -> String {
     <div id="message"></div>
 
     <div class="card">
-        <h2>Inspect Route/Deploy/Auth/Join</h2>
+        <h2>Inspect Route/Deploy/Auth</h2>
         <div class="inline-row">
             <input type="text" id="diagGroup" placeholder="group" value="u">
             <input type="text" id="diagApp" placeholder="app" value="web">
             <input type="text" id="diagLocation" placeholder="location (optional)">
             <button onclick="runDiagnostics()">Inspect</button>
         </div>
-        <p class="muted">Reads local route, remote deploy, auth probe, and join request/reply status.</p>
+        <p class="muted">Reads local route, remote deploy pointer, and auth probe state.</p>
         <pre id="diagOutput" class="codebox">Click Inspect</pre>
-    </div>
-
-    <div class="card">
-        <h2>Join Fixture State</h2>
-        <p class="muted">Process-local deterministic join state for hppr-join testing.</p>
-        <div class="inline-row">
-            <button onclick="setJoinFixture('none')">none</button>
-            <button onclick="setJoinFixture('pending')">pending</button>
-            <button onclick="setJoinFixture('approved')">approved</button>
-        </div>
-        <p class="muted">Current: <span id="joinFixtureState">loading...</span></p>
     </div>
 
     <script>
@@ -712,130 +755,6 @@ fn render_diagnostics_page() -> String {
     render_admin_page("Diagnostics", "Diagnostics", "", &body)
 }
 
-/// Render the services page.
-fn render_services_page() -> String {
-    let services_js = include_str!("../js/havi-services.js");
-    let extra_css = "";
-
-    let body = format!(
-        r#"
-    <div id="message"></div>
-
-    <div class="card">
-        <h2>Pylon Status</h2>
-        <div class="status">
-            <div class="status-item">
-                <div class="status-value" id="pylonStatus">checking...</div>
-                <div class="status-label">Connection</div>
-            </div>
-        </div>
-        <p class="muted">Manage local services, networking, and mounts.</p>
-        <div id="servicesList"><p class="empty">Loading...</p></div>
-    </div>
-
-    <div class="card">
-        <h2>hpprd Listeners</h2>
-        <div id="listenersList"><p class="empty">Loading...</p></div>
-        <div class="inline-row">
-            <input type="text" id="listenerBind" placeholder="ws+127.0.0.1:4778">
-            <button onclick="addListener()">Add Listener</button>
-        </div>
-    </div>
-
-    <div class="card">
-        <h2>NAT Runtime</h2>
-        <div id="natInfo"><p class="empty">Loading...</p></div>
-    </div>
-
-    <div class="card">
-        <h2>Mounts</h2>
-        <p class="muted">Expose part of the HPPR tree as a local folder.</p>
-        <div id="mountsList"><p class="empty">Loading...</p></div>
-        <div class="inline-row">
-            <input type="text" id="mountpoint" placeholder="Local folder path">
-            <input type="text" id="mountRoot" placeholder="HPPR root to expose, e.g. //u/web/ (optional)">
-            <input type="text" id="mountSigner" placeholder="Signer filter (advanced)">
-            <label><input type="checkbox" id="mountRw"> Read-write (advanced)</label>
-            <button onclick="createMount()">Mount</button>
-        </div>
-    </div>
-
-    <p><button onclick="loadStatus()" class="secondary">Refresh</button></p>
-
-    <script>
-{services_js}
-    </script>"#,
-        services_js = services_js
-    );
-
-    render_admin_page("Services", "Services", extra_css, &body)
-}
-
-/// Handle services API requests (proxied to pylon).
-fn handle_services_api(path: &str) -> String {
-    let query = path.split('?').nth(1).unwrap_or("");
-    let params: std::collections::HashMap<String, String> =
-        url::form_urlencoded::parse(query.as_bytes())
-            .into_owned()
-            .collect();
-
-    let cmd = params.get("cmd").map(|s| s.as_str()).unwrap_or("status");
-    let service = params.get("service").map(|s| s.as_str());
-
-    let mut args = serde_json::Map::new();
-    for (k, v) in &params {
-        if k == "cmd" || k == "service" || v.is_empty() {
-            continue;
-        }
-        let value = if v.eq_ignore_ascii_case("true") {
-            serde_json::Value::Bool(true)
-        } else if v.eq_ignore_ascii_case("false") {
-            serde_json::Value::Bool(false)
-        } else if let Ok(n) = v.parse::<i64>() {
-            serde_json::json!(n)
-        } else {
-            serde_json::Value::String(v.clone())
-        };
-        args.insert(k.clone(), value);
-    }
-
-    let mut client = match crate::hppr::pylon::PylonClient::try_connect(&crate::hppr::config::repo_dir()) {
-        Some(c) => c,
-        None => {
-            return serde_json::json!({"ok": false, "error": "Pylon is not running. Start pylon first."})
-                .to_string();
-        },
-    };
-
-    let result = match cmd {
-        "status" | "list" | "mounts" | "shutdown" => {
-            client.command(cmd, None, if args.is_empty() { None } else { Some(&args) })
-        },
-        "start" | "stop" => {
-            let Some(name) = service else {
-                return serde_json::json!({"ok": false, "error": "missing service parameter"})
-                    .to_string();
-            };
-            client.command(
-                cmd,
-                Some(name),
-                if args.is_empty() { None } else { Some(&args) },
-            )
-        },
-        "listen" | "unlisten" | "mount" | "unmount" => {
-            client.command(cmd, None, if args.is_empty() { None } else { Some(&args) })
-        },
-        _ => {
-            return serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)})
-                .to_string();
-        },
-    };
-
-    match result {
-        Ok(data) => serde_json::json!({"ok": true, "data": data}).to_string(),
-        Err(e) => serde_json::json!({"ok": false, "error": e}).to_string(),
-    }
-}
 
 /// Render not found page.
 fn render_not_found(path: &str) -> String {
@@ -843,7 +762,7 @@ fn render_not_found(path: &str) -> String {
         r#"
     <div class="card">
         <p class="error">The requested page was not found: {path}</p>
-        <p><a href="havi:///overview">Return to Overview</a></p>
+        <p><a href="havi:///diagnostics">Open diagnostics</a></p>
     </div>"#,
         path = html_escape(path),
     );

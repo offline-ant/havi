@@ -170,7 +170,8 @@ pub struct PageResponse {
     pub content_type: String,
     /// Response body bytes.
     pub body: Vec<u8>,
-    /// Optional admin credentials (ring1_name, signing_key) for havi:// pages.
+    /// Optional helper-page admin credentials (ring1_name, signing_key) for
+    /// `window.havi.admin.client`.
     pub admin_credentials: Option<(String, String)>,
     /// Optional CSP header value for sandbox pages.
     pub csp: Option<String>,
@@ -178,15 +179,10 @@ pub struct PageResponse {
     pub hppr_packet: Option<hppr_client::hppr_packet::Packet>,
     /// Canonical HPPR lookup trace for this page load.
     pub hppr_lookup_trace: Option<embedder_traits::HpprLookupTrace>,
-    /// Site Ring1 credentials (ring1_name, signing_key) for window.home.
-    pub site_credentials: Option<(String, String)>,
-    /// Routed endpoint string for window.route.
-    pub hppr_endpoint: Option<String>,
-    /// Route signer string for window.route (effective local route auth or anyone).
-    pub hppr_signer: Option<String>,
     /// Resolved content authority for the loaded HPPR content.
     pub hppr_content_authority: Option<String>,
-    /// Canonical resolved HPPR document source snapshot.
+    /// Canonical resolved HPPR document source snapshot for ordinary `hppr://`
+    /// pages.
     pub hppr_source: Option<net_traits::HpprDocumentSource>,
 }
 
@@ -199,9 +195,6 @@ impl PageResponse {
             csp: None,
             hppr_packet: None,
             hppr_lookup_trace: None,
-            site_credentials: None,
-            hppr_endpoint: None,
-            hppr_signer: None,
             hppr_content_authority: None,
             hppr_source: None,
         }
@@ -215,9 +208,6 @@ impl PageResponse {
             csp: None,
             hppr_packet: None,
             hppr_lookup_trace: None,
-            site_credentials: None,
-            hppr_endpoint: None,
-            hppr_signer: None,
             hppr_content_authority: None,
             hppr_source: None,
         }

@@ -14,8 +14,7 @@
 //! Route record structure and effective/canonical resolution semantics are
 //! defined by the HPPR route scheme, not by HAVI-specific packet rules.
 
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::Arc;
 
 use hppr_client::{Packet, Signer, ViaSpec, parse_via};
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
@@ -24,6 +23,7 @@ use net_traits::{HpprDocumentSource, HpprDocumentSourceSnapshot};
 
 use super::client::{ContentPointerInfo, HpprdClientAsync};
 use super::credentials::CredentialStoreHandle;
+use super::local_route::BrowserRouteHandle;
 use super::url::HAVIAddress;
 use super::state_db::global_state_db;
 use super::util::{
@@ -115,25 +115,21 @@ impl std::fmt::Display for HpprResolveError {
 
 impl std::error::Error for HpprResolveError {}
 
-static PACKET_CACHE: LazyLock<Mutex<HashMap<String, Arc<Vec<u8>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
 pub async fn route_configured_for_direct_endpoint(
     group: &str,
     app: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> bool {
-    if group.is_empty() || app.is_empty() || credential_store.get_admin().is_none() {
+    if group.is_empty() || app.is_empty() {
         return false;
     }
-
-    let Ok(repo_vkey) = repo_client.get_admin_identity().await else {
+    let handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
+    let Some(repo_vkey) = handle.admin_identity().await else {
         return false;
     };
-
-    repo_client.get_local_route_app(group, app, &repo_vkey).await.is_ok()
-        || repo_client.get_local_route_group(group, &repo_vkey).await.is_ok()
+    handle.local_route_app(group, app, &repo_vkey).await.is_ok()
+        || handle.local_route_group(group, &repo_vkey).await.is_ok()
 }
 
 pub async fn resolve_document(
@@ -208,6 +204,15 @@ pub async fn resolve_media(
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> Result<ResolvedMediaSource, HpprResolveError> {
+    resolve_media_with_snapshot(url, repo_client, credential_store, None).await
+}
+
+pub async fn resolve_media_with_snapshot(
+    url: &str,
+    repo_client: &Arc<HpprdClientAsync>,
+    credential_store: &CredentialStoreHandle,
+    snapshot: Option<&HpprDocumentSourceSnapshot>,
+) -> Result<ResolvedMediaSource, HpprResolveError> {
     let address = HAVIAddress::parse(url).map_err(|e| {
         HpprResolveError::new(
             e.to_string(),
@@ -221,7 +226,8 @@ pub async fn resolve_media(
         ));
     }
 
-    let mut route_source = resolve_document_source(&address, repo_client, credential_store, None).await?;
+    let mut route_source =
+        resolve_document_source(&address, repo_client, credential_store, snapshot).await?;
     let access = resolve_access(&address, repo_client, &route_source.snapshot, false).map_err(
         |error| HpprResolveError::new(error, route_source.lookup_trace.clone()),
     )?;
@@ -446,16 +452,16 @@ pub async fn resolve_document_source(
             "selected",
             None,
         );
+        let route_handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
         let (_, upstream_key, content_authority_pin, _) = resolve_route_endpoint_with_trace(
             &parts.group,
             &parts.app,
-            repo_client,
-            credential_store,
+            &route_handle,
             &mut lookup_trace,
         )
         .await
         .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
-        let signer = build_route_signer(&parts.group, &parts.app, repo_client, &mut lookup_trace)
+        let signer = build_route_signer(&parts.group, &parts.app, &route_handle, &mut lookup_trace)
             .await
             .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
         let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), signer.clone()));
@@ -485,11 +491,11 @@ pub async fn resolve_document_source(
         });
     }
 
+    let route_handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
     let (endpoint, upstream_key, content_authority_pin, source) = resolve_route_endpoint_with_trace(
         &parts.group,
         &parts.app,
-        repo_client,
-        credential_store,
+        &route_handle,
         &mut lookup_trace,
     )
     .await
@@ -498,7 +504,7 @@ pub async fn resolve_document_source(
         lookup_trace.push_step(
             "source-selection",
             Some(format!("//{}/{}/", parts.group, parts.app)),
-            Some(repo_client.target().to_string()),
+            Some(route_handle.target().to_string()),
             "repo",
             None,
         );
@@ -513,7 +519,7 @@ pub async fn resolve_document_source(
         });
     }
 
-    let signer = build_route_signer(&parts.group, &parts.app, repo_client, &mut lookup_trace)
+    let signer = build_route_signer(&parts.group, &parts.app, &route_handle, &mut lookup_trace)
         .await
         .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
     let client = Arc::new(HpprdClientAsync::new_with_signer(endpoint.clone(), signer.clone()));
@@ -700,29 +706,29 @@ async fn resolve_content_pointer(
 async fn build_route_signer(
     group: &str,
     app: &str,
-    repo_client: &Arc<HpprdClientAsync>,
+    handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<Signer, String> {
-    let repo_vkey = match repo_client.get_admin_identity().await {
-        Ok(vkey) => vkey,
-        Err(_) => {
+    let repo_vkey = match handle.admin_identity().await {
+        Some(vkey) => vkey,
+        None => {
             lookup_trace.push_step(
                 "route-auth",
-                Some(format!("//repo/admin/identity/|")),
-                Some(repo_client.target().to_string()),
+                Some("//repo/admin/identity/|".to_string()),
+                Some(handle.target().to_string()),
                 "fallback",
                 Some("missing admin identity; using anyone".to_string()),
             );
             return Ok(Signer::anyone());
         },
     };
-    let route_auth = match repo_client.get_route_auth(group, Some(app), &repo_vkey).await {
+    let route_auth = match handle.route_auth(group, Some(app), &repo_vkey).await {
         Ok(info) => info,
         Err(_) => {
             lookup_trace.push_step(
                 "route-auth",
                 Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
-                Some(repo_client.target().to_string()),
+                Some(handle.target().to_string()),
                 "fallback",
                 Some("route auth missing; using anyone".to_string()),
             );
@@ -732,7 +738,7 @@ async fn build_route_signer(
     lookup_trace.push_step(
         "route-auth",
         Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
-        Some(repo_client.target().to_string()),
+        Some(handle.target().to_string()),
         "hit",
         Some(route_auth.auth.clone()),
     );
@@ -771,7 +777,9 @@ async fn read_packet_bytes(
         return Ok(Vec::new());
     }
 
-    let packet = get_cached_packet(client, packet_hash).await?;
+    let packet = client
+        .get_packet_authenticated(&format!("////{packet_hash}"))
+        .await?;
     let headers = packet_headers(&packet);
 
     if is_chunk_manifest(&headers) {
@@ -827,27 +835,10 @@ async fn read_blob_chunk_bytes(
     offset: u64,
     length: usize,
 ) -> Result<Vec<u8>, String> {
-    let packet = get_cached_packet(client, hash).await?;
-    Ok(slice_bytes(packet.data(), offset, length).to_vec())
-}
-
-async fn get_cached_packet(
-    client: &Arc<HpprdClientAsync>,
-    packet_hash: &str,
-) -> Result<Packet, String> {
-    if let Some(bytes) = PACKET_CACHE.lock().unwrap().get(packet_hash).cloned() {
-        return Packet::parse(bytes.as_slice().to_vec().into_boxed_slice())
-            .map_err(|error| format!("cached packet parse failed for {packet_hash}: {error}"));
-    }
-
     let packet = client
-        .get_packet_authenticated(&format!("////{packet_hash}"))
+        .get_packet_authenticated(&format!("////{hash}"))
         .await?;
-    PACKET_CACHE
-        .lock()
-        .unwrap()
-        .insert(packet_hash.to_string(), Arc::new(packet.as_bytes().to_vec()));
-    Ok(packet)
+    Ok(slice_bytes(packet.data(), offset, length).to_vec())
 }
 
 fn packet_headers(packet: &Packet) -> Vec<(String, String)> {

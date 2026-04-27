@@ -17,9 +17,8 @@ use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
 use crate::hppr::resolve::{
     HpprResolveError, resolve_document_with_snapshot, resolve_listing_with_snapshot,
-    route_configured_for_direct_endpoint,
 };
-use crate::hppr::url::{HAVIAddress, via_url};
+use crate::hppr::url::HAVIAddress;
 use crate::hppr::util::{html_escape, markdown_to_html, mime_from_path, render_hppr_error_page};
 
 /// Handle an hppr:// URL request.
@@ -37,33 +36,6 @@ pub async fn handle_request(
     };
 
     let parts = address.parts();
-    let location = address.location_with_slash();
-
-    if let Some(host) = address.endpoint_string() {
-        if host != "repo" && !parts.group.is_empty() && !parts.app.is_empty() {
-            let route_exists = route_configured_for_direct_endpoint(
-                &parts.group,
-                &parts.app,
-                client,
-                credential_store,
-            )
-            .await;
-            if !route_exists {
-                let setup_coord = if location.is_empty() || location == "/" {
-                    format!("hppr-setup://{}/{}/", parts.group, parts.app)
-                } else {
-                    format!("hppr-setup://{}/{}/{}", parts.group, parts.app, location)
-                };
-                let setup_url = via_url(&setup_coord, &host);
-                return PageResponse::html(render_setup_redirect(
-                    &setup_url,
-                    &host,
-                    &parts.group,
-                    &parts.app,
-                ));
-            }
-        }
-    }
 
     if address.is_listing() {
         handle_list(url, &parts.group, &parts.app, client, credential_store, reuse_source).await
@@ -210,8 +182,8 @@ async fn handle_list(
 
 async fn apply_page_context(
     response: &mut PageResponse,
-    endpoint: &str,
-    signer: Option<&Signer>,
+    _endpoint: &str,
+    _signer: Option<&Signer>,
     content_authority: Option<&str>,
     hppr_source: Option<&net_traits::HpprDocumentSource>,
     group: &str,
@@ -219,49 +191,20 @@ async fn apply_page_context(
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) {
-    response.hppr_endpoint = Some(endpoint.to_string());
+    let _ = (group, app, client, credential_store);
 
-    if !group.is_empty() && !app.is_empty() {
-        if let Ok(site_cred) = credential_store
-            .get_or_create_site_credential_async(group, app, client)
-            .await
-        {
-            response.site_credentials = Some((
-                site_cred.ring1_name.clone(),
-                site_cred.signing_key().to_string(),
-            ));
-        }
-    }
-
-    response.hppr_signer = signer.and_then(signer_identity_string);
+    // Ordinary hppr:// documents now carry their committed source through
+    // hppr_source directly. Site/home credentials are no longer injected into
+    // ordinary document metadata. Helper pages keep any explicit privileged
+    // access inside helper page code instead of document transport metadata.
     response.hppr_content_authority = content_authority.map(str::to_string);
     response.hppr_source = hppr_source.cloned();
 }
 
-fn signer_identity_string(signer: &Signer) -> Option<String> {
-    match signer {
-        Signer::Ring2 { group, signing_key } => Some(format!("ring2:{}|{}", group, signing_key)),
-        Signer::Ring1 {
-            ring1_name,
-            signing_key,
-        } => Some(format!("ring1:{}|{}", ring1_name, signing_key)),
-        Signer::Ring1Adhoc { token, ring1_name } => {
-            Some(format!("ring1:{}|{}", ring1_name, token))
-        },
-        Signer::Ring2Adhoc {
-            credential_input, ..
-        } => Some(format!("ring2:{}", credential_input)),
-        Signer::Ring2Contextual { username, password } => {
-            Some(format!("ring2:/{}|{}", username, password))
-        },
-        Signer::Anyone { .. } => None,
-    }
-}
-
 fn classify_routed_error(
     url: &str,
-    group: &str,
-    app: &str,
+    _group: &str,
+    _app: &str,
     address: &HAVIAddress,
     error: &HpprResolveError,
 ) -> Option<PageResponse> {
@@ -270,8 +213,19 @@ fn classify_routed_error(
     }
 
     if error.message.contains("UNAUTHORIZED not a member") {
-        eprintln!("[havi] hppr error: url={} action=join error={}", url, error.message);
-        return Some(unauthorized_join_redirect(group, app));
+        eprintln!(
+            "[havi] hppr error: url={} action=membership-required error={}",
+            url, error.message
+        );
+        return Some(
+            PageResponse::html(render_hppr_error_page(
+                "Membership Required",
+                &error.message,
+                Some("Automatic join helper pages were removed. Use an explicit external join workflow."),
+                Some(&error.lookup_trace),
+            ))
+            .with_hppr_lookup_trace(error.lookup_trace.clone()),
+        );
     }
 
     if error.message.contains("NOT_FOUND ring2 setup") {
@@ -322,83 +276,12 @@ fn classify_routed_error(
     None
 }
 
-fn unauthorized_join_redirect(group: &str, app: &str) -> PageResponse {
-    let join_url = format!("hppr-join://{}/{}/", group, app);
-    PageResponse::html(render_join_redirect(&join_url, group, app))
-}
-
-/// Render redirect page to hppr-setup for direct connections without existing route.
-fn render_setup_redirect(setup_url: &str, host: &str, group: &str, app: &str) -> String {
-    let css = r#"
-        body { max-width: 600px; margin: 80px auto; text-align: center; }
-        h1 { color: #f39c12; }
-    "#;
-
-    let escaped_url = html_escape(setup_url);
-    let escaped_host = html_escape(host);
-    let escaped_group = html_escape(group);
-    let escaped_app = html_escape(app);
-
-    format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="refresh" content="0; url={setup_url}">
-    <title>Setup Required - HAVI</title>
-    <style>{base}{extra}</style>
-</head>
-<body>
-    <h1>Setup Required</h1>
-    <p>Connecting to <strong>{host}</strong> for <code>//{group}/{app}/</code></p>
-    <p>Redirecting to setup page...</p>
-    <p><a href="{setup_url}">Click here if not redirected</a></p>
-</body>
-</html>"#,
-        base = crate::pages::page_shell::BASE_CSS,
-        extra = css,
-        setup_url = escaped_url,
-        host = escaped_host,
-        group = escaped_group,
-        app = escaped_app,
-    )
-}
-
-/// Render redirect page to hppr-join for unauthorized Ring2 access.
-fn render_join_redirect(join_url: &str, group: &str, app: &str) -> String {
-    let escaped_url = html_escape(join_url);
-    let escaped_group = html_escape(group);
-    let escaped_app = html_escape(app);
-
-    format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Join Required - HAVI</title>
-    <meta http-equiv="refresh" content="0;url={join_url}">
-    <style>{base}</style>
-</head>
-<body>
-    <h1>Join Required</h1>
-    <p>Access to <code>//{group}/{app}/</code> requires group membership.</p>
-    <p>Redirecting to join page...</p>
-    <p><a href="{join_url}">Click here if not redirected</a></p>
-</body>
-</html>"#,
-        base = crate::pages::page_shell::BASE_CSS,
-        join_url = escaped_url,
-        group = escaped_group,
-        app = escaped_app,
-    )
-}
-
-/// Render a user-friendly 404 page with coordinate info and editor link.
+/// Render a user-friendly 404 page with coordinate info.
 fn render_not_found_response(
     url: &str,
     lookup_trace: Option<&embedder_traits::HpprLookupTrace>,
 ) -> PageResponse {
-    let (coordinate, editor_url) = match HAVIAddress::parse(url) {
+    let coordinate = match HAVIAddress::parse(url) {
         Ok(addr) => {
             let parts = addr.parts();
             let location = addr.location_with_slash();
@@ -411,13 +294,9 @@ fn render_not_found_response(
             } else {
                 format!("//{}/{}/{}", parts.group, parts.app, location)
             };
-            let editor = format!("hppr-editor://{}/{}/{}", parts.group, parts.app, location);
-            (coord, editor)
+            coord
         },
-        Err(_) => {
-            let path = url.split("://").nth(1).unwrap_or("");
-            (path.to_string(), format!("hppr-editor://{}", path))
-        },
+        Err(_) => url.split("://").nth(1).unwrap_or("").to_string(),
     };
 
     let css = r#"
@@ -433,17 +312,6 @@ fn render_not_found_response(
             margin: 20px 0;
         }
         .message { color: #aaa; margin: 16px 0; }
-        .actions { margin-top: 24px; }
-        .actions a {
-            display: inline-block;
-            background: #4ecdc4;
-            color: #1a1a2e;
-            padding: 10px 20px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        .actions a:hover { background: #7fdbff; }
     "#;
 
     let details_html = lookup_trace
@@ -459,12 +327,8 @@ fn render_not_found_response(
         r#"    <h1>Not Found</h1>
     <p class="message">No packet exists at this coordinate:</p>
     <div class="coordinate">{coordinate}</div>
-    <div class="actions">
-        <a href="{editor_url}">Create with Editor</a>
-    </div>
     {details_html}"#,
         coordinate = html_escape(&coordinate),
-        editor_url = html_escape(&editor_url),
         details_html = details_html,
     );
 

@@ -41,10 +41,10 @@ HPPR route scheme effective resolver from `../../hppr/spec/100-SCHEMES.md`.
 
 That resolver combines:
 
-1. local exact-app route records in the home repo
-2. local exact-group route anchors in the home repo
+1. browser-local exact-app route records
+2. browser-local exact-group route anchors
 3. canonical public route discovery for public names
-4. local route auth attachment with exact-app override and group fallback
+4. browser-local route auth attachment with exact-app override and group fallback
 5. remote app content pointer resolution
 
 The packet structure and merge rules for route records are defined by the HPPR
@@ -67,14 +67,14 @@ Public-network rules:
   `Content-Authority`
 - if canonical public lookup fails for a public name and no local exact-group
   or terminal local exact-app record provides the effective route answer, the
-  browser MUST fail navigation instead of silently falling back to the home
-  repo
+  browser MUST fail navigation instead of silently falling back to a
+  browser-local repo source
 - an effective local route answer, including a terminal local exact-app
   bootstrap, is still a route-backed result; it does not convert navigation
-  into a generic home-repo document fetch
-- when effective resolution selects the home repo instead of a routed endpoint
-  (for example by browser-local policy such as `repo` or a non-public home
-  fallback), the source is not route-backed
+  into a generic browser-local document fetch
+- when effective resolution selects a browser-local repo source instead of a
+  routed endpoint (for example by browser-local policy such as `repo` or a
+  non-public local fallback), the source is not route-backed
 
 Fetch behavior:
 
@@ -119,9 +119,8 @@ For manifest-level inspection, use envelope/raw APIs in `060-JS-API.md`.
 
 Local filesystem content rendered as a browser page.
 
-- `window.home` available
-- `window.route` is `null`
-- `window.ring0` is `null`
+- `window.source` is `null`
+- `window.havi` is `null`
 - `document.packet` is `null`
 - `document.URC` is `null`
 - `document.URL` is the stripped file document URL without JSONqa view state
@@ -137,12 +136,12 @@ Local filesystem content rendered as a browser page.
 Filesystem I/O, origin, and relative-base resolution use the stripped file URL.
 JSONqa never becomes part of the filesystem path.
 
-All `file://` pages share one browser-defined local origin and one browser-defined
-site identity.
+All `file://` pages share one browser-defined local origin and one
+browser-defined local permission scope.
 
 ## Helper schemes
 
-Helper documents such as `havi:///overview` are browser-owned pages.
+Helper documents such as `havi:///diagnostics` are browser-owned pages.
 
 - `window.address` exists natively and exposes the exact helper `href` and
   `scheme`

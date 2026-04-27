@@ -10,6 +10,9 @@
 //! 3. `/tmp/HAVI/` (fallback)
 //!
 //! `HAVI_HOME` is reserved for hpprd endpoint specification (not a path).
+//! Browser-local non-repo state lives separately in `havi.sqlite`.
+//! `compat_repo_dir()` is only the current hpprd/pylon compatibility path while
+//! HAVI still boots through that runtime.
 
 use std::path::PathBuf;
 
@@ -54,9 +57,13 @@ pub fn ipc_socket_path() -> PathBuf {
     config_dir().join("havi.sock")
 }
 
-/// Directory for embedded hpprd repository.
+/// Legacy hpprd/pylon compatibility repository directory.
 /// Path: <config_dir>/repo/
-pub fn repo_dir() -> PathBuf {
+///
+/// This is not HAVI's browser-local state model. Browser-local non-repo state
+/// stays in `<config_dir>/havi.sqlite`. Runtime still needs this path until the
+/// later inline-store cut removes the hpprd/pylon bootstrap dependency.
+pub fn compat_repo_dir() -> PathBuf {
     config_dir().join("repo")
 }
 

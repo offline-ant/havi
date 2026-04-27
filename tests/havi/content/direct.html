@@ -2,67 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>HAVI Direct Connection Test Suite</title>
-  <style>
-    body { font-family: monospace; margin: 20px; }
-    .pass { color: green; }
-    .fail { color: red; }
-    pre { background: #f5f5f5; padding: 10px; overflow: auto; }
-  </style>
+  <title>HAVI Direct Hash Fixture</title>
 </head>
 <body>
-  <h1>HAVI Direct Connection Test Suite</h1>
-  <div id="status">Loading...</div>
-  <pre id="results"></pre>
-
-  <script src="test-utils.js"></script>
-  <script>
-    async function suite_direct() {
-        log('--- content loading tests ---');
-        assert(document.packet !== null, 'document.packet exists');
-        assertEqual(document.packet.type, 'Seal', 'document.packet is a Seal');
-        assertEqual(document.packet.group, '~directtest', 'document.packet.group is ~directtest');
-        assertEqual(document.packet.app, 'testapp', 'document.packet.app is testapp');
-
-        log('--- exact vs projected identity ---');
-        assertContains(window.address.href, 'hppr:////S.', 'window.address keeps direct-hash exact address');
-        assertEqual(window.address.scheme, 'hppr', 'window.address.scheme is hppr');
-        assertEqual(window.address.group, null, 'direct-hash window.address.group is null');
-        assertEqual(window.address.app, null, 'direct-hash window.address.app is null');
-        assert(window.address.urc === window.address.urc, 'window.address.urc is SameObject');
-        assertEqual(window.address.urc.method, 'hash', 'window.address.urc stays a hash URC');
-        assertEqual(document.URL, 'hppr://~directtest/testapp/direct.html', 'document.URL projects packet coordinate identity');
-        assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
-        assertEqual(
-            document.URC,
-            '//~directtest/testapp/direct.html/|/seal/' + document.packet.sealBy + '/' + document.packet.tai + '/' + document.packet.hash,
-            'document.URC derives exact versioned coordinate from loaded packet'
-        );
-
-        log('--- window.home tests ---');
-        assert(window.home !== null, 'window.home exists');
-        assertEqual(window.home.kind, 'ring1', 'window.home.kind is ring1');
-        assert(window.home.endpoint !== null, 'window.home.endpoint exists');
-
-        log('--- window.route.anyone tests (removed) ---');
-        assertEqual(window.route.anyone, undefined, 'window.route.anyone is undefined (removed from API)');
-
-        log('--- window.ring0 tests (direct = not havi://) ---');
-        assertEqual(window.ring0, null, 'window.ring0 is null on direct page');
-
-        log('--- window.route tests (direct = no identity) ---');
-        assert(window.route === null, 'window.route is null for direct connection (no identity)');
-    }
-
-    (async function() {
-      const summary = await window.runTests(suite_direct, 'direct');
-      window.testResults = summary;
-      document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
-      document.getElementById('status').textContent = summary.failed === 0
-        ? 'All tests passed!'
-        : 'Some tests failed';
-      document.getElementById('results').textContent = summary.results.join('\n');
-    })();
-  </script>
+  <h1>HAVI Direct Hash Fixture</h1>
+  <p>This page exists only as direct-hash packet content for direct-urc-test.sh.</p>
 </body>
 </html>

@@ -733,6 +733,9 @@ pub enum CoreResourceMsg {
     ///
     /// Handles data-plane operations: GET, LIST, TIPS, HEADERS, STORE, ADD, DETACH, HELLO.
     /// These are network I/O operations that communicate with hpprd repo daemons.
+    /// Browser-owned committed repo-source clients do not use this path; they
+    /// go through embedder-controlled local operations instead of fake
+    /// endpoint+signer transport parameters.
     HpprOperation {
         /// Repo endpoint as parsed ViaSpec.
         endpoint: HpprViaSpec,
@@ -1188,19 +1191,16 @@ pub struct Metadata {
     pub hppr_packet: Option<hppr_packet::Packet>,
     /// HPPR: canonical lookup trace for the current page load.
     pub hppr_lookup_trace: Option<HpprLookupTrace>,
-    /// HPPR: endpoint address used to fetch this content.
-    pub hppr_endpoint: Option<String>,
     /// HPPR: resolved content authority for the loaded content.
     pub hppr_content_authority: Option<String>,
-    /// HPPR: canonical resolved document source snapshot.
+    /// HPPR: canonical resolved document source snapshot for ordinary `hppr://`
+    /// documents.
+    ///
+    /// Helper pages, `file://` pages, and non-HPPR pages leave this unset.
     #[ignore_malloc_size_of = "HPPR document source"]
     pub hppr_source: Option<HpprDocumentSource>,
-    /// HPPR: site ring1 credentials (ring1_name, signing_key) for the home repo (window.home).
-    pub site_credentials: Option<(String, String)>,
-    /// HPPR: pre-built signer for ring2 auth (window.route).
-    #[ignore_malloc_size_of = "hppr_client::Signer"]
-    pub hppr_signer: Option<HpprSigner>,
-    /// HPPR: admin credentials (ring1_name, signing_key) for window.ring0.
+    /// HPPR: helper-page admin credentials (ring1_name, signing_key) for
+    /// `window.havi.admin.client`.
     pub admin_credentials: Option<(String, String)>,
 }
 
@@ -1222,11 +1222,8 @@ impl Metadata {
             tls_security_info: None,
             hppr_packet: None,
             hppr_lookup_trace: None,
-            hppr_endpoint: None,
             hppr_content_authority: None,
             hppr_source: None,
-            site_credentials: None,
-            hppr_signer: None,
             admin_credentials: None,
         }
     }

@@ -11,14 +11,6 @@ browser shell behavior.
 HAVI provides browser-owned helper schemes in addition to `hppr://` and
 `file://`.
 
-### `hppr-setup://`
-
-Route setup flow for first-contact endpoint approval and local route storage.
-
-### `hppr-join://`
-
-HAVI join and login flow for Ring2-backed groups.
-
 ### `hppr-sandbox://`
 
 Untrusted preview mode.
@@ -27,22 +19,56 @@ Untrusted preview mode.
 
 Read-only directory explorer for coordinate trees.
 
-### `hppr-editor://`
-
-Local packet editor.
-
 ### `havi://`
 
 Internal HAVI administration pages.
 
-Current pages include:
+Current surviving internal pages include:
+
+- `havi:///home-repo` — repo status, name, and named-client grant management
+- `havi:///routes`
+- `havi:///anyone`
+- `havi:///ring2`
+- `havi:///ring1`
+- `havi:///ring0`
+- `havi:///diagnostics`
+
+Deleted in this cut:
 
 - `havi:///overview`
-- `havi:///diagnostics`
 - `havi:///services`
 
 These pages are implementation-defined UI. They are not part of the generic
 HPPR browser spec.
+
+## Committed page source and helper metadata
+
+Current HAVI page classes are explicit:
+
+- ordinary `hppr://` documents commit `hppr_source` as the page source of truth
+  at document commit time
+- ordinary `hppr://` documents derive endpoint and signer from that committed
+  source snapshot; they do not receive ambient site/home credential blobs
+- ordinary repo-backed documents now expose `window.source` with committed
+  `client`, `authority`, and `kind`
+- committed repo-backed `window.source.client` uses a browser-owned local
+  backend path instead of fake endpoint/signing metadata
+- ordinary pages no longer expose `window.home` or `window.route`
+- raw `HpprClient.connect*()` is helper/privileged-only
+- ordinary routed media resolution reuses the committed document source snapshot
+  through the originating `pipeline_id`
+- `file://` documents do not carry `hppr_source`, endpoint, signer, or admin
+  credentials, and `window.source === null`
+- helper pages do not carry `hppr_source` by default; `window.source === null`
+  there, and any helper-only privileged access stays explicit in helper page
+  code instead of document transport metadata
+- current helper behavior is:
+  - surviving privileged `havi://` pages may expose `window.havi`
+  - when helper-page admin credentials are present, `window.havi.admin.client`
+    is the explicit internal admin client and `window.havi.admin.repo` is the
+    explicit repo-runtime inspection surface
+- non-HPPR pages carry no HPPR source metadata and no helper credential
+  metadata
 
 ## Local runtime and configuration
 
@@ -74,8 +100,11 @@ loop wakeups do not extend screenshot settling. The final PNG is captured from
 the browser-owned page output surface, not from shell chrome composition.
 Stable surface-cache reuse is separate from this capture path.
 
-When `HAVI_HOME` is unset, HAVI runs with a local repo under the config
-location.
+When `HAVI_HOME` is unset, current HAVI still boots pylon/hpprd against the
+compatibility repo path under the config location (`<config_dir>/repo`, desktop
+default `~/.config/HAVI/repo`). That path is legacy runtime compatibility
+state, not the browser-local state model. Browser-local non-repo state stays in
+`<config_dir>/havi.sqlite`.
 
 ### Public network routing
 
@@ -93,19 +122,16 @@ Current HAVI behavior:
 - failed canonical public lookup for a public name is a navigation failure
   unless local exact-group or terminal local exact-app records supply the
   effective route answer
-- HAVI does not silently fall back to generic home-repo content for that case
-- `hppr-join://` is used only for routed `UNAUTHORIZED not a member` failures
-- missing Ring2 setup on the target repo is shown as a route setup error, not a
-  join flow
+- HAVI does not silently fall back to generic browser-local repo content for that case
+- routed `UNAUTHORIZED not a member` failures now stay explicit error pages
+- missing Ring2 setup on the target repo is shown as a route setup error
 
 ## Pylon integration
 
 HAVI runs through pylon.
 
-HAVI exposes pylon management through `havi:///services`.
-
-The shell pylon indicator is status-first. It opens a compact status panel and
-links to `havi:///services` for service management.
+The shell pylon indicator is status-first. It opens a compact status panel for
+current state only. Service-management helper pages are deleted in this cut.
 
 ### Pylon indicator
 
@@ -135,8 +161,8 @@ Current HAVI shell behavior:
   current HPPR lookup trace when available
 - inspector v1 actions are copy lookup trace, open `havi:///diagnostics`, and
   open the final resolved target when the trace has one
-- advanced shell actions such as share, edit, watch, shadow, home, dock, and
-  services live in the overflow panel
+- advanced shell actions such as share, watch, shadow, home, and dock live in
+  the overflow panel
 - `Ctrl+T` on Linux and Windows opens a new tab
 - `Command+T` on macOS opens a new tab
 - middle click on a tab closes it
@@ -193,14 +219,6 @@ remains the deeper active probe tool.
 Current API commands:
 
 - `inspect`
-- `join_fixture_get`
-- `join_fixture_set`
-
-Join fixture states:
-
-- `none`
-- `pending`
-- `approved`
 
 ## DevTools actors
 
@@ -226,14 +244,13 @@ Operations:
 
 These actors are HAVI shell tooling, not part of the web platform surface.
 
-## Site accounts and route auth
+## Route auth
 
-HAVI creates per-origin site Ring1 identities using:
+HAVI no longer grants ordinary pages per-origin site Ring1 identities or
+ambient `window.home` credentials.
 
-`site:<group>#<app>`
-
-HAVI also reads and writes local route auth records under `//repo/route/auth/`
-as part of HPPR route-scheme behavior.
+Current browser-owned auth writes are limited to local route auth records under
+`//repo/route/auth/` as part of HPPR route-scheme behavior.
 Exact-app auth overrides group-default auth.
 When no local route auth record exists, routed access falls back to `anyone`.
 Join/setup pages are HAVI UI on top of that general HPPR mechanism.

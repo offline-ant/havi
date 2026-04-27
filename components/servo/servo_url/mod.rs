@@ -236,7 +236,7 @@ impl MallocSizeOf for FileDocumentUrlData {
 pub enum BrowserUrl {
     /// Standard web URL (http, https, about, data, etc.).
     Web(#[allow(unused)] Arc<Url>),
-    /// HPPR-family URL (hppr, hppr-sandbox, hppr-setup, hppr-browse, hppr-editor, hppr-join, havi).
+    /// HPPR-family URL (hppr, hppr-sandbox, hppr-browse, havi).
     Hppr(Arc<HpprUrlData>),
     /// Top-level file document URL with exact HAVI JSONqa state separated from load identity.
     FileDocument(Arc<FileDocumentUrlData>),
@@ -1430,20 +1430,7 @@ mod tests {
         assert!(a.is_equal_excluding_fragments(&b));
     }
 
-    #[test]
-    fn hppr_editor_scheme() {
-        let url = BrowserUrl::parse("hppr-editor://g/a/loc").unwrap();
-        assert!(matches!(url, BrowserUrl::Hppr(_)));
-        assert_eq!(url.scheme(), "hppr-editor");
-    }
 
-    #[test]
-    fn hppr_join_scheme() {
-        let url = BrowserUrl::parse("hppr-join://sol/chat/").unwrap();
-        assert!(matches!(url, BrowserUrl::Hppr(_)));
-        assert_eq!(url.scheme(), "hppr-join");
-        assert_eq!(url.as_str(), "hppr-join://sol/chat/");
-    }
 
     #[test]
     fn havi_scheme_parses_as_web() {

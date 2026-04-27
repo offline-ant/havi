@@ -5,7 +5,7 @@
 //! HPPR URL types for HAVI protocol handlers.
 //!
 //! Provides unified parsing for all HPPR-family URLs:
-//! - `hppr://`, `hppr-setup:`, `hppr-sandbox:`, `hppr-browse://`, `hppr-editor://`, `hppr-join://` - URC-based URLs
+//! - `hppr://`, `hppr-sandbox:`, `hppr-browse://` - URC-based URLs
 //! - `havi://` - Admin page URLs with simple path format
 //!
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
@@ -22,16 +22,10 @@ use std::fmt;
 pub enum HpprScheme {
     /// hppr:// - Standard content retrieval with optional route lookup
     Hppr,
-    /// hppr-setup: - Trust establishment (requires endpoint via {via:...})
-    HpprSetup,
     /// hppr-sandbox: - Sandboxed preview (requires endpoint via {via:...})
     HpprSandbox,
     /// hppr-browse:// - Directory browser
     HpprBrowse,
-    /// hppr-editor:// - Local editor (no endpoint)
-    HpprEditor,
-    /// hppr-join:// - Ring2 join request flow
-    HpprJoin,
 }
 
 impl HpprScheme {
@@ -39,22 +33,19 @@ impl HpprScheme {
     pub fn prefix(&self) -> &'static str {
         match self {
             HpprScheme::Hppr => "hppr:",
-            HpprScheme::HpprSetup => "hppr-setup:",
             HpprScheme::HpprSandbox => "hppr-sandbox:",
             HpprScheme::HpprBrowse => "hppr-browse:",
-            HpprScheme::HpprEditor => "hppr-editor:",
-            HpprScheme::HpprJoin => "hppr-join:",
         }
     }
 
     /// Returns whether this scheme requires an endpoint ({via:...}).
     pub fn requires_endpoint(&self) -> bool {
-        matches!(self, HpprScheme::HpprSetup | HpprScheme::HpprSandbox)
+        matches!(self, HpprScheme::HpprSandbox)
     }
 
     /// Returns whether this scheme forbids an endpoint.
     pub fn forbids_endpoint(&self) -> bool {
-        matches!(self, HpprScheme::HpprEditor)
+        false
     }
 }
 
@@ -266,16 +257,10 @@ impl HAVIAddress {
     /// `{via:host:port}` JSONqa suffix.
     pub fn parse(url: &str) -> Result<Self, HpprUrlParseError> {
         // Detect scheme (order matters - longer prefixes first)
-        let (scheme, rest) = if let Some(r) = url.strip_prefix("hppr-editor:") {
-            (HpprScheme::HpprEditor, r)
-        } else if let Some(r) = url.strip_prefix("hppr-setup:") {
-            (HpprScheme::HpprSetup, r)
-        } else if let Some(r) = url.strip_prefix("hppr-sandbox:") {
+        let (scheme, rest) = if let Some(r) = url.strip_prefix("hppr-sandbox:") {
             (HpprScheme::HpprSandbox, r)
         } else if let Some(r) = url.strip_prefix("hppr-browse:") {
             (HpprScheme::HpprBrowse, r)
-        } else if let Some(r) = url.strip_prefix("hppr-join:") {
-            (HpprScheme::HpprJoin, r)
         } else if let Some(r) = url.strip_prefix("hppr:") {
             (HpprScheme::Hppr, r)
         } else {
@@ -563,38 +548,9 @@ mod tests {
         assert!(url.is_listing());
     }
 
-    #[test]
-    fn test_hppr_editor() {
-        let url = HAVIAddress::parse("hppr-editor://u/web/index.html").unwrap();
-        assert_eq!(url.scheme(), HpprScheme::HpprEditor);
-        assert!(url.endpoint().is_none());
-        assert_eq!(url.group(), Some("u".to_string()));
-        assert_eq!(url.app(), Some("web".to_string()));
-        assert_eq!(url.location(), Some("index.html".to_string()));
-    }
 
-    #[test]
-    fn test_hppr_editor_rejects_endpoint() {
-        let result = HAVIAddress::parse("hppr-editor://u/web/index.html{via:127.0.0.1}");
-        assert!(matches!(result, Err(HpprUrlParseError::EndpointNotAllowed)));
-    }
 
-    #[test]
-    fn test_hppr_setup() {
-        let url = HAVIAddress::parse("hppr-setup://chess/game/{via:192.168.1.10}").unwrap();
-        assert_eq!(url.scheme(), HpprScheme::HpprSetup);
-        let ep = url.endpoint().unwrap();
-        assert_eq!(ep.host(), "192.168.1.10");
-        assert_eq!(ep.port(), 4777);
-        assert_eq!(url.group(), Some("chess".to_string()));
-        assert_eq!(url.app(), Some("game".to_string()));
-    }
 
-    #[test]
-    fn test_hppr_setup_requires_endpoint() {
-        let result = HAVIAddress::parse("hppr-setup://chess/game/");
-        assert!(matches!(result, Err(HpprUrlParseError::MissingEndpoint)));
-    }
 
     #[test]
     fn test_hppr_sandbox() {
@@ -624,15 +580,6 @@ mod tests {
         assert!(url.is_listing());
     }
 
-    #[test]
-    fn test_hppr_join() {
-        let url = HAVIAddress::parse("hppr-join://sol/chat/").unwrap();
-        assert_eq!(url.scheme(), HpprScheme::HpprJoin);
-        assert!(url.endpoint().is_none());
-        assert_eq!(url.group(), Some("sol".to_string()));
-        assert_eq!(url.app(), Some("chat".to_string()));
-        assert!(url.is_listing());
-    }
 
     #[test]
     fn test_unknown_scheme() {
@@ -695,11 +642,6 @@ mod tests {
         assert_eq!(parts.app, "game");
         assert_eq!(parts.location, "board.html");
 
-        let url = HAVIAddress::parse("hppr-setup://chess/game/{via:192.168.1.10}").unwrap();
-        let parts = url.parts();
-        assert_eq!(parts.group, "chess");
-        assert_eq!(parts.app, "game");
-        assert_eq!(parts.location, "");
     }
 
     #[test]

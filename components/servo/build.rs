@@ -14,9 +14,13 @@ fn generate_havi_typings(protocol_root: &Path, js_dir: &Path, webidl_dir: &Path)
     println!("cargo:rerun-if-changed={}", script.display());
 
     let idl_inputs = [
+        "HaviAdmin.webidl",
+        "HaviInternal.webidl",
         "HpprClient.webidl",
         "EnvelopeHpprClient.webidl",
         "HpprPacket.webidl",
+        "HpprResolveResult.webidl",
+        "HpprSource.webidl",
         "WatchSocket.webidl",
         "StreamPub.webidl",
         "StreamSub.webidl",

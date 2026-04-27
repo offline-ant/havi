@@ -73,9 +73,10 @@
     }
 
     async function suite_video_chat_path() {
-      const home = window.home;
-      const streamRepo = await HpprClient.connect(home.endpoint, 'anyone');
-      assert(home !== null && home !== undefined, 'window.home exists');
+      const source = window.source;
+      const streamRepo = source.client;
+      assert(source !== null, 'window.source exists');
+      assertEqual(source.kind, 'remote', 'window.source.kind is remote for transport-backed video chat path');
       assert(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function',
           'navigator.mediaDevices.getUserMedia exists');
       assert(typeof window.MediaRecorder === 'function', 'MediaRecorder is exposed');
@@ -92,7 +93,6 @@
         });
         log('PASS: getUserMedia(video) resolved');
       } catch (e) {
-        // CI may not provide camera devices; still verify API + srcObject path.
         localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: false });
         log('PASS: getUserMedia(video:false,audio:false) fallback resolved');
       }
@@ -109,8 +109,7 @@
       const app = document.packet.app;
       const prefix = '//' + group + '/' + app + '/live/chat-path-' + Date.now();
 
-      // Fetch signing key stored by test harness for cooked StreamPub
-      const keyPacket = await home.get('//' + group + '/' + app + '/testkey');
+      const keyPacket = await streamRepo.get('//' + group + '/' + app + '/testkey');
       const signingKey = keyPacket.text();
       assert(signingKey.startsWith('&.'), 'signing key loaded');
 
@@ -126,7 +125,6 @@
       const expected2 = new TextEncoder().encode('beta-012345');
       const wire = concatArrays([frameChunk(expected1), frameChunk(expected2)]);
 
-      // Force split/coalesce behavior across frame boundaries.
       let sent = 0;
       const split = [1, 2, 3, 1, 4, 7, 2, 9];
       for (const n of split) {
@@ -143,7 +141,7 @@
       log('PASS: framed bytes written to StreamPub, segment finished, and stream closed');
 
       await new Promise((resolve) => setTimeout(resolve, 500));
-      const storedPacket = await home.get(prefix);
+      const storedPacket = await streamRepo.get(prefix);
       const received = [];
       const parser = new ChunkParser((chunk) => received.push(chunk));
       parser.push(new Uint8Array(storedPacket.arrayBuffer()));

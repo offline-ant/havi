@@ -69,10 +69,6 @@
         const direct = new Address('hppr://chess/game/{via:192.168.1.5}');
         assertEqual(direct.qa.via, '192.168.1.5', 'exact via text stays in qa.via');
 
-        const addrSetup = new Address('hppr-setup://chess/game/{via:192.168.1.5}');
-        assertEqual(addrSetup.scheme, 'hppr-setup', 'hppr-setup scheme detected');
-        assertEqual(addrSetup.qa.via, '192.168.1.5', 'hppr-setup keeps required exact via text');
-
         const sandbox = new Address('hppr-sandbox://group/app/{via:10.0.0.5:4778}');
         assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme detected');
 
@@ -87,11 +83,15 @@
 
         let addrError2 = null;
         try { new Address('hppr-setup://chess/game/'); } catch (e) { addrError2 = e; }
-        assert(addrError2 !== null, 'hppr-setup requires via');
+        assert(addrError2 !== null, 'removed hppr-setup scheme rejects parsing');
 
         let addrError3 = null;
-        try { new Address('hppr-editor://chess/game/{via:127.0.0.1}'); } catch (e) { addrError3 = e; }
-        assert(addrError3 !== null, 'hppr-editor forbids via');
+        try { new Address('hppr-editor://chess/game/'); } catch (e) { addrError3 = e; }
+        assert(addrError3 !== null, 'removed hppr-editor scheme rejects parsing');
+
+        let addrError4 = null;
+        try { new Address('hppr-join://chess/game/'); } catch (e) { addrError4 = e; }
+        assert(addrError4 !== null, 'removed hppr-join scheme rejects parsing');
 
         log('--- window.location compatibility shim ---');
         assert(window.location !== null, 'window.location exists');

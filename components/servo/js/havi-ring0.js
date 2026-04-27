@@ -1,6 +1,8 @@
 // @ts-check
 /// <reference path="havi.d.ts" />
 
+const adminClient = window.havi?.admin?.client ?? null;
+
 /** @param {string} text @param {boolean} isError */
 function showMessage(text, isError) {
     const el = document.getElementById('message');
@@ -18,21 +20,21 @@ async function scanRequests() {
     const requests = [];
 
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        const ring1Names = await window.ring0.list('//repo/admin/ring1/');
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+        const ring1Names = await adminClient.list('//repo/admin/ring1/');
 
         for (const nameEntry of ring1Names) {
             const name = nameEntry.replace(/\/$/, '');
-            if (['ring0', 'anyone', 'guest'].includes(name)) continue;
+            if (['ring0', 'anyone'].includes(name)) continue;
 
             const cmds = ['LIST', 'HEADERS', 'ADD'];
             for (const cmd of cmds) {
                 try {
                     const reqUrc = '//repo/admin/ring1/' + name + '/' + cmd + '/|';
-                    const packet = await window.ring0.get(reqUrc);
+                    const packet = await adminClient.get(reqUrc);
                     let hasReply = false;
                     try {
-                        await window.ring0.get('//repo/admin/ring1/' + name + '/' + cmd + '/reply/|');
+                        await adminClient.get('//repo/admin/ring1/' + name + '/' + cmd + '/reply/|');
                         hasReply = true;
                     } catch (_e) {
                         // No reply yet
@@ -92,9 +94,9 @@ async function scanRequests() {
  * @param {string} data
  */
 async function writeProxyReply(ring1Name, cmd, reqHash, data) {
-    if (!window.ring0) throw new Error('ring0 unavailable');
+    if (!adminClient) throw new Error('window.havi.admin.client unavailable');
     const now = Math.floor(Date.now() / 1000) + ':00000000';
-    await window.ring0.add({
+    await adminClient.add({
         headers: [
             'Group: repo',
             'App: admin',
@@ -113,8 +115,8 @@ async function writeProxyReply(ring1Name, cmd, reqHash, data) {
  */
 async function approveRequest(ring1Name, cmd, reqHash) {
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        const reqPacket = await window.ring0.get('//repo/admin/ring1/' + ring1Name + '/' + cmd + '/|');
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+        const reqPacket = await adminClient.get('//repo/admin/ring1/' + ring1Name + '/' + cmd + '/|');
         const payload = reqPacket.text();
         /** @type {string} */
         let resultPayload;
@@ -126,7 +128,7 @@ async function approveRequest(ring1Name, cmd, reqHash) {
                     showMessage('Request has no target coordinate', true);
                     return;
                 }
-                const entries = await window.ring0.list(targetCoord);
+                const entries = await adminClient.list(targetCoord);
                 resultPayload = entries.join('\n');
                 break;
             }
@@ -137,7 +139,7 @@ async function approveRequest(ring1Name, cmd, reqHash) {
                     showMessage('Request has no target coordinate', true);
                     return;
                 }
-                const hdrs = await window.ring0.headers(targetCoord);
+                const hdrs = await adminClient.headers(targetCoord);
                 resultPayload = hdrs.join('\n');
                 break;
             }
@@ -158,7 +160,7 @@ async function approveRequest(ring1Name, cmd, reqHash) {
                     return;
                 }
 
-                const hashes = await window.ring0.add({
+                const hashes = await adminClient.add({
                     headers: headers,
                     data: dataText
                 });
@@ -206,8 +208,8 @@ let _scanTimer;
 
 function startWatch() {
     try {
-        if (!window.ring0) return;
-        watchSocket = window.ring0.watch('//repo/admin/ring1/');
+        if (!adminClient) return;
+        watchSocket = adminClient.watch('//repo/admin/ring1/');
         watchSocket.onmessage = () => {
             clearTimeout(_scanTimer);
             _scanTimer = setTimeout(scanRequests, 500);

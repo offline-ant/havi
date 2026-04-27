@@ -1,6 +1,8 @@
 // @ts-check
 /// <reference path="havi.d.ts" />
 
+const adminClient = window.havi?.admin?.client ?? null;
+
 /**
  * @typedef {{ coord: string, ops: string }} AclRule
  */
@@ -216,8 +218,8 @@ function addRule() {
 
 async function loadRules() {
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
-        const packet = await window.ring0.get('//repo/admin/ring1/anyone/setup/|');
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
+        const packet = await adminClient.get('//repo/admin/ring1/anyone/policy/|');
         rules = [];
 
         for (const h of packet.getHeaders('ACL-Rule')) {
@@ -247,18 +249,17 @@ async function loadRules() {
 
 async function saveRules() {
     try {
-        if (!window.ring0) throw new Error('ring0 unavailable');
+        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
         rules.sort((a, b) => sortCoords(a.coord, b.coord));
 
         const headers = [
             'Group: repo',
             'App: admin',
-            'Location: ring1/anyone/setup',
-            'Ring1-Name: anyone',
+            'Location: ring1/anyone/policy',
             ...rules.map(r => 'ACL-Rule: ' + r.ops + ' ' + r.coord)
         ];
 
-        await window.ring0.add({ headers: headers, data: '' });
+        await adminClient.add({ headers: headers, data: '' });
         showMessage('Rules saved successfully', false);
         markClean();
         renderRules();

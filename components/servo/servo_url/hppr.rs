@@ -5,7 +5,7 @@
 //! HPPR URL types for HAVI protocol handlers.
 //!
 //! Provides unified parsing for all HPPR-family URLs:
-//! - `hppr://`, `hppr-setup:`, `hppr-sandbox:`, `hppr-browse://`, `hppr-editor://`, `hppr-join://` - URC-based URLs
+//! - `hppr://`, `hppr-sandbox:`, `hppr-browse://` - URC-based URLs
 //! - `havi://` - Admin page URLs with simple path format
 //!
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
@@ -18,31 +18,25 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HpprScheme {
     Hppr,
-    HpprSetup,
     HpprSandbox,
     HpprBrowse,
-    HpprEditor,
-    HpprJoin,
 }
 
 impl HpprScheme {
     pub fn prefix(&self) -> &'static str {
         match self {
             HpprScheme::Hppr => "hppr:",
-            HpprScheme::HpprSetup => "hppr-setup:",
             HpprScheme::HpprSandbox => "hppr-sandbox:",
             HpprScheme::HpprBrowse => "hppr-browse:",
-            HpprScheme::HpprEditor => "hppr-editor:",
-            HpprScheme::HpprJoin => "hppr-join:",
         }
     }
 
     pub fn requires_endpoint(&self) -> bool {
-        matches!(self, HpprScheme::HpprSetup | HpprScheme::HpprSandbox)
+        matches!(self, HpprScheme::HpprSandbox)
     }
 
     pub fn forbids_endpoint(&self) -> bool {
-        matches!(self, HpprScheme::HpprEditor)
+        false
     }
 }
 
@@ -204,16 +198,10 @@ pub struct HAVIAddress {
 
 impl HAVIAddress {
     pub fn parse(url: &str) -> Result<Self, HpprUrlParseError> {
-        let (scheme, rest) = if let Some(r) = url.strip_prefix("hppr-editor:") {
-            (HpprScheme::HpprEditor, r)
-        } else if let Some(r) = url.strip_prefix("hppr-setup:") {
-            (HpprScheme::HpprSetup, r)
-        } else if let Some(r) = url.strip_prefix("hppr-sandbox:") {
+        let (scheme, rest) = if let Some(r) = url.strip_prefix("hppr-sandbox:") {
             (HpprScheme::HpprSandbox, r)
         } else if let Some(r) = url.strip_prefix("hppr-browse:") {
             (HpprScheme::HpprBrowse, r)
-        } else if let Some(r) = url.strip_prefix("hppr-join:") {
-            (HpprScheme::HpprJoin, r)
         } else if let Some(r) = url.strip_prefix("hppr:") {
             (HpprScheme::Hppr, r)
         } else {

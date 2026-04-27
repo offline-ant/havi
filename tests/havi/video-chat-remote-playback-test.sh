@@ -5,14 +5,19 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="video-chat-remote-playback"
-TEST_GROUP="videochatremote"
+TEST_GROUP="~videochatremote"
 TEST_APP="testapp"
 
 start_server
-setup_acl "$TEST_GROUP" "$TEST_APP"
-create_key
+start_remote_server
+setup_remote_acl "$TEST_GROUP" "$TEST_APP" "rwl"
+create_remote_key
 
-HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/video-chat.html" < "$FORGE_ROOT/video-chat.html"
+HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/video-chat.html" < "$FORGE_ROOT/video-chat.html"
+
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
+setup_route "$TEST_GROUP" "$TEST_APP"
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat.html"
 
@@ -92,7 +97,7 @@ start_servo "hppr://$TEST_GROUP/$TEST_APP/video-chat.html"
         'receiver mode is valid'
       );
 
-      const streamPub = window.home.streamPub(prefix);
+      const streamPub = window.source.client.streamPub(prefix);
       await waitOpen(streamPub, 'streamPub');
       assert(streamPub.readyState === 1, 'streamPub opened for receiver feed');
 

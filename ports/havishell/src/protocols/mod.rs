@@ -11,10 +11,7 @@ pub mod file;
 pub mod havi;
 pub mod hppr;
 pub mod hppr_browse;
-pub mod hppr_editor;
-pub mod hppr_join;
 pub mod hppr_sandbox;
-pub mod hppr_setup;
 
 use libhavi::hppr::PageResponse;
 use libhavi::BrowserUrl;
@@ -45,15 +42,6 @@ fn page_response_to_servo(
     }
     response.hppr_packet = page.hppr_packet;
     response.hppr_lookup_trace = page.hppr_lookup_trace;
-    response.site_credentials = page.site_credentials;
-    if let Some(endpoint) = page.hppr_endpoint {
-        response.hppr_endpoint = Some(endpoint);
-    }
-    if let Some(signer) = page.hppr_signer {
-        if let Ok(parsed) = hppr_client::Signer::parse(&signer) {
-            response.hppr_signer = Some(parsed);
-        }
-    }
     response.hppr_content_authority = page.hppr_content_authority;
     response.hppr_source = page.hppr_source;
     response

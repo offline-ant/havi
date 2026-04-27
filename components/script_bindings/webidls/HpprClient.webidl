@@ -8,11 +8,6 @@ dictionary HpprAddOptions {
     (Blob or ArrayBuffer or ArrayBufferView or USVString) data;  // Packet body
 };
 
-// Options for HpprClient.repo()
-dictionary HpprRepoOptions {
-    DOMString role;  // Optional role name for elevated access (HAVI-role:<app>#<role>)
-};
-
 dictionary HpprGreeting {
     required DOMString repoName;
     required DOMString sessionId;
@@ -28,11 +23,6 @@ dictionary HpprGreeting {
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface HpprClient {
-    // Repo client with optional role for elevated access
-    // Without role: uses site sandbox HAVI-site:<group>#<app>
-    // With role: uses elevated HAVI-role:<app>#<role>, signed by site key
-    [NewObject, Throws] static Promise<HpprClient> home(optional HpprRepoOptions options = {});
-
     // Remote client with optional identity string
     // Omitted or empty: anyone (no authentication)
     // Identity formats: ring1:<name>|<password>, ring1:<name>|&.key.H3,
@@ -46,6 +36,9 @@ interface HpprClient {
         DOMString username,
         DOMString password
     );
+
+    // Browser-mediated named client, subject to origin grant.
+    [NewObject, Throws] static Promise<HpprClient> named(DOMString name);
 
     // Convert to EnvelopeHpprClient (returns HpprResult with envelopes)
     [NewObject] EnvelopeHpprClient envelope();
@@ -70,9 +63,6 @@ interface HpprClient {
 
     // Get repo greeting via HELLO command (remote clients only)
     [NewObject] Promise<HpprGreeting> hello();
-
-    // Admin-only sub-objects (null for non-ring0 clients)
-    [SameObject] readonly attribute HpprRepoInfo? repo;
 
     // WATCH streaming - monitors coordinate prefix for changes
     WatchSocket watch(USVString urc);

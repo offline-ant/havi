@@ -6,48 +6,57 @@ Implementation-specific shell behavior, local database layout, watch controls,
 shadow workflows, diagnostics pages, and service management belong in
 `../reference.md`.
 
-## Home repo role
+## Browser-local state role
 
-An HPPR browser uses a home repo for persistent local state.
+An HPPR browser keeps browser-local packet and policy state for persistent local
+behavior.
 
-Typical home-repo uses include:
+Typical browser-local uses include:
 
 - cached packets
-- local user data
-- route configuration
-- trust configuration
-- locally authored content
+- local route configuration
+- local trust configuration
+- browser-owned policy state
+- optionally locally authored content
 
 The storage backend and local process model are implementation-defined.
 
 ## Clients exposed to page code
 
-- `window.home` targets the home repo and is always available.
-- `window.route` targets the selected route repo when one is available.
+Current committed-source behavior:
 
-`window.route` may be `null` when no route exists, no usable route endpoint is
-available after effective resolution, or the current document has no
-route-backed source.
-When effective resolution selects the home repo as the source, that document is
-not route-backed and `window.route` is `null`.
-An effective local route answer, including a terminal local exact-app
-bootstrap, still exposes `window.route`.
-Absence of local route auth falls back to `anyone` and does not by itself make
-`window.route` null.
+- `window.source` is the ambient committed-source descriptor for ordinary
+  repo-backed documents
+- `window.source.client` targets the committed source actually used to load the
+  document
+- `window.source.kind` is `"repo"` or `"remote"`
+- `window.source.authority` is the committed content authority when one exists
+- `window.source` is `null` on `file://` pages, helper pages, and non-HPPR pages
 
-## Per-origin site identity
+Legacy ordinary-page ambient repo clients are no longer part of the public
+runtime model:
 
-Browsers isolate home-repo access by origin.
+- ordinary pages do not expose `window.home`
+- ordinary pages do not expose `window.route`
 
-HAVI uses one Ring1 identity per `//<group>/<app>/` origin. Other
+Helper-only privileged access remains separate and explicit through the
+internal helper capability root at `window.havi` on internal helper pages.
+
+## Origin-scoped capability isolation
+
+Browsers isolate browser-granted repo capability by origin.
+
+HAVI ordinary pages do not receive hidden per-origin Ring1 credentials.
+Ambient repo power comes from the committed `window.source` descriptor, and
+extra repo power comes from explicit origin-scoped named-client grants. Other
 implementations may use a different storage mechanism while preserving the same
 origin isolation.
 
 ## Local persistence
 
-Route fetches may be cached in the home repo.
+Route fetches may be cached in browser-local packet storage.
 
-Browsers may persist additional local state for history, credentials, authoring,
+Browsers may persist additional local state for history, grants, authoring,
 and shell integration. The format and storage location are implementation-
 defined.
 

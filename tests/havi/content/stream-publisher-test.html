@@ -19,25 +19,26 @@
 
   <script>
     async function suite_stream_publisher() {
-        const homeRepo = window.home;
+        const source = window.source;
+        const client = source.client;
         const group = document.packet.group;
         const app = document.packet.app;
 
-        // Fetch the signing key stored by the test harness
-        const keyPacket = await homeRepo.get('//' + group + '/' + app + '/testkey');
+        assert(source !== null, 'window.source exists');
+        assertEqual(source.kind, 'remote', 'window.source.kind is remote for publisher stream test');
+
+        const keyPacket = await client.get('//' + group + '/' + app + '/testkey');
         const key = keyPacket.text();
         assert(key.startsWith('&.'), 'Signing key loaded: ' + key.substring(0, 10) + '...');
 
-        // --- StreamPub publisher mode creation ---
         log('--- StreamPub publisher mode ---');
         const prefix = '//' + group + '/' + app + '/user/pub/test';
-        const sin = homeRepo.streamPub(prefix, { key: key });
+        const sin = client.streamPub(prefix, { key: key });
         assert(sin !== null && sin !== undefined, 'streamPub with key returns object');
         assertEqual(sin.prefix, prefix, 'StreamPub prefix matches');
         assert(typeof sin.onpacket !== 'undefined', 'StreamPub has onpacket attribute');
         assert(typeof sin.finishSegment === 'function', 'StreamPub has finishSegment method');
 
-        // --- Wait for open ---
         log('--- Wait for open ---');
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('StreamPub publisher onopen timeout')), 10000);
@@ -51,14 +52,10 @@
         });
         assertEqual(sin.readyState, 1, 'StreamPub publisher readyState is OPEN');
 
-        // --- Write data and finish segment ---
         log('--- Write and finishSegment ---');
         await sin.write(new TextEncoder().encode('hello publisher'));
         log('PASS: write resolved');
 
-        // Set up optional packet listener before finishing segment.
-        // If it arrives in this runtime path, verify it. If close wins first,
-        // keep the test passing and cover the strict parser path in Rust tests.
         const packetPromise = new Promise((resolve) => {
             const timeout = setTimeout(() => resolve(null), 10000);
             sin.addEventListener('packet', (e) => {
@@ -80,7 +77,6 @@
         sin.close();
         log('PASS: StreamPub publisher close requested');
 
-        // --- Optional onpacket verification ---
         log('--- onpacket event ---');
         const event = await packetPromise;
         if (event !== null) {

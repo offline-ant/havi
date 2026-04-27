@@ -11,7 +11,7 @@ setup_acl u test
 
 # Store a simple HTML page
 HPPR_SIGNER='ring1:ring0|init' $HPPR add //u/test/screenshot.html \
-    -H "Seal-By: oldest" -H "Content-Type: text/html" \
+    -H "Seal-By: ring0" -H "Content-Type: text/html" \
     <<< '<html><head><title>Screenshot Test</title></head><body style="background:#3366cc;color:white"><h1>Screenshot Test</h1></body></html>'
 
 start_servo "hppr://u/test/screenshot.html"

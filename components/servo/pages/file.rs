@@ -4,7 +4,7 @@
 
 //! Local file:// page handler.
 //!
-//! Serves local filesystem content as HPPR HTML pages with site credentials.
+//! Serves local filesystem content without injecting ambient HPPR credentials.
 
 use std::sync::Arc;
 
@@ -39,24 +39,13 @@ pub async fn handle_request(
         },
     };
 
-    let mut response = if metadata.is_dir() {
+    let _ = (client, credential_store);
+
+    if metadata.is_dir() {
         render_directory(&path)
     } else {
         render_file(&path)
-    };
-
-    // Set site credentials: group="file", app="local"
-    if let Ok(site_cred) = credential_store
-        .get_or_create_site_credential_async("file", "local", client)
-        .await
-    {
-        response.site_credentials = Some((
-            site_cred.ring1_name.clone(),
-            site_cred.signing_key().to_string(),
-        ));
     }
-
-    response
 }
 
 /// Parse a file path from a file:// URL, handling percent-decoding.

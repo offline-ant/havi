@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>HAVI Ring0 Test Suite</title>
+  <title>HAVI Internal Admin Test Suite</title>
   <style>
     body { font-family: monospace; margin: 20px; }
     .pass { color: green; }
@@ -11,40 +11,37 @@
   </style>
 </head>
 <body>
-  <h1>HAVI Ring0 Test Suite</h1>
+  <h1>HAVI Internal Admin Test Suite</h1>
   <div id="status">Loading...</div>
   <pre id="results"></pre>
 
-  <!-- Load shared utilities -->
   <script src="test-utils.js"></script>
-
-  <!-- Inline test suite -->
   <script>
     async function suite_ring0() {
-        log('--- window.ring0 existence tests (havi:// only) ---');
-        assert(window.ring0 !== null, 'window.ring0 exists on havi:// page');
-        assert(window.ring0.ring1Name !== null, 'ring0.ring1Name is not null (has credentials)');
-        assert(typeof window.ring0.endpoint === 'string', 'ring0.endpoint is a string');
+        log('--- window.havi existence tests (havi:// only) ---');
+        assert(window.havi !== null, 'window.havi exists on havi:// page');
+        assert(window.havi.admin !== null, 'window.havi.admin exists when admin credentials are present');
+        assert(window.havi.admin.client.ring1Name !== null, 'admin client ring1Name is not null');
+        assert(typeof window.havi.admin.client.endpoint === 'string', 'admin client endpoint is a string');
+        assertEqual(typeof window.ring0, 'undefined', 'window.ring0 is removed from the Window surface');
 
-        log('--- ring0.repo tests ---');
-        assert(window.ring0.repo !== null, 'ring0.repo is not null');
-        assert(typeof window.ring0.repo.port === 'function', 'repo.port is function');
-        assert(typeof window.ring0.repo.status === 'function', 'repo.status is function');
+        log('--- window.havi.admin.repo tests ---');
+        assert(typeof window.havi.admin.repo.port === 'function', 'repo.port is function');
+        assert(typeof window.havi.admin.repo.status === 'function', 'repo.status is function');
 
-        await runTest('ring0.repo.port()', async () => {
-            const port = await window.ring0.repo.port();
+        await runTest('window.havi.admin.repo.port()', async () => {
+            const port = await window.havi.admin.repo.port();
             assert(typeof port === 'number', 'repo.port() returns a number');
             assert(port > 0, 'repo.port() returns positive number');
         });
 
-        await runTest('ring0.repo.status()', async () => {
-            const status = await window.ring0.repo.status();
+        await runTest('window.havi.admin.repo.status()', async () => {
+            const status = await window.havi.admin.repo.status();
             assertEqual(typeof status, 'string', 'repo.status() returns a string');
             assert(status.length > 0, 'repo.status() is non-empty');
         });
     }
 
-    // Auto-run suite
     (async function() {
       const summary = await window.runTests(suite_ring0, 'ring0');
 

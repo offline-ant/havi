@@ -20,20 +20,20 @@ HOME_REPO_VKEY=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" h
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/$TEST_APP/"
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/admin/deploy/"
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
-    -H 'Seal-By: oldest' \
+    -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Missing Ring2 Setup</title>
 <h1>Missing Ring2 Setup</h1>
 EOF
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
-    -H 'Seal-By: oldest' \
+    -H 'Seal-By: ring0' \
     -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 # Home repo route points directly at the remote target repo.
 HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//repo/route/app/$TEST_GROUP/$TEST_APP" \
-    -H 'Seal-By: oldest' \
+    -H 'Seal-By: ring0' \
     -H "Upstream: $REMOTE_HOME" \
     -H "Upstream-Verification-Key: $REMOTE_REPO_VKEY" <<< '' >/dev/null
 

@@ -93,6 +93,6 @@ havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control shadow_control enter
 havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET control dock_control set bottom
 
 # Pipe mode
-echo -e "control watch_control set notify\ncontrol nav_control go havi:///services\nscreenshot /tmp/out.png" | \
+echo -e "control watch_control set notify\ncontrol nav_control go havi:///diagnostics\nscreenshot /tmp/out.png" | \
   havi-makepad-cli -s $HAVI_MAKEPAD_SOCKET pipe
 ```

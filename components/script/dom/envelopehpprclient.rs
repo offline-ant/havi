@@ -11,21 +11,21 @@ use std::rc::Rc;
 
 use base::generic_channel::GenericCallback;
 use dom_struct::dom_struct;
+use embedder_traits::{EmbedderMsg, HpprControlRequest, HpprControlResponse};
 use hppr_client::add_coords_to_pac_headers;
 use hppr_client::parse_via;
 use hppr_client::Signer;
-use net_traits::{HpprRequest, CoreResourceMsg, HpprProtocolResponse};
+use net_traits::{CoreResourceMsg, HpprProtocolError, HpprProtocolResponse, HpprRequest};
 
 use script_bindings::trace::RootedTraceableBox;
 use crate::dom::bindings::codegen::Bindings::EnvelopeHpprClientBinding::EnvelopeHpprClientMethods;
 use crate::dom::bindings::codegen::Bindings::HpprClientBinding::HpprAddOptions;
 use crate::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;
-use crate::dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::codegen::UnionTypes::StringOrStringSequence;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
-use crate::dom::bindings::root::{DomRoot, MutNullableDom};
+use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::{DOMString, USVString};
 use crate::dom::bindings::trace::NoTrace;
 use crate::dom::globalscope::GlobalScope;
@@ -33,7 +33,6 @@ use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprerror::HpprError;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresult::HpprResult;
-use crate::dom::hpprrepoinfo::HpprRepoInfo;
 use crate::dom::promise::Promise;
 use crate::dom::streampub::StreamPub;
 use crate::dom::streamsub::StreamSub;
@@ -49,49 +48,32 @@ pub(crate) fn default_endpoint() -> String {
     ScriptThread::home_hppr_endpoint()
 }
 
-/// Validate that the current page scheme allows Home() access, get endpoint and site credentials.
-///
-/// Returns (endpoint, ring1_name, signing_key) on success, or rejects the promise and returns None.
-pub(crate) fn resolve_home_credentials(
-    window: &Window,
-    promise: &Rc<Promise>,
-    method_name: &str,
-    can_gc: CanGc,
-) -> Option<(String, String, String)> {
-    let global = window.upcast::<GlobalScope>();
-    let url = global.get_url();
-    if !matches!(url.scheme(), "hppr" | "hppr-editor" | "file") {
-        promise.reject_error(
-            Error::Type(cformat!("{} requires hppr:// origin", method_name)),
-            can_gc,
-        );
-        return None;
-    }
-
-    let endpoint = default_endpoint();
-
-    match window.Document().site_credentials() {
-        Some((ring1_name, signing_key)) => Some((endpoint, ring1_name, signing_key)),
-        None => {
-            promise.reject_error(
-                Error::Type(cformat!("{} failed: site credentials not available", method_name)),
-                can_gc,
-            );
-            None
-        }
-    }
+pub(crate) fn allow_privileged_connect(window: &Window) -> bool {
+    matches!(
+        window.upcast::<GlobalScope>().get_url().scheme(),
+        "havi" | "hppr-browse" | "hppr-sandbox"
+    )
 }
 
 /// Parse endpoint and identity for Connect(), rejecting the promise on error.
 ///
 /// Returns (endpoint, signer) on success, or rejects the promise and returns None.
 pub(crate) fn resolve_connect_params(
-    _window: &Window,
+    window: &Window,
     endpoint: &DOMString,
     identity: Option<&DOMString>,
     promise: &Rc<Promise>,
     can_gc: CanGc,
 ) -> Option<(String, Signer)> {
+    if !allow_privileged_connect(window) {
+        promise.reject_error(
+            Error::Security(Some(
+                "HpprClient.connect() is only available to privileged helper pages".to_string(),
+            )),
+            can_gc,
+        );
+        return None;
+    }
     let endpoint_str = endpoint.to_string();
     if endpoint_str.is_empty() {
         promise.reject_error(
@@ -116,6 +98,18 @@ pub(crate) fn resolve_connect_params(
     Some((endpoint_str, signer))
 }
 
+#[derive(Clone)]
+pub(crate) enum EnvelopeHpprClientBackend {
+    Remote {
+        signer: Signer,
+        endpoint: String,
+    },
+    LocalCommittedSource,
+    NamedClient {
+        name: String,
+    },
+}
+
 /// Envelope HPPR client
 ///
 /// Contains all client state and request building logic.
@@ -123,33 +117,39 @@ pub(crate) fn resolve_connect_params(
 #[dom_struct]
 pub(crate) struct EnvelopeHpprClient {
     reflector_: Reflector,
-    /// Signer for requests
-    #[ignore_malloc_size_of = "hppr_client::Signer doesn't implement MallocSizeOf"]
-    signer: NoTrace<Signer>,
-    /// Repo endpoint (e.g., "127.0.0.1:4777")
-    endpoint: NoTrace<String>,
+    /// Client backend.
+    #[ignore_malloc_size_of = "client backend"]
+    backend: NoTrace<EnvelopeHpprClientBackend>,
     /// When set, the client is unusable and should fail fast with this reason
     invalid_reason: NoTrace<Option<String>>,
-    /// Lazy-initialized HpprRepoInfo sub-object (only for ring0)
-    repo: MutNullableDom<HpprRepoInfo>,
 }
 
 impl EnvelopeHpprClient {
     fn new_inherited(
-        signer: Signer,
-        endpoint: String,
+        backend: EnvelopeHpprClientBackend,
         invalid_reason: Option<String>,
     ) -> Self {
         Self {
             reflector_: Reflector::new(),
-            signer: NoTrace(signer),
-            endpoint: NoTrace(endpoint),
+            backend: NoTrace(backend),
             invalid_reason: NoTrace(invalid_reason),
-            repo: MutNullableDom::new(None),
         }
     }
 
-    /// Create a new EnvelopeHpprClient.
+    fn new_with_backend(
+        global: &GlobalScope,
+        backend: EnvelopeHpprClientBackend,
+        invalid_reason: Option<String>,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        reflect_dom_object(
+            Box::new(Self::new_inherited(backend, invalid_reason)),
+            global,
+            can_gc,
+        )
+    }
+
+    /// Create a new EnvelopeHpprClient backed by a remote endpoint and signer.
     pub fn new(
         global: &GlobalScope,
         signer: Signer,
@@ -157,21 +157,65 @@ impl EnvelopeHpprClient {
         invalid_reason: Option<String>,
         can_gc: CanGc,
     ) -> DomRoot<Self> {
-        reflect_dom_object(
-            Box::new(Self::new_inherited(signer, endpoint, invalid_reason)),
+        Self::new_with_backend(
             global,
+            EnvelopeHpprClientBackend::Remote { signer, endpoint },
+            invalid_reason,
+            can_gc,
+        )
+    }
+
+    /// Create a new EnvelopeHpprClient backed by the browser-owned committed
+    /// repo-source path.
+    pub(crate) fn new_local_committed_source(
+        global: &GlobalScope,
+        invalid_reason: Option<String>,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        Self::new_with_backend(
+            global,
+            EnvelopeHpprClientBackend::LocalCommittedSource,
+            invalid_reason,
+            can_gc,
+        )
+    }
+
+    /// Create a new EnvelopeHpprClient backed by a browser-mediated named
+    /// client handle.
+    pub(crate) fn new_named_client(
+        global: &GlobalScope,
+        name: String,
+        invalid_reason: Option<String>,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        Self::new_with_backend(
+            global,
+            EnvelopeHpprClientBackend::NamedClient { name },
+            invalid_reason,
             can_gc,
         )
     }
 
     // ========== Accessors ==========
 
-    pub(crate) fn signer(&self) -> &Signer {
-        &self.signer.0
+    pub(crate) fn clone_backend(&self) -> EnvelopeHpprClientBackend {
+        self.backend.0.clone()
+    }
+
+    pub(crate) fn signer(&self) -> Option<&Signer> {
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { signer, .. } => Some(signer),
+            EnvelopeHpprClientBackend::LocalCommittedSource |
+            EnvelopeHpprClientBackend::NamedClient { .. } => None,
+        }
     }
 
     pub(crate) fn endpoint(&self) -> &str {
-        &self.endpoint.0
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { endpoint, .. } => endpoint,
+            EnvelopeHpprClientBackend::LocalCommittedSource => "repo",
+            EnvelopeHpprClientBackend::NamedClient { name } => name,
+        }
     }
 
     pub(crate) fn invalid_reason(&self) -> Option<&str> {
@@ -179,11 +223,6 @@ impl EnvelopeHpprClient {
     }
 
     // ========== Internal helpers ==========
-
-    /// Clone the signer for sending across threads.
-    fn signer_clone(&self) -> Signer {
-        self.signer.0.clone()
-    }
 
     /// Reject operations when credentials are missing.
     pub(crate) fn reject_if_invalid(&self, promise: &Rc<Promise>, can_gc: CanGc) -> bool {
@@ -216,25 +255,89 @@ impl EnvelopeHpprClient {
         }
     }
 
-    /// Send a protocol request to the resource thread.
+    fn protocol_error(detail: impl Into<String>) -> HpprProtocolError {
+        HpprProtocolError {
+            error_type: "INTERNAL".to_string(),
+            detail: detail.into(),
+            fatal: false,
+        }
+    }
+
+    /// Send a protocol request through the backend for this client.
     pub(crate) fn send_protocol_request(
         &self,
         request: HpprRequest,
         callback: GenericCallback<HpprProtocolResponse>,
     ) {
         let global = self.global();
-        let via = match parse_via(&self.endpoint.0) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let _ = global
-            .core_resource_thread()
-            .send(CoreResourceMsg::HpprOperation {
-                endpoint: via,
-                signer: self.signer_clone(),
-                request,
-                callback,
-            });
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { endpoint, signer } => {
+                let via = match parse_via(endpoint) {
+                    Ok(v) => v,
+                    Err(error) => {
+                        let _ = callback.send(Err(Self::protocol_error(format!(
+                            "invalid endpoint '{}': {}",
+                            endpoint, error
+                        ))));
+                        return;
+                    },
+                };
+                let _ = global
+                    .core_resource_thread()
+                    .send(CoreResourceMsg::HpprOperation {
+                        endpoint: via,
+                        signer: signer.clone(),
+                        request,
+                        callback,
+                    });
+            },
+            EnvelopeHpprClientBackend::LocalCommittedSource => {
+                let bridge = GenericCallback::new(move |message| {
+                    let response = match message.unwrap() {
+                        HpprControlResponse::CommittedSourceOperation(response) => response,
+                        HpprControlResponse::Error(error) => Err(Self::protocol_error(error)),
+                        other => Err(Self::protocol_error(format!(
+                            "unexpected committed source response: {:?}",
+                            other
+                        ))),
+                    };
+                    let _ = callback.send(response);
+                })
+                .expect("Could not create committed-source callback in script.");
+                let window = global.as_window();
+                window.send_to_embedder(EmbedderMsg::HpprControlOperation(
+                    window.webview_id(),
+                    global.get_url().to_string(),
+                    HpprControlRequest::CommittedSourceOperation { request },
+                    bridge,
+                ));
+            },
+            EnvelopeHpprClientBackend::NamedClient { name } => {
+                let client_name = name.clone();
+                let bridge = GenericCallback::new(move |message| {
+                    let response = match message.unwrap() {
+                        HpprControlResponse::NamedClientOperation(response) => response,
+                        HpprControlResponse::Error(error) => Err(Self::protocol_error(error)),
+                        other => Err(Self::protocol_error(format!(
+                            "unexpected named client response: {:?}",
+                            other
+                        ))),
+                    };
+                    let _ = callback.send(response);
+                })
+                .expect("Could not create named-client callback in script.");
+                let window = global.as_window();
+                window.send_to_embedder(EmbedderMsg::HpprControlOperation(
+                    window.webview_id(),
+                    global.get_url().to_string(),
+                    HpprControlRequest::NamedClientOperation {
+                        client_name,
+                        request,
+                    },
+                    bridge,
+                ));
+            },
+        }
     }
 
     // ========== Internal do_* methods ==========
@@ -405,13 +508,31 @@ impl EnvelopeHpprClient {
             ws.fail_with_error(reason, can_gc);
             return ws;
         }
-        WatchSocket::new(
-            &global,
-            &self.endpoint.0,
-            self.signer_clone(),
-            urc.to_string(),
-            can_gc,
-        )
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { endpoint, signer } => WatchSocket::new(
+                &global,
+                endpoint,
+                signer.clone(),
+                urc.to_string(),
+                can_gc,
+            ),
+            EnvelopeHpprClientBackend::LocalCommittedSource => {
+                let ws = WatchSocket::new_pending(&global, urc.to_string(), can_gc);
+                ws.fail_with_error(
+                    "browser-local committed source watch is not implemented yet",
+                    can_gc,
+                );
+                ws
+            },
+            EnvelopeHpprClientBackend::NamedClient { .. } => {
+                let ws = WatchSocket::new_pending(&global, urc.to_string(), can_gc);
+                ws.fail_with_error(
+                    "browser-mediated named client watch is not implemented yet",
+                    can_gc,
+                );
+                ws
+            },
+        }
     }
 
     /// Create a StreamPub for the given prefix.
@@ -430,14 +551,32 @@ impl EnvelopeHpprClient {
                 return si;
             }
         };
-        StreamPub::new(
-            &global,
-            &self.endpoint.0,
-            self.signer_clone(),
-            prefix.to_string(),
-            publisher_params,
-            can_gc,
-        )
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { endpoint, signer } => StreamPub::new(
+                &global,
+                endpoint,
+                signer.clone(),
+                prefix.to_string(),
+                publisher_params,
+                can_gc,
+            ),
+            EnvelopeHpprClientBackend::LocalCommittedSource => {
+                let si = StreamPub::new_pending(&global, prefix.to_string(), can_gc);
+                si.fail_with_error(
+                    "browser-local committed source streaming is not implemented yet",
+                    can_gc,
+                );
+                si
+            },
+            EnvelopeHpprClientBackend::NamedClient { .. } => {
+                let si = StreamPub::new_pending(&global, prefix.to_string(), can_gc);
+                si.fail_with_error(
+                    "browser-mediated named client streaming is not implemented yet",
+                    can_gc,
+                );
+                si
+            },
+        }
     }
 
     /// Create a StreamSub for the given prefix.
@@ -448,48 +587,37 @@ impl EnvelopeHpprClient {
             so.fail_with_error(reason, can_gc);
             return so;
         }
-        StreamSub::new(
-            &global,
-            &self.endpoint.0,
-            self.signer_clone(),
-            prefix.to_string(),
-            can_gc,
-        )
-    }
-
-    /// Get or create the HpprRepoInfo sub-object (admin only).
-    pub(crate) fn do_get_repo(&self) -> Option<DomRoot<HpprRepoInfo>> {
-        if self.repo.get().is_none() {
-            let can_gc = CanGc::note();
-            let repo = HpprRepoInfo::new(&self.global(), can_gc);
-            self.repo.set(Some(&repo));
+        match &self.backend.0 {
+            EnvelopeHpprClientBackend::Remote { endpoint, signer } => StreamSub::new(
+                &global,
+                endpoint,
+                signer.clone(),
+                prefix.to_string(),
+                can_gc,
+            ),
+            EnvelopeHpprClientBackend::LocalCommittedSource => {
+                let so = StreamSub::new_pending(&global, prefix.to_string(), can_gc);
+                so.fail_with_error(
+                    "browser-local committed source streaming is not implemented yet",
+                    can_gc,
+                );
+                so
+            },
+            EnvelopeHpprClientBackend::NamedClient { .. } => {
+                let so = StreamSub::new_pending(&global, prefix.to_string(), can_gc);
+                so.fail_with_error(
+                    "browser-mediated named client streaming is not implemented yet",
+                    can_gc,
+                );
+                so
+            },
         }
-        self.repo.get()
     }
 }
 
 // ========== WebIDL Methods ==========
 
 impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
-    /// EnvelopeHpprClient.home() - create client with site sandbox credentials.
-    ///
-    /// Uses the current page's site Ring1 (HAVI-site:<group>#<app>) with
-    /// seal-based authentication via the site's signing key.
-    fn Home(window: &Window) -> Fallible<Rc<Promise>> {
-        let global = window.upcast::<GlobalScope>();
-        let can_gc = CanGc::note();
-        let promise = Promise::new(global, can_gc);
-
-        if let Some((endpoint, ring1_name, signing_key)) =
-            resolve_home_credentials(window, &promise, "EnvelopeHpprClient.home()", can_gc)
-        {
-            let signer = Signer::ring1(&ring1_name, &signing_key);
-            let client = Self::new(global, signer, endpoint, None, can_gc);
-            promise.resolve_native(&*client, can_gc);
-        }
-        Ok(promise)
-    }
-
     /// EnvelopeHpprClient.connect(endpoint, identity?) - create client to remote endpoint.
     ///
     /// Identity string follows Signer::parse() format. Omitted or empty = anyone.
@@ -513,15 +641,15 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
     }
 
     fn Endpoint(&self) -> DOMString {
-        DOMString::from(&*self.endpoint.0)
+        DOMString::from(self.endpoint())
     }
 
     fn GetAccount(&self) -> Option<DOMString> {
-        self.signer.0.ring1_name().map(|v| DOMString::from(v))
+        self.signer().and_then(|signer| signer.ring1_name()).map(DOMString::from)
     }
 
     fn GetGroup(&self) -> Option<DOMString> {
-        self.signer.0.group().map(|v| DOMString::from(v))
+        self.signer().and_then(|signer| signer.group()).map(DOMString::from)
     }
 
     hppr_dispatch!(Get, (), do_get, &urc.to_string(); urc: USVString);
@@ -552,10 +680,6 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
     }
 
     hppr_dispatch!(Hello, (), do_hello);
-
-    fn GetRepo(&self) -> Option<DomRoot<HpprRepoInfo>> {
-        self.do_get_repo()
-    }
 
     fn Watch(&self, urc: USVString) -> DomRoot<WatchSocket> {
         self.do_watch(&urc.to_string(), CanGc::note())

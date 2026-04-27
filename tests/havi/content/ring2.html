@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>HAVI Ring2 Test Suite</title>
+  <title>HAVI Routed Source Test Suite</title>
   <style>
     body { font-family: monospace; margin: 20px; }
     .pass { color: green; }
@@ -11,54 +11,49 @@
   </style>
 </head>
 <body>
-  <h1>HAVI Ring2 Test Suite</h1>
+  <h1>HAVI Routed Source Test Suite</h1>
   <div id="status">Loading...</div>
   <pre id="results"></pre>
 
-  <!-- Load shared utilities -->
   <script src="test-utils.js"></script>
-
-  <!-- Inline test suite -->
   <script>
     async function suite_ring2() {
-        log('--- window.route.anyone existence tests (removed) ---');
-        assertEqual(window.route.anyone, undefined, 'window.route.anyone is undefined (removed from API)');
+        const source = window.source;
+        assert(source !== null, 'window.source exists on routed page');
+        assertEqual(source.kind, 'remote', 'window.source.kind is remote');
+        assertEqual(window.havi, null, 'window.havi is null on ordinary routed page');
+        assertEqual(typeof window.ring0, 'undefined', 'window.ring0 stays removed');
 
-        log('--- window.route existence tests (routed with identity) ---');
-        assert(window.route !== null, 'window.route exists (identity configured)');
+        const group = document.packet.group;
+        const app = document.packet.app;
+        const client = source.client;
 
-        log('--- window.route.hello() tests ---');
-        const greeting = await window.route.hello();
+        log('--- source client hello() tests ---');
+        const greeting = await client.hello();
         assertEqual(typeof greeting, 'object', 'hello() returns object');
         assert(typeof greeting.repoName === 'string' && greeting.repoName.length > 0, 'hello().repoName is present');
         assert(typeof greeting.sessionId === 'string' && greeting.sessionId.length > 0, 'hello().sessionId is present');
         assert(typeof greeting.verifyingKey === 'string' && greeting.verifyingKey.length > 0, 'hello().verifyingKey is present');
 
-        log('--- window.route read tests ---');
-        const group = document.packet.group;
-        const app = document.packet.app;
-        const packet = await window.route.get('//' + group + '/' + app + '/index.html');
-        assert(packet !== null, 'ring2.get() returns packet');
-        assert(packet.type === 'Seal' || packet.type === 'Plex', 'ring2 packet has valid type');
+        log('--- source client read tests ---');
+        const packet = await client.get('//' + group + '/' + app + '/index.html');
+        assert(packet !== null, 'source.client.get() returns packet');
+        assert(packet.type === 'Seal' || packet.type === 'Plex', 'packet has valid type');
 
-        log('--- window.route list tests ---');
-        const entries = await window.route.list('//' + group + '/' + app + '/');
-        assert(Array.isArray(entries), 'ring2.list() returns array');
-        assert(entries.length > 0, 'ring2.list() has entries');
+        log('--- source client list tests ---');
+        const entries = await client.list('//' + group + '/' + app + '/');
+        assert(Array.isArray(entries), 'source.client.list() returns array');
+        assert(entries.length > 0, 'source.client.list() has entries');
         const hasIndexHtml = entries.includes('index.html') || entries.includes('index.html/');
-        assert(hasIndexHtml, 'ring2.list() includes index.html');
+        assert(hasIndexHtml, 'source.client.list() includes index.html');
 
-        log('--- window.home vs window.route tests ---');
-        assert(window.home !== null, 'window.home exists');
-        assert(window.home.endpoint !== window.route.endpoint, 'home repo and route repo have different endpoints');
+        log('--- source authority tests ---');
+        assert(source.authority !== null, 'window.source.authority exists on routed page');
     }
 
-    // Auto-run suite
     (async function() {
       const summary = await window.runTests(suite_ring2, 'ring2');
-
       window.testResults = summary;
-
       document.getElementById('status').className = summary.failed === 0 ? 'pass' : 'fail';
       document.getElementById('status').textContent = summary.failed === 0
         ? 'All tests passed!'

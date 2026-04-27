@@ -9,26 +9,28 @@
 
 use std::rc::Rc;
 
+use base::generic_channel::GenericCallback;
 use dom_struct::dom_struct;
+use embedder_traits::{EmbedderMsg, HpprControlRequest, HpprControlResponse};
 use hppr_client::Signer;
 use js::jsval::UndefinedValue;
 use net_traits::HpprProtocolResponse;
 
-use crate::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods, HpprRepoOptions};
+use crate::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods};
 use crate::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
+use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
 use crate::dom::bindings::root::{Dom, DomRoot };
 
 use script_bindings::trace::RootedTraceableBox;
 use crate::dom::bindings::str::{DOMString, USVString};
-use crate::dom::envelopehpprclient::{EnvelopeHpprClient, resolve_home_credentials, resolve_connect_params};
+use crate::dom::envelopehpprclient::{EnvelopeHpprClient, allow_privileged_connect, resolve_connect_params};
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hpprerror::HpprError;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresult::HpprResult;
-use crate::dom::hpprrepoinfo::HpprRepoInfo;
 use crate::dom::promise::Promise;
 use crate::dom::streampub::StreamPub;
 use crate::dom::streamsub::StreamSub;
@@ -73,43 +75,30 @@ impl HpprClient {
         Self::new(global, &inner, can_gc)
     }
 
+    /// Create a new HpprClient backed by the browser-owned committed
+    /// repo-source path.
+    pub(crate) fn new_local_committed_source(
+        global: &GlobalScope,
+        invalid_reason: Option<String>,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        let inner = EnvelopeHpprClient::new_local_committed_source(global, invalid_reason, can_gc);
+        Self::new(global, &inner, can_gc)
+    }
+
+    /// Create a new browser-mediated named-client handle.
+    pub(crate) fn new_named_client(
+        global: &GlobalScope,
+        name: String,
+        invalid_reason: Option<String>,
+        can_gc: CanGc,
+    ) -> DomRoot<Self> {
+        let inner = EnvelopeHpprClient::new_named_client(global, name, invalid_reason, can_gc);
+        Self::new(global, &inner, can_gc)
+    }
 }
 
 impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
-    /// HpprClient.repo(options) - create client with site or elevated credentials.
-    ///
-    /// Without role: uses site sandbox `HAVI-site:<group>#<app>`
-    /// With role: uses elevated `HAVI-role:<app>#<role>`, signed by site key
-    fn Home(window: &Window, options: &HpprRepoOptions) -> Fallible<Rc<Promise>> {
-        let global = window.upcast::<GlobalScope>();
-        let can_gc = CanGc::note();
-        let promise = Promise::new(global, can_gc);
-
-        if let Some((endpoint, site_ring1_name, signing_key)) =
-            resolve_home_credentials(window, &promise, "HpprClient.home()", can_gc)
-        {
-            // Determine the ring1_name to use
-            let ring1_name = match &options.role {
-                Some(role_name) => {
-                    // Extract app from site_ring1_name (HAVI-site:<group>#<app>)
-                    let app = site_ring1_name
-                        .strip_prefix("HAVI-site:")
-                        .and_then(|s| s.split('#').nth(1))
-                        .unwrap_or("");
-                    // Use role's ring1_name but site's signing key
-                    format!("HAVI-role:{}#{}", app, role_name)
-                }
-                None => site_ring1_name,
-            };
-
-            let signer = Signer::ring1(&ring1_name, &signing_key);
-            let inner = EnvelopeHpprClient::new(global, signer, endpoint, None, can_gc);
-            let client = Self::new(global, &inner, can_gc);
-            promise.resolve_native(&*client, can_gc);
-        }
-        Ok(promise)
-    }
-
     /// HpprClient.connect(endpoint, identity?) - create client to remote endpoint.
     ///
     /// Identity string follows Signer::parse() format. Omitted or empty = anyone.
@@ -128,6 +117,78 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         Ok(promise)
     }
 
+    fn Named(window: &Window, name: DOMString) -> Fallible<Rc<Promise>> {
+        let global = window.upcast::<GlobalScope>();
+        let can_gc = CanGc::note();
+        let promise = Promise::new(global, can_gc);
+        let client_name = name.to_string();
+        if client_name.is_empty() {
+            promise.reject_error(
+                Error::Type(c"Invalid named client: empty string".to_owned()),
+                can_gc,
+            );
+            return Ok(promise);
+        }
+
+        let task_source = global.task_manager().dom_manipulation_task_source().to_sendable();
+        let mut trusted_promise = Some(TrustedPromise::new(promise.clone()));
+        let trusted_window = Trusted::new(window);
+        let request_name = client_name.clone();
+        let callback = GenericCallback::new(move |message| {
+            let Some(trusted_promise) = trusted_promise.take() else {
+                error!("HpprClient.named callback called twice");
+                return;
+            };
+            let trusted_window = trusted_window.clone();
+            let client_name = request_name.clone();
+            task_source.queue(task!(hppr_named_client: move || {
+                let promise = trusted_promise.root();
+                let window = trusted_window.root();
+                let global = window.upcast::<GlobalScope>();
+                match message {
+                    Ok(HpprControlResponse::Ok) => {
+                        let client = HpprClient::new_named_client(
+                            global,
+                            client_name,
+                            None,
+                            CanGc::note(),
+                        );
+                        promise.resolve_native(&*client, CanGc::note());
+                    },
+                    Ok(HpprControlResponse::Error(error)) => {
+                        promise.reject_error(Error::Type(cformat!("{}", error)), CanGc::note());
+                    },
+                    Ok(other) => {
+                        promise.reject_error(
+                            Error::Type(cformat!(
+                                "Unexpected named-client response: {:?}",
+                                other
+                            )),
+                            CanGc::note(),
+                        );
+                    },
+                    Err(_) => {
+                        promise.reject_error(
+                            Error::Type(c"Named-client authorization callback failed".to_owned()),
+                            CanGc::note(),
+                        );
+                    },
+                }
+            }));
+        })
+        .expect("Could not create HpprClient.named callback");
+
+        window.send_to_embedder(EmbedderMsg::HpprControlOperation(
+            window.webview_id(),
+            global.get_url().to_string(),
+            HpprControlRequest::NamedClientAuthorize {
+                client_name,
+            },
+            callback,
+        ));
+        Ok(promise)
+    }
+
     /// HpprClient.connectRing2Password(endpoint, group, username, password)
     /// - create client to remote endpoint with a Ring2 adhoc signer.
     /// - derive the signer locally from group, username, and password.
@@ -141,6 +202,17 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         let global = window.upcast::<GlobalScope>();
         let can_gc = CanGc::note();
         let promise = Promise::new(global, can_gc);
+
+        if !allow_privileged_connect(window) {
+            promise.reject_error(
+                Error::Security(Some(
+                    "HpprClient.connectRing2Password() is only available to privileged helper pages"
+                        .to_string(),
+                )),
+                can_gc,
+            );
+            return Ok(promise);
+        }
 
         let endpoint_str = endpoint.to_string();
         if endpoint_str.is_empty() {
@@ -174,14 +246,33 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
 
     /// Convert to EnvelopeHpprClient (returns HpprResult with envelopes).
     fn Envelope(&self) -> DomRoot<EnvelopeHpprClient> {
-        // Create a new EnvelopeHpprClient with the same state
-        EnvelopeHpprClient::new(
-            &self.global(),
-            self.inner.signer().clone(),
-            self.inner.endpoint().to_string(),
-            self.inner.invalid_reason().map(|s| s.to_string()),
-            CanGc::note(),
-        )
+        let invalid_reason = self.inner.invalid_reason().map(|s| s.to_string());
+        match self.inner.clone_backend() {
+            super::envelopehpprclient::EnvelopeHpprClientBackend::Remote { signer, endpoint } => {
+                EnvelopeHpprClient::new(
+                    &self.global(),
+                    signer,
+                    endpoint,
+                    invalid_reason,
+                    CanGc::note(),
+                )
+            },
+            super::envelopehpprclient::EnvelopeHpprClientBackend::LocalCommittedSource => {
+                EnvelopeHpprClient::new_local_committed_source(
+                    &self.global(),
+                    invalid_reason,
+                    CanGc::note(),
+                )
+            },
+            super::envelopehpprclient::EnvelopeHpprClientBackend::NamedClient { name } => {
+                EnvelopeHpprClient::new_named_client(
+                    &self.global(),
+                    name,
+                    invalid_reason,
+                    CanGc::note(),
+                )
+            },
+        }
     }
 
     fn Endpoint(&self) -> DOMString {
@@ -189,15 +280,23 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
     }
 
     fn GetAccount(&self) -> Option<DOMString> {
-        self.inner.signer().ring1_name().map(|s| DOMString::from(s))
+        self.inner
+            .signer()
+            .and_then(|signer| signer.ring1_name())
+            .map(DOMString::from)
     }
 
     fn GetGroup(&self) -> Option<DOMString> {
-        self.inner.signer().group().map(|s| DOMString::from(s))
+        self.inner
+            .signer()
+            .and_then(|signer| signer.group())
+            .map(DOMString::from)
     }
 
     fn GetRing1Name(&self) -> Option<DOMString> {
-        self.inner.signer().ring1_name()
+        self.inner
+            .signer()
+            .and_then(|signer| signer.ring1_name())
             .map(DOMString::from)
     }
 
@@ -225,10 +324,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
     }
 
     hppr_dispatch!(Hello, (.inner), do_hello);
-
-    fn GetRepo(&self) -> Option<DomRoot<HpprRepoInfo>> {
-        self.inner.do_get_repo()
-    }
 
     fn Watch(&self, urc: USVString) -> DomRoot<WatchSocket> {
         self.inner.do_watch(&urc.to_string(), CanGc::note())

@@ -537,23 +537,6 @@ impl ResourceChannelManager {
                             let response = pooled_conn.connection_mut().send(request).await;
                             let response = response.map_err(|e| HpprProtocolError::from_hppr_error(&e));
 
-                            // Auto-cache: STORE remote GET results to home repo
-                            if is_get && endpoint != hppr_state.default_target {
-                                if let Ok(ref resp) = response {
-                                    if let hppr_client::ResponseKind::Packet(ref pkt) = resp.kind {
-                                        let state = Arc::clone(&hppr_state);
-                                        let cache_bytes = pkt.as_bytes().to_vec();
-                                        tokio::spawn(async move {
-                                            if let Ok(mut p) = state.get_pooled(&state.default_target, hppr_client::Signer::anyone()).await {
-                                                let _ = p.connection_mut().send(
-                                                    hppr_client::HpprRequest::Store { packet: cache_bytes },
-                                                ).await;
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-
                             // Chunk transparency: reassemble if GET returned a chunk manifest
                             let response = match response {
                                 Ok(resp) if is_get => {
@@ -833,8 +816,7 @@ async fn hppr_chunk_reassemble(
             fatal: false,
         })?;
 
-    let is_repo = *endpoint == hppr_state.default_target;
-    let reassembled = crate::hppr_chunks::batch_reassemble_chunks(hppr_state, endpoint, is_repo, &manifest)
+    let reassembled = crate::hppr_chunks::batch_reassemble_chunks(hppr_state, endpoint, &manifest)
         .await
         .map_err(|e| HpprProtocolError {
             error_type: "CHUNK".to_string(),

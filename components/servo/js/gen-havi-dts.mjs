@@ -4,8 +4,8 @@
  * Generate HAVI TypeScript definitions from HAVI WebIDL.
  *
  * Outputs:
- *   - hppr-html.d.ts: libhavi::hppr browser API surface (hppr:// pages)
- *   - havi.d.ts: libhavi-only augmentation (ring0 and related globals)
+ *   - hppr-html.d.ts: libhavi::hppr browser API surface (ordinary pages)
+ *   - havi.d.ts: HAVI internal helper augmentations
  *
  * Each file is written to:
  *   - havi/components/servo/js/hppr-html.d.ts
@@ -25,13 +25,18 @@ const HAVI_ROOT = resolve(JS_DIR, "../../..");
 const WEBIDL_DIR = join(HAVI_ROOT, "components/script_bindings/webidls");
 
 const JS_HPPR_HTML_DTS = join(JS_DIR, "hppr-html.d.ts");
+const JS_HAVI_DTS = join(JS_DIR, "havi.d.ts");
 const ROOT_HPPR_HTML_DTS = join(HAVI_ROOT, "hppr-html.d.ts");
 const ROOT_HAVI_DTS = join(HAVI_ROOT, "havi.d.ts");
 
 const IDL_FILES = [
+  "HaviAdmin.webidl",
+  "HaviInternal.webidl",
   "HpprClient.webidl",
   "EnvelopeHpprClient.webidl",
   "HpprPacket.webidl",
+  "HpprResolveResult.webidl",
+  "HpprSource.webidl",
   "WatchSocket.webidl",
   "StreamPub.webidl",
   "StreamSub.webidl",
@@ -61,7 +66,7 @@ const HAVI_PREAMBLE = `/**
  * AUTO-GENERATED FILE. DO NOT EDIT.
  *
  * HAVI-specific typings layered on top of hppr-html.d.ts.
- * Exposes non-standard globals such as window.ring0.
+ * Exposes internal helper globals such as window.havi.
  */\n\n`;
 
 function mapType(idlType) {
@@ -127,7 +132,9 @@ function emitInterface(def) {
     if (member.type === "const") {
       lines.push(`  readonly ${member.name}: ${mapType(member.idlType)};`);
     } else if (member.type === "attribute") {
-      const qaOverride = (def.name === "URC" || def.name === "Address" || def.name === "WindowAddress") && member.name === "qa";
+      const qaOverride =
+        (def.name === "URC" || def.name === "Address" || def.name === "WindowAddress") &&
+        member.name === "qa";
       const memberType = qaOverride ? "Qa" : mapType(member.idlType);
       lines.push(`  ${member.readonly ? "readonly " : ""}${member.name}: ${memberType};`);
     } else if (member.type === "operation") {
@@ -143,7 +150,9 @@ function emitInterface(def) {
         detach: "Promise<void>",
       }[member.name || ""];
       const ret = returnOverride || mapType(member.idlType);
-      const args = (member.arguments || []).map(a => `${a.name}${a.optional ? "?" : ""}: ${mapType(a.idlType)}`).join(", ");
+      const args = (member.arguments || [])
+        .map(a => `${a.name}${a.optional ? "?" : ""}: ${mapType(a.idlType)}`)
+        .join(", ");
       const name = member.name || "__call";
       lines.push(`  ${name}(${args}): ${ret};`);
     }
@@ -190,8 +199,7 @@ for (const file of IDL_FILES) {
   for (const d of defs) allDefs.push(d);
 }
 
-const wanted = new Set([
-  "HpprRepoOptions",
+const hpprHtmlWanted = new Set([
   "HpprAddOptions",
   "HpprGreeting",
   "StreamPubOptions",
@@ -199,10 +207,11 @@ const wanted = new Set([
   "HpprClient",
   "EnvelopeHpprClient",
   "HpprPacket",
+  "HpprResolveResult",
+  "HpprSource",
   "WatchSocket",
   "StreamPub",
   "StreamSub",
-
   "URC",
   "Address",
   "WindowAddress",
@@ -215,28 +224,30 @@ const wanted = new Set([
   "H3",
 ]);
 
+const haviWanted = new Set([
+  "HaviAdmin",
+  "HaviInternal",
+]);
+
 let hpprHtml = HPPR_HTML_PREAMBLE;
 for (const def of allDefs) {
-  if (def.type === "dictionary" && wanted.has(def.name)) hpprHtml += emitDictionary(def);
+  if (def.type === "dictionary" && hpprHtmlWanted.has(def.name)) hpprHtml += emitDictionary(def);
 }
 for (const def of allDefs) {
-  if (def.type === "interface" && wanted.has(def.name)) {
+  if (def.type === "interface" && hpprHtmlWanted.has(def.name)) {
     hpprHtml += emitInterface(def);
     hpprHtml += emitCtorAndStatics(def);
   }
 }
-
 for (const def of allDefs) {
-  if (def.type === "namespace" && wanted.has(def.name)) hpprHtml += emitNamespace(def);
+  if (def.type === "namespace" && hpprHtmlWanted.has(def.name)) hpprHtml += emitNamespace(def);
 }
 
-// General hppr:// globals.
-// General hppr:// globals.
 hpprHtml += `interface Window {
   readonly address: WindowAddress | null;
-  readonly home: HpprClient;
-  readonly route: HpprClient | null;
+  readonly source: HpprSource | null;
   readonly packet: HpprPacket | null;
+  resolve(input: string): Promise<HpprResolveResult>;
 }
 
 interface Document {
@@ -247,28 +258,36 @@ interface Document {
 }
 `;
 
-// HAVI layer: only non-standard global augmentations.
-const havi = `${HAVI_PREAMBLE}/// <reference path="./hppr-html.d.ts" />
+let havi = `${HAVI_PREAMBLE}/// <reference path="./hppr-html.d.ts" />
 
-interface Window {
-  readonly ring0: HpprClient | null;
+`;
+for (const def of allDefs) {
+  if (def.type === "interface" && haviWanted.has(def.name)) {
+    havi += emitInterface(def);
+  }
+}
+
+havi += `interface Window {
+  readonly havi: HaviInternal | null;
 }
 `;
 
 /** Write file only if content differs (preserves mtime for cargo caching). */
 function writeIfChanged(path, content) {
   mkdirSync(dirname(path), { recursive: true });
+
+  let previous = null;
   try {
-    if (readFileSync(path, "utf8") === content) return false;
-  } catch {}
-  writeFileSync(path, content);
-  return true;
+    previous = readFileSync(path, "utf8");
+  } catch {
+    // missing file is fine
+  }
+  if (previous !== content) {
+    writeFileSync(path, content);
+  }
 }
 
 writeIfChanged(JS_HPPR_HTML_DTS, hpprHtml);
+writeIfChanged(JS_HAVI_DTS, havi);
 writeIfChanged(ROOT_HPPR_HTML_DTS, hpprHtml);
 writeIfChanged(ROOT_HAVI_DTS, havi);
-
-console.log(`generated ${JS_HPPR_HTML_DTS}`);
-console.log(`generated ${ROOT_HPPR_HTML_DTS}`);
-console.log(`generated ${ROOT_HAVI_DTS}`);

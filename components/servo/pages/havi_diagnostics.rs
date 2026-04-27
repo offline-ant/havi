@@ -6,10 +6,9 @@ use std::sync::Arc;
 
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
-use crate::hppr::join_fixture::{JoinFixtureState, get_join_fixture_state, set_join_fixture_state};
 use crate::hppr::util::{append_location, signing_to_verifying_key};
 
-async fn inspect_route_content_pointer_auth_join(
+async fn inspect_route_content_pointer_auth(
     group: &str,
     app: &str,
     location: &str,
@@ -19,8 +18,6 @@ async fn inspect_route_content_pointer_auth_join(
     if group.trim().is_empty() || app.trim().is_empty() {
         return serde_json::json!({"error": "missing group/app"});
     }
-
-    let fixture = get_join_fixture_state();
 
     let mut route_endpoint = client.target();
     let mut route_upstream_key: Option<String> = None;
@@ -34,16 +31,10 @@ async fn inspect_route_content_pointer_auth_join(
     let mut local_repo_vkey: Option<String> = None;
 
     if credential_store.get_admin().is_some() {
-        match client
-            .get_admin_identity()
-            .await
-        {
+        match client.get_admin_identity().await {
             Ok(repo_vkey) => {
                 local_repo_vkey = Some(repo_vkey.clone());
-                match client
-                    .get_local_route_app(group, app, &repo_vkey)
-                    .await
-                {
+                match client.get_local_route_app(group, app, &repo_vkey).await {
                     Ok(route) => {
                         if let Some(upstream) = route.upstream.clone() {
                             route_endpoint = upstream;
@@ -55,7 +46,7 @@ async fn inspect_route_content_pointer_auth_join(
                             "upstreamVerificationKey": route_upstream_key,
                             "error": serde_json::Value::Null,
                         });
-                    },
+                    }
                     Err(e) => {
                         route_json = serde_json::json!({
                             "configured": false,
@@ -63,12 +54,12 @@ async fn inspect_route_content_pointer_auth_join(
                             "upstreamVerificationKey": serde_json::Value::Null,
                             "error": e,
                         });
-                    },
+                    }
                 }
-            },
+            }
             Err(e) => {
                 route_json["error"] = serde_json::json!(e);
-            },
+            }
         }
     } else {
         route_json["error"] = serde_json::json!("admin credentials unavailable");
@@ -137,7 +128,7 @@ async fn inspect_route_content_pointer_auth_join(
             Err(e) => {
                 content_pointer_json["error"] = serde_json::json!(e);
                 None
-            },
+            }
         },
     };
 
@@ -162,11 +153,11 @@ async fn inspect_route_content_pointer_auth_join(
                     "targetGet": target_urc,
                     "error": serde_json::Value::Null,
                 });
-            },
+            }
             Err(e) => {
                 content_pointer_json["repoVerificationKey"] = serde_json::json!(repo_vkey);
                 content_pointer_json["error"] = serde_json::json!(e);
-            },
+            }
         }
     }
 
@@ -176,20 +167,19 @@ async fn inspect_route_content_pointer_auth_join(
     let mut route_key_error: Option<String> = None;
 
     if let (Some(_), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
-        match client
-            .get_route_auth(group, Some(app), &repo_vkey)
-            .await
-        {
+        match client.get_route_auth(group, Some(app), &repo_vkey).await {
             Ok(route_key) => {
                 route_key_present = true;
-                if let Ok(hppr_client::Signer::Ring2 { signing_key, .. }) = hppr_client::Signer::parse(&route_key.auth) {
+                if let Ok(hppr_client::Signer::Ring2 { signing_key, .. }) =
+                    hppr_client::Signer::parse(&route_key.auth)
+                {
                     requester_vkey = signing_to_verifying_key(&signing_key).ok();
                     route_signing_key = Some(signing_key);
                 }
-            },
+            }
             Err(e) => {
                 route_key_error = Some(e);
-            },
+            }
         }
     } else {
         route_key_error = Some("admin credentials unavailable".to_string());
@@ -219,55 +209,9 @@ async fn inspect_route_content_pointer_auth_join(
                     auth_probe = "error".to_string();
                     auth_error = Some(e);
                 }
-            },
+            }
         }
     }
-
-    let mut join_remote = "not_checked".to_string();
-    let mut join_error: Option<String> = None;
-    let mut join_reply_path: Option<String> = None;
-    let mut join_request_path: Option<String> = None;
-
-    if let Some(vkey) = requester_vkey.as_ref() {
-        let reply_path = format!("//{}/admin/request/join/{}/reply/|", group, vkey);
-        let request_path = format!("//{}/admin/request/join/|/seal/{}", group, vkey);
-        join_reply_path = Some(reply_path.clone());
-        join_request_path = Some(request_path.clone());
-
-        match route_anyone.get_packet_authenticated(&reply_path).await {
-            Ok(packet) => {
-                let status = packet
-                    .header("Request-Status")
-                    .unwrap_or("unknown")
-                    .trim()
-                    .to_ascii_lowercase();
-                join_remote = match status.as_str() {
-                    "approved" | "denied" | "pending" => status,
-                    _ => "unknown".to_string(),
-                };
-            },
-            Err(reply_err) => match route_anyone.get_packet_authenticated(&request_path).await {
-                Ok(_) => {
-                    join_remote = "pending".to_string();
-                },
-                Err(request_err) => {
-                    if reply_err.contains("NOT_FOUND") && request_err.contains("NOT_FOUND") {
-                        join_remote = "none".to_string();
-                    } else {
-                        join_remote = "error".to_string();
-                        join_error = Some(format!("reply: {}; request: {}", reply_err, request_err));
-                    }
-                },
-            },
-        }
-    }
-
-    let fixture_str = fixture.as_str().to_string();
-    let effective_join = match fixture {
-        JoinFixtureState::None => join_remote.clone(),
-        JoinFixtureState::Pending => "pending".to_string(),
-        JoinFixtureState::Approved => "approved".to_string(),
-    };
 
     serde_json::json!({
         "route": route_json,
@@ -280,14 +224,6 @@ async fn inspect_route_content_pointer_auth_join(
             "probe": auth_probe,
             "error": auth_error,
             "targetGet": target_get,
-        },
-        "join": {
-            "remote": join_remote,
-            "fixture": fixture_str,
-            "effective": effective_join,
-            "replyPath": join_reply_path,
-            "requestPath": join_request_path,
-            "error": join_error,
         },
     })
 }
@@ -306,25 +242,6 @@ pub async fn handle_diagnostics_api(
     let cmd = params.get("cmd").map(|s| s.as_str()).unwrap_or("inspect");
 
     match cmd {
-        "join_fixture_get" => serde_json::json!({
-            "ok": true,
-            "data": {"state": get_join_fixture_state().as_str()}
-        })
-        .to_string(),
-        "join_fixture_set" => {
-            let Some(raw_state) = params.get("state") else {
-                return serde_json::json!({"ok": false, "error": "missing state"}).to_string();
-            };
-            let Some(state) = JoinFixtureState::parse(raw_state) else {
-                return serde_json::json!({"ok": false, "error": "invalid state (expected none|pending|approved)"}).to_string();
-            };
-            set_join_fixture_state(state);
-            serde_json::json!({
-                "ok": true,
-                "data": {"state": state.as_str()}
-            })
-            .to_string()
-        },
         "inspect" => {
             let Some(group) = params.get("group") else {
                 return serde_json::json!({"ok": false, "error": "missing group"}).to_string();
@@ -333,9 +250,9 @@ pub async fn handle_diagnostics_api(
                 return serde_json::json!({"ok": false, "error": "missing app"}).to_string();
             };
             let location = params.get("location").map(String::as_str).unwrap_or("");
-            let data = inspect_route_content_pointer_auth_join(group, app, location, client, credential_store).await;
+            let data = inspect_route_content_pointer_auth(group, app, location, client, credential_store).await;
             serde_json::json!({"ok": true, "data": data}).to_string()
-        },
+        }
         _ => serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)})
             .to_string(),
     }

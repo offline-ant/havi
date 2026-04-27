@@ -157,10 +157,12 @@ use crate::dom::fetchlaterresult::FetchLaterResult;
 use crate::dom::filewindowaddress::FileWindowAddress;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::history::History;
+use crate::dom::haviinternal::{HaviInternal, allow_havi_internal};
 use crate::dom::hpprwindowaddress::HpprWindowAddress;
 use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresolveresult::HpprResolveResult;
+use crate::dom::hpprsource::HpprSource;
 use crate::dom::html::htmlcollection::{CollectionFilter, HTMLCollection};
 use crate::dom::html::htmliframeelement::HTMLIFrameElement;
 use crate::dom::idbfactory::IDBFactory;
@@ -206,10 +208,8 @@ use crate::task_source::SendableTaskSource;
 use crate::timers::{IsInterval, TimerCallback};
 use crate::unminify::unminified_path;
 use crate::webdriver_handlers::{find_node_by_unique_id_in_document, jsval_to_webdriver};
-use hppr_client::Signer;
 use crate::{fetch, window_named_properties};
 
-use crate::dom::envelopehpprclient::default_endpoint;
 
 /// A callback to call when a response comes back from the `ImageCache`.
 ///
@@ -477,12 +477,8 @@ pub(crate) struct Window {
 
     /// HPPR: cached live exact address DOM object for this window
     address: MutNullableDom<crate::dom::windowaddress::WindowAddress>,
-    /// HPPR: cached home repo HpprClient for `window.home`
-    hppr_home: MutNullableDom<HpprClient>,
-    /// HPPR: cached route repo HpprClient (Ring2 from document credentials)
-    hppr_route: MutNullableDom<HpprClient>,
-    /// HPPR: cached Ring0 admin HpprClient
-    ring0: MutNullableDom<HpprClient>,
+    /// HAVI: cached internal helper capability root
+    havi: MutNullableDom<HaviInternal>,
 }
 
 impl Window {
@@ -774,6 +770,20 @@ impl Window {
         &self.user_scripts
     }
 
+    /// Build a client for the committed document source.
+    ///
+    /// This stays internal until both remote and repo-backed committed sources
+    /// can be exposed together through the final `window.source` contract.
+    pub(crate) fn committed_source_client(&self, can_gc: CanGc) -> Option<DomRoot<HpprClient>> {
+        self.Document().hppr_source_client(can_gc)
+    }
+
+    fn committed_source_kind(&self) -> Option<&'static str> {
+        match self.Document().hppr_source()? {
+            net_traits::HpprDocumentSource::Repo => Some("repo"),
+            net_traits::HpprDocumentSource::Remote { .. } => Some("remote"),
+        }
+    }
 
     // see note at https://dom.spec.whatwg.org/#concept-event-dispatch step 2
     pub(crate) fn dispatch_event_with_target_override(&self, event: &Event, can_gc: CanGc) {
@@ -1447,47 +1457,21 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
         }
     }
 
-    /// HPPR home repo client (ring1 sandbox account).
-    fn Home(&self) -> DomRoot<HpprClient> {
-        self.hppr_home.or_init(|| {
-            let endpoint = default_endpoint();
-
-            // Use pre-fetched home repo credentials from document (non-blocking)
-            // Site credentials use keypair-based seal auth via Ring1 Member list
-            match self.Document().site_credentials() {
-                Some((ring1_name, signing_key)) => {
-                    let signer = Signer::ring1(&ring1_name, &signing_key);
-                    HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note())
-                }
-                None => {
-                    log::warn!("window.home unavailable: missing site ring1 credentials");
-                    HpprClient::new_with_signer(
-                        self.upcast::<GlobalScope>(),
-                        Signer::anyone(), endpoint,
-                        Some("window.home unavailable: missing site ring1 credentials (non-HPPR page or prefetch failed)".into()),
-                        CanGc::note())
-                },
-            }
-
-        })
-    }
-
-    /// HPPR route client (remote repo access: ring2 seal auth).
-    /// Returns None unless both signing key and target group are available.
-    fn GetRoute(&self) -> Option<DomRoot<HpprClient>> {
-        // Return cached client if exists
-        if let Some(client) = self.hppr_route.get() {
-            return Some(client);
-        }
-
-        // Require endpoint and signer for ring2
-        let document = self.Document();
-        let endpoint = document.hppr_endpoint()?.to_string();
-        let signer = document.hppr_signer()?;
-
-        let client = HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note());
-        self.hppr_route.set(Some(&client));
-        Some(client)
+    /// Committed document source descriptor.
+    ///
+    /// Returns null on helper pages, file pages, and other pages without a
+    /// committed repo-backed source.
+    fn GetSource(&self) -> Option<DomRoot<HpprSource>> {
+        let kind = self.committed_source_kind()?.to_string();
+        let authority = self.Document().hppr_content_authority();
+        let client = self.committed_source_client(CanGc::note())?;
+        Some(HpprSource::new(
+            self.upcast::<GlobalScope>(),
+            &client,
+            kind,
+            authority,
+            CanGc::note(),
+        ))
     }
 
     /// HPPR route packet - the stored route packet for this navigation.
@@ -1496,33 +1480,19 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
         self.Document().hppr_packet()
     }
 
-    /// HPPR ring0 admin client (havi://, hppr-setup://, and hppr-editor:// pages only).
-    /// Returns null for other pages.
-    fn GetRing0(&self) -> Option<DomRoot<HpprClient>> {
-        let url = self.upcast::<GlobalScope>().get_url();
-        if !matches!(url.scheme(), "havi" | "hppr-setup" | "hppr-editor") {
+    /// HAVI internal helper capability root.
+    ///
+    /// Returns null on ordinary pages and on helper pages that do not expose
+    /// internal admin capability.
+    fn GetHavi(&self) -> Option<DomRoot<HaviInternal>> {
+        if !allow_havi_internal(self.upcast::<GlobalScope>()) {
             return None;
         }
 
-        Some(self.ring0.or_init(|| {
-            let endpoint = default_endpoint();
-
-
-            // Read admin credentials (ring1_name, token) for window.ring0
-            match self.Document().admin_credentials() {
-                Some((ring1_name, token)) => {
-                    let signer = Signer::ring1_adhoc(&ring1_name, &token);
-                    HpprClient::new_with_signer(self.upcast::<GlobalScope>(), signer, endpoint, None, CanGc::note())
-                },
-                None => {
-                    log::warn!("window.ring0 on havi:// but admin credentials missing");
-                    HpprClient::new_with_signer(
-                        self.upcast::<GlobalScope>(), Signer::anyone(), endpoint,
-                        Some("window.ring0 unavailable: admin credentials not pre-fetched".into()),
-                        CanGc::note())
-                },
-            }
-        }))
+        Some(
+            self.havi
+                .or_init(|| HaviInternal::new(self.upcast::<GlobalScope>(), CanGc::note())),
+        )
     }
 
     fn Resolve(&self, input: USVString) -> Rc<Promise> {
@@ -1577,10 +1547,12 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
                         let result = HpprResolveResult::new(
                             global,
                             &packet,
-                            resolved.endpoint,
-                            resolved.signer,
+                            if resolved.is_repo {
+                                "repo".to_string()
+                            } else {
+                                "remote".to_string()
+                            },
                             resolved.content_authority,
-                            resolved.is_repo,
                             CanGc::note(),
                         );
                         promise.resolve_native(&*result, CanGc::note());
@@ -4211,9 +4183,7 @@ impl Window {
             has_changed_visual_viewport_dimension: Default::default(),
             last_activation_timestamp: Cell::new(UserActivationTimestamp::PositiveInfinity),
             address: Default::default(),
-            hppr_home: Default::default(),
-            hppr_route: Default::default(),
-            ring0: Default::default(),
+            havi: Default::default(),
         });
 
         WindowBinding::Wrap::<crate::DomTypeHolder>(cx, win)

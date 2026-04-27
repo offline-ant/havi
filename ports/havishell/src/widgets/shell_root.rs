@@ -251,13 +251,6 @@ script_mod! {
                     self.nav_go_btn.on_click()
                     self.url_input.text()
                 }
-                edit: |arg| {
-                    if arg != "" {
-                        self.url_input.set_text(arg)
-                    }
-                    self.nav_edit_btn.on_click()
-                    self.url_input.text()
-                }
             }
 
             url_input := TextInput{
@@ -286,13 +279,6 @@ script_mod! {
             }
 
             nav_go_btn := Button{
-                text: ""
-                width: 0 height: 0
-                margin: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                padding: Inset{left: 0 right: 0 top: 0 bottom: 0}
-                draw_bg +: { pixel: fn() { return vec4(0.0, 0.0, 0.0, 0.0) } }
-            }
-            nav_edit_btn := Button{
                 text: ""
                 width: 0 height: 0
                 margin: Inset{left: 0 right: 0 top: 0 bottom: 0}
@@ -432,16 +418,6 @@ script_mod! {
             margin: Inset{left: 0 right: 0 top: 0 bottom: 2}
         }
 
-        pylon_manage_btn := Button{
-            text: "Manage services"
-            width: Fill height: 24
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            margin: Inset{left: 0 right: 0 top: 2 bottom: 0}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
     }
 
     mod.widgets.HaviOverflowMenu = View {
@@ -476,15 +452,6 @@ script_mod! {
         }
         home_btn := Button{
             text: "Open home"
-            width: Fill height: 24
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
-        }
-        edit_btn := Button{
-            text: "Edit page"
             width: Fill height: 24
             padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
             draw_text.color: #x111111
@@ -633,26 +600,6 @@ script_mod! {
                 draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
                     pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
             }
-        }
-        sep_secondary := View{
-            width: Fill height: 7
-            flow: Overlay
-            sep_line := View{
-                width: Fill
-                height: 1
-                margin: Inset{left: 4 right: 4 top: 3 bottom: 3}
-                show_bg: true
-                draw_bg.color: #xe3e3e3
-            }
-        }
-        overflow_services_btn := Button{
-            text: "Open services"
-            width: Fill height: 24
-            padding: Inset{left: 6 right: 6 top: 2 bottom: 2}
-            draw_text.color: #x111111
-            draw_text.text_style.font_size: 10.0
-            draw_bg +: { color: uniform(#xf5f5f5) color_hover: uniform(#xe8e8e8)
-                pixel: fn() { let sdf = Sdf2d.viewport(self.pos * self.rect_size) sdf.rect(0.0 0.0 self.rect_size.x self.rect_size.y) sdf.fill(mix(self.color, self.color_hover, self.hover)) return sdf.result } }
         }
     }
 

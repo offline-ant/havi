@@ -12,9 +12,6 @@ interface HpprAddOptions {
   headers?: string | string[];
   data?: Blob | ArrayBuffer | ArrayBufferView | string;
 }
-interface HpprRepoOptions {
-  role?: string;
-}
 interface HpprGreeting {
   repoName: string;
   sessionId: string;
@@ -44,9 +41,9 @@ interface HpprKeyPair {
   verifyingKey: string;
 }
 interface HpprClient {
-  home(options?: HpprRepoOptions): Promise<HpprClient>;
   connect(endpoint: string, identity?: string): Promise<HpprClient>;
   connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
+  named(name: string): Promise<HpprClient>;
   envelope(): EnvelopeHpprClient;
   readonly endpoint: string;
   readonly account: string | null;
@@ -61,19 +58,17 @@ interface HpprClient {
   detach(hash: string): Promise<void>;
   add(options?: HpprAddOptions): Promise<string[]>;
   hello(): Promise<HpprGreeting>;
-  readonly repo: HpprRepoInfo | null;
   watch(urc: string): WatchSocket;
   streamPub(prefix: string, options?: StreamPubOptions): StreamPub;
   streamSub(prefix: string): StreamSub;
 }
 declare var HpprClient: {
   prototype: HpprClient;
-  home(options?: HpprRepoOptions): Promise<HpprClient>;
   connect(endpoint: string, identity?: string): Promise<HpprClient>;
   connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
+  named(name: string): Promise<HpprClient>;
 };
 interface EnvelopeHpprClient {
-  home(): Promise<EnvelopeHpprClient>;
   connect(endpoint: string, identity?: string): Promise<EnvelopeHpprClient>;
   unpack(): HpprClient;
   readonly endpoint: string;
@@ -88,14 +83,12 @@ interface EnvelopeHpprClient {
   detach(hash: string): Promise<HpprResult>;
   add(options?: HpprAddOptions): Promise<HpprResult>;
   hello(): Promise<HpprResult>;
-  readonly repo: HpprRepoInfo | null;
   watch(urc: string): WatchSocket;
   streamPub(prefix: string, options?: StreamPubOptions): StreamPub;
   streamSub(prefix: string): StreamSub;
 }
 declare var EnvelopeHpprClient: {
   prototype: EnvelopeHpprClient;
-  home(): Promise<EnvelopeHpprClient>;
   connect(endpoint: string, identity?: string): Promise<EnvelopeHpprClient>;
 };
 interface HpprPacket {
@@ -118,6 +111,16 @@ interface HpprPacket {
   text(): string;
   json(): any;
   raw(): ArrayBuffer;
+}
+interface HpprResolveResult {
+  readonly packet: HpprPacket;
+  readonly kind: string;
+  readonly contentAuthority: string | null;
+}
+interface HpprSource {
+  readonly client: HpprClient;
+  readonly kind: string;
+  readonly authority: string | null;
 }
 interface WatchSocket extends EventTarget {
   readonly CONNECTING: number;
@@ -238,9 +241,9 @@ declare namespace H3 {
 }
 interface Window {
   readonly address: WindowAddress | null;
-  readonly home: HpprClient;
-  readonly route: HpprClient | null;
+  readonly source: HpprSource | null;
   readonly packet: HpprPacket | null;
+  resolve(input: string): Promise<HpprResolveResult>;
 }
 
 interface Document {

@@ -2,23 +2,33 @@
 
 HAVI exposes HPPR APIs on `window`.
 
-`window.home` and `window.route` are explicit low-level repo clients.
+`window.source` is the browser-owned ambient committed-source descriptor.
 `window.resolve(input)` is the browser-owned high-level source resolver.
 
 ## Window globals
 
 - `window.address`: current exact HAVI address object
-- `window.home`: home repo client (always available)
-- `window.route`: route repo client (nullable)
+- `window.source`: committed source descriptor for ordinary repo-backed pages
 - `window.resolve(input)`: browser-owned document source resolver
-- `window.ring0`: admin client (privileged implementations only)
+- `window.havi`: internal helper capability root (internal helper pages only)
 - `window.H3`: crypto namespace (always available)
 
-`window.route` is `null` when no route exists or no usable route endpoint is
-available after effective resolution.
-An effective local route answer, including a terminal local exact-app
-bootstrap, still exposes `window.route`.
-Absence of local route auth falls back to `anyone`.
+`window.source` is `null` on `file://` pages, helper pages, and non-HPPR pages.
+For ordinary repo-backed pages it exposes exactly:
+
+- `client`
+- `authority`
+- `kind`
+
+`kind` is `"repo"` or `"remote"`.
+
+Ordinary pages no longer expose `window.home`, `window.route`, or
+`window.ring0`.
+
+`window.havi` is `null` on ordinary pages. Surviving internal privileged pages
+such as `havi:///diagnostics` may expose `window.havi`. When helper-page admin
+credentials are present, `window.havi.admin` exposes the explicit internal
+admin capability descriptor.
 
 For `hppr://` routed pages, route/content-pointer resolution happens before
 page JS runs. If content-pointer metadata is missing or invalid, navigation
@@ -79,6 +89,30 @@ const { signingKey, verifyingKey } = H3.deriveKeyPair(
 );
 ```
 
+## HpprSource
+
+Ambient committed-source descriptor for the current document.
+
+```webidl
+[Exposed=Window, Pref="dom_hppr_enabled"]
+interface HpprSource {
+    readonly attribute HpprClient client;
+    readonly attribute DOMString kind;
+    readonly attribute DOMString? authority;
+};
+```
+
+`client` is truthful for both committed remote sources and committed repo
+sources. Repo-backed sources use a browser-owned local backend path, not fake
+endpoint/signing metadata.
+
+Current limitations:
+
+- helper pages and `file://` pages get `window.source === null`
+- local committed-source watch/stream paths are not exposed through a fake
+  transport client; unsupported operations fail explicitly until the later
+  browser-local facade grows them honestly
+
 ## HpprClient
 
 Primary interface for HPPR commands.
@@ -86,9 +120,6 @@ Primary interface for HPPR commands.
 ```webidl
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface HpprClient {
-    [NewObject, Throws]
-    static Promise<HpprClient> home(optional HpprRepoOptions options = {});
-
     [NewObject, Throws]
     static Promise<HpprClient> connect(DOMString endpoint, optional DOMString identity);
 
@@ -99,6 +130,9 @@ interface HpprClient {
         DOMString username,
         DOMString password
     );
+
+    [NewObject, Throws]
+    static Promise<HpprClient> named(DOMString name);
 
     [NewObject] EnvelopeHpprClient envelope();
 
@@ -124,8 +158,6 @@ interface HpprClient {
     );
 
     StreamSub streamSub(USVString prefix);
-
-    readonly attribute HpprRepoInfo? repo;
 };
 ```
 
@@ -135,6 +167,9 @@ interface HpprClient {
 Via syntax is defined by `../../hppr/spec/031-VIA-SYNTAX.md`.
 Examples include `host`, `quib+host:4776`, `ws+host`, and
 `unix+/absolute/path`.
+
+`connect()` is helper/privileged-only. Ordinary pages do not get raw arbitrary
+connect.
 
 ### connect() identity parameter
 
@@ -156,13 +191,28 @@ The identity grammar itself is defined by the HPPR route scheme.
 `connectRing2Password(endpoint, group, username, password)` creates a remote
 client with a Ring2 adhoc signer without requiring the caller to assemble a
 signer string manually.
-This is a convenience for local auth selection. Routed pages without stored
-local route auth still default to `anyone`.
+This is a convenience for privileged helper flows such as join/login UI.
+Ordinary pages do not get this raw connect path.
 
 `username` follows one `Location` segment's constraints.
 The derived key remains client-side.
 It depends only on group, username, and password.
 The repo sees only the resulting Ring2 member verification key.
+
+### named()
+
+`named(name)` is the first explicit extra-capability path beyond
+`window.source`.
+It asks HAVI for a browser-mediated named client identified by stable user-visible
+name.
+The requesting page origin must already have a grant for that named client.
+Otherwise the returned promise rejects.
+
+The returned value is a normal `HpprClient`, but it is backed by a browser-owned
+named-client backend instead of raw page-provided endpoint/signer material.
+The page does not receive stored secrets.
+Raw `connect*()` remains a separate privileged helper mechanism and is not the
+ordinary named-client flow.
 
 Common return types:
 
@@ -193,27 +243,22 @@ It resolves relative input against the current document URL.
 Result fields:
 
 - `packet`: resolved `HpprPacket`
-- `endpoint`: selected endpoint string
-- `signer`: signer identity string used to access the repo when routed access is
-  used
+- `kind`: resolved source kind (`"repo"` or `"remote"`)
 - `contentAuthority`: resolved content-authority signer for the document, or `null`
-- `isRepo`: whether the resolved source came from the home repo path
-
-`isRepo` is `true` for browser-home-selected sources such as `repo` and other
-non-route-backed home-repo resolution paths.
 
 For app-content URLs, `contentAuthority` comes from the app content pointer's
 `Content-Authority`.
 For direct sealed content, `contentAuthority` comes from packet `Seal-By`.
 For unsigned content, it is `null`.
 
-`signer` and `contentAuthority` are distinct:
+`kind` and `contentAuthority` are distinct:
 
-- `signer` identifies the route or repo capability used for access
+- `kind` identifies whether browser-owned resolution selected the repo-backed or
+  remote-backed source path
 - `contentAuthority` identifies the signer that authorized the resolved content
 
 `window.resolve()` is document resolve only.
-Listing stays on `window.home.list()` or `window.route.list()`.
+Listing stays on `window.source.client.list()` for ordinary repo-backed pages.
 
 ## Relative resolution
 
@@ -236,8 +281,8 @@ For HPPR-backed documents it strips `/|/...` exact selectors and JSONqa state.
 For direct-hash HPPR documents that loaded a Plex or Seal packet, it projects to
 `hppr://<group>/<app>/<location>` from the loaded packet.
 For file documents it returns the stripped file URL without JSONqa view state.
-For helper documents such as `havi:///overview`, it returns the helper document
-URL unchanged. On HPPR and file documents it warns on first access.
+For helper documents such as `havi:///diagnostics`, it returns the helper
+document URL unchanged. On HPPR and file documents it warns on first access.
 
 `document.documentURI` mirrors the same projected value as `document.URL` but
 never warns.
@@ -246,8 +291,8 @@ Loaded HPPR documents also carry browser metadata for the resolved content
 signer.
 For app-content URLs this metadata comes from `Content-Authority`.
 For direct sealed content it comes from `Seal-By`.
-This content-authority metadata is distinct from the route signer or home-repo
-signer used to access the repo.
+This content-authority metadata is distinct from any browser-local access
+signer or routed request signer used to access the repo.
 
 ## HpprPacket
 
@@ -310,7 +355,7 @@ File live subtype field:
 
 - `pathname`
 
-On helper documents such as `havi:///overview`, `window.address` returns the
+On helper documents such as `havi:///diagnostics`, `window.address` returns the
 shared live exact-address surface with helper `href` and `scheme`, `qa === null`,
 and `document.URC === null`.
 On unsupported non-HAVI pages, `window.address` is `null`.
@@ -438,9 +483,32 @@ Common `type` values:
 
 When `fatal` is `true`, create a new client connection.
 
+## HaviInternal and HaviAdmin
+
+Internal helper pages use one explicit capability path:
+
+```webidl
+[Exposed=Window, Pref="dom_hppr_enabled"]
+interface HaviInternal {
+    readonly attribute HaviAdmin? admin;
+};
+
+[Exposed=Window, Pref="dom_hppr_enabled"]
+interface HaviAdmin {
+    [SameObject] readonly attribute HpprClient client;
+    [SameObject] readonly attribute HpprRepoInfo repo;
+};
+```
+
+`window.havi` is the internal helper capability root.
+It is not part of the ordinary page model.
+`window.havi.admin.client` is the explicit helper-page admin client.
+`window.havi.admin.repo` exposes helper-page repo-runtime inspection.
+
 ## HpprRepoInfo
 
-Available on `window.ring0.repo` when privileged repo integration is exposed.
+Available on `window.havi.admin.repo` when internal helper repo integration is
+exposed.
 
 Methods:
 
@@ -451,6 +519,7 @@ Methods:
 ## EnvelopeHpprClient
 
 Debug wrapper that returns both operation value and signed response envelope.
+Raw `connect()` here is helper/privileged-only, matching `HpprClient.connect*()`.
 
 Streaming methods return normal streaming types and are not envelope-wrapped.
 

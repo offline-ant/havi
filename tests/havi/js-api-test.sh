@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="js-api"
-TEST_GROUP="jsapitest"
+TEST_GROUP="~jsapitest"
 TEST_APP="testapp"
 
 start_server

@@ -41,33 +41,6 @@ impl Credential {
     }
 }
 
-/// Site credential with signing keypair for seal authentication.
-#[derive(Debug, Clone)]
-pub struct SiteCredential {
-    /// Ring1 account name (e.g., "site:chess#games").
-    pub ring1_name: String,
-    /// Signing key (private, &.xxx.H3 format).
-    signing_key: String,
-    /// Verification key (public, V.xxx.H3 format).
-    pub verification_key: String,
-}
-
-impl SiteCredential {
-    /// Create a new site credential.
-    pub fn new(ring1_name: String, signing_key: String, verification_key: String) -> Self {
-        Self {
-            ring1_name,
-            signing_key,
-            verification_key,
-        }
-    }
-
-    /// Get the signing key for internal use only.
-    pub fn signing_key(&self) -> &str {
-        &self.signing_key
-    }
-}
-
 /// Generated group-default local route auth signer for HAVI join/setup flows.
 ///
 /// HAVI currently generates Ring2 group signers here for join/login convenience.
@@ -124,8 +97,6 @@ fn shadow_credential_from_row(row: ShadowKeyEntry) -> ShadowCredential {
 pub struct CredentialStore {
     /// Admin credential currently active in process memory.
     admin: RwLock<Option<Credential>>,
-    /// Cached site credentials with keypairs by (group, app).
-    site_credentials: RwLock<HashMap<(String, String), SiteCredential>>,
     /// Cached generated group-default local route auth signers by group.
     route_credentials: RwLock<HashMap<String, RouteCredential>>,
     /// Cached persistent shadow credentials with keypairs by (group, app).
@@ -139,7 +110,6 @@ impl CredentialStore {
     pub fn new(db: StateDbHandle) -> Self {
         Self {
             admin: RwLock::new(None),
-            site_credentials: RwLock::new(HashMap::new()),
             route_credentials: RwLock::new(HashMap::new()),
             shadow_credentials: RwLock::new(HashMap::new()),
             db,
@@ -210,39 +180,6 @@ impl CredentialStore {
                 log::info!("Bootstrapped admin credential with default ring0/init");
             }
         }
-    }
-
-    /// Get or create a site credential for a group/app (async version).
-    pub async fn get_or_create_site_credential_async(
-        &self,
-        group: &str,
-        app: &str,
-        client: &HpprdClientAsync,
-    ) -> Result<SiteCredential, String> {
-        let key = (group.to_string(), app.to_string());
-
-        if let Ok(cache) = self.site_credentials.read() {
-            if let Some(cred) = cache.get(&key) {
-                return Ok(cred.clone());
-            }
-        }
-
-        let cred = match client.get_site_ring1_credential(group, app).await {
-            Ok(cred) => cred,
-            Err(_) => client.create_site_ring1(group, app).await?,
-        };
-
-        if let Ok(mut cache) = self.site_credentials.write() {
-            cache.insert(key, cred.clone());
-        }
-
-        log::info!(
-            "Site credential ready for {}/{}: {}",
-            group,
-            app,
-            cred.verification_key
-        );
-        Ok(cred)
     }
 
     /// Get or create a generated group-default local route auth signer.
@@ -427,18 +364,6 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(db_path);
-    }
-
-    #[test]
-    fn test_site_credential_new() {
-        let cred = SiteCredential::new(
-            "site:chess#games".to_string(),
-            "&.signingkey.H3".to_string(),
-            "V.verifykey.H3".to_string(),
-        );
-        assert_eq!(cred.ring1_name, "site:chess#games");
-        assert_eq!(cred.signing_key(), "&.signingkey.H3");
-        assert_eq!(cred.verification_key, "V.verifykey.H3");
     }
 
     #[test]

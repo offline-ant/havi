@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ring2-test.sh - Test window.route with two hpprd instances
+# ring2-test.sh - Test routed remote window.source.client with two hpprd instances
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="remote"
-TEST_GROUP="remotetest"
+TEST_GROUP="~remotetest"
 TEST_APP="testapp"
 
 # Local server (browser storage, routes, trust)

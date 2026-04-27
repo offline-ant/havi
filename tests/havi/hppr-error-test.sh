@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="hppr-error"
-TEST_GROUP="hpprerrortest"
+TEST_GROUP="~hpprerrortest"
 TEST_APP="testapp"
 
 start_server

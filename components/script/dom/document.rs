@@ -147,6 +147,7 @@ use crate::dom::execcommand::execcommands::DocumentExecCommandSupport;
 use crate::dom::focusevent::FocusEvent;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hashchangeevent::HashChangeEvent;
+use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::html::htmlanchorelement::HTMLAnchorElement;
 use crate::dom::html::htmlareaelement::HTMLAreaElement;
@@ -637,16 +638,9 @@ pub(crate) struct Document {
     /// Reflect the value of that preferences to prevent paying the cost of a RwLock access.
     layout_animations_test_enabled: bool,
 
-    /// HPPR: pre-fetched site ring1 credentials (ring1_name, signing_key)
-    hppr_site_credentials: DomRefCell<Option<(String, String)>>,
-    /// HPPR: admin ring1 credentials (ring1_name, token) for window.ring0
+    /// HPPR: admin ring1 credentials (ring1_name, token) for helper-page
+    /// internal admin capability
     hppr_admin_credentials: DomRefCell<Option<(String, String)>>,
-    /// HPPR: endpoint extracted from the document URL
-    hppr_endpoint: DomRefCell<Option<String>>,
-    /// HPPR: pre-built signer for ring2 auth (window.route).
-    #[ignore_malloc_size_of = "hppr_client::Signer"]
-    #[no_trace]
-    hppr_signer: DomRefCell<Option<hppr_client::Signer>>,
     /// HPPR: canonical resolved document source snapshot.
     #[ignore_malloc_size_of = "net_traits::HpprDocumentSource"]
     #[no_trace]
@@ -3795,14 +3789,6 @@ impl Document {
 
     // --- HPPR credential and metadata accessors ---
 
-    pub(crate) fn site_credentials(&self) -> Option<(String, String)> {
-        self.hppr_site_credentials.borrow().clone()
-    }
-
-    pub(crate) fn set_site_credentials(&self, ring1_name: String, signing_key: String) {
-        *self.hppr_site_credentials.borrow_mut() = Some((ring1_name, signing_key));
-    }
-
     pub(crate) fn admin_credentials(&self) -> Option<(String, String)> {
         self.hppr_admin_credentials.borrow().clone()
     }
@@ -3811,20 +3797,33 @@ impl Document {
         *self.hppr_admin_credentials.borrow_mut() = Some((ring1_name, signing_key));
     }
 
-    pub(crate) fn hppr_endpoint(&self) -> Option<String> {
-        self.hppr_endpoint.borrow().clone()
+    pub(crate) fn hppr_route_client_params(&self) -> Option<(String, hppr_client::Signer)> {
+        match self.hppr_source.borrow().as_ref()? {
+            net_traits::HpprDocumentSource::Repo => None,
+            net_traits::HpprDocumentSource::Remote { endpoint, signer, .. } => {
+                Some((endpoint.to_string(), signer.clone()))
+            },
+        }
     }
 
-    pub(crate) fn set_hppr_endpoint(&self, endpoint: String) {
-        *self.hppr_endpoint.borrow_mut() = Some(endpoint);
-    }
-
-    pub(crate) fn hppr_signer(&self) -> Option<hppr_client::Signer> {
-        self.hppr_signer.borrow().clone()
-    }
-
-    pub(crate) fn set_hppr_signer(&self, signer: hppr_client::Signer) {
-        *self.hppr_signer.borrow_mut() = Some(signer);
+    /// Build a client for the committed document source without inventing a
+    /// fake endpoint/signer pair for repo-backed pages.
+    pub(crate) fn hppr_source_client(&self, can_gc: CanGc) -> Option<DomRoot<HpprClient>> {
+        let global = self.window().as_global_scope();
+        match self.hppr_source.borrow().as_ref()? {
+            net_traits::HpprDocumentSource::Repo => {
+                Some(HpprClient::new_local_committed_source(global, None, can_gc))
+            },
+            net_traits::HpprDocumentSource::Remote { endpoint, signer, .. } => {
+                Some(HpprClient::new_with_signer(
+                    global,
+                    signer.clone(),
+                    endpoint.to_string(),
+                    None,
+                    can_gc,
+                ))
+            },
+        }
     }
 
     pub(crate) fn hppr_source(&self) -> Option<net_traits::HpprDocumentSource> {
@@ -3832,16 +3831,6 @@ impl Document {
     }
 
     pub(crate) fn set_hppr_source(&self, source: net_traits::HpprDocumentSource) {
-        match &source {
-            net_traits::HpprDocumentSource::Repo => {
-                *self.hppr_endpoint.borrow_mut() = None;
-                *self.hppr_signer.borrow_mut() = None;
-            },
-            net_traits::HpprDocumentSource::Remote { endpoint, signer, .. } => {
-                *self.hppr_endpoint.borrow_mut() = Some(endpoint.to_string());
-                *self.hppr_signer.borrow_mut() = Some(signer.clone());
-            },
-        }
         *self.hppr_source.borrow_mut() = Some(source);
     }
 
@@ -3873,8 +3862,7 @@ impl Document {
             *count += 1;
             return Some(DomRoot::from_ref(&**ws));
         }
-        let endpoint = self.hppr_endpoint.borrow().clone()?;
-        let signer = self.hppr_signer.borrow().clone()?;
+        let (endpoint, signer) = self.hppr_route_client_params()?;
         drop(pool);
         let global = self.window().as_global_scope();
         let ws = WatchSocket::new(global, &endpoint, signer, prefix.to_string(), can_gc);
@@ -4231,10 +4219,7 @@ impl Document {
             details_name_groups: Default::default(),
             protocol_handler_automation_mode: Default::default(),
             layout_animations_test_enabled: pref!(layout_animations_test_enabled),
-            hppr_site_credentials: DomRefCell::new(None),
             hppr_admin_credentials: DomRefCell::new(None),
-            hppr_endpoint: DomRefCell::new(None),
-            hppr_signer: DomRefCell::new(None),
             hppr_source: DomRefCell::new(None),
             hppr_content_authority: DomRefCell::new(None),
             hppr_packet: Default::default(),

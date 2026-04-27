@@ -192,15 +192,37 @@ fn script_hppr_signer_string(signer: &net_traits::HpprSigner) -> Option<String> 
     }
 }
 
+fn explicit_page_source_kind(metadata: &Metadata) -> Option<String> {
+    if let Some(source) = metadata.hppr_source.as_ref() {
+        return Some(match source {
+            net_traits::HpprDocumentSource::Repo => "repo".to_string(),
+            net_traits::HpprDocumentSource::Remote { .. } => "remote".to_string(),
+        });
+    }
+
+    match metadata.final_url.scheme() {
+        "file" => Some("file".to_string()),
+        "havi" | "hppr-browse" | "hppr-sandbox" => {
+            Some(format!("helper:{}", metadata.final_url.scheme()))
+        }
+        _ => None,
+    }
+}
+
 fn build_hppr_page_info(metadata: &Metadata) -> Option<embedder_traits::HpprPageInfo> {
     let source = metadata.hppr_source.as_ref();
-    let source_kind = source.map(|source| match source {
-        net_traits::HpprDocumentSource::Repo => "repo".to_string(),
-        net_traits::HpprDocumentSource::Remote { .. } => "remote".to_string(),
-    });
+    let source_kind = explicit_page_source_kind(metadata);
     let content_root = source.and_then(|source| match source {
         net_traits::HpprDocumentSource::Repo => None,
         net_traits::HpprDocumentSource::Remote { content_root, .. } => Some(content_root.clone()),
+    });
+    let endpoint = source.and_then(|source| match source {
+        net_traits::HpprDocumentSource::Repo => None,
+        net_traits::HpprDocumentSource::Remote { endpoint, .. } => Some(endpoint.to_string()),
+    });
+    let signer = source.and_then(|source| match source {
+        net_traits::HpprDocumentSource::Repo => None,
+        net_traits::HpprDocumentSource::Remote { signer, .. } => script_hppr_signer_string(signer),
     });
     let packet = metadata.hppr_packet.as_ref().map(|packet| embedder_traits::HpprPacketInfo {
         hash: packet.pkt_hash().to_string(),
@@ -211,8 +233,8 @@ fn build_hppr_page_info(metadata: &Metadata) -> Option<embedder_traits::HpprPage
     });
 
     if source_kind.is_none()
-        && metadata.hppr_endpoint.is_none()
-        && metadata.hppr_signer.is_none()
+        && endpoint.is_none()
+        && signer.is_none()
         && metadata.hppr_content_authority.is_none()
         && packet.is_none()
         && metadata.hppr_lookup_trace.is_none()
@@ -221,14 +243,44 @@ fn build_hppr_page_info(metadata: &Metadata) -> Option<embedder_traits::HpprPage
     }
 
     Some(embedder_traits::HpprPageInfo {
-        endpoint: metadata.hppr_endpoint.clone(),
-        signer: metadata.hppr_signer.as_ref().and_then(script_hppr_signer_string),
+        endpoint,
+        signer,
         source_kind,
         content_root,
         content_authority: metadata.hppr_content_authority.clone(),
         packet,
         lookup_trace: metadata.hppr_lookup_trace.clone(),
     })
+}
+
+#[cfg(test)]
+mod hppr_page_info_tests {
+    use super::{Metadata, build_hppr_page_info};
+    use servo_url::BrowserUrl;
+
+    #[test]
+    fn file_pages_report_explicit_file_source_kind() {
+        let metadata = Metadata::default(BrowserUrl::parse("file:///tmp/example.html").unwrap());
+        let info = build_hppr_page_info(&metadata).expect("file:// pages should report explicit source info");
+        assert_eq!(info.source_kind.as_deref(), Some("file"));
+        assert_eq!(info.endpoint, None);
+        assert_eq!(info.signer, None);
+    }
+
+    #[test]
+    fn helper_pages_report_explicit_helper_source_kind() {
+        let metadata = Metadata::default(BrowserUrl::parse("havi:///diagnostics").unwrap());
+        let info = build_hppr_page_info(&metadata).expect("helper pages should report explicit source info");
+        assert_eq!(info.source_kind.as_deref(), Some("helper:havi"));
+        assert_eq!(info.endpoint, None);
+        assert_eq!(info.signer, None);
+    }
+
+    #[test]
+    fn non_hppr_pages_without_committed_metadata_report_no_hppr_info() {
+        let metadata = Metadata::default(BrowserUrl::parse("about:blank").unwrap());
+        assert!(build_hppr_page_info(&metadata).is_none());
+    }
 }
 
 // We borrow the incomplete parser contexts mutably during parsing,
@@ -3721,18 +3773,9 @@ impl ScriptThread {
 
         document.set_https_state(metadata.https_state);
 
-        // HPPR: propagate credentials and packet data from protocol handler response
-        if let Some((ring1_name, signing_key)) = metadata.site_credentials {
-            document.set_site_credentials(ring1_name, signing_key);
-        }
+        // HPPR: propagate packet/source metadata and privileged helper credentials.
         if let Some((ring1_name, signing_key)) = metadata.admin_credentials {
             document.set_admin_credentials(ring1_name, signing_key);
-        }
-        if let Some(endpoint) = metadata.hppr_endpoint {
-            document.set_hppr_endpoint(endpoint);
-        }
-        if let Some(signer) = metadata.hppr_signer {
-            document.set_hppr_signer(signer);
         }
         if let Some(source) = metadata.hppr_source {
             document.set_hppr_source(source);

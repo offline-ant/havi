@@ -2,7 +2,15 @@
 
 HAVI is an HPPR-native browser distribution with bundled HPPR tools.
 
-It can run with an embedded home repo or connect to an external `hpprd`.
+Current HAVI runtime still starts through pylon and `hpprd`. On desktop, when
+`HAVI_HOME` is unset, that compatibility repo path defaults to
+`~/.config/HAVI/repo`. Browser-local non-repo state stays in
+`~/.config/HAVI/havi.sqlite`. HAVI can also connect to an external `hpprd` via
+`HAVI_HOME`.
+
+This runtime plumbing is not the ordinary page capability model. Ordinary pages
+use the committed `window.source` descriptor plus explicit named clients, not
+`window.home` / `window.route` ambient handles.
 
 ## Documentation
 

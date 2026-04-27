@@ -79,44 +79,33 @@ clients.
 
 It controls:
 
-- what `window.home` may do against the home repo
-- what `window.route` may do against routed upstream repos
-- ACL-bound read, write, and list access
+- what the committed `window.source.client` may do for the current document
+- what explicit named clients may do when the user granted them to the page
+- what explicit helper-only internal capability paths may do on privileged pages
+- ACL-bound read, write, and list access on the backing repo
 
 Repo capability is independent from app origin and content authority.
 A page may share app origin with another page while having different content
 authority, different repo capability, or both.
 
-## Site isolation and ACLs
+## Capability tiers
 
-Each site origin gets its own Ring1 identity for home repo isolation.
+HAVI keeps repo capability in three distinct tiers:
 
-Ring1 name format:
+1. ambient committed source (`window.source.client`)
+2. explicit named clients (`HpprClient.named(name)` after browser grant)
+3. explicit privileged helper capability (`window.havi` on internal pages only)
 
-`site:<group>#<app>`
+Ordinary pages do not get ambient `window.home` or ambient `window.route`.
+Extra repo power is not acquired by raw arbitrary `connect*()`.
+It is acquired through browser mediation.
 
-Typical rules:
+## Browser-owned local state
 
-- read/list site namespace
-- write only under `//<group>/<app>/user/`
-- access own Ring1 admin area for proxy requests
-- read local route metadata and local route auth for routed remote access
-
-```text
-ACL-Rule: rdl //<group>/<app>/
-ACL-Rule: rwl //<group>/<app>/user/
-ACL-Rule: rwl //repo/admin/ring1/site:<group>#<app>/
-ACL-Rule: r.l //repo/route/app/
-ACL-Rule: r.l //repo/route/group/
-ACL-Rule: r.. //repo/route/auth/
-```
-
-`window.home`: Ring1 auth with `site:<group>#<app>` key.
-
-`window.route`: effective routed endpoint plus local route auth attachment.
-When no local route auth record exists, routed access uses `anyone`.
-Exact-app auth overrides group-default auth.
-The route/auth packet model itself is defined by the HPPR route scheme.
+HAVI still keeps local route, trust, cache, history, and capability state in its
+browser-owned runtime.
+That state is not itself an ordinary page API and does not imply a per-origin
+ambient Ring1 identity on the page surface.
 
 ACL checks run in `hpprd`, not in page JavaScript.
 
@@ -129,4 +118,5 @@ ACL checks run in `hpprd`, not in page JavaScript.
 - App content pointer compromise affects which content root and signer back an
   app URL.
 - Content-signer mismatch causes `<x policy="auto">` to isolate the child.
-- `file://` pages use a browser-defined local origin and local site identity.
+- `file://` pages use a browser-defined local origin. `window.source === null`
+  there by default.

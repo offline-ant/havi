@@ -14,23 +14,28 @@
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="stream"
-TEST_GROUP="streamtest"
+TEST_GROUP="~streamtest"
 TEST_APP="testapp"
 
 start_server
-setup_acl "$TEST_GROUP" "$TEST_APP"
-create_key
-import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
+start_remote_server
+setup_remote_acl "$TEST_GROUP" "$TEST_APP" "rwl"
+create_remote_key
+import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-echo -n "$SECRET_KEY" | HPPR_SIGNER='ring1:ring0|init' $HPPR add "//$TEST_GROUP/$TEST_APP/testkey"
+echo -n "$REMOTE_SECRET_KEY" | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/testkey"
 
-# Start cooked publisher: delayed payload feed keeps stream open until data arrives.
-# Uses --key for the cooked stream-pub API (payload bytes in, trailer framing internal).
-{ sleep 4; echo -n "hello-havi"; sleep 2; } | HPPR_SIGNER='ring1:ring0|init' $HPPR stream-pub --key "$SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
+setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
+setup_route "$TEST_GROUP" "$TEST_APP"
+
+# Start cooked publisher against the routed remote repo.
+{ sleep 4; echo -n "hello-havi"; sleep 2; } | \
+  HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+  $HPPR stream-pub --key "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
 PUB_PID=$!
 log "Publisher started (PID: $PUB_PID)"
 
-# Give the publisher time to register the stream
 sleep 1
 
 start_servo "hppr://$TEST_GROUP/$TEST_APP/stream-test.html"

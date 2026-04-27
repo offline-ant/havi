@@ -1,108 +1,77 @@
 # Access Patterns Guide
 
-This guide covers practical read/write patterns for HAVI apps using
-`window.home` and `window.route`.
+This guide covers practical read/write patterns for HAVI apps using the current
+committed-source model.
 
 ## Mental model
 
-- `window.home`: local home repo. Always available.
-- `window.route`: remote routed repo client. May be `null` when no routed
-  endpoint exists for the current source.
+- `window.source` is the one ordinary-page ambient repo story
+- `window.source.client` is the client for the committed document source
+- `window.source.kind` is `"repo"` or `"remote"`
+- explicit extra repo power comes from `HpprClient.named(name)`, not from a
+  second ambient client
 
-Use home for durability and offline safety. Use route for freshness.
-Route packet structure and local route auth storage are defined by the general
-HPPR route scheme, not by HAVI-specific packet rules.
+Use `window.source.client` for the source capability the page actually loaded
+with.
+Use named clients only when the app truly needs extra repo power beyond that
+ambient source.
 
-## Pattern 1: Local-first with remote fallback
-
-Use local data immediately. Fall back to remote when local miss occurs.
+## Pattern 1: Read from the committed source
 
 ```javascript
 async function loadNote(path) {
+  if (!window.source) throw new Error('No repo-backed source for this page');
   const urc = `//u/notes/${path}`;
-  try {
-    return await (await window.home.get(urc)).text();
-  } catch (_) {
-    if (!window.route) throw _;
-    return await (await window.route.get(urc)).text();
-  }
+  return await (await window.source.client.get(urc)).text();
 }
 ```
 
-When route succeeds, fetched packets are cached in home repo.
-
-## Pattern 2: Remote-first with local fallback
-
-Use this when freshness matters more than latency.
+## Pattern 2: Gate behavior on source kind
 
 ```javascript
 async function loadTimeline(urc) {
-  if (window.route) {
-    try {
-      return await (await window.route.get(urc)).json();
-    } catch (_) {
-      // continue to local fallback
-    }
-  }
-  return await (await window.home.get(urc)).json();
-}
-```
-
-## Pattern 3: Background refresh with hash compare
-
-Render local snapshot first. Refresh in background and update UI only if
-content hash changed.
-
-```javascript
-async function refreshIfChanged(urc, apply) {
-  const local = await window.home.get(urc);
-  apply(local);
-  if (!window.route) return;
+  if (!window.source) throw new Error('No repo-backed source');
 
   try {
-    const remote = await window.route.get(urc);
-    if (remote.hash !== local.hash) apply(remote);
-  } catch (_) {
-    // offline or route failure: keep local view
+    return await (await window.source.client.get(urc)).json();
+  } catch (e) {
+    if (window.source.kind === 'remote') {
+      // remote source may fail when upstream is offline
+    }
+    throw e;
   }
 }
 ```
 
-## Pattern 4: Queue writes locally, sync later
+## Pattern 3: Use named clients for explicit extra power
 
-Write immediately to `user/` or app-local coordinates on home repo. Sync to
-route when remote is available.
+```javascript
+async function loadWithWriterProfile(urc) {
+  const client = await HpprClient.named('writer');
+  return await (await client.get(urc)).text();
+}
+```
 
-1. Append outgoing changes to a local queue packet/list.
-2. Try route write.
-3. On success, mark queue item synced.
-4. On failure, keep queued and retry with backoff.
-
-This keeps UX responsive during route outages.
+This is the clean expansion path beyond `window.source`.
+It is browser-mediated and grant-scoped.
+Do not rebuild old `window.home ?? window.route` fallbacks around it.
 
 ## Connectivity checks
 
 Two practical checks:
 
-- `window.route === null`: no local route answer or no usable route endpoint.
-- HPPR error with `fatal === true`: route/session failed; reconnect needed.
+- `window.source === null`: no ordinary repo-backed source exists for the page
+- repo/client failure with `fatal === true`: backend/session failed and the app
+  must treat that as an operational failure for the current client
 
-Treat route failure as normal state, not exceptional app crash state.
+Treat remote-source failure as normal state, not as exceptional app crash state.
 
 ## Watch-driven updates
 
-### In page code
-
-Use `watch()` when you want event-driven refresh.
-
-```javascript
-const ws = window.home.watch('//u/site/');
-ws.onmessage = (e) => {
-  // e.data: "+ //..." or "- //..."
-};
-```
-
-For remote watches, use `window.route.watch(...)` when route exists.
+Only use watch/stream primitives on clients that actually support them.
+Remote transport-backed clients do.
+Browser-mediated local backends that have not grown watch/stream support yet
+fail explicitly instead of pretending to be transport-backed.
 
 ### In browser workflow (DevTools watch modes)
 
@@ -126,19 +95,19 @@ Use:
 
 ## Route setup patterns
 
-- First-time route setup: `hppr route join //group/app <address>`
-- Reuse configured route: `hppr --via route get //group/app/path`
-- Explicit endpoint: `hppr --via tcp+host:port get //group/app/path`
-
-`route join` stores local route app metadata and a group-default local route auth record in the home repo.
-Exact-app local route auth can override that default under `//repo/route/auth/<group>/<app>/|`.
+Route packet structure, local route auth storage, and identity text remain part
+of the general HPPR route scheme.
+HAVI uses those route answers to decide the committed source before ordinary page
+JS runs. Page code does not switch between an ambient home client and ambient
+route client anymore.
 
 ## Write path recommendation
 
-- User state: write to home repo first.
-- Shared canonical content: write to route repo (or publish pipeline) with
-  explicit retry/queue semantics.
-- Do not block critical UI on route availability.
+- write ordinary page state through `window.source.client` when that matches the
+  actual committed source capability
+- use named clients only for explicit extra power
+- do not block critical UI on unavailable remote upstreams unless freshness is a
+  hard requirement
 
 ## Next
 

@@ -5,7 +5,7 @@
 //! HPPR Repo Info DOM binding.
 //!
 //! Provides JavaScript API for querying repo information.
-//! Only available on havi:// origin through window.ring0.repo.
+//! Only available on internal helper pages through window.havi.admin.repo.
 
 use std::rc::Rc;
 
@@ -19,17 +19,24 @@ use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
 use crate::dom::bindings::root::DomRoot;
 use crate::dom::bindings::str::DOMString;
 use crate::dom::globalscope::GlobalScope;
+use crate::dom::haviinternal::allow_havi_internal;
 use crate::dom::promise::Promise;
 use crate::routed_promise::{RoutedPromiseListener, callback_promise};
 use crate::script_runtime::CanGc;
 
-/// Check if the current page is on an admin origin (havi://).
-fn check_admin_origin(global: &GlobalScope, api_name: &str, can_gc: CanGc) -> Result<(), Rc<Promise>> {
-    let url = global.get_url();
-    if url.scheme() != "havi" {
+/// Check if the current page is an internal helper page.
+fn check_helper_origin(
+    global: &GlobalScope,
+    api_name: &str,
+    can_gc: CanGc,
+) -> Result<(), Rc<Promise>> {
+    if !allow_havi_internal(global) {
         let promise = Promise::new(global, can_gc);
         promise.reject_error(
-            Error::Security(Some(format!("{} API only available on havi:// pages", api_name))),
+            Error::Security(Some(format!(
+                "{} API only available on internal HAVI helper pages",
+                api_name
+            ))),
             can_gc,
         );
         return Err(promise);
@@ -81,11 +88,11 @@ impl HpprRepoInfo {
 }
 
 impl HpprRepoInfo {
-    /// Check admin origin, create promise, and send a control operation.
+    /// Check helper-page origin, create promise, and send a control operation.
     fn admin_control(&self, request: HpprControlRequest) -> Rc<Promise> {
         let can_gc = CanGc::note();
         let global = self.global();
-        if let Err(promise) = check_admin_origin(&global, "repo", can_gc) {
+        if let Err(promise) = check_helper_origin(&global, "repo", can_gc) {
             return promise;
         }
         let promise = Promise::new(&global, can_gc);
@@ -126,6 +133,8 @@ impl RoutedPromiseListener<HpprControlResponse> for HpprRepoInfo {
             HpprControlResponse::Ok |
             HpprControlResponse::AdminCredential { .. } |
             HpprControlResponse::Resolve(_) |
+            HpprControlResponse::CommittedSourceOperation(_) |
+            HpprControlResponse::NamedClientOperation(_) |
             HpprControlResponse::EmbedResolve(_) => {
                 promise.reject_error(
                     Error::Type(c"Unexpected response type for repo info".to_owned()),
