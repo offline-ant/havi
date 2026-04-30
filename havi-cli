@@ -11,7 +11,7 @@ Subcommand groups:
 
 Built-in commands:
     publish     Store signed file and navigate
-    publish-dir Store directory tree and navigate
+    publish-dir Retired. Use pylon mount + copy workflow
     deploy      Write app content pointer for group/app
     navigate    Navigate HAVI to a URL
 
@@ -108,6 +108,14 @@ def _debug_port():
     return str(port)
 
 
+def _hppr_add(coordinate, headers, stdin=None):
+    cmd = ["hppr", "add", "--seal-by", "ring0"]
+    for header in headers:
+        cmd.extend(["-H", header])
+    cmd.append(coordinate)
+    _run(cmd, stdin=stdin)
+
+
 def cmd_navigate(args):
     port = _debug_port()
     _run(["havi-devtools-cli", "-p", port, "navigate", args[0]])
@@ -176,12 +184,13 @@ def cmd_deploy(args):
     if not (content_authority.startswith("V.") and content_authority.endswith(".H3")):
         sys.exit("error: content-authority must be V.<...>.H3")
 
-    _run([
-        "hppr", "add", "--seal-by", "oldest",
+    _hppr_add(
         f"//{group}/admin/deploy/{app}",
-        "-H", f"Content-Root: {content_root}",
-        "-H", f"Content-Authority: {content_authority}",
-    ])
+        [
+            f"Content-Root: {content_root}",
+            f"Content-Authority: {content_authority}",
+        ],
+    )
 
 
 def cmd_publish(args):
@@ -190,9 +199,7 @@ def cmd_publish(args):
     coordinate, filepath = args[0], args[1]
     content_type = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
     with open(filepath, "rb") as f:
-        _run(["hppr", "add", "--seal-by", "oldest",
-              "-H", f"Content-Type: {content_type}",
-              coordinate], stdin=f)
+        _hppr_add(coordinate, [f"Content-Type: {content_type}"], stdin=f)
     port = _debug_port()
     _run(["havi-devtools-cli", "-p", port, "navigate", f"hppr://{coordinate[2:]}"])
 
@@ -200,11 +207,9 @@ def cmd_publish(args):
 def cmd_publish_dir(args):
     if len(args) < 2:
         sys.exit("usage: havi-cli publish-dir <coordinate> <dir>")
-    coordinate, dirpath = args[0], args[1]
-    _run(["dir-pac", "--server-side", dirpath, coordinate])
-    group, app, _ = _parse_coordinate(coordinate)
-    port = _debug_port()
-    _run(["havi-devtools-cli", "-p", port, "navigate", f"hppr://{group}/{app}/"])
+    sys.exit(
+        "error: publish-dir is retired; use pylon mount --root <coordinate> --rw --seal-with ring0 and copy files into the mount"
+    )
 
 
 BUILTIN = {
@@ -226,7 +231,7 @@ Built-in commands:
     navigate <url>                                         Navigate HAVI to a URL
     deploy <group> <app> <content-root> <content-authority>  Write app content pointer
     publish <coordinate> <file>                            Store signed file, navigate
-    publish-dir <coordinate> <dir>                         Store directory tree, navigate
+    publish-dir <coordinate> <dir>                         Retired. Use pylon mount + copy
 
 Direct open:
     //<group>/<app>[/location] [--shadow] [--mount PATH]   Open routed app, optionally enter shadow mode

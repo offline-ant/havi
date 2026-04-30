@@ -438,6 +438,96 @@ print(result.get('result', {}).get('value'))
 check "evaluate_js ignores non-matching resultID" "42" "$RESULT_ID_MATCH"
 
 # ============================================================================
+# Test 9: havi-cli publish/deploy workflows use current hppr add path
+# ============================================================================
+
+log "--- havi-cli publish/deploy workflows ---"
+
+PUBLISH_SMOKE=$(python3 -c "
+import importlib.util, importlib.machinery, json, os, sys, tempfile
+loader = importlib.machinery.SourceFileLoader('havi_cli', '$HAVI_ROOT/havi-cli')
+spec = importlib.util.spec_from_loader('havi_cli', loader, origin='$HAVI_ROOT/havi-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['havi_cli'] = mod
+spec.loader.exec_module(mod)
+
+calls = []
+payloads = []
+
+def fake_run(cmd, **kwargs):
+    calls.append(cmd)
+    stdin = kwargs.get('stdin')
+    payloads.append(stdin.read().decode('utf-8') if stdin else '')
+    class Result:
+        returncode = 0
+    return Result()
+
+mod._run = fake_run
+mod._debug_port = lambda: '6000'
+fd, path = tempfile.mkstemp(suffix='.html')
+os.write(fd, b'<h1>ok</h1>')
+os.close(fd)
+try:
+    mod.cmd_publish(['//u/web/index.html', path])
+finally:
+    os.unlink(path)
+print(json.dumps(calls[0], separators=(',', ':')))
+print(json.dumps(calls[1], separators=(',', ':')))
+print(payloads[0])
+print('oldest' in json.dumps(calls))
+")
+
+PUBLISH_ADD_CMD="$(echo "$PUBLISH_SMOKE" | sed -n '1p')"
+PUBLISH_NAV_CMD="$(echo "$PUBLISH_SMOKE" | sed -n '2p')"
+PUBLISH_PAYLOAD="$(echo "$PUBLISH_SMOKE" | sed -n '3p')"
+PUBLISH_OLDEST="$(echo "$PUBLISH_SMOKE" | sed -n '4p')"
+check "havi-cli publish uses hppr add --seal-by ring0" '["hppr","add","--seal-by","ring0","-H","Content-Type: text/html","//u/web/index.html"]' "$PUBLISH_ADD_CMD"
+check "havi-cli publish navigates to published url" '["havi-devtools-cli","-p","6000","navigate","hppr://u/web/index.html"]' "$PUBLISH_NAV_CMD"
+check "havi-cli publish forwards file bytes" '<h1>ok</h1>' "$PUBLISH_PAYLOAD"
+check "havi-cli publish never emits legacy oldest selector" 'False' "$PUBLISH_OLDEST"
+
+DEPLOY_SMOKE=$(python3 -c "
+import importlib.util, importlib.machinery, json, sys
+loader = importlib.machinery.SourceFileLoader('havi_cli', '$HAVI_ROOT/havi-cli')
+spec = importlib.util.spec_from_loader('havi_cli', loader, origin='$HAVI_ROOT/havi-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['havi_cli'] = mod
+spec.loader.exec_module(mod)
+
+calls = []
+
+def fake_run(cmd, **kwargs):
+    calls.append(cmd)
+    class Result:
+        returncode = 0
+    return Result()
+
+mod._run = fake_run
+mod.cmd_deploy(['u', 'web', '//u/web', 'V.EXAMPLE.H3'])
+print(json.dumps(calls[0], separators=(',', ':')))
+print('oldest' in json.dumps(calls))
+")
+
+DEPLOY_CMD="$(echo "$DEPLOY_SMOKE" | sed -n '1p')"
+DEPLOY_OLDEST="$(echo "$DEPLOY_SMOKE" | sed -n '2p')"
+check "havi-cli deploy uses hppr add --seal-by ring0" '["hppr","add","--seal-by","ring0","-H","Content-Root: //u/web","-H","Content-Authority: V.EXAMPLE.H3","//u/admin/deploy/web"]' "$DEPLOY_CMD"
+check "havi-cli deploy never emits legacy oldest selector" 'False' "$DEPLOY_OLDEST"
+
+PUBLISH_DIR_RETIRED=$(python3 -c "
+import importlib.util, importlib.machinery, sys
+loader = importlib.machinery.SourceFileLoader('havi_cli', '$HAVI_ROOT/havi-cli')
+spec = importlib.util.spec_from_loader('havi_cli', loader, origin='$HAVI_ROOT/havi-cli')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['havi_cli'] = mod
+spec.loader.exec_module(mod)
+try:
+    mod.cmd_publish_dir(['//u/site', '/tmp/site'])
+except SystemExit as e:
+    print(str(e))
+")
+check "havi-cli publish-dir fails loudly with replacement workflow" 'error: publish-dir is retired; use pylon mount --root <coordinate> --rw --seal-with ring0 and copy files into the mount' "$PUBLISH_DIR_RETIRED"
+
+# ============================================================================
 # Summary
 # ============================================================================
 

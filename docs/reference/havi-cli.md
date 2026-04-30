@@ -24,7 +24,7 @@ and havi-devtools-cli, and provides built-in workflow commands.
 - `publish <coordinate> <file>`
   - Store a signed file and navigate.
 - `publish-dir <coordinate> <dir>`
-  - Store a directory tree and navigate.
+  - Retired command. Exits with an error that points to the mount+copy workflow.
 - `//<group>/<app>[/location] [--shadow] [--mount PATH]`
   - Open a routed app directly. `--shadow` enters local shadow mode through the
     shell. `--mount` mounts the shadow root with the persistent shadow signing
@@ -45,5 +45,6 @@ havi-cli makepad click 300 400
 havi-cli devtools eval 'document.title'
 havi-cli deploy u web //u/web V.EXAMPLE.H3
 havi-cli publish //u/web/index.html page.html
+pylon mount /mnt/hppr --root //u/site --rw --seal-with ring0
 havi-cli //dev/hppr.forge/presentation/index.html --shadow --mount /mnt/presentation
 ```

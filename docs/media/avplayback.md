@@ -1,146 +1,107 @@
-# A/V Playback through HTMLMediaElement
+# HAVI A/V playback
 
-Media elements present audio and/or video data to the user.
-The [HTMLMediaElement](https://html.spec.whatwg.org/multipage/media.html#htmlmediaelement)
-interface adds to [HTMLElement](https://html.spec.whatwg.org/multipage/dom.html#htmlelement)
-the properties and methods needed to support basic
-media-related capabilities common to audio and video.
-The [HTMLVideoElement](https://html.spec.whatwg.org/multipage/media.html#htmlvideoelement)
-(`<video>`) and [HTMLAudioElement](https://html.spec.whatwg.org/multipage/media.html#htmlaudioelement)
-(`<audio>`) elements both inherit this interface.
+This document covers current `HTMLMediaElement` playback behavior in HAVI.
 
+## Architecture split
 
-`servo-media` exposes a Rust `Player` API that provides
-audio and video playback capabilities. Servo uses it to
-[implement](https://github.com/servo/servo/blob/7bfa9179319d714656e7184e5159ea42595086e5/components/script/dom/htmlmediaelement.rs#L1)
-the HTMLMediaElement API.
-```rust
-/*
-  This is an example of a very basic Player playing media from a file.
-  NOTE: Some boilerplate has been removed for simplicity.
-  Please, visit the examples folder for a more complete version.
-*/
+HAVI keeps ordinary playback and custom MSE playback as different systems.
+Do not merge them in API or implementation design.
 
-// Create Player instance
-let (sender, receiver) = ipc::channel().unwrap();
-let player = servo_media.create_player(
-    &ClientContextId::build(1, 1),
-    StreamType::Seekable,
-    sender,
-    None,
-    None,
-    Box::new(PlayerContextDummy()),
-);
+- Native playback path: for ordinary baked audio/video.
+- Custom MSE path: for `MediaSource` append workflows.
 
-// Open file and set input size.
-let file = match File::open(&path)?;
-if let Ok(metadata) = file.metadata() {
-    player
-        .lock()
-        .unwrap()
-        .set_input_size(metadata.len())
-        .unwrap();
-}
+See `havi/spec/080-MEDIA.md` for the normative split.
 
-// Read from file and push buffers to the player.
-let player_clone = Arc::clone(&player);
-thread::spawn(move || {
-    let player = &player_clone;
-    let mut buf_reader = BufReader::new(file);
-    let mut buffer = [0; 1024];
-    let mut read = |offset| {
-        match buf_reader.read(&mut buffer[..]) {
-            Ok(0) => {
-                println!("Finished pushing data");
-                break;
-            }
-            Ok(size) => player
-                .lock()
-                .unwrap()
-                .push_data(Vec::from(&buffer[0..size]))
-                .unwrap(),
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
-        }
-    };
-});
+## Native playback path
 
-// Start playing.
-player.lock().unwrap().play().unwrap();
+Use the native path for ordinary `<audio src>` / `<video src>` playback.
 
-// Listen for Player events.
-while let Ok(event) = receiver.recv() {
-    match event {
-        PlayerEvent::EndOfStream => {
-            println!("\nEOF");
-            break;
-        }
-        PlayerEvent::Error(ref s) => {
-            println!("\nError {:?}", s);
-            break;
-        }
-        PlayerEvent::MetadataUpdated(ref m) => {
-            println!("\nMetadata updated! {:?}", m);
-        }
-        PlayerEvent::DurationChanged(d) => {
-            println!("\nDuration changed! {:?}", d);
-        },
-        PlayerEvent::StateChanged(ref s) => {
-            println!("\nPlayer state changed to {:?}", s);
-        }
-        PlayerEvent::VideoFrameUpdated => eprint!("."),
-        PlayerEvent::PositionChanged(p) => {}
-        PlayerEvent::SeekData(_, _) => {}
-        PlayerEvent::SeekDone(_) => {},
-        PlayerEvent::NeedData => println!("\nNeedData"),
-        PlayerEvent::EnoughData => println!("\nEnoughData"),
-    }
-}
+Responsibilities:
+
+- browser side resolves the source and applies HPPR policy
+- platform/native media code owns decode, playout, and timing
+- HAVI shell presents the resulting audio/video through the native player path
+
+This is the right path for normal baked media files.
+It is not a fallback form of MSE.
+
+## Custom MSE path
+
+`MediaSource` playback uses the controller operations in
+`components/media/media-thread/controller.rs`:
+
+- `PrepareMsePlayback`
+- `MseAddSourceBuffer`
+- `MseAppendData`
+- `MseRemove`
+- `MseEndOfStream`
+- track-selection updates and parse/decode events
+
+This path owns append semantics itself.
+It is used where native delegated playback cannot express the required
+buffering behavior.
+
+## Source-backed browser/media handoff
+
+The browser still owns source resolution before playback starts:
+
+- route/auth resolution
+- chunk-manifest handling
+- byte-range reads from resolved assets
+
+The media layer receives a resolved asset boundary, not a second network stack.
+This keeps transport policy in browser code and playback policy in media code.
+
+## Video policy
+
+Current HAVI video policy matches `havi/spec/080-MEDIA.md`.
+
+Supported video containers/codecs:
+
+- `video/mp4`
+- `video/x-m4v`
+- AV1 video (`av01`)
+- H.264 video (`avc1`, `avc3`)
+
+Rejected video families include:
+
+- WebM
+- Ogg
+- Matroska
+- H.265 / HEVC
+- VP8 / VP9
+
+`canPlayType()` policy and codec parsing live in
+`components/media/media-thread/controller.rs`.
+
+Audio format support remains delegated to platform capability.
+
+## Presentation path
+
+HAVI does not render video through WebRender.
+Current high-level flow is:
+
+```text
+HTMLMediaElement / MediaSource
+  -> media controller
+  -> havishell media bridge
+  -> texture or native presentation surface
+  -> Makepad/compositor frame composition
 ```
 
-## Implementation
-The entry point is
-[ServoMedia.create_player()](https://github.com/servo/media/blob/b64b86b727ade722eaf571e65ff678364b69fc08/servo-media/lib.rs#L34),
-which takes an `IpcSender<PlayerEvent>` for events, and
-shared references to
-[VideoFrameRenderer](https://github.com/servo/media/blob/main/player/video.rs#L71)
-and
-[AudioFrameRenderer](https://github.com/servo/media/blob/b64b86b727ade722eaf571e65ff678364b69fc08/player/audio.rs#L1)
-that receive frames as the media player produces them.
+The exact retained composition rules live in `havi/RENDERER.md`.
+The important constraint here is architectural: media output enters the active
+Makepad/compositor renderer, not a parallel legacy renderer.
 
-Backends implement the
-[Player](https://github.com/servo/media/blob/main/player/lib.rs#L92)
-trait, which exposes a basic API to control a/v playback.
+## What this document does not claim
 
-The media player does not fetch media data. The `Player`
-trait exposes a
-[push_data()](https://github.com/servo/media/blob/b64b86b727ade722eaf571e65ff678364b69fc08/player/lib.rs#L101)
-method that accepts a buffer of media data. Servo's
-[HTMLMediaElement implementation](https://github.com/servo/servo/blob/7bfa9179319d714656e7184e5159ea42595086e5/components/script/dom/htmlmediaelement.rs#L900)
-fetches data from the network or a file and
-[feeds](https://github.com/servo/servo/blob/7bfa9179319d714656e7184e5159ea42595086e5/components/script/dom/htmlmediaelement.rs#L2702)
-the backend with media buffers. The player decodes the data
-and builds audio and/or video frames. Video frames are
-output as raw images by default, or as GL textures when
-hardware acceleration is available.
-[WebRender](https://github.com/servo/webrender) is
-responsible for
-[rendering](https://github.com/servo/servo/blob/b41f5f97f26895f874514ce88cb359d65915738c/components/layout/display_list/builder.rs#L1883)
-the images that `servo-media`
-[outputs](https://github.com/servo/servo/blob/7bfa9179319d714656e7184e5159ea42595086e5/components/script/dom/htmlmediaelement.rs#L179).
+- It does not claim WebRTC support.
+- It does not claim generic media-capture support.
+- It does not claim WebRender output.
 
-The
-[GStreamer](https://github.com/servo/media/blob/main/backends/gstreamer/player.rs#L776)
-implementation wraps
-[GstPlayer](https://gstreamer.freedesktop.org/documentation/player/gstplayer.html?gi-language=c),
-a media playback API that hides GStreamer complexity. It
-uses the
-[playbin](https://gstreamer.freedesktop.org/documentation/playback/playbin3.html?gi-language=c)
-element, a stand-alone abstraction for audio/video playback
-that dynamically builds the appropriate decoding pipeline.
+## Relevant tests
 
-### Hardware acceleration
-TODO
-
+- `havi/tests/havi/media-policy-test.sh`
+- `havi/tests/havi/media-source-basic-test.sh`
+- `havi/tests/havi/media-source-playback-test.sh`
+- `havi/tests/havi/media-baked-hppr-test.sh`

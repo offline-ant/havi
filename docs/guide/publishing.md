@@ -17,6 +17,9 @@ What it does:
 1. `hppr add --seal-by ring0` with inferred `Content-Type`
 2. navigates HAVI to `hppr://u/site/index.html`
 
+`havi-cli deploy` uses the same `hppr add --seal-by ring0` path for the
+`//<group>/admin/deploy/<app>/|` content-pointer packet.
+
 Use this for quick iteration on one file.
 
 ### 2) Script path: publish with `hppr add`
@@ -103,8 +106,8 @@ pylon unmount /mnt/hppr
 
 This replaces old `dir-pac`/`pac-dir` workflows.
 
-`havi-cli publish-dir` currently shells out to `dir-pac`. If your environment
-does not provide `dir-pac`, use mount+copy.
+`havi-cli publish-dir` is retired. It fails with an explicit error and points to
+this mount+copy workflow.
 
 ### Direct `hppr-nfs`
 

@@ -1,28 +1,91 @@
- # Servo Media - Overview
+# HAVI media overview
 
- The `servo-media` crate contains the backend implementation
- to support all [Servo](https://github.com/servo/servo)
- multimedia related functionality. This is:
-  - the [HTMLMediaElement](https://html.spec.whatwg.org/multipage/media.html#htmlmediaelement) and the `<audio>` and `<video>` elements.
-  - the [WebAudio API](https://webaudio.github.io/web-audio-api).
-  - the [WebRTC API](https://w3c.github.io/webrtc-pc/).
-  - the [Media Capture and Streams APIs](https://w3c.github.io/mediacapture-main/#dom-mediadeviceinfo-groupid).
+These documents describe current HAVI media behavior.
+They do not describe generic upstream Servo media architecture.
 
-`servo-media` runs on Linux, macOS, Windows and Android.
-Check the
-[build](https://github.com/servo/media/tree/f96c33b7374d5b9915b8bae8623723b2d23ec457#build)
-instructions for each specific platform.
+## Source of truth
 
-`servo-media` is built modularly from different crates and
-provides an abstraction for multiple media backends. The
-only functional backend is
-[GStreamer](https://github.com/servo/media/tree/f96c33b7374d5b9915b8bae8623723b2d23ec457/backends/gstreamer).
-New backends implement the
-[Backend](https://github.com/servo/media/blob/2610789d1abfbe4443579021113c822ba05f34dc/servo-media/lib.rs#L33)
-trait, the public API exposed through the
-[ServoMedia](https://github.com/servo/media/blob/2610789d1abfbe4443579021113c822ba05f34dc/servo-media/lib.rs#L90)
-entry point. See the
-[examples](https://github.com/servo/media/tree/f96c33b7374d5b9915b8bae8623723b2d23ec457/examples)
-folder, or check how `servo-media` is used in
-[Servo](https://github.com/servo/servo).
+- Spec: `havi/spec/080-MEDIA.md`
+- Renderer path: `havi/RENDERER.md`
+- Runtime boundary: `havi/components/media/media-thread/controller.rs`
 
+## Two playback paths
+
+HAVI keeps two media paths separate.
+
+### 1. Native playback path
+
+Ordinary baked audio/video playback delegates media control to the platform
+player/widget path.
+
+Use this path for normal `<audio>` / `<video>` playback where the platform can
+already provide decode, playout, and timing.
+
+Rules:
+
+- browser code resolves the source and policy
+- platform/native playback owns decode and timing
+- HPPR-specific routing does not leak into platform backends
+- this path stays separate from custom append-buffer playback
+
+### 2. Custom MSE path
+
+`MediaSource` / `SourceBuffer` use HAVI's custom append path.
+
+This path owns:
+
+- append-buffer parsing
+- init/media segment handling
+- decode orchestration
+- buffered-range tracking
+- playout state and timing
+- track selection events back to script
+
+Use this path only when native delegated playback cannot provide the required
+behavior.
+
+## Browser/media boundary
+
+The browser owns transport and resolution work:
+
+- HPPR route and auth policy
+- committed-source resolution
+- chunk-manifest traversal
+- byte-range access to resolved media assets
+
+The media layer receives resolved assets and playback commands.
+It does not own HPPR routing.
+It does not fetch through an HTTP loopback shim.
+
+## Renderer integration
+
+HAVI does not use WebRender.
+Video presentation flows through the active Makepad/compositor renderer stack.
+At a high level:
+
+```text
+HTMLMediaElement / MediaSource
+  -> media controller (`components/media/media-thread/controller.rs`)
+  -> havishell media bridge
+  -> Makepad texture / widget presentation
+  -> HAVI retained renderer + compositor
+```
+
+For full renderer ownership and composition rules, see `havi/RENDERER.md`.
+
+## Current limits
+
+- No WebRTC claim.
+- No generic Media Capture claim in these docs.
+- No WebRender claim.
+- Video policy is the one in `080-MEDIA.md`: MP4 container, AV1/H.264 video.
+- Audio format support depends on platform-native capabilities.
+
+## Relevant tests
+
+- `havi/tests/havi/media-policy-test.sh`
+- `havi/tests/havi/media-source-basic-test.sh`
+- `havi/tests/havi/media-source-playback-test.sh`
+- `havi/tests/havi/media-baked-hppr-test.sh`
+- `havi/tests/havi/mediarecorder-part1-test.sh`
+- `havi/tests/havi/mediarecorder-part2-test.sh`
