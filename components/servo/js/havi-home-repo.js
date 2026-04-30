@@ -1,10 +1,6 @@
 // @ts-check
 /// <reference path="havi.d.ts" />
 
-const haviAdmin = window.havi?.admin ?? null;
-const adminClient = haviAdmin?.client ?? null;
-const repoInfo = haviAdmin?.repo ?? null;
-
 /** @param {string} text */
 function escapeHtml(text) {
     return text
@@ -48,113 +44,58 @@ async function homeRepoRequest(cmd, params) {
     return json.data;
 }
 
+/** @param {string} id @param {string} value */
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
 async function loadStatus() {
     try {
-        if (!repoInfo) throw new Error('window.havi.admin.repo unavailable');
-        const port = await repoInfo.port();
-        const portEl = document.getElementById('port');
-        if (portEl) portEl.textContent = String(port);
+        const runtime = await homeRepoRequest('runtime_status');
+        setText('port', runtime.port == null ? '-' : String(runtime.port));
+        setText('wsPort', runtime.wsPort == null ? '-' : String(runtime.wsPort));
+        setText('quibPort', runtime.quibPort == null ? '-' : String(runtime.quibPort));
+        setText('udpPort', runtime.udpPort == null ? '-' : String(runtime.udpPort));
+        setText('status', runtime.status || runtime.mode || '-');
+        setText('repoPath', runtime.mode === 'local'
+            ? (runtime.packetStorePath || '(not available)')
+            : (runtime.repoTarget || runtime.repoPath || '(remote home repo)'));
+        setText('repoKey', runtime.verifyingKey || '(none)');
+        setText('daemonStatus', runtime.status || '-');
+        setText('daemonUptime', runtime.uptime || '-');
+        setText('daemonBackend', runtime.backend || '-');
+        setText('daemonVersion', runtime.version || '-');
 
-        const wsPortEl = document.getElementById('wsPort');
-        if (wsPortEl) wsPortEl.textContent = String(port + 1);
+        const card = document.getElementById('daemonInfoCard');
+        if (card) card.style.display = '';
 
-        const quibPortEl = document.getElementById('quibPort');
-        if (quibPortEl) quibPortEl.textContent = port > 0 ? String(port - 1) : '-';
-
-        const udpPortEl = document.getElementById('udpPort');
-        if (udpPortEl) udpPortEl.textContent = port > 0 ? String(port) : '-';
-
-        const status = await repoInfo.status();
-        const statusEl = document.getElementById('status');
-        if (statusEl) statusEl.textContent = status;
-
-        const repoPath = await repoInfo.repoPath();
-        const repoEl = document.getElementById('repoPath');
-        if (repoEl) repoEl.textContent = repoPath || '(not available)';
-    } catch (e) {
-        console.error('Failed to load repo status:', e);
-        const portEl = document.getElementById('port');
-        if (portEl) portEl.textContent = 'Error';
-        const statusEl = document.getElementById('status');
-        if (statusEl) statusEl.textContent = 'Error';
-    }
-
-    try {
-        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
-        const greeting = await adminClient.hello();
-        const keyEl = document.getElementById('repoKey');
-        if (keyEl) keyEl.textContent = greeting.verifyingKey || '(none)';
-
-        if (greeting.status || greeting.uptime || greeting.version || greeting.backend) {
-            const card = document.getElementById('daemonInfoCard');
-            if (card) card.style.display = '';
-
-            const statusEl = document.getElementById('daemonStatus');
-            if (statusEl) statusEl.textContent = greeting.status || '-';
-
-            const uptimeEl = document.getElementById('daemonUptime');
-            if (uptimeEl) {
-                const secs = parseInt(greeting.uptime || '0', 10);
-                if (secs >= 86400) {
-                    uptimeEl.textContent = Math.floor(secs / 86400) + 'd ' + Math.floor((secs % 86400) / 3600) + 'h';
-                } else if (secs >= 3600) {
-                    uptimeEl.textContent = Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
-                } else if (secs >= 60) {
-                    uptimeEl.textContent = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
-                } else {
-                    uptimeEl.textContent = secs + 's';
-                }
-            }
-
-            const backendEl = document.getElementById('daemonBackend');
-            if (backendEl) backendEl.textContent = greeting.backend || '-';
-
-            const versionEl = document.getElementById('daemonVersion');
-            if (versionEl) versionEl.textContent = greeting.version || '-';
-        }
-    } catch (e) {
-        const keyEl = document.getElementById('repoKey');
-        if (keyEl) keyEl.textContent = '(error: ' + (e instanceof Error ? e.message : String(e)) + ')';
-    }
-
-    try {
-        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
-        const identity = await adminClient.get('//repo/admin/identity/|');
-        const repoName = identity.getHeader('Repo-Name');
         const nameEl = /** @type {HTMLInputElement|null} */ (document.getElementById('repoName'));
-        if (nameEl) nameEl.value = repoName || 'localhost';
-    } catch (_e) {
-        const nameEl = /** @type {HTMLInputElement|null} */ (document.getElementById('repoName'));
-        if (nameEl) nameEl.placeholder = '(error loading)';
-    }
+        if (nameEl) nameEl.value = runtime.repoName || 'havi-local';
 
-    await loadNamedClients();
+        await loadNamedClients();
+    } catch (e) {
+        console.error('Failed to load home-repo status:', e);
+        setText('port', 'Error');
+        setText('status', 'Error');
+        setText('repoKey', '(error)');
+    }
 }
 
 async function saveRepoName() {
     const nameInput = /** @type {HTMLInputElement|null} */ (document.getElementById('repoName'));
     const msgEl = document.getElementById('nameMessage');
     if (!nameInput || !msgEl) return;
-    const newName = nameInput.value.trim();
 
+    const newName = nameInput.value.trim();
     if (!newName) {
         msgEl.textContent = 'Please enter a repo name';
         return;
     }
 
     try {
-        if (!adminClient) throw new Error('window.havi.admin.client unavailable');
-        const identity = await adminClient.get('//repo/admin/identity/|');
-        const newHeaders = identity.customHeaders()
-            .filter(/** @param {string} h */ h => !h.startsWith('Repo-Name:'));
-        newHeaders.push('Repo-Name: ' + newName);
-
-        await adminClient.add({
-            headers: newHeaders,
-            data: identity.text()
-        });
-
-        msgEl.textContent = 'Repo name updated. Restart repo daemon to take effect.';
+        const data = await homeRepoRequest('set_repo_name', { name: newName });
+        msgEl.textContent = 'Repo name updated: ' + (data.name || newName);
     } catch (e) {
         msgEl.textContent = 'Failed to save: ' + (e instanceof Error ? e.message : String(e));
     }

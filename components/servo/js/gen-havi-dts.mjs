@@ -30,8 +30,6 @@ const ROOT_HPPR_HTML_DTS = join(HAVI_ROOT, "hppr-html.d.ts");
 const ROOT_HAVI_DTS = join(HAVI_ROOT, "havi.d.ts");
 
 const IDL_FILES = [
-  "HaviAdmin.webidl",
-  "HaviInternal.webidl",
   "HpprClient.webidl",
   "EnvelopeHpprClient.webidl",
   "HpprPacket.webidl",
@@ -47,7 +45,6 @@ const IDL_FILES = [
   "FileWindowAddress.webidl",
   "HpprResult.webidl",
   "HpprError.webidl",
-  "HpprRepoInfo.webidl",
   "H3.webidl",
 ];
 
@@ -66,7 +63,6 @@ const HAVI_PREAMBLE = `/**
  * AUTO-GENERATED FILE. DO NOT EDIT.
  *
  * HAVI-specific typings layered on top of hppr-html.d.ts.
- * Exposes internal helper globals such as window.havi.
  */\n\n`;
 
 function mapType(idlType) {
@@ -219,14 +215,8 @@ const hpprHtmlWanted = new Set([
   "FileWindowAddress",
   "HpprResult",
   "HpprError",
-  "HpprRepoInfo",
   "HpprKeyPair",
   "H3",
-]);
-
-const haviWanted = new Set([
-  "HaviAdmin",
-  "HaviInternal",
 ]);
 
 let hpprHtml = HPPR_HTML_PREAMBLE;
@@ -259,17 +249,6 @@ interface Document {
 `;
 
 let havi = `${HAVI_PREAMBLE}/// <reference path="./hppr-html.d.ts" />
-
-`;
-for (const def of allDefs) {
-  if (def.type === "interface" && haviWanted.has(def.name)) {
-    havi += emitInterface(def);
-  }
-}
-
-havi += `interface Window {
-  readonly havi: HaviInternal | null;
-}
 `;
 
 /** Write file only if content differs (preserves mtime for cargo caching). */

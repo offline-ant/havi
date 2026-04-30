@@ -113,19 +113,12 @@ From the project/package root:
 ./bin/havi
 ```
 
-Current desktop HAVI runtime still uses the hpprd/pylon compatibility repo at
-`~/.config/HAVI/repo` when `HAVI_HOME` is unset. Browser-local non-repo state
-stays in `~/.config/HAVI/havi.sqlite`.
+Default desktop HAVI browsing now uses the browser-owned packet store at
+`~/.config/HAVI/havi-packets.sqlite` when `HAVI_HOME` is unset. Browser-local
+non-packet state stays in `~/.config/HAVI/havi.sqlite`.
 
-Import a local directory into the current compatibility repo:
-
-```bash
-export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
-export HPPR_SIGNER='ring1:ring0|init'
-pylon mount /mnt/hppr --root //u/showcase --rw --seal-with ring0
-cp -a showcase/. /mnt/hppr/
-pylon unmount /mnt/hppr
-```
+Explicit `hpprd` / pylon workflows remain valid for authoring, publishing, and
+operator tasks, but they are not required for ordinary browsing.
 
 Open in HAVI address bar:
 
@@ -199,7 +192,7 @@ Globals:
 
 - `window.address` — HPPR-aware address object (navigation by assignment)
 - `window.source` — committed source descriptor for ordinary repo-backed pages
-- `window.havi.admin.client` — explicit internal admin client on privileged `havi://` pages
+- internal helper pages use page-owned `havi:///.../api?...` endpoints instead of a generic privileged JS client
 - `document.packet` — source `HpprPacket` for `hppr://` documents
 
 `HpprClient` core methods:
@@ -207,8 +200,12 @@ Globals:
 - read: `get`, `headers`, `list`, `tips`, `members`
 - write: `add`, `store`, `detach`
 - session/status: `hello`
+- transport bridge: `envelope()` wrapper
+
+`EnvelopeHpprClient` transport methods:
+
+- remote connect: `connect(endpoint, identity?)`
 - live: `watch`, `streamPub`, `streamSub`
-- debug envelope: `envelope()` wrapper
 
 Live primitives:
 

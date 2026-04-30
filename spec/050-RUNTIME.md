@@ -21,6 +21,11 @@ Typical browser-local uses include:
 
 The storage backend and local process model are implementation-defined.
 
+Current HAVI default runtime uses one browser-owned local packet-store database
+for packet-native state and keeps separate non-packet browser state in
+`havi.sqlite`. It does not require a local `hpprd` listener in the ordinary
+browsing path.
+
 ## Clients exposed to page code
 
 Current committed-source behavior:
@@ -39,8 +44,8 @@ runtime model:
 - ordinary pages do not expose `window.home`
 - ordinary pages do not expose `window.route`
 
-Helper-only privileged access remains separate and explicit through the
-internal helper capability root at `window.havi` on internal helper pages.
+Helper-only privileged behavior remains separate and explicit through
+page-owned `havi:///.../api?...` backends on internal helper pages.
 
 ## Origin-scoped capability isolation
 

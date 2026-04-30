@@ -2,11 +2,13 @@
 
 HAVI is an HPPR-native browser distribution with bundled HPPR tools.
 
-Current HAVI runtime still starts through pylon and `hpprd`. On desktop, when
-`HAVI_HOME` is unset, that compatibility repo path defaults to
-`~/.config/HAVI/repo`. Browser-local non-repo state stays in
-`~/.config/HAVI/havi.sqlite`. HAVI can also connect to an external `hpprd` via
-`HAVI_HOME`.
+Default HAVI browsing now uses a browser-owned local packet store. On desktop,
+when `HAVI_HOME` is unset, packet-native browser-local state lives in
+`~/.config/HAVI/havi-packets.sqlite` and non-packet browser state lives in
+`~/.config/HAVI/havi.sqlite`.
+
+HAVI can also connect to an explicit external `hpprd` via `HAVI_HOME`. Pylon is
+operator/service machinery, not part of the default browsing path.
 
 This runtime plumbing is not the ordinary page capability model. Ordinary pages
 use the committed `window.source` descriptor plus explicit named clients, not

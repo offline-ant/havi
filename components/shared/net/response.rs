@@ -150,9 +150,6 @@ pub struct Response {
     /// HPPR: canonical resolved document source snapshot.
     #[ignore_malloc_size_of = "HPPR document source"]
     pub hppr_source: Option<crate::HpprDocumentSource>,
-    /// HPPR: helper-page admin credentials (account, token) for
-    /// `window.havi.admin.client`.
-    pub admin_credentials: Option<(String, String)>,
 }
 
 impl Response {
@@ -182,7 +179,6 @@ impl Response {
             hppr_lookup_trace: None,
             hppr_content_authority: None,
             hppr_source: None,
-            admin_credentials: None,
         }
     }
 
@@ -223,7 +219,6 @@ impl Response {
             hppr_lookup_trace: None,
             hppr_content_authority: None,
             hppr_source: None,
-            admin_credentials: None,
         }
     }
 
@@ -363,9 +358,6 @@ impl Response {
                 .hppr_content_authority
                 .clone_from(&response.hppr_content_authority);
             metadata.hppr_source.clone_from(&response.hppr_source);
-            metadata
-                .admin_credentials
-                .clone_from(&response.admin_credentials);
             metadata
         }
 

@@ -170,9 +170,6 @@ pub struct PageResponse {
     pub content_type: String,
     /// Response body bytes.
     pub body: Vec<u8>,
-    /// Optional helper-page admin credentials (ring1_name, signing_key) for
-    /// `window.havi.admin.client`.
-    pub admin_credentials: Option<(String, String)>,
     /// Optional CSP header value for sandbox pages.
     pub csp: Option<String>,
     /// The HPPR packet that produced this response (for document.packet DOM API).
@@ -191,7 +188,6 @@ impl PageResponse {
         Self {
             content_type: "text/html".to_string(),
             body: body.into_bytes(),
-            admin_credentials: None,
             csp: None,
             hppr_packet: None,
             hppr_lookup_trace: None,
@@ -204,7 +200,6 @@ impl PageResponse {
         Self {
             content_type: content_type.into(),
             body,
-            admin_credentials: None,
             csp: None,
             hppr_packet: None,
             hppr_lookup_trace: None,
@@ -219,11 +214,6 @@ impl PageResponse {
 
     pub fn with_hppr_lookup_trace(mut self, trace: embedder_traits::HpprLookupTrace) -> Self {
         self.hppr_lookup_trace = Some(trace);
-        self
-    }
-
-    pub fn with_admin_credentials(mut self, ring1_name: String, signing_key: String) -> Self {
-        self.admin_credentials = Some((ring1_name, signing_key));
         self
     }
 

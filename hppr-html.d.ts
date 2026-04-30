@@ -41,11 +41,8 @@ interface HpprKeyPair {
   verifyingKey: string;
 }
 interface HpprClient {
-  connect(endpoint: string, identity?: string): Promise<HpprClient>;
-  connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
   named(name: string): Promise<HpprClient>;
   envelope(): EnvelopeHpprClient;
-  readonly endpoint: string;
   readonly account: string | null;
   readonly group: string | null;
   readonly ring1Name: string | null;
@@ -58,20 +55,15 @@ interface HpprClient {
   detach(hash: string): Promise<void>;
   add(options?: HpprAddOptions): Promise<string[]>;
   hello(): Promise<HpprGreeting>;
-  watch(urc: string): WatchSocket;
-  streamPub(prefix: string, options?: StreamPubOptions): StreamPub;
-  streamSub(prefix: string): StreamSub;
 }
 declare var HpprClient: {
   prototype: HpprClient;
-  connect(endpoint: string, identity?: string): Promise<HpprClient>;
-  connectRing2Password(endpoint: string, group: string, username: string, password: string): Promise<HpprClient>;
   named(name: string): Promise<HpprClient>;
 };
 interface EnvelopeHpprClient {
   connect(endpoint: string, identity?: string): Promise<EnvelopeHpprClient>;
   unpack(): HpprClient;
-  readonly endpoint: string;
+  readonly endpoint: string | null;
   readonly account: string | null;
   readonly group: string | null;
   get(urc: string): Promise<HpprResult>;
@@ -227,11 +219,6 @@ declare var HpprError: {
   prototype: HpprError;
   new (errorType: string, detail?: string): HpprError;
 };
-interface HpprRepoInfo {
-  port(): Promise<number>;
-  repoPath(): Promise<string>;
-  status(): Promise<string>;
-}
 declare namespace H3 {
   function deriveKeyPair(password: string, name: string, domainKey: string, phc?: string): HpprKeyPair;
   function hash(data: ArrayBuffer | ArrayBufferView | string): string;

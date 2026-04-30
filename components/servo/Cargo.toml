@@ -69,6 +69,7 @@ fonts_traits = { workspace = true }
 html5ever = { workspace = true }
 hppr-client = { workspace = true }
 hppr-packet = { workspace = true }
+hpprd = { path = "../../../hppr/rust/services/hpprd" }
 image = { workspace = true }
 imsz = { workspace = true }
 ipc-channel = { workspace = true }

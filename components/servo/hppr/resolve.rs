@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use hppr_client::{Packet, Signer, ViaSpec, parse_via};
+use hppr_client::{Packet, Signer, parse_via};
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
 use hppr_packet::urc::UrcMethod;
 use net_traits::{HpprDocumentSource, HpprDocumentSourceSnapshot};
@@ -24,15 +24,16 @@ use net_traits::{HpprDocumentSource, HpprDocumentSourceSnapshot};
 use super::client::{ContentPointerInfo, HpprdClientAsync};
 use super::credentials::CredentialStoreHandle;
 use super::local_route::BrowserRouteHandle;
-use super::url::HAVIAddress;
+use super::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
 use super::state_db::global_state_db;
+use super::url::HAVIAddress;
 use super::util::{
     RouteEndpointSource, append_location, resolve_route_endpoint_with_trace, shadow_root,
 };
 
 #[derive(Clone, Debug)]
 pub struct ResolvedSourceRef {
-    pub endpoint: ViaSpec,
+    pub endpoint: String,
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub packet_hash: String,
@@ -42,7 +43,7 @@ pub struct ResolvedSourceRef {
 #[derive(Clone, Debug)]
 pub struct ResolvedDocument {
     pub packet: Packet,
-    pub endpoint: ViaSpec,
+    pub endpoint: String,
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
@@ -54,7 +55,7 @@ pub struct ResolvedDocument {
 #[derive(Clone, Debug)]
 pub struct ResolvedMediaSource {
     pub packet: Packet,
-    pub endpoint: ViaSpec,
+    pub endpoint: String,
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
@@ -66,7 +67,7 @@ pub struct ResolvedMediaSource {
 #[derive(Clone, Debug)]
 pub struct ResolvedListing {
     pub children: Vec<String>,
-    pub endpoint: ViaSpec,
+    pub endpoint: String,
     pub signer: Option<Signer>,
     pub content_authority: Option<String>,
     pub is_repo: bool,
@@ -74,12 +75,33 @@ pub struct ResolvedListing {
     pub lookup_trace: embedder_traits::HpprLookupTrace,
 }
 
+enum ResolvedClient {
+    Remote(Arc<HpprdClientAsync>),
+    Local(super::local_runtime::BrowserLocalRuntimeHandle),
+}
+
+impl ResolvedClient {
+    async fn get_packet(&self, urc: &str) -> Result<Packet, String> {
+        match self {
+            ResolvedClient::Remote(client) => client.get_packet_authenticated(urc).await,
+            ResolvedClient::Local(runtime) => runtime.get_packet(urc),
+        }
+    }
+
+    async fn list(&self, urc: &str) -> Result<Vec<String>, String> {
+        match self {
+            ResolvedClient::Remote(client) => client.list(urc).await,
+            ResolvedClient::Local(runtime) => runtime.list_entries(urc),
+        }
+    }
+}
+
 struct ResolvedAccess {
-    endpoint: ViaSpec,
+    endpoint: String,
     signer: Option<Signer>,
     content_authority: Option<String>,
     is_repo: bool,
-    client: Arc<HpprdClientAsync>,
+    client: ResolvedClient,
     urc: String,
 }
 
@@ -165,7 +187,7 @@ pub async fn resolve_document_with_snapshot(
         |error| HpprResolveError::new(error, route_source.lookup_trace.clone()),
     )?;
     route_source.lookup_trace.set_final_target(access.urc.clone());
-    let packet = match access.client.get_packet_authenticated(&access.urc).await {
+    let packet = match access.client.get_packet(&access.urc).await {
         Ok(packet) => packet,
         Err(error) => {
             return Err(HpprResolveError::new(error, route_source.lookup_trace));
@@ -175,7 +197,7 @@ pub async fn resolve_document_with_snapshot(
     route_source.lookup_trace.push_step(
         "document-fetch",
         Some(access.urc.clone()),
-        Some(access.endpoint.to_string()),
+        Some(access.endpoint.clone()),
         "hit",
         Some(format!("packet={}", packet.pkt_hash())),
     );
@@ -232,7 +254,7 @@ pub async fn resolve_media_with_snapshot(
         |error| HpprResolveError::new(error, route_source.lookup_trace.clone()),
     )?;
     route_source.lookup_trace.set_final_target(access.urc.clone());
-    let packet = match access.client.get_packet_authenticated(&access.urc).await {
+    let packet = match access.client.get_packet(&access.urc).await {
         Ok(packet) => packet,
         Err(error) => {
             return Err(HpprResolveError::new(error, route_source.lookup_trace));
@@ -242,7 +264,7 @@ pub async fn resolve_media_with_snapshot(
     route_source.lookup_trace.push_step(
         "media-fetch",
         Some(access.urc.clone()),
-        Some(access.endpoint.to_string()),
+        Some(access.endpoint.clone()),
         "hit",
         Some(format!("packet={}", packet.pkt_hash())),
     );
@@ -301,7 +323,7 @@ pub async fn resolve_listing_with_snapshot(
     route_source.lookup_trace.push_step(
         "listing-fetch",
         Some(access.urc.clone()),
-        Some(access.endpoint.to_string()),
+        Some(access.endpoint.clone()),
         "hit",
         Some(format!("children={}", children.len())),
     );
@@ -322,6 +344,10 @@ pub async fn read_resolved_bytes(
     offset: u64,
     length: usize,
 ) -> Result<Vec<u8>, String> {
+    if source.is_repo && default_repo_backed_runtime_is_local() {
+        return global_local_runtime().read_packet_bytes(&source.packet_hash, offset, length);
+    }
+
     let client = source_client(source, repo_client)?;
     read_packet_bytes(&client, &source.packet_hash, offset, length).await
 }
@@ -336,6 +362,13 @@ pub async fn resolve_embed_content_authority(
         .await
         .map_err(|error| error.to_string())?;
     let access = resolve_access(&address, repo_client, &route_source.snapshot, address.is_listing())?;
+    if access.is_repo && default_repo_backed_runtime_is_local() {
+        let packet = access.client.get_packet(&access.urc).await?;
+        return Ok(access
+            .content_authority
+            .or_else(|| seal_authority_from_urc(&access.urc))
+            .or_else(|| packet_content_authority(&packet)));
+    }
     Ok(access
         .content_authority
         .or_else(|| seal_authority_from_urc(&access.urc)))
@@ -504,7 +537,7 @@ pub async fn resolve_document_source(
         lookup_trace.push_step(
             "source-selection",
             Some(format!("//{}/{}/", parts.group, parts.app)),
-            Some(route_handle.target().to_string()),
+            Some(route_handle.target_display()),
             "repo",
             None,
         );
@@ -565,20 +598,29 @@ fn resolve_access(
             let signer = Signer::anyone();
             let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), signer.clone()));
             return Ok(ResolvedAccess {
-                endpoint: via,
+                endpoint: via.to_string(),
                 signer: Some(signer),
                 content_authority: seal_authority_from_urc(&urc),
                 is_repo: false,
-                client,
+                client: ResolvedClient::Remote(client),
                 urc,
             });
         }
+        let client = if default_repo_backed_runtime_is_local() {
+            ResolvedClient::Local(global_local_runtime())
+        } else {
+            ResolvedClient::Remote(repo_client.clone())
+        };
         return Ok(ResolvedAccess {
-            endpoint: repo_client.target(),
+            endpoint: if default_repo_backed_runtime_is_local() {
+                "repo".to_string()
+            } else {
+                repo_client.target().to_string()
+            },
             signer: None,
             content_authority: seal_authority_from_urc(&urc),
             is_repo: true,
-            client: repo_client.clone(),
+            client,
             urc,
         });
     }
@@ -600,12 +642,21 @@ fn resolve_access(
             } else {
                 HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location)
             };
+            let client = if default_repo_backed_runtime_is_local() {
+                ResolvedClient::Local(global_local_runtime())
+            } else {
+                ResolvedClient::Remote(repo_client.clone())
+            };
             Ok(ResolvedAccess {
-                endpoint: repo_client.target(),
+                endpoint: if default_repo_backed_runtime_is_local() {
+                    "repo".to_string()
+                } else {
+                    repo_client.target().to_string()
+                },
                 signer: None,
                 content_authority: None,
                 is_repo: true,
-                client: repo_client.clone(),
+                client,
                 urc,
             })
         },
@@ -626,11 +677,11 @@ fn resolve_access(
                 format!("{}/|/seal/{}", target, content_authority)
             };
             Ok(ResolvedAccess {
-                endpoint: endpoint.clone(),
+                endpoint: endpoint.to_string(),
                 signer: Some(signer.clone()),
                 content_authority: Some(content_authority.clone()),
                 is_repo: false,
-                client,
+                client: ResolvedClient::Remote(client),
                 urc,
             })
         },
@@ -715,7 +766,7 @@ async fn build_route_signer(
             lookup_trace.push_step(
                 "route-auth",
                 Some("//repo/admin/identity/|".to_string()),
-                Some(handle.target().to_string()),
+                Some(handle.target_display()),
                 "fallback",
                 Some("missing admin identity; using anyone".to_string()),
             );
@@ -728,7 +779,7 @@ async fn build_route_signer(
             lookup_trace.push_step(
                 "route-auth",
                 Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
-                Some(handle.target().to_string()),
+                Some(handle.target_display()),
                 "fallback",
                 Some("route auth missing; using anyone".to_string()),
             );
@@ -738,7 +789,7 @@ async fn build_route_signer(
     lookup_trace.push_step(
         "route-auth",
         Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
-        Some(handle.target().to_string()),
+        Some(handle.target_display()),
         "hit",
         Some(route_auth.auth.clone()),
     );
@@ -761,8 +812,9 @@ fn source_client(
         .signer
         .clone()
         .ok_or("resolved source missing signer for routed access")?;
+    let endpoint = parse_via(&source.endpoint).map_err(|error| error.to_string())?;
     Ok(Arc::new(HpprdClientAsync::new_with_signer(
-        source.endpoint.clone(),
+        endpoint,
         signer,
     )))
 }

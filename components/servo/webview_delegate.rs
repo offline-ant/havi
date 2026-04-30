@@ -861,7 +861,6 @@ impl ControlOperationRequest {
             HpprControlRequest::RepoPort => "REPO_PORT",
             HpprControlRequest::RepoPathQuery => "REPO_PATH",
             HpprControlRequest::RepoStatus => "REPO_STATUS",
-            HpprControlRequest::AdminCredential => "ADMIN_CREDENTIAL",
             HpprControlRequest::Resolve(_) => "RESOLVE",
             HpprControlRequest::CommittedSourceOperation { .. } => "COMMITTED_SOURCE_OP",
             HpprControlRequest::NamedClientAuthorize { .. } => "NAMED_CLIENT_AUTHORIZE",

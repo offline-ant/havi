@@ -256,9 +256,12 @@ If the PID file exists and the process is alive, pylon refuses to start.
 
 ## HAVI Integration
 
-HAVI always connects through pylon. Startup sequence:
+Default HAVI browsing does not require pylon.
 
-1. Find or spawn pylon for the current compatibility repo path `<config-dir>/repo/`
+Pylon integration is explicit operator/service mode. When HAVI is launched with
+an explicit pylon mode, startup sequence is:
+
+1. Find or spawn pylon for the compatibility repo path `<config-dir>/repo/`
    - desktop hosts use **Self-Exec Process Runtime** startup (`havi pylon ...`)
    - Android hosts use **In-Process Embedded Runtime**
      startup (internal thread host)

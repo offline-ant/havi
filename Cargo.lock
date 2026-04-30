@@ -4601,6 +4601,7 @@ dependencies = [
  "hkdf",
  "hppr-client",
  "hppr-packet",
+ "hpprd",
  "hsb3",
  "html5ever",
  "http 1.4.0",

@@ -32,9 +32,6 @@ fn page_response_to_servo(
             .parse()
             .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
     );
-    if let Some((ring1_name, signing_key)) = page.admin_credentials {
-        response.admin_credentials = Some((ring1_name, signing_key));
-    }
     if let Some(csp) = page.csp {
         if let Ok(val) = csp.parse() {
             response.headers.insert("content-security-policy", val);

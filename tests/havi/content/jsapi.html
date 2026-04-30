@@ -29,7 +29,7 @@
         assert(source.client !== null, 'window.source.client exists');
         assertEqual(source.kind, 'repo', 'window.source.kind is repo for local hppr page');
         assert(source.authority === null || typeof source.authority === 'string', 'window.source.authority is null or string');
-        assertEqual(window.havi, null, 'window.havi is null on non-helper page');
+        assertEqual(typeof window.havi, 'undefined', 'window.havi is removed from ordinary pages');
         assertEqual(typeof window.ring0, 'undefined', 'window.ring0 is removed from the Window surface');
 
         log('--- document.packet tests ---');
@@ -95,7 +95,8 @@
 
         log('--- EnvelopeHpprClient tests ---');
         const env = client.envelope();
-        assertEqual(env.endpoint, client.endpoint, 'env.endpoint matches client.endpoint');
+        assertEqual(typeof client.endpoint, 'undefined', 'HpprClient.endpoint is removed from the ordinary surface');
+        assertEqual(env.endpoint, null, 'EnvelopeHpprClient.endpoint is null for repo-backed committed sources');
         const envGet = await env.get('//' + group + '/' + app + '/user/test-item');
         assert(envGet.value !== null, 'env.get() returns HpprResult with value');
         assert(envGet.requestEnvelope !== null, 'env.get() has requestEnvelope');

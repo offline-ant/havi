@@ -646,8 +646,6 @@ pub enum HpprControlRequest {
     RepoPathQuery,
     /// Get the home repo status ("embedded" or "external")
     RepoStatus,
-    /// Get admin ring0 credentials from embedder store
-    AdminCredential,
     /// Shared HPPR source resolution.
     Resolve(HpprResolveRequest),
     /// Browser-owned committed repo-source operation.
@@ -681,8 +679,6 @@ pub enum HpprControlResponse {
     RepoPath(String),
     /// Home repo status string ("embedded" or "external")
     RepoStatus(String),
-    /// Admin credential (ring1 name + token)
-    AdminCredential { ring1_name: String, token: String },
     /// Shared HPPR source resolution response.
     Resolve(HpprResolveResponse),
     /// Browser-owned committed repo-source operation response.

@@ -109,6 +109,9 @@ impl App {
 
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
         let compat_repo_path = libhavi::hppr::config::compat_repo_dir();
+        if home.is_none() {
+            let _ = libhavi::hppr::local_runtime::global_local_runtime();
+        }
         let fallback_target = home
             .as_deref()
             .and_then(|v| hppr_client::parse_via(v).ok())
@@ -118,7 +121,8 @@ impl App {
                 scheme: Some(hppr_client::TransportScheme::Tcp),
             });
 
-        // Fallback target used locally until pylon/hpprd startup resolves.
+        // Fallback target for explicit remote home-repo mode. Default local
+        // browsing uses the browser-owned packet-store runtime instead.
 
         let pylon_mode = pylon_mode_from_env();
         self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());

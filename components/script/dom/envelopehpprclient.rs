@@ -40,13 +40,7 @@ use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::routed_promise::{RoutedPromiseListener, callback_promise};
 use crate::script_runtime::CanGc;
-use crate::script_thread::ScriptThread;
 use script_bindings::cformat;
-
-/// Default HPPR socket endpoint.
-pub(crate) fn default_endpoint() -> String {
-    ScriptThread::home_hppr_endpoint()
-}
 
 pub(crate) fn allow_privileged_connect(window: &Window) -> bool {
     matches!(
@@ -210,11 +204,11 @@ impl EnvelopeHpprClient {
         }
     }
 
-    pub(crate) fn endpoint(&self) -> &str {
+    pub(crate) fn endpoint(&self) -> Option<&str> {
         match &self.backend.0 {
-            EnvelopeHpprClientBackend::Remote { endpoint, .. } => endpoint,
-            EnvelopeHpprClientBackend::LocalCommittedSource => "repo",
-            EnvelopeHpprClientBackend::NamedClient { name } => name,
+            EnvelopeHpprClientBackend::Remote { endpoint, .. } => Some(endpoint),
+            EnvelopeHpprClientBackend::LocalCommittedSource => None,
+            EnvelopeHpprClientBackend::NamedClient { .. } => None,
         }
     }
 
@@ -640,8 +634,8 @@ impl EnvelopeHpprClientMethods<crate::DomTypeHolder> for EnvelopeHpprClient {
         HpprClient::new(&self.global(), self, CanGc::note())
     }
 
-    fn Endpoint(&self) -> DOMString {
-        DOMString::from(self.endpoint())
+    fn GetEndpoint(&self) -> Option<DOMString> {
+        self.endpoint().map(DOMString::from)
     }
 
     fn GetAccount(&self) -> Option<DOMString> {

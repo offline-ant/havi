@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
+use crate::hppr::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
 use crate::hppr::util::{append_location, signing_to_verifying_key};
 
 async fn inspect_route_content_pointer_auth(
@@ -13,7 +14,7 @@ async fn inspect_route_content_pointer_auth(
     app: &str,
     location: &str,
     client: &Arc<HpprdClientAsync>,
-    credential_store: &CredentialStoreHandle,
+    _credential_store: &CredentialStoreHandle,
 ) -> serde_json::Value {
     if group.trim().is_empty() || app.trim().is_empty() {
         return serde_json::json!({"error": "missing group/app"});
@@ -30,7 +31,33 @@ async fn inspect_route_content_pointer_auth(
 
     let mut local_repo_vkey: Option<String> = None;
 
-    if credential_store.get_admin().is_some() {
+    if default_repo_backed_runtime_is_local() {
+        let runtime = global_local_runtime();
+        let repo_vkey = runtime.verifying_key().to_string();
+        local_repo_vkey = Some(repo_vkey.clone());
+        match runtime.get_local_route_app(group, app, &repo_vkey) {
+            Ok(route) => {
+                if let Some(upstream) = route.upstream.clone() {
+                    route_endpoint = upstream;
+                }
+                route_upstream_key = route.upstream_verification_key.clone();
+                route_json = serde_json::json!({
+                    "configured": true,
+                    "endpoint": route_endpoint.to_string(),
+                    "upstreamVerificationKey": route_upstream_key,
+                    "error": serde_json::Value::Null,
+                });
+            }
+            Err(e) => {
+                route_json = serde_json::json!({
+                    "configured": false,
+                    "endpoint": route_endpoint.to_string(),
+                    "upstreamVerificationKey": serde_json::Value::Null,
+                    "error": e,
+                });
+            }
+        }
+    } else {
         match client.get_admin_identity().await {
             Ok(repo_vkey) => {
                 local_repo_vkey = Some(repo_vkey.clone());
@@ -61,8 +88,6 @@ async fn inspect_route_content_pointer_auth(
                 route_json["error"] = serde_json::json!(e);
             }
         }
-    } else {
-        route_json["error"] = serde_json::json!("admin credentials unavailable");
     }
 
     let public_network_json = match hppr_client::lookup_route_if_public_async(group, app).await {
@@ -106,10 +131,45 @@ async fn inspect_route_content_pointer_auth(
         }),
     };
 
+    let mut route_key_present = false;
+    let mut route_signing_key: Option<String> = None;
+    let mut requester_vkey: Option<String> = None;
+    let mut route_key_error: Option<String> = None;
+
+    if let Some(repo_vkey) = local_repo_vkey.clone() {
+        let route_auth_result = if default_repo_backed_runtime_is_local() {
+            global_local_runtime().get_route_auth(group, Some(app), &repo_vkey)
+        } else {
+            client.get_route_auth(group, Some(app), &repo_vkey).await
+        };
+        match route_auth_result {
+            Ok(route_key) => {
+                route_key_present = true;
+                if let Ok(hppr_client::Signer::Ring2 { signing_key, .. }) =
+                    hppr_client::Signer::parse(&route_key.auth)
+                {
+                    requester_vkey = signing_to_verifying_key(&signing_key).ok();
+                    route_signing_key = Some(signing_key);
+                }
+            }
+            Err(e) => {
+                route_key_error = Some(e);
+            }
+        }
+    } else {
+        route_key_error = Some("local route authority unavailable".to_string());
+    }
+
     let route_anyone = Arc::new(HpprdClientAsync::new_with_signer(
         route_endpoint.clone(),
         hppr_client::Signer::anyone(),
     ));
+    let route_auth_client = route_signing_key.as_ref().map(|signing_key| {
+        Arc::new(HpprdClientAsync::new_with_signer(
+            route_endpoint.clone(),
+            hppr_client::Signer::ring2(group, signing_key),
+        ))
+    });
 
     let mut content_pointer_json = serde_json::json!({
         "available": false,
@@ -137,7 +197,11 @@ async fn inspect_route_content_pointer_auth(
     let mut target_get: Option<String> = None;
 
     if let Some(repo_vkey) = remote_repo_vkey.clone() {
-        match route_anyone.get_content_pointer(group, app, &repo_vkey).await {
+        let content_pointer_client = route_auth_client
+            .as_ref()
+            .map(Arc::clone)
+            .unwrap_or_else(|| Arc::clone(&route_anyone));
+        match content_pointer_client.get_content_pointer(group, app, &repo_vkey).await {
             Ok(content_pointer) => {
                 let target = append_location(&content_pointer.root, location);
                 let target_urc = format!("{}/|/seal/{}", target, content_pointer.authority);
@@ -161,43 +225,14 @@ async fn inspect_route_content_pointer_auth(
         }
     }
 
-    let mut route_key_present = false;
-    let mut route_signing_key: Option<String> = None;
-    let mut requester_vkey: Option<String> = None;
-    let mut route_key_error: Option<String> = None;
-
-    if let (Some(_), Some(repo_vkey)) = (credential_store.get_admin(), local_repo_vkey.clone()) {
-        match client.get_route_auth(group, Some(app), &repo_vkey).await {
-            Ok(route_key) => {
-                route_key_present = true;
-                if let Ok(hppr_client::Signer::Ring2 { signing_key, .. }) =
-                    hppr_client::Signer::parse(&route_key.auth)
-                {
-                    requester_vkey = signing_to_verifying_key(&signing_key).ok();
-                    route_signing_key = Some(signing_key);
-                }
-            }
-            Err(e) => {
-                route_key_error = Some(e);
-            }
-        }
-    } else {
-        route_key_error = Some("admin credentials unavailable".to_string());
-    }
-
     let mut auth_probe = "not_checked".to_string();
     let mut auth_error: Option<String> = None;
 
-    if let (Some(root), Some(content_authority_value), Some(signing_key)) = (
+    if let (Some(root), Some(content_authority_value), Some(route_auth)) = (
         content_root.as_ref(),
         content_authority.as_ref(),
-        route_signing_key.as_ref(),
+        route_auth_client.as_ref(),
     ) {
-        let ring2_signer = hppr_client::Signer::ring2(group, signing_key);
-        let route_auth = Arc::new(HpprdClientAsync::new_with_signer(
-            route_endpoint.clone(),
-            ring2_signer,
-        ));
         let target = append_location(root, location);
         let target_urc = format!("{}/|/seal/{}", target, content_authority_value);
         match route_auth.get_packet_authenticated(&target_urc).await {

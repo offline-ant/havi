@@ -1199,9 +1199,6 @@ pub struct Metadata {
     /// Helper pages, `file://` pages, and non-HPPR pages leave this unset.
     #[ignore_malloc_size_of = "HPPR document source"]
     pub hppr_source: Option<HpprDocumentSource>,
-    /// HPPR: helper-page admin credentials (ring1_name, signing_key) for
-    /// `window.havi.admin.client`.
-    pub admin_credentials: Option<(String, String)>,
 }
 
 impl Metadata {
@@ -1224,7 +1221,6 @@ impl Metadata {
             hppr_lookup_trace: None,
             hppr_content_authority: None,
             hppr_source: None,
-            admin_credentials: None,
         }
     }
 

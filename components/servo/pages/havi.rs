@@ -4,34 +4,26 @@
 
 //! HAVI page handler.
 //!
-//! Handles havi:// URLs for browser internal pages.
-//! URL format: havi:///[page]
+//! Handles `havi://` URLs for browser-owned internal pages.
 //!
-//! Pages:
-//! - /home: Browser home page
-//! - /home-repo: Home repo configuration and status
-//! - /routes: Trusted routes and keys
-//! - /anyone: Edit anyone account ACL
-//! - /ring2: Group membership management (stub)
-//! - /ring1: Ring1 auth/policy management
-//! - /ring0: Ring0 proxy page for ring1 proxy requests
-//! - /diagnostics: privileged diagnostics page
+//! Surviving pages:
+//! - `/home`: browser home page
+//! - `/home-repo`: browser-owned local runtime and named-client management
+//! - `/diagnostics`: explicit privileged diagnostics page
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use hppr_client::{Signer, parse_via};
+use hppr_client::{Signer, ViaSpec, parse_via};
 
 use crate::PageResponse;
-use crate::hppr::client::{HpprdClientAsync, get_admin_credentials};
+use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
+use crate::hppr::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
 use crate::hppr::state_db::global_state_db;
 use crate::hppr::util::html_escape;
 
-/// Handle an havi:// URL request.
-///
-/// Returns a PageResponse with admin credentials set for
-/// `window.havi.admin.client` access.
+/// Handle a `havi://` URL request.
 pub async fn handle_request(
     url: &str,
     client: &Arc<HpprdClientAsync>,
@@ -41,7 +33,6 @@ pub async fn handle_request(
     let path = path.trim_start_matches('/');
     let path = format!("/{}", path);
 
-    // Handle diagnostics API endpoint
     if path.starts_with("/diagnostics/api") {
         let json = crate::pages::havi_diagnostics::handle_diagnostics_api(
             &path,
@@ -53,7 +44,7 @@ pub async fn handle_request(
     }
 
     if path.starts_with("/home-repo/api") {
-        let json = handle_home_repo_api(&path);
+        let json = handle_home_repo_api(&path, client).await;
         return PageResponse::new("application/json", json.into_bytes());
     }
 
@@ -61,19 +52,13 @@ pub async fn handle_request(
         "/home" => render_home_page(),
         "/" | "" | "/diagnostics" => render_diagnostics_page(),
         "/home-repo" => render_home_repo_page(),
-        "/routes" => render_routes_page(),
-        "/anyone" => render_anyone_page(),
-        "/ring2" => render_groups_page(),
-        "/ring1" => render_accounts_page(),
-        "/ring0" => render_ring0_proxy_page(),
         _ => render_not_found(&path),
     };
 
-    let (ring1_name, token) = get_admin_credentials();
-    PageResponse::html(html).with_admin_credentials(ring1_name, token)
+    PageResponse::html(html)
 }
 
-/// Minimal admin-page styles with basic layout and legibility.
+/// Minimal helper-page styles with basic layout and legibility.
 const ADMIN_CSS: &str = r#"
     body {
         margin: 0;
@@ -140,17 +125,6 @@ const ADMIN_CSS: &str = r#"
         border-top: 1px solid #eee;
         padding: 0.45rem 0;
     }
-    .list-item .name,
-    .route-title,
-    .route-value,
-    .request-ring1,
-    .request-cmd,
-    .request-detail,
-    .account-name,
-    .account-rules,
-    .acl-coord {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
 
     .message {
         margin-bottom: 0.85rem;
@@ -182,53 +156,8 @@ const ADMIN_CSS: &str = r#"
         border-bottom: 1px solid #ddd;
         font-weight: 600;
     }
-
-    .account-item,
-    .route-item,
-    .request-card {
-        border-top: 1px solid #eee;
-        padding: 0.55rem 0;
-    }
-    .account-header,
-    .route-header,
-    .request-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 0.6rem;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-    .account-rules { margin-top: 0.35rem; font-size: 0.92rem; }
-
-    .acl-editor { border: 1px solid #ddd; margin-top: 0.4rem; }
-    .acl-header,
-    .acl-row,
-    .add-row {
-        display: grid;
-        grid-template-columns: 1fr 2.3rem 2.3rem 2.3rem 2.3rem;
-        gap: 0.25rem;
-        align-items: center;
-        padding: 0.35rem;
-        border-top: 1px solid #eee;
-    }
-    .acl-header { border-top: 0; font-weight: 600; }
-    .perm-btn,
-    .remove-btn,
-    .add-btn {
-        padding: 0.2rem;
-        min-width: 2rem;
-    }
-    .add-row input { width: 100%; }
-    .editor-buttons,
-    .save-section,
-    .btn-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-    .inline-editor { margin-top: 0.55rem; }
-
-    .acl-tree details { margin-left: 0.8rem; }
-    .acl-tree summary { cursor: pointer; }
 "#;
 
-/// Render an admin page with shared shell, admin CSS, and nav bar.
 fn render_admin_page(title: &str, active_nav: &str, extra_css: &str, body_content: &str) -> String {
     let css = format!("{}{}", ADMIN_CSS, extra_css);
     let body = format!(
@@ -240,7 +169,6 @@ fn render_admin_page(title: &str, active_nav: &str, extra_css: &str, body_conten
     crate::pages::page_shell::render_page(&format!("{} - HAVI", title), &css, &body)
 }
 
-/// Render the home page (new tab page).
 fn render_home_page() -> String {
     let home_js = include_str!("../js/havi-home.js");
     format!(
@@ -292,7 +220,10 @@ fn render_home_page() -> String {
         <a href="hppr://u/" class="quick-link">//u/</a>
     </div>
 
-    <p><a href="havi:///diagnostics" class="admin-link">Open diagnostics</a></p>
+    <p>
+        <a href="havi:///home-repo" class="admin-link">Home repo</a>
+        <a href="havi:///diagnostics" class="admin-link">Diagnostics</a>
+    </p>
 
     <script>
 {home_js}
@@ -303,15 +234,9 @@ fn render_home_page() -> String {
     )
 }
 
-/// Render navigation bar.
 fn render_nav(active: &str) -> String {
     let pages = [
         ("havi:///home-repo", "Home Repo"),
-        ("havi:///routes", "Routes"),
-        ("havi:///anyone", "Anyone"),
-        ("havi:///ring2", "Ring2"),
-        ("havi:///ring1", "Ring1"),
-        ("havi:///ring0", "Ring0"),
         ("havi:///diagnostics", "Diagnostics"),
     ];
 
@@ -329,7 +254,6 @@ fn render_nav(active: &str) -> String {
 
     format!(r#"<nav class="nav"><ul>{}</ul></nav>"#, links.join("\n"))
 }
-
 
 fn parse_havi_api_params(path: &str) -> HashMap<String, String> {
     let query = path.split('?').nth(1).unwrap_or("");
@@ -351,12 +275,133 @@ fn normalize_named_client_origin(origin_or_url: &str) -> Result<String, String> 
     Ok(normalized.ascii_serialization())
 }
 
-fn handle_home_repo_api(path: &str) -> String {
+fn target_port(target: &ViaSpec) -> Option<u16> {
+    match target {
+        ViaSpec::Net { port, .. } => Some(*port),
+        _ => None,
+    }
+}
+
+async fn remote_runtime_status(client: &Arc<HpprdClientAsync>) -> Result<serde_json::Value, String> {
+    let identity = client.get_packet_authenticated("//repo/admin/identity/|").await?;
+    let repo_name = identity.header("Repo-Name").unwrap_or("localhost").to_string();
+    let verifying_key = identity
+        .header("Seal-By")
+        .unwrap_or("")
+        .to_string();
+    let target = client.target();
+    let port = target_port(&target);
+    Ok(serde_json::json!({
+        "mode": "remote",
+        "repoName": repo_name,
+        "verifyingKey": verifying_key,
+        "repoTarget": target.to_string(),
+        "repoPath": "(remote home repo)",
+        "status": "remote-home",
+        "backend": "hpprd",
+        "version": "hpprd",
+        "uptime": null,
+        "port": port,
+        "wsPort": port.map(|p| p.saturating_add(1)),
+        "quibPort": port.map(|p| p.saturating_sub(1)),
+        "udpPort": port,
+    }))
+}
+
+async fn set_remote_repo_name(
+    client: &Arc<HpprdClientAsync>,
+    normalized: &str,
+) -> Result<serde_json::Value, String> {
+    let header_lines = [
+        "Seal-By: ring0".to_string(),
+        "Group: repo".to_string(),
+        "App: admin".to_string(),
+        "Location: identity".to_string(),
+        format!("Repo-Name: {}", normalized),
+    ];
+    let mut add_payload = header_lines.join("\n");
+    add_payload.push('\n');
+    client.add(add_payload.as_bytes()).await?;
+    Ok(serde_json::json!({"name": normalized}))
+}
+
+async fn handle_home_repo_api(path: &str, client: &Arc<HpprdClientAsync>) -> String {
     let params = parse_havi_api_params(path);
     let cmd = params.get("cmd").map(String::as_str).unwrap_or("named_clients");
     let db = global_state_db();
 
     let response = match cmd {
+        "runtime_status" => {
+            if default_repo_backed_runtime_is_local() {
+                let runtime = global_local_runtime();
+                serde_json::json!({
+                    "ok": true,
+                    "data": {
+                        "mode": "local",
+                        "repoName": runtime.repo_name(),
+                        "verifyingKey": runtime.verifying_key(),
+                        "packetStorePath": runtime.packet_store_path().display().to_string(),
+                        "status": runtime.status_label(),
+                        "backend": runtime.backend_label(),
+                        "version": "browser-owned",
+                        "uptime": null,
+                        "port": null,
+                        "wsPort": null,
+                        "quibPort": null,
+                        "udpPort": null,
+                    }
+                })
+            } else {
+                match remote_runtime_status(client).await {
+                    Ok(data) => serde_json::json!({ "ok": true, "data": data }),
+                    Err(error) => serde_json::json!({ "ok": false, "error": error }),
+                }
+            }
+        }
+        "set_repo_name" => {
+            let Some(name) = params.get("name") else {
+                return serde_json::json!({"ok": false, "error": "missing name"}).to_string();
+            };
+            let normalized = name.trim();
+            if normalized.is_empty() {
+                return serde_json::json!({"ok": false, "error": "empty name"}).to_string();
+            }
+            if default_repo_backed_runtime_is_local() {
+                match db.set_setting("local_runtime_repo_name", normalized) {
+                    Ok(()) => serde_json::json!({"ok": true, "data": {"name": normalized}}),
+                    Err(error) => serde_json::json!({"ok": false, "error": error}),
+                }
+            } else {
+                match set_remote_repo_name(client, normalized).await {
+                    Ok(data) => serde_json::json!({ "ok": true, "data": data }),
+                    Err(error) => serde_json::json!({ "ok": false, "error": error }),
+                }
+            }
+        }
+        "local_add" => {
+            let Some(group) = params.get("group") else {
+                return serde_json::json!({"ok": false, "error": "missing group"}).to_string();
+            };
+            let Some(app) = params.get("app") else {
+                return serde_json::json!({"ok": false, "error": "missing app"}).to_string();
+            };
+            let Some(location) = params.get("location") else {
+                return serde_json::json!({"ok": false, "error": "missing location"}).to_string();
+            };
+            if !default_repo_backed_runtime_is_local() {
+                return serde_json::json!({"ok": false, "error": "local_add is only available in browser-local mode"}).to_string();
+            }
+            let content_type = params
+                .get("content_type")
+                .map(String::as_str)
+                .unwrap_or("text/html; charset=utf-8");
+            let body = params.get("data").cloned().unwrap_or_default();
+            let runtime = global_local_runtime();
+            match runtime.store_text_page(group.trim(), app.trim(), location.trim(), content_type, body.as_bytes()) {
+                Ok(hashes) => serde_json::json!({"ok": true, "data": {"hashes": hashes}}),
+                Err(error) => serde_json::json!({"ok": false, "error": error}),
+            }
+        }
         "named_clients" => {
             let clients = match db.list_named_clients() {
                 Ok(clients) => clients,
@@ -466,7 +511,6 @@ fn handle_home_repo_api(path: &str) -> String {
     response.to_string()
 }
 
-/// Render the home repo configuration page.
 fn render_home_repo_page() -> String {
     let home_repo_js = include_str!("../js/havi-home-repo.js");
     let body = format!(
@@ -507,7 +551,7 @@ fn render_home_repo_page() -> String {
     </div>
 
     <div class="card" id="daemonInfoCard" style="display: none;">
-        <h2>Daemon Info</h2>
+        <h2>Runtime Info</h2>
         <div class="status">
             <div class="status-item">
                 <div class="status-value" id="daemonStatus">...</div>
@@ -561,173 +605,6 @@ fn render_home_repo_page() -> String {
     render_admin_page("Home Repo Configuration", "Home Repo", "", &body)
 }
 
-/// Render the routes and trust page.
-fn render_routes_page() -> String {
-    let routes_js = include_str!("../js/havi-routes.js");
-    let body = format!(
-        r#"
-    <div id="message"></div>
-
-    <div class="card">
-        <h2>Configured Routes</h2>
-        <p class="muted">Routes tell HAVI where to fetch content for each group#app coordinate.</p>
-        <div id="routesList">Loading...</div>
-        <p><button onclick="loadRoutes()" class="secondary">Refresh</button></p>
-    </div>
-
-    <script>
-{routes_js}
-    </script>"#,
-        routes_js = routes_js
-    );
-
-    render_admin_page("Routes &amp; Trust", "Routes", "", &body)
-}
-
-/// Render the ring1 accounts management page.
-fn render_accounts_page() -> String {
-    let ring1_js = include_str!("../js/havi-ring1.js");
-    let extra_css = "";
-
-    let body = format!(
-        r#"
-    <div id="message"></div>
-
-    <div class="card">
-        <h2>Ring1 Auth and Policy</h2>
-        <p class="muted">Manage split Ring1 auth, members, and policy packet families. System accounts cannot be deleted.</p>
-
-        <div class="section-title">System Accounts</div>
-        <div id="systemAccounts">Loading...</div>
-
-        <div class="section-title">Site Sandboxes (HAVI-managed)</div>
-        <div id="sandboxAccounts"><p class="empty">None</p></div>
-
-        <div class="section-title">Custom Accounts</div>
-        <div id="customAccounts"><p class="empty">None</p></div>
-
-        <p><button onclick="loadAll()" class="secondary">Refresh</button></p>
-    </div>
-
-    <script>
-{ring1_js}
-    </script>"#,
-        ring1_js = ring1_js
-    );
-
-    render_admin_page("Ring1 Accounts", "Ring1", extra_css, &body)
-}
-
-/// Render the groups page (stub).
-fn render_groups_page() -> String {
-    render_admin_page(
-        "Group Membership",
-        "Ring2",
-        "",
-        r#"
-    <div class="card">
-        <h2>Group Management</h2>
-        <p class="empty">Group membership management coming soon.</p>
-        <p class="muted">
-            Auth profile: <code>//<em>group</em>/admin/ring2/auth/|/seal/&lt;repo-vkey&gt;</code><br>
-            Membership: <code>//<em>group</em>/admin/members/|/seal/&lt;key&gt;</code><br>
-            Policy: <code>//<em>group</em>/admin/ring2/policy/|/seal/&lt;repo-vkey&gt;</code>
-        </p>
-    </div>"#,
-    )
-}
-
-/// Render the Anyone account ACL editor page.
-fn render_anyone_page() -> String {
-    let anyone_js = include_str!("../js/havi-anyone.js");
-    let extra_css = "";
-
-    let body = format!(
-        r#"
-    <div id="message"></div>
-
-    <div class="card">
-        <h2>Access Rules</h2>
-        <p class="muted">
-            These rules control what unauthenticated requests can access.
-            Click permission buttons to cycle: grant → deny → inherit.
-        </p>
-
-        <div class="acl-editor">
-            <div class="acl-header">
-                <span>Coordinate</span>
-                <span title="Read">R</span>
-                <span title="Write">W</span>
-                <span title="List">L</span>
-                <span></span>
-            </div>
-            <div id="rulesList"></div>
-            <div class="add-row">
-                <input type="text" id="newCoord" placeholder="//group/app/path">
-                <button class="perm-btn perm-grant" id="newR" onclick="toggleNewPerm(0)">r</button>
-                <button class="perm-btn perm-inherit" id="newW" onclick="toggleNewPerm(1)">.</button>
-                <button class="perm-btn perm-inherit" id="newL" onclick="toggleNewPerm(2)">.</button>
-                <button class="add-btn" onclick="addRule()" title="Add rule">+</button>
-            </div>
-        </div>
-
-        <div class="save-section">
-            <button onclick="saveRules()" id="saveBtn">Save Changes</button>
-            <button onclick="loadRules()" class="secondary">Reset</button>
-            <span id="dirtyIndicator" class="dirty-indicator" style="display: none;">
-                Unsaved changes
-            </span>
-        </div>
-    </div>
-
-    <script>
-{anyone_js}
-    </script>"#,
-        anyone_js = anyone_js
-    );
-
-    render_admin_page("Anyone Account", "Anyone", extra_css, &body)
-}
-
-/// Render the ring0 proxy page.
-fn render_ring0_proxy_page() -> String {
-    let ring0_js = include_str!("../js/havi-ring0.js");
-    let extra_css = r#"
-        .status-indicator {
-            display: inline-block;
-            width: 0.55rem;
-            height: 0.55rem;
-            border-radius: 50%;
-            margin-right: 0.45rem;
-            background: #888;
-        }
-        .status-watching { background: #2f7; }
-        .status-error { background: #c33; }
-    "#;
-
-    let body = format!(
-        r#"
-    <div id="message"></div>
-
-    <div class="card">
-        <h2><span id="watchIndicator" class="status-indicator status-watching"></span>Pending Proxy Requests</h2>
-        <p class="muted">
-            Ring1 accounts submit proxy requests here. Approve to execute the command via ring0 and return the result.
-        </p>
-        <div id="requestsList"><p class="empty">Scanning...</p></div>
-        <p><button onclick="scanRequests()" class="secondary">Refresh</button></p>
-    </div>
-
-    <script>
-{ring0_js}
-    </script>"#,
-        ring0_js = ring0_js
-    );
-
-    render_admin_page("Ring0 Proxy", "Ring0", extra_css, &body)
-}
-
-/// Render privileged diagnostics page.
 fn render_diagnostics_page() -> String {
     let diagnostics_js = include_str!("../js/havi-diagnostics.js");
     let body = format!(
@@ -755,13 +632,12 @@ fn render_diagnostics_page() -> String {
     render_admin_page("Diagnostics", "Diagnostics", "", &body)
 }
 
-
-/// Render not found page.
 fn render_not_found(path: &str) -> String {
     let body = format!(
         r#"
     <div class="card">
         <p class="error">The requested page was not found: {path}</p>
+        <p><a href="havi:///home-repo">Open home repo</a></p>
         <p><a href="havi:///diagnostics">Open diagnostics</a></p>
     </div>"#,
         path = html_escape(path),

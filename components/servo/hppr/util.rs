@@ -330,7 +330,7 @@ async fn resolve_exact_group_route(
     handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<ExactGroupRoute, String> {
-    let repo_target = handle.target();
+    let repo_target = handle.fallback_target();
     if group.is_empty() || app.is_empty() {
         return Ok(ExactGroupRoute {
             endpoint: repo_target,
@@ -353,7 +353,7 @@ async fn resolve_exact_group_route(
                 lookup_trace.push_step(
                     "local-route-group",
                     Some(root_query),
-                    Some(handle.target().to_string()),
+                    Some(handle.target_display()),
                     "hit",
                     Some(format!("upstream={} group=u", root.upstream)),
                 );
@@ -363,7 +363,7 @@ async fn resolve_exact_group_route(
                 lookup_trace.push_step(
                     "local-route-group",
                     Some(root_query),
-                    Some(handle.target().to_string()),
+                    Some(handle.target_display()),
                     "miss",
                     Some(error),
                 );
@@ -400,7 +400,7 @@ async fn resolve_exact_group_route(
                     lookup_trace.push_step(
                         "local-route-group",
                         Some(local_query),
-                        Some(handle.target().to_string()),
+                        Some(handle.target_display()),
                         "hit",
                         Some(format!("upstream={} group={}", local_group.upstream, exact_group)),
                     );
@@ -416,7 +416,7 @@ async fn resolve_exact_group_route(
                     lookup_trace.push_step(
                         "local-route-group",
                         Some(local_query),
-                        Some(handle.target().to_string()),
+                        Some(handle.target_display()),
                         "miss",
                         Some(error),
                     );
@@ -536,7 +536,7 @@ pub async fn resolve_route_endpoint_with_trace(
     handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<(ViaSpec, Option<String>, Option<String>, RouteEndpointSource), String> {
-    let repo_target = handle.target();
+    let repo_target = handle.fallback_target();
     let exact = resolve_exact_group_route(group, app, handle, lookup_trace).await?;
     let public_name = hppr_client::is_public_name(group, app);
     let mut local_app = None;
@@ -548,7 +548,7 @@ pub async fn resolve_route_endpoint_with_trace(
                 lookup_trace.push_step(
                     "local-route-app",
                     Some(local_query),
-                    Some(handle.target().to_string()),
+                    Some(handle.target_display()),
                     "hit",
                     Some(format!(
                         "upstream={} content_authority={}",
@@ -567,7 +567,7 @@ pub async fn resolve_route_endpoint_with_trace(
                 lookup_trace.push_step(
                     "local-route-app",
                     Some(local_query),
-                    Some(handle.target().to_string()),
+                    Some(handle.target_display()),
                     "miss",
                     Some(error),
                 );

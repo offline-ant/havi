@@ -57,12 +57,17 @@ pub fn ipc_socket_path() -> PathBuf {
     config_dir().join("havi.sock")
 }
 
+/// Browser-owned packet-store database.
+/// Path: <config_dir>/havi-packets.sqlite
+pub fn packet_store_path() -> PathBuf {
+    config_dir().join("havi-packets.sqlite")
+}
+
 /// Legacy hpprd/pylon compatibility repository directory.
 /// Path: <config_dir>/repo/
 ///
-/// This is not HAVI's browser-local state model. Browser-local non-repo state
-/// stays in `<config_dir>/havi.sqlite`. Runtime still needs this path until the
-/// later inline-store cut removes the hpprd/pylon bootstrap dependency.
+/// This path is now explicit operator/runtime compatibility state only. Default
+/// browsing uses `packet_store_path()` instead.
 pub fn compat_repo_dir() -> PathBuf {
     config_dir().join("repo")
 }

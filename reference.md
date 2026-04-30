@@ -26,11 +26,6 @@ Internal HAVI administration pages.
 Current surviving internal pages include:
 
 - `havi:///home-repo` — repo status, name, and named-client grant management
-- `havi:///routes`
-- `havi:///anyone`
-- `havi:///ring2`
-- `havi:///ring1`
-- `havi:///ring0`
 - `havi:///diagnostics`
 
 Deleted in this cut:
@@ -60,13 +55,9 @@ Current HAVI page classes are explicit:
 - `file://` documents do not carry `hppr_source`, endpoint, signer, or admin
   credentials, and `window.source === null`
 - helper pages do not carry `hppr_source` by default; `window.source === null`
-  there, and any helper-only privileged access stays explicit in helper page
-  code instead of document transport metadata
-- current helper behavior is:
-  - surviving privileged `havi://` pages may expose `window.havi`
-  - when helper-page admin credentials are present, `window.havi.admin.client`
-    is the explicit internal admin client and `window.havi.admin.repo` is the
-    explicit repo-runtime inspection surface
+  there, and helper-only privileged behavior stays page-owned through explicit
+  `havi:///.../api?...` handlers instead of document transport metadata or a
+  generic JS helper object
 - non-HPPR pages carry no HPPR source metadata and no helper credential
   metadata
 
@@ -100,11 +91,13 @@ loop wakeups do not extend screenshot settling. The final PNG is captured from
 the browser-owned page output surface, not from shell chrome composition.
 Stable surface-cache reuse is separate from this capture path.
 
-When `HAVI_HOME` is unset, current HAVI still boots pylon/hpprd against the
-compatibility repo path under the config location (`<config_dir>/repo`, desktop
-default `~/.config/HAVI/repo`). That path is legacy runtime compatibility
-state, not the browser-local state model. Browser-local non-repo state stays in
-`<config_dir>/havi.sqlite`.
+When `HAVI_HOME` is unset, default HAVI browsing uses the browser-owned packet
+store at `<config_dir>/havi-packets.sqlite`. Browser-local non-repo state stays
+in `<config_dir>/havi.sqlite`.
+
+The old compatibility repo path under `<config_dir>/repo` is now explicit
+operator/runtime compatibility state only. Default browsing does not start
+pylon or `hpprd` just to back ordinary `window.source.client` access.
 
 ### Public network routing
 
@@ -128,10 +121,12 @@ Current HAVI behavior:
 
 ## Pylon integration
 
-HAVI runs through pylon.
+Pylon is an explicit operator/service path.
 
-The shell pylon indicator is status-first. It opens a compact status panel for
-current state only. Service-management helper pages are deleted in this cut.
+Default browsing does not require pylon. The shell pylon indicator remains as a
+status-first operator control when pylon is running explicitly. It opens a
+compact status panel for current state only. Service-management helper pages are
+deleted in this cut.
 
 ### Pylon indicator
 

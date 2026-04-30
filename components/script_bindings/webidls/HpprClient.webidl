@@ -23,28 +23,13 @@ dictionary HpprGreeting {
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface HpprClient {
-    // Remote client with optional identity string
-    // Omitted or empty: anyone (no authentication)
-    // Identity formats: ring1:<name>|<password>, ring1:<name>|&.key.H3,
-    // ring2:<group>|&.key.H3, ring2:<group>/<user>|<password>
-    [NewObject, Throws] static Promise<HpprClient> connect(DOMString endpoint, optional DOMString identity);
-
-    // Remote client with Ring2 adhoc identity derived from group/user/password
-    [NewObject, Throws] static Promise<HpprClient> connectRing2Password(
-        DOMString endpoint,
-        DOMString group,
-        DOMString username,
-        DOMString password
-    );
-
     // Browser-mediated named client, subject to origin grant.
     [NewObject, Throws] static Promise<HpprClient> named(DOMString name);
 
-    // Convert to EnvelopeHpprClient (returns HpprResult with envelopes)
+    // Convert to EnvelopeHpprClient for transport-oriented operations.
     [NewObject] EnvelopeHpprClient envelope();
 
     // Identity info (read-only)
-    readonly attribute DOMString endpoint;
     readonly attribute DOMString? account;
     readonly attribute DOMString? group;
     readonly attribute DOMString? ring1Name;
@@ -63,13 +48,4 @@ interface HpprClient {
 
     // Get repo greeting via HELLO command (remote clients only)
     [NewObject] Promise<HpprGreeting> hello();
-
-    // WATCH streaming - monitors coordinate prefix for changes
-    WatchSocket watch(USVString urc);
-
-    // STREAM_PUB — payload-oriented publisher streaming
-    StreamPub streamPub(USVString prefix, optional StreamPubOptions options = {});
-
-    // STREAM_SUB — payload-oriented subscriber streaming
-    StreamSub streamSub(USVString prefix);
 };

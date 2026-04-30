@@ -15,6 +15,9 @@ The browser-owned local runtime stores:
 - history and browser settings
 - future capability-management state such as named clients and grants
 
+Current HAVI keeps packet-native local state in the browser-owned packet store
+and keeps non-packet history/settings/grants state in `havi.sqlite`.
+
 This runtime stays browser-owned implementation state.
 It is not itself an ordinary page API.
 

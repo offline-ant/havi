@@ -629,10 +629,6 @@ impl ScriptThread {
         with_script_thread(|script_thread| script_thread.microtask_queue.clone())
     }
 
-    pub(crate) fn home_hppr_endpoint() -> String {
-        with_script_thread(|script_thread| script_thread.home_hppr_endpoint.clone())
-    }
-
     pub(crate) fn mark_document_with_no_blocked_loads(doc: &Document) {
         with_script_thread(|script_thread| {
             script_thread
@@ -3773,10 +3769,7 @@ impl ScriptThread {
 
         document.set_https_state(metadata.https_state);
 
-        // HPPR: propagate packet/source metadata and privileged helper credentials.
-        if let Some((ring1_name, signing_key)) = metadata.admin_credentials {
-            document.set_admin_credentials(ring1_name, signing_key);
-        }
+        // HPPR: propagate packet/source metadata.
         if let Some(source) = metadata.hppr_source {
             document.set_hppr_source(source);
         }

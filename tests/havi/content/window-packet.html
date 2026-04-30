@@ -22,7 +22,7 @@
         log('--- packet surface existence tests ---');
         assert(window.packet !== undefined, 'window.packet is defined');
         assert(document.packet !== undefined, 'document.packet is defined');
-        assertEqual(window.havi, null, 'window.havi is null on ordinary page');
+        assertEqual(typeof window.havi, 'undefined', 'window.havi is removed from ordinary pages');
         assertEqual(typeof window.ring0, 'undefined', 'window.ring0 is removed from the Window surface');
 
         log('--- packet content tests ---');

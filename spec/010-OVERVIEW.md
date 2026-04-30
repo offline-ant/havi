@@ -53,6 +53,7 @@ HAVI exposes one ordinary-page ambient repo story:
 
 Ordinary pages do not expose `window.home`, `window.route`, or `window.ring0`.
 Explicit extra repo access uses browser-mediated named clients.
-Privileged internal helper pages may expose `window.havi`.
+Surviving internal helper pages use page-owned `havi:///.../api?...` backends
+instead of a generic privileged JS object.
 
 See `060-JS-API.md` for full API details.

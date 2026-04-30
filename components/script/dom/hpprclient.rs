@@ -17,27 +17,23 @@ use js::jsval::UndefinedValue;
 use net_traits::HpprProtocolResponse;
 
 use crate::dom::bindings::codegen::Bindings::HpprClientBinding::{HpprAddOptions, HpprClientMethods};
-use crate::dom::bindings::codegen::Bindings::StreamPubBinding::StreamPubOptions;
 use crate::dom::bindings::error::{Error, Fallible};
 use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::refcounted::{Trusted, TrustedPromise};
 use crate::dom::bindings::reflector::{DomGlobal, Reflector, reflect_dom_object};
-use crate::dom::bindings::root::{Dom, DomRoot };
+use crate::dom::bindings::root::{Dom, DomRoot};
 
 use script_bindings::trace::RootedTraceableBox;
 use crate::dom::bindings::str::{DOMString, USVString};
-use crate::dom::envelopehpprclient::{EnvelopeHpprClient, allow_privileged_connect, resolve_connect_params};
+use crate::dom::envelopehpprclient::EnvelopeHpprClient;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::hpprerror::HpprError;
 use crate::dom::hpprpacket::HpprPacket;
 use crate::dom::hpprresult::HpprResult;
 use crate::dom::promise::Promise;
-use crate::dom::streampub::StreamPub;
-use crate::dom::streamsub::StreamSub;
-use crate::dom::watchsocket::WatchSocket;
 use crate::dom::window::Window;
 use crate::realms::enter_realm;
-use crate::routed_promise::{RoutedPromiseListener, callback_promise};
+use crate::routed_promise::{callback_promise, RoutedPromiseListener};
 use crate::script_runtime::CanGc;
 use script_bindings::cformat;
 
@@ -99,24 +95,6 @@ impl HpprClient {
 }
 
 impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
-    /// HpprClient.connect(endpoint, identity?) - create client to remote endpoint.
-    ///
-    /// Identity string follows Signer::parse() format. Omitted or empty = anyone.
-    fn Connect(window: &Window, endpoint: DOMString, identity: Option<DOMString>) -> Fallible<Rc<Promise>> {
-        let global = window.upcast::<GlobalScope>();
-        let can_gc = CanGc::note();
-        let promise = Promise::new(global, can_gc);
-
-        if let Some((endpoint_str, signer)) =
-            resolve_connect_params(window, &endpoint, identity.as_ref(), &promise, can_gc)
-        {
-            let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
-            let client = Self::new(global, &inner, can_gc);
-            promise.resolve_native(&*client, can_gc);
-        }
-        Ok(promise)
-    }
-
     fn Named(window: &Window, name: DOMString) -> Fallible<Rc<Promise>> {
         let global = window.upcast::<GlobalScope>();
         let can_gc = CanGc::note();
@@ -189,61 +167,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
         Ok(promise)
     }
 
-    /// HpprClient.connectRing2Password(endpoint, group, username, password)
-    /// - create client to remote endpoint with a Ring2 adhoc signer.
-    /// - derive the signer locally from group, username, and password.
-    fn ConnectRing2Password(
-        window: &Window,
-        endpoint: DOMString,
-        group: DOMString,
-        username: DOMString,
-        password: DOMString,
-    ) -> Fallible<Rc<Promise>> {
-        let global = window.upcast::<GlobalScope>();
-        let can_gc = CanGc::note();
-        let promise = Promise::new(global, can_gc);
-
-        if !allow_privileged_connect(window) {
-            promise.reject_error(
-                Error::Security(Some(
-                    "HpprClient.connectRing2Password() is only available to privileged helper pages"
-                        .to_string(),
-                )),
-                can_gc,
-            );
-            return Ok(promise);
-        }
-
-        let endpoint_str = endpoint.to_string();
-        if endpoint_str.is_empty() {
-            promise.reject_error(
-                Error::Type(c"Invalid endpoint: empty string".to_owned()),
-                can_gc,
-            );
-            return Ok(promise);
-        }
-
-        let group_str = group.to_string();
-        let username_str = username.to_string();
-        let password_str = password.to_string();
-        let credential_input = format!("{}/{}#{}", group_str, username_str, password_str);
-        let signing_key = match hppr_client::derive_ring2_adhoc_signing_key(&credential_input) {
-            Ok(key) => key,
-            Err(e) => {
-                promise.reject_error(
-                    Error::Type(cformat!("Invalid Ring2 adhoc identity: {}", e)),
-                    can_gc,
-                );
-                return Ok(promise);
-            }
-        };
-        let signer = Signer::ring2(&group_str, &signing_key);
-        let inner = EnvelopeHpprClient::new(global, signer, endpoint_str, None, can_gc);
-        let client = Self::new(global, &inner, can_gc);
-        promise.resolve_native(&*client, can_gc);
-        Ok(promise)
-    }
-
     /// Convert to EnvelopeHpprClient (returns HpprResult with envelopes).
     fn Envelope(&self) -> DomRoot<EnvelopeHpprClient> {
         let invalid_reason = self.inner.invalid_reason().map(|s| s.to_string());
@@ -273,10 +196,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
                 )
             },
         }
-    }
-
-    fn Endpoint(&self) -> DOMString {
-        DOMString::from(self.inner.endpoint())
     }
 
     fn GetAccount(&self) -> Option<DOMString> {
@@ -324,18 +243,6 @@ impl HpprClientMethods<crate::DomTypeHolder> for HpprClient {
     }
 
     hppr_dispatch!(Hello, (.inner), do_hello);
-
-    fn Watch(&self, urc: USVString) -> DomRoot<WatchSocket> {
-        self.inner.do_watch(&urc.to_string(), CanGc::note())
-    }
-
-    fn StreamPub(&self, prefix: USVString, options: &StreamPubOptions) -> DomRoot<StreamPub> {
-        self.inner.do_stream_pub(&prefix.to_string(), options, CanGc::note())
-    }
-
-    fn StreamSub(&self, prefix: USVString) -> DomRoot<StreamSub> {
-        self.inner.do_stream_sub(&prefix.to_string(), CanGc::note())
-    }
 }
 
 /// HpprClient resolves with the value directly (no envelopes).

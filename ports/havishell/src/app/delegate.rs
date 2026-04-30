@@ -1,6 +1,7 @@
 use super::*;
 use libhavi::hppr::client::HpprdClientAsync;
 use libhavi::hppr::credentials::global_credential_store;
+use libhavi::hppr::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
 use libhavi::hppr::resolve;
 use libhavi::hppr::state_db::global_state_db;
 use hppr_client::{Signer, parse_via};
@@ -321,7 +322,7 @@ fn signer_identity_string(signer: &Signer) -> Option<String> {
 fn map_document(result: resolve::ResolvedDocument) -> HpprResolveResponse {
     HpprResolveResponse::Document(HpprResolvedDocument {
         packet: result.packet.as_bytes().to_vec(),
-        endpoint: result.endpoint.to_string(),
+        endpoint: result.endpoint,
         signer: result.signer.as_ref().and_then(signer_identity_string),
         content_authority: result.content_authority,
         is_repo: result.is_repo,
@@ -331,12 +332,12 @@ fn map_document(result: resolve::ResolvedDocument) -> HpprResolveResponse {
 fn map_media(result: resolve::ResolvedMediaSource) -> HpprResolveResponse {
     HpprResolveResponse::Media(HpprResolvedMediaSource {
         packet: result.packet.as_bytes().to_vec(),
-        endpoint: result.endpoint.to_string(),
+        endpoint: result.endpoint,
         signer: result.signer.as_ref().and_then(signer_identity_string),
         content_authority: result.content_authority,
         is_repo: result.is_repo,
         source: HpprResolvedSourceRef {
-            endpoint: result.source.endpoint.to_string(),
+            endpoint: result.source.endpoint,
             signer: result.source.signer.as_ref().and_then(signer_identity_string),
             content_authority: result.source.content_authority,
             packet_hash: result.source.packet_hash,
@@ -346,7 +347,6 @@ fn map_media(result: resolve::ResolvedMediaSource) -> HpprResolveResponse {
 }
 
 fn parse_source_ref(source: HpprResolvedSourceRef) -> Result<resolve::ResolvedSourceRef, String> {
-    let endpoint = parse_via(&source.endpoint).map_err(|error| error.to_string())?;
     let signer = source
         .signer
         .as_deref()
@@ -354,7 +354,7 @@ fn parse_source_ref(source: HpprResolvedSourceRef) -> Result<resolve::ResolvedSo
         .transpose()
         .map_err(|error| error.to_string())?;
     Ok(resolve::ResolvedSourceRef {
-        endpoint,
+        endpoint: source.endpoint,
         signer,
         content_authority: source.content_authority,
         packet_hash: source.packet_hash,
@@ -531,7 +531,12 @@ fn named_client_operation_response(
     )
 }
 
-fn committed_source_operation_response(request: HpprRequest) -> HpprControlResponse {
+fn committed_source_operation_response(origin_url: String, request: HpprRequest) -> HpprControlResponse {
+    if default_repo_backed_runtime_is_local() {
+        let response = global_local_runtime().process_request(request, Some(&origin_url));
+        return HpprControlResponse::CommittedSourceOperation(response);
+    }
+
     with_resolve_runtime(
         |error| {
             HpprControlResponse::CommittedSourceOperation(Err(
@@ -697,6 +702,40 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
         request: libhavi::ControlOperationRequest,
     ) {
         match request.request.clone() {
+            HpprControlRequest::RepoPort => {
+                if default_repo_backed_runtime_is_local() {
+                    request.respond(HpprControlResponse::Port(0));
+                } else {
+                    let port = match home_repo_target() {
+                        hppr_client::ViaSpec::Net { port, .. } => port,
+                        _ => 0,
+                    };
+                    request.respond(HpprControlResponse::Port(port));
+                }
+            },
+            HpprControlRequest::RepoPathQuery => {
+                let path = if default_repo_backed_runtime_is_local() {
+                    global_local_runtime()
+                        .packet_store_path()
+                        .display()
+                        .to_string()
+                } else if std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty()).is_some() {
+                    "(external home repo)".to_string()
+                } else {
+                    libhavi::hppr::config::compat_repo_dir().display().to_string()
+                };
+                request.respond(HpprControlResponse::RepoPath(path));
+            },
+            HpprControlRequest::RepoStatus => {
+                let status = if default_repo_backed_runtime_is_local() {
+                    global_local_runtime().status_label().to_string()
+                } else if std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty()).is_some() {
+                    "remote-home".to_string()
+                } else {
+                    "compat-hpprd".to_string()
+                };
+                request.respond(HpprControlResponse::RepoStatus(status));
+            },
             HpprControlRequest::Resolve(resolve_request) => {
                 std::thread::Builder::new()
                     .name("havi-resolve".to_string())
@@ -706,10 +745,11 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
                     .ok();
             },
             HpprControlRequest::CommittedSourceOperation { request: hppr_request } => {
+                let origin_url = request.origin().to_string();
                 std::thread::Builder::new()
                     .name("havi-committed-source-op".to_string())
                     .spawn(move || {
-                        request.respond(committed_source_operation_response(hppr_request));
+                        request.respond(committed_source_operation_response(origin_url, hppr_request));
                     })
                     .ok();
             },
@@ -745,11 +785,6 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
                         request.respond(embed_resolve_response(url));
                     })
                     .ok();
-            },
-            _ => {
-                request.respond(HpprControlResponse::Error(
-                    "Control operations not supported by havishell".to_string(),
-                ));
             },
         }
     }

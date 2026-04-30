@@ -94,7 +94,7 @@ HAVI keeps repo capability in three distinct tiers:
 
 1. ambient committed source (`window.source.client`)
 2. explicit named clients (`HpprClient.named(name)` after browser grant)
-3. explicit privileged helper capability (`window.havi` on internal pages only)
+3. explicit internal helper page APIs (`havi:///.../api?...` on internal pages only)
 
 Ordinary pages do not get ambient `window.home` or ambient `window.route`.
 Extra repo power is not acquired by raw arbitrary `connect*()`.

@@ -10,7 +10,6 @@ HAVI exposes HPPR APIs on `window`.
 - `window.address`: current exact HAVI address object
 - `window.source`: committed source descriptor for ordinary repo-backed pages
 - `window.resolve(input)`: browser-owned document source resolver
-- `window.havi`: internal helper capability root (internal helper pages only)
 - `window.H3`: crypto namespace (always available)
 
 `window.source` is `null` on `file://` pages, helper pages, and non-HPPR pages.
@@ -25,10 +24,10 @@ For ordinary repo-backed pages it exposes exactly:
 Ordinary pages no longer expose `window.home`, `window.route`, or
 `window.ring0`.
 
-`window.havi` is `null` on ordinary pages. Surviving internal privileged pages
-such as `havi:///diagnostics` may expose `window.havi`. When helper-page admin
-credentials are present, `window.havi.admin` exposes the explicit internal
-admin capability descriptor.
+`window.source` is `null` on helper pages, `file://` pages, and non-HPPR pages.
+Internal helper behavior is page-owned. Surviving `havi://` pages use their own
+`fetch('havi:///.../api?...')` endpoints instead of a generic privileged JS
+object.
 
 For `hppr://` routed pages, route/content-pointer resolution happens before
 page JS runs. If content-pointer metadata is missing or invalid, navigation
@@ -115,28 +114,15 @@ Current limitations:
 
 ## HpprClient
 
-Primary interface for HPPR commands.
+Primary ordinary-page interface for HPPR commands.
 
 ```webidl
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface HpprClient {
-    [NewObject, Throws]
-    static Promise<HpprClient> connect(DOMString endpoint, optional DOMString identity);
-
-    [NewObject, Throws]
-    static Promise<HpprClient> connectRing2Password(
-        DOMString endpoint,
-        DOMString group,
-        DOMString username,
-        DOMString password
-    );
-
-    [NewObject, Throws]
-    static Promise<HpprClient> named(DOMString name);
+    [NewObject, Throws] static Promise<HpprClient> named(DOMString name);
 
     [NewObject] EnvelopeHpprClient envelope();
 
-    readonly attribute DOMString endpoint;
     readonly attribute DOMString? account;
     readonly attribute DOMString? group;
     readonly attribute DOMString? ring1Name;
@@ -149,79 +135,36 @@ interface HpprClient {
     Promise<any> store(HpprPacket packet);
     Promise<any> detach(DOMString hash);
     Promise<any> add(optional HpprAddOptions options = {});
-    Promise<any> hello();
-    WatchSocket watch(USVString urc);
-
-    StreamPub streamPub(
-        USVString prefix,
-        optional StreamPubOptions options = {}
-    );
-
-    StreamSub streamSub(USVString prefix);
+    Promise<HpprGreeting> hello();
 };
 ```
 
-### connect() endpoint parameter
-
-`connect()` takes an HPPR via string as `endpoint`.
-Via syntax is defined by `../../hppr/spec/031-VIA-SYNTAX.md`.
-Examples include `host`, `quib+host:4776`, `ws+host`, and
-`unix+/absolute/path`.
-
-`connect()` is helper/privileged-only. Ordinary pages do not get raw arbitrary
-connect.
-
-### connect() identity parameter
-
-`connect()` accepts an optional identity string following the HPPR route/auth
-identity text format:
-
-- omitted, `""`, or `"anyone"`: anyone
-- `ring1:<name>|<password>`: Ring1 password-derived key
-- `ring1:<name>|&.<b64a>.H3`: Ring1 explicit key
-- `ring2:<group>|&.<b64a>.H3`: Ring2 explicit key
-- `ring2:<group>/<user>|<password>`: Ring2 adhoc key
-- `ring2:/<user>|<password>`: Ring2 contextual adhoc key
-
-Invalid identity strings reject the returned promise with a TypeError.
-The identity grammar itself is defined by the HPPR route scheme.
-
-### connectRing2Password()
-
-`connectRing2Password(endpoint, group, username, password)` creates a remote
-client with a Ring2 adhoc signer without requiring the caller to assemble a
-signer string manually.
-This is a convenience for privileged helper flows such as join/login UI.
-Ordinary pages do not get this raw connect path.
-
-`username` follows one `Location` segment's constraints.
-The derived key remains client-side.
-It depends only on group, username, and password.
-The repo sees only the resulting Ring2 member verification key.
+`HpprClient` is the truthful common surface.
+It does not expose raw arbitrary connect, fake endpoint text, or transport-only
+live primitives.
 
 ### named()
 
 `named(name)` is the first explicit extra-capability path beyond
 `window.source`.
-It asks HAVI for a browser-mediated named client identified by stable user-visible
-name.
+It asks HAVI for a browser-mediated named client identified by stable
+user-visible name.
 The requesting page origin must already have a grant for that named client.
 Otherwise the returned promise rejects.
 
 The returned value is a normal `HpprClient`, but it is backed by a browser-owned
 named-client backend instead of raw page-provided endpoint/signer material.
 The page does not receive stored secrets.
-Raw `connect*()` remains a separate privileged helper mechanism and is not the
-ordinary named-client flow.
+Raw transport connect remains a separate privileged helper mechanism and is not
+part of the ordinary named-client flow.
 
 Common return types:
 
 - `get()`: `HpprPacket`
 - `list()/tips()/headers()/members()`: `string[]`
 - `store()/add()`: `string[]` of stored hashes
-- `watch()`: `WatchSocket`
-- `streamPub()`: `StreamPub`
-- `streamSub()`: `StreamSub`
+- `detach()`: `void`
+- `hello()`: `HpprGreeting`
 
 `add()` sends headers/data and the repo builds packet layers.
 `store()` sends full packet bytes unchanged.
@@ -229,7 +172,8 @@ Common return types:
 ### Chunk manifest transparency
 
 `get()` auto-reassembles chunk manifests and returns rendered content.
-Use `envelope()` for manifest-level response inspection.
+Use `envelope()` for manifest-level response inspection and transport-oriented
+operations.
 
 ## `window.resolve(input)`
 
@@ -483,43 +427,65 @@ Common `type` values:
 
 When `fatal` is `true`, create a new client connection.
 
-## HaviInternal and HaviAdmin
+## EnvelopeHpprClient
 
-Internal helper pages use one explicit capability path:
+Transport-oriented wrapper around `HpprClient`.
+It keeps raw remote connect plus the live transport primitives that are not
+truthfully universal across committed repo sources and named-client backends.
 
 ```webidl
 [Exposed=Window, Pref="dom_hppr_enabled"]
-interface HaviInternal {
-    readonly attribute HaviAdmin? admin;
-};
+interface EnvelopeHpprClient {
+    [NewObject, Throws] static Promise<EnvelopeHpprClient> connect(
+        DOMString endpoint,
+        optional DOMString identity
+    );
 
-[Exposed=Window, Pref="dom_hppr_enabled"]
-interface HaviAdmin {
-    [SameObject] readonly attribute HpprClient client;
-    [SameObject] readonly attribute HpprRepoInfo repo;
+    [NewObject] HpprClient unpack();
+
+    readonly attribute DOMString? endpoint;
+    readonly attribute DOMString? account;
+    readonly attribute DOMString? group;
+
+    Promise<HpprResult> get(USVString urc);
+    Promise<HpprResult> list(USVString urc);
+    Promise<HpprResult> headers(USVString urc);
+    Promise<HpprResult> tips(USVString urc);
+    Promise<HpprResult> members(USVString urc);
+    Promise<HpprResult> store(HpprPacket packet);
+    Promise<HpprResult> detach(DOMString hash);
+    Promise<HpprResult> add(optional HpprAddOptions options = {});
+    Promise<HpprResult> hello();
+    WatchSocket watch(USVString urc);
+    StreamPub streamPub(USVString prefix, optional StreamPubOptions options = {});
+    StreamSub streamSub(USVString prefix);
 };
 ```
 
-`window.havi` is the internal helper capability root.
-It is not part of the ordinary page model.
-`window.havi.admin.client` is the explicit helper-page admin client.
-`window.havi.admin.repo` exposes helper-page repo-runtime inspection.
+### connect()
 
-## HpprRepoInfo
+`EnvelopeHpprClient.connect(endpoint, identity?)` creates a remote transport
+client.
+`endpoint` uses HPPR via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+Examples include `host`, `quib+host:4776`, `ws+host`, and
+`unix+/absolute/path`.
 
-Available on `window.havi.admin.repo` when internal helper repo integration is
-exposed.
+`identity` follows the HPPRD identity text grammar:
 
-Methods:
+- omitted, `""`, or `"anyone"`: anyone
+- `ring1:<name>|<password>`: Ring1 password-derived key
+- `ring1:<name>|&.<b64a>.H3`: Ring1 explicit key
+- `ring2:<group>|&.<b64a>.H3`: Ring2 explicit key
+- `ring2:<group>/<user>|<password>`: Ring2 adhoc key
+- `ring2:/<user>|<password>`: Ring2 contextual adhoc key
 
-- `port()`
-- `repoPath()`
-- `status()` runtime/backend string
+Invalid identity strings reject the returned promise with a TypeError.
+Raw connect is helper/privileged-only. Ordinary pages do not use it as their
+ambient capability story.
 
-## EnvelopeHpprClient
-
-Debug wrapper that returns both operation value and signed response envelope.
-Raw `connect()` here is helper/privileged-only, matching `HpprClient.connect*()`.
+`endpoint` is nullable because only true remote transport clients have a real
+endpoint string. Committed repo-backed sources and browser-mediated named
+clients expose `null` there.
 
 Streaming methods return normal streaming types and are not envelope-wrapped.
 

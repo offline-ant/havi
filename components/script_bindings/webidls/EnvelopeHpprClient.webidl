@@ -4,17 +4,15 @@
 
 [Exposed=Window, Pref="dom_hppr_enabled"]
 interface EnvelopeHpprClient {
-    // Remote client with optional identity string
-    // Omitted or empty: anyone (no authentication)
-    // Identity formats: ring1:<name>|<password>, ring1:<name>|&.key.H3,
-    // ring2:<group>|&.key.H3, ring2:<group>/<user>|<password>
+    // Remote client with optional identity string.
+    // Omitted or empty: anyone (no authentication).
     [NewObject, Throws] static Promise<EnvelopeHpprClient> connect(DOMString endpoint, optional DOMString identity);
 
-    // Unpack the envelope: returns an HpprClient that yields values directly
+    // Unpack the envelope: returns an HpprClient that yields values directly.
     [NewObject] HpprClient unpack();
 
-    // Identity info (read-only)
-    readonly attribute DOMString endpoint;
+    // Remote transport info.
+    readonly attribute DOMString? endpoint;
     readonly attribute DOMString? account;
     readonly attribute DOMString? group;
 
@@ -33,13 +31,9 @@ interface EnvelopeHpprClient {
     // Get repo greeting via HELLO command (remote clients only)
     [NewObject] Promise<HpprResult> hello();
 
-    // WATCH streaming - monitors coordinate prefix for changes
-    // Returns WatchSocket with WebSocket-like event interface
+    // WATCH/STREAM remain on the transport-oriented surface because browser-
+    // owned local and named-client backends do not provide universal parity.
     WatchSocket watch(USVString urc);
-
-    // STREAM_PUB — payload-oriented publisher streaming
     StreamPub streamPub(USVString prefix, optional StreamPubOptions options = {});
-
-    // STREAM_SUB — payload-oriented subscriber streaming
     StreamSub streamSub(USVString prefix);
 };

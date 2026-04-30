@@ -638,9 +638,6 @@ pub(crate) struct Document {
     /// Reflect the value of that preferences to prevent paying the cost of a RwLock access.
     layout_animations_test_enabled: bool,
 
-    /// HPPR: admin ring1 credentials (ring1_name, token) for helper-page
-    /// internal admin capability
-    hppr_admin_credentials: DomRefCell<Option<(String, String)>>,
     /// HPPR: canonical resolved document source snapshot.
     #[ignore_malloc_size_of = "net_traits::HpprDocumentSource"]
     #[no_trace]
@@ -3787,15 +3784,7 @@ impl Document {
         )
     }
 
-    // --- HPPR credential and metadata accessors ---
-
-    pub(crate) fn admin_credentials(&self) -> Option<(String, String)> {
-        self.hppr_admin_credentials.borrow().clone()
-    }
-
-    pub(crate) fn set_admin_credentials(&self, ring1_name: String, signing_key: String) {
-        *self.hppr_admin_credentials.borrow_mut() = Some((ring1_name, signing_key));
-    }
+    // --- HPPR committed-source metadata accessors ---
 
     pub(crate) fn hppr_route_client_params(&self) -> Option<(String, hppr_client::Signer)> {
         match self.hppr_source.borrow().as_ref()? {
@@ -4219,7 +4208,6 @@ impl Document {
             details_name_groups: Default::default(),
             protocol_handler_automation_mode: Default::default(),
             layout_animations_test_enabled: pref!(layout_animations_test_enabled),
-            hppr_admin_credentials: DomRefCell::new(None),
             hppr_source: DomRefCell::new(None),
             hppr_content_authority: DomRefCell::new(None),
             hppr_packet: Default::default(),

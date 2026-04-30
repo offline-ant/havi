@@ -120,7 +120,7 @@ For manifest-level inspection, use envelope/raw APIs in `060-JS-API.md`.
 Local filesystem content rendered as a browser page.
 
 - `window.source` is `null`
-- `window.havi` is `null`
+- no generic privileged helper JS object is exposed
 - `document.packet` is `null`
 - `document.URC` is `null`
 - `document.URL` is the stripped file document URL without JSONqa view state

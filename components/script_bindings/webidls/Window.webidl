@@ -194,6 +194,5 @@ partial interface Window {
   [PutForwards=href, Pref="dom_hppr_enabled", SameObject] readonly attribute WindowAddress? address;
   [Pref="dom_hppr_enabled"] readonly attribute HpprSource? source;
   [Pref="dom_hppr_enabled"] readonly attribute HpprPacket? packet;
-  [Pref="dom_hppr_enabled"] readonly attribute HaviInternal? havi;
   [Pref="dom_hppr_enabled", NewObject] Promise<HpprResolveResult> resolve(USVString input);
 };

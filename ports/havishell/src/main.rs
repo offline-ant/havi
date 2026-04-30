@@ -142,10 +142,8 @@ fn main() {
             "none"
         } else if force_external_pylon {
             "external"
-        } else if cfg!(feature = "embedded-services") {
-            "embedded"
         } else {
-            "external"
+            "none"
         };
         std::env::set_var("HAVI_PYLON_MODE", pylon_mode);
     }

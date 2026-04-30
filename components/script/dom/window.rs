@@ -157,7 +157,6 @@ use crate::dom::fetchlaterresult::FetchLaterResult;
 use crate::dom::filewindowaddress::FileWindowAddress;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::history::History;
-use crate::dom::haviinternal::{HaviInternal, allow_havi_internal};
 use crate::dom::hpprwindowaddress::HpprWindowAddress;
 use crate::dom::hpprclient::HpprClient;
 use crate::dom::hpprpacket::HpprPacket;
@@ -477,8 +476,6 @@ pub(crate) struct Window {
 
     /// HPPR: cached live exact address DOM object for this window
     address: MutNullableDom<crate::dom::windowaddress::WindowAddress>,
-    /// HAVI: cached internal helper capability root
-    havi: MutNullableDom<HaviInternal>,
 }
 
 impl Window {
@@ -1478,21 +1475,6 @@ impl WindowMethods<crate::DomTypeHolder> for Window {
     /// Returns None if page was not loaded through a route.
     fn GetPacket(&self) -> Option<DomRoot<HpprPacket>> {
         self.Document().hppr_packet()
-    }
-
-    /// HAVI internal helper capability root.
-    ///
-    /// Returns null on ordinary pages and on helper pages that do not expose
-    /// internal admin capability.
-    fn GetHavi(&self) -> Option<DomRoot<HaviInternal>> {
-        if !allow_havi_internal(self.upcast::<GlobalScope>()) {
-            return None;
-        }
-
-        Some(
-            self.havi
-                .or_init(|| HaviInternal::new(self.upcast::<GlobalScope>(), CanGc::note())),
-        )
     }
 
     fn Resolve(&self, input: USVString) -> Rc<Promise> {
@@ -4183,7 +4165,6 @@ impl Window {
             has_changed_visual_viewport_dimension: Default::default(),
             last_activation_timestamp: Cell::new(UserActivationTimestamp::PositiveInfinity),
             address: Default::default(),
-            havi: Default::default(),
         });
 
         WindowBinding::Wrap::<crate::DomTypeHolder>(cx, win)
