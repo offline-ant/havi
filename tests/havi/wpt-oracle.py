@@ -181,7 +181,7 @@ def render_havi(havi_bin: Path, page: Path, output: Path, log_path: Path) -> Non
     env = dict(os.environ)
     env["HAVI_URL"] = page.resolve().as_uri()
     result = subprocess.run(
-        [str(havi_bin), "--no-pylon", "--screenshot", str(output)],
+        [str(havi_bin), "--screenshot", str(output)],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

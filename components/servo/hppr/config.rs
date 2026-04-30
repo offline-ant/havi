@@ -11,8 +11,6 @@
 //!
 //! `HAVI_HOME` is reserved for hpprd endpoint specification (not a path).
 //! Browser-local non-repo state lives separately in `havi.sqlite`.
-//! `compat_repo_dir()` is only the current hpprd/pylon compatibility path while
-//! HAVI still boots through that runtime.
 
 use std::path::PathBuf;
 
@@ -63,14 +61,6 @@ pub fn packet_store_path() -> PathBuf {
     config_dir().join("havi-packets.sqlite")
 }
 
-/// Legacy hpprd/pylon compatibility repository directory.
-/// Path: <config_dir>/repo/
-///
-/// This path is now explicit operator/runtime compatibility state only. Default
-/// browsing uses `packet_store_path()` instead.
-pub fn compat_repo_dir() -> PathBuf {
-    config_dir().join("repo")
-}
 
 // NOTE: Keep this module scoped to path helpers only. Add higher-level config
 // structs only when they're wired up by consumers.

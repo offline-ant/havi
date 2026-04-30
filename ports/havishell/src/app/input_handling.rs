@@ -60,9 +60,6 @@ impl App {
                             self.context_menu_pos = *abs;
                             handled_input = true;
                         } else {
-                            if self.pylon_menu_open {
-                                self.hide_pylon_menu(cx);
-                            }
                             if self.overflow_menu_open {
                                 self.hide_overflow_menu(cx);
                             }
@@ -253,10 +250,6 @@ impl App {
                         if key_event.key_code
                             == makepad_widgets::makepad_platform::KeyCode::Escape
                         {
-                            if self.pylon_menu_open {
-                                self.hide_pylon_menu(cx);
-                                handled_input = true;
-                            }
                             if self.overflow_menu_open {
                                 self.hide_overflow_menu(cx);
                                 handled_input = true;

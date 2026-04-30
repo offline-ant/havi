@@ -91,32 +91,33 @@ Default to `add`. Use `store` for prebuilt packets.
 
 For whole-site import/export, use filesystem mount + copy.
 
-### Via pylon (recommended)
+### Linux FUSE
 
 ```bash
-# mount repo subtree with write enabled
-pylon mount /mnt/hppr --root //u/site --rw --seal-with ring0
-
-# copy directory contents into mounted tree
+hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
+  --root //u/site --mount /mnt/hppr --rw --seal-with ring0 &
 cp -a ./site/. /mnt/hppr/
-
-# unmount when done
-pylon unmount /mnt/hppr
+fusermount3 -u /mnt/hppr
 ```
 
-This replaces old `dir-pac`/`pac-dir` workflows.
-
-`havi-cli publish-dir` is retired. It fails with an explicit error and points to
-this mount+copy workflow.
-
-### Direct `hppr-nfs`
+### Portable NFS
 
 ```bash
 hppr-nfs --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
   --root //u/site --rw --seal-with ring0 --bind 127.0.0.1:3049
 ```
 
-Then mount and copy using your OS NFS client.
+Then mount and copy using your OS NFS client:
+
+```bash
+mount -t nfs -o port=3049,mountport=3049,nfsvers=3,tcp,nolock 127.0.0.1:/ /mnt/hppr
+cp -a ./site/. /mnt/hppr/
+umount /mnt/hppr
+```
+
+These workflows target the repo named by `HPPR_HOME`; they do not write into
+HAVI's browser-local `havi-packets.sqlite` store. `havi-cli publish-dir` is
+retired and exits with an explicit error.
 
 ## Keys and identities
 

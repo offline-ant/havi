@@ -722,7 +722,7 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
                 } else if std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty()).is_some() {
                     "(external home repo)".to_string()
                 } else {
-                    libhavi::hppr::config::compat_repo_dir().display().to_string()
+                    "(external home repo)".to_string()
                 };
                 request.respond(HpprControlResponse::RepoPath(path));
             },
@@ -732,7 +732,7 @@ impl libhavi::WebViewDelegate for HaviWebViewDelegate {
                 } else if std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty()).is_some() {
                     "remote-home".to_string()
                 } else {
-                    "compat-hpprd".to_string()
+                    "remote-home".to_string()
                 };
                 request.respond(HpprControlResponse::RepoStatus(status));
             },

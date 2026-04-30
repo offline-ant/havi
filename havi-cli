@@ -11,7 +11,7 @@ Subcommand groups:
 
 Built-in commands:
     publish     Store signed file and navigate
-    publish-dir Retired. Use pylon mount + copy workflow
+    publish-dir Retired. Use hppr-fuse or hppr-nfs directly
     deploy      Write app content pointer for group/app
     navigate    Navigate HAVI to a URL
 
@@ -29,7 +29,7 @@ Examples:
     havi-cli publish //u/web/index.html page.html
 """
 
-import mimetypes, os, sqlite3, subprocess, sys
+import mimetypes, os, shlex, sqlite3, subprocess, sys
 
 
 def _run(cmd, **kwargs):
@@ -160,19 +160,60 @@ def cmd_open_target(args):
     _run(["havi-makepad-cli", "control", "shadow_control", "enter"])
 
     if mountpoint:
-        os.makedirs(mountpoint, exist_ok=True)
-        _run([
-            "pylon",
-            "mount",
-            mountpoint,
-            "--root",
-            _shadow_root(coord),
-            "--signer",
-            _admin_signer(),
-            "--rw",
-            "--seal_with",
-            _shadow_signing_key(coord),
-        ])
+        root = _shadow_root(coord)
+        signer = _admin_signer()
+        seal_with = _shadow_signing_key(coord)
+        print(
+            "\n".join(
+                [
+                    "Shadow mode is active. Mounting is operator-explicit; run one of these workflows:",
+                    "",
+                    "Linux FUSE:",
+                    "  "
+                    + " ".join(
+                        shlex.quote(part)
+                        for part in [
+                            "hppr-fuse",
+                            "--home",
+                            os.environ.get("HPPR_HOME", "tcp+127.0.0.1:4777"),
+                            "--signer",
+                            signer,
+                            "--root",
+                            root,
+                            "--mount",
+                            mountpoint,
+                            "--rw",
+                            "--seal-with",
+                            seal_with,
+                        ]
+                    ),
+                    "  fusermount3 -u " + shlex.quote(mountpoint),
+                    "",
+                    "Portable NFS:",
+                    "  "
+                    + " ".join(
+                        shlex.quote(part)
+                        for part in [
+                            "hppr-nfs",
+                            "--home",
+                            os.environ.get("HPPR_HOME", "tcp+127.0.0.1:4777"),
+                            "--signer",
+                            signer,
+                            "--root",
+                            root,
+                            "--rw",
+                            "--seal-with",
+                            seal_with,
+                            "--bind",
+                            "127.0.0.1:3049",
+                        ]
+                    ),
+                    "  mount -t nfs -o port=3049,mountport=3049,nfsvers=3,tcp,nolock 127.0.0.1:/ " + shlex.quote(mountpoint),
+                    "  umount " + shlex.quote(mountpoint),
+                ]
+            ),
+            file=sys.stderr,
+        )
 
 
 def cmd_deploy(args):
@@ -208,7 +249,7 @@ def cmd_publish_dir(args):
     if len(args) < 2:
         sys.exit("usage: havi-cli publish-dir <coordinate> <dir>")
     sys.exit(
-        "error: publish-dir is retired; use pylon mount --root <coordinate> --rw --seal-with ring0 and copy files into the mount"
+        "error: publish-dir is retired; use hppr-fuse or hppr-nfs directly with --root <coordinate> --rw --seal-with ring0"
     )
 
 
@@ -231,7 +272,7 @@ Built-in commands:
     navigate <url>                                         Navigate HAVI to a URL
     deploy <group> <app> <content-root> <content-authority>  Write app content pointer
     publish <coordinate> <file>                            Store signed file, navigate
-    publish-dir <coordinate> <dir>                         Retired. Use pylon mount + copy
+    publish-dir <coordinate> <dir>                         Retired. Use hppr-fuse or hppr-nfs directly
 
 Direct open:
     //<group>/<app>[/location] [--shadow] [--mount PATH]   Open routed app, optionally enter shadow mode

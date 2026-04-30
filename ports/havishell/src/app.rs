@@ -29,7 +29,6 @@ mod delegate;
 mod input_handling;
 mod navigation;
 mod overflow_menu;
-mod pylon_menu;
 mod runtime;
 mod screenshot;
 mod tabs;
@@ -38,7 +37,6 @@ use camera::CameraState;
 use clipboard::ClipboardState;
 use delegate::{HaviServoDelegate, HaviWebViewDelegate, MakepadEventLoopWaker, MakepadServoAction};
 use navigation::NavCommand;
-use pylon_menu::PylonStatus;
 use tabs::{HOME_URL, TabInfo, title_from_url};
 
 use crate::servo_web_view::ServoWebViewWidgetRefExt;
@@ -50,7 +48,6 @@ script_mod! {
     use mod.widgets.HaviToolbar
     use mod.widgets.HaviContextMenu
     use mod.widgets.HaviOverflowMenu
-    use mod.widgets.HaviPylonMenu
     use mod.widgets.HaviSplash
 
     let app = startup() do #(App::script_component(vm)){
@@ -95,120 +92,15 @@ fn dock_button_text(menu_at_bottom: bool) -> &'static str {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PylonMode {
-    None,
-    External,
-    Embedded,
-}
-
-/// Result of background pylon + hpprd + credential bootstrap.
-enum PylonInitResult {
-    Ready {
-        hpprd_port: u16,
-        pylon_port: u16,
-        pylon_events: std::sync::mpsc::Receiver<libhavi::hppr::pylon::PylonEvent>,
-    },
-    Failed {
-        reason: String,
-    },
-}
-
 #[derive(Clone, Debug, Default)]
 pub(super) struct TabInspectorState {
     pub page_info: Option<libhavi::HpprPageInfo>,
     pub panel_open: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-enum StartupState {
-    #[default]
-    Booting,
-    Ready,
-    Failed,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct PendingScreenshotCallback {
     request_id: u64,
-}
-
-fn pylon_mode_from_env() -> PylonMode {
-    match std::env::var("HAVI_PYLON_MODE").ok().as_deref() {
-        Some("none") => PylonMode::None,
-        Some("external") => PylonMode::External,
-        Some("embedded") if cfg!(feature = "embedded-services") => PylonMode::Embedded,
-        Some("embedded") => PylonMode::External,
-        _ if cfg!(feature = "embedded-services") => PylonMode::Embedded,
-        _ => PylonMode::External,
-    }
-}
-
-fn start_hpprd_with_runtime(
-    pylon_client: &mut libhavi::hppr::pylon::PylonClient,
-    runtime: Option<&str>,
-) -> anyhow::Result<u16> {
-    if let Some(port) = pylon_client.hpprd_port() {
-        return Ok(port);
-    }
-
-    let mut args = serde_json::Map::new();
-    if let Some(mode) = runtime {
-        args.insert("runtime".to_string(), serde_json::json!(mode));
-    }
-
-    let start_error = pylon_client
-        .command("start", Some("hpprd"), Some(&args))
-        .err();
-
-    let mut last_state: Option<String> = None;
-    for _ in 0..20 {
-        if let Some(port) = pylon_client.hpprd_port() {
-            return Ok(port);
-        }
-
-        if let Ok(status) = pylon_client.command("status", None, None) {
-            if let Some(hpprd) = status.get("hpprd") {
-                let state = hpprd
-                    .get("state")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let pid = hpprd
-                    .get("pid")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "none".to_string());
-                let port = hpprd
-                    .get("port")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "none".to_string());
-                let addr = hpprd.get("addr").and_then(|v| v.as_str()).unwrap_or("none");
-                last_state = Some(format!(
-                    "state={}, pid={}, port={}, addr={}",
-                    state, pid, port, addr
-                ));
-            }
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(150));
-    }
-
-    let mut message = String::from(
-        "hpprd did not become reachable after pylon startup request and 20 status polls (~3s).",
-    );
-    if let Some(e) = start_error {
-        message.push_str(" Start request error: ");
-        message.push_str(&e);
-        message.push('.');
-    }
-    if let Some(state) = last_state {
-        message.push_str(" Last observed hpprd status: ");
-        message.push_str(&state);
-        message.push('.');
-    }
-
-    Err(anyhow::anyhow!(message))
 }
 
 // ---------------------------------------------------------------------------
@@ -849,26 +741,9 @@ pub struct App {
     #[rust]
     ime_visible: bool,
 
-    /// Latest advertised public via from pylon listener events.
-    #[rust]
-    shared_public_via: Option<String>,
-
-    /// Pylon aggregate status for the status dot and dropdown menu.
-    #[rust]
-    pylon_status: PylonStatus,
-
-    /// Whether the pylon dropdown menu is open.
-    #[rust]
-    pylon_menu_open: bool,
-
     /// Whether the advanced overflow menu is open.
     #[rust]
     overflow_menu_open: bool,
-
-    /// Dedicated pylon TCP connection used for shell status refresh.
-    /// The event stream connection is consumed by `subscribe()`.
-    #[rust]
-    pylon_command_client: Option<libhavi::hppr::pylon::PylonClient>,
 
     /// True when tab/toolbar chrome is docked to the bottom.
     #[rust]
@@ -889,12 +764,6 @@ pub struct App {
     /// (which caused ghost DrawQuad rendering artifacts on Linux/OpenGL).
     #[rust]
     tab_template_source: ScriptObjectRef,
-
-    // --- Pylon event stream ---
-    /// Receives pylon service events. The background reader thread keeps the
-    /// TCP connection alive (preventing pylon idle shutdown).
-    #[rust]
-    pylon_events: Option<std::sync::mpsc::Receiver<libhavi::hppr::pylon::PylonEvent>>,
 
     /// Receiver for media-thread VideoOp commands (script thread -> makepad main thread).
     #[rust]
@@ -952,14 +821,6 @@ pub struct App {
     start_navigation_done: bool,
 
 
-    /// Startup state machine.
-    #[rust]
-    startup_state: StartupState,
-
-    /// Receives the pylon init result from the background thread.
-    #[rust]
-    pylon_init_rx: Option<std::sync::mpsc::Receiver<PylonInitResult>>,
-
     /// Shared HPPR watch connection pool.
     /// Field order matters: this is dropped before `havi_runtime` during App teardown.
     #[rust]
@@ -973,10 +834,6 @@ pub struct App {
     /// Declared after `watch_pool` so watch tasks are aborted before runtime teardown.
     #[rust]
     havi_runtime: Option<tokio::runtime::Runtime>,
-
-    /// Timer for splash screen timeout (3 seconds max during pylon boot).
-    #[rust]
-    splash_timeout: Timer,
 
     /// Timer driving screenshot state progression independently of render activity.
     #[rust]

@@ -73,7 +73,7 @@ DUMP_FILE="$(mktemp /tmp/havi-shell-layout-dump-XXXXXX.txt)"
 SHOT_FILE="$(mktemp /tmp/havi-shell-layout-shot-XXXXXX.png)"
 HAVI_CONFIG_DIR="$(mktemp -d /tmp/havi-shell-layout-config-XXXXXX)"
 
-log "Starting HAVI with Makepad relay and --no-pylon..."
+log "Starting HAVI with Makepad relay and..."
 (
     cd "$HAVI_ROOT"
     setsid env \
@@ -89,7 +89,7 @@ sys.path.insert(0, str(havi_root / "ports" / "havishell"))
 
 from mach_havi_studio import run_desktop_makepad_socket
 
-cmd = [str(havi_root / "target" / "debug" / "havi"), "--foreground", "--no-pylon"]
+cmd = [str(havi_root / "target" / "debug" / "havi"), "--foreground"]
 raise SystemExit(run_desktop_makepad_socket(cmd, os.environ.copy(), havi_root))
 PY
 ) >"$RUN_LOG" 2>&1 &

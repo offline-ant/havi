@@ -45,42 +45,7 @@ fn havi_state_file_path() -> std::path::PathBuf {
 }
 
 fn main() {
-    // Parse args and extract argv0 basename for dispatch.
     let args: Vec<String> = std::env::args().collect();
-    let argv0 = std::path::Path::new(args.first().map(|s| s.as_str()).unwrap_or("havi"))
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("havi")
-        .to_string();
-
-    // argv0 self-name service dispatch: if invoked as managed service name,
-    // route directly through pylon dispatch. This must be first — before
-    // --version, flag parsing, or any GUI initialization — so that symlinks
-    // like `ln -s havi hpprd && ./hpprd` always take the pylon path.
-    if pylon::catalog::service_from_argv0(&argv0).is_some() {
-        env_logger::init();
-        pylon::cli::main_with_argv(args);
-        return;
-    }
-
-    // Self-exec service dispatch compatibility:
-    // pylon self-exec mode can launch current_exe as:
-    //   havi --embedded-services exec <service> ...
-    // Route that argv shape into pylon CLI dispatch instead of launching UI.
-    if args.get(1).map(|s| s.as_str()) == Some("--embedded-services")
-        && args.get(2).map(|s| s.as_str()) == Some("exec")
-    {
-        env_logger::init();
-        pylon::cli::main(args[1..].to_vec());
-        return;
-    }
-
-    // Pylon subcommand: `havi pylon [args...]`
-    if args.get(1).map(|s| s.as_str()) == Some("pylon") {
-        env_logger::init();
-        pylon::cli::main(args[2..].to_vec());
-        return;
-    }
 
     // Handle --version before Makepad takes over args.
     if args.iter().any(|a| a == "--version") {
@@ -91,8 +56,6 @@ fn main() {
     // Extract HAVI runtime flags and set env vars for downstream use.
     {
         let mut i = 1;
-        let mut force_no_pylon = false;
-        let mut force_external_pylon = false;
         let mut screenshot_path: Option<String> = None;
 
         while i < args.len() {
@@ -113,14 +76,6 @@ fn main() {
                         i += 1;
                     }
                 },
-                "--no-pylon" => {
-                    force_no_pylon = true;
-                    i += 1;
-                },
-                "--external-pylon" => {
-                    force_external_pylon = true;
-                    i += 1;
-                },
                 "--screenshot" => {
                     if let Some(v) = args.get(i + 1) {
                         screenshot_path = Some(v.clone());
@@ -138,14 +93,6 @@ fn main() {
             std::env::set_var("HAVI_SCREENSHOT", path);
         }
 
-        let pylon_mode = if force_no_pylon {
-            "none"
-        } else if force_external_pylon {
-            "external"
-        } else {
-            "none"
-        };
-        std::env::set_var("HAVI_PYLON_MODE", pylon_mode);
     }
 
     let screenshot_mode = std::env::var("HAVI_SCREENSHOT")

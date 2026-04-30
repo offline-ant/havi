@@ -76,7 +76,7 @@ LOG_FILE="$SCRIPT_DIR/resources/icon-raster-runtime/havi.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 : > "$LOG_FILE"
 
-HAVI_PYLON_MODE=none HAVI_DEVTOOLS=127.0.0.1:0 HAVI_URL="about:blank" "$HAVI_BIN" --no-pylon >"$LOG_FILE" 2>&1 &
+HAVI_DEVTOOLS=127.0.0.1:0 HAVI_URL="about:blank" "$HAVI_BIN" >"$LOG_FILE" 2>&1 &
 HAVI_PID=$!
 
 cleanup() {

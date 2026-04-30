@@ -14,8 +14,7 @@ name = "havi"
 path = "src/main.rs"
 
 [features]
-default = ["max_log_level", "embedded-services"]
-embedded-services = ["pylon/embedded-services"]
+default = ["max_log_level"]
 crown = ["libhavi/crown"]
 debugmozjs = ["libhavi/debugmozjs"]
 jitspew = ["libhavi/jitspew"]
@@ -39,7 +38,6 @@ hppr-client = { workspace = true }
 hppr-packet = { workspace = true }
 havi-render = { workspace = true }
 havi-types = { workspace = true }
-pylon = { path = "../../../hppr/pylon", default-features = false }
 env_logger = "0.11"
 anyhow = "1"
 crossbeam-channel = { workspace = true }

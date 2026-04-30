@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# local-runtime-test.sh - default browser-local runtime path without pylon or HAVI_HOME
+# local-runtime-test.sh - default browser-local runtime path without HAVI_HOME
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
@@ -22,7 +22,7 @@ setsid env \
     HAVI_URL='havi:///home-repo' \
     HAVI_CONFIG="$HAVI_CONFIG" \
     HAVI_DEVTOOLS="$HAVI_DEVTOOLS" \
-    "$havi_bin" --no-pylon &
+    "$havi_bin" &
 SERVO_PID=$!
 
 wait_for_devtools

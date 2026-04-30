@@ -64,7 +64,10 @@ pub async fn fetch_chunk_blobs(
         .map_err(|e| format!("chunk exchange connect: {e}"))?;
     let resp = pooled
         .connection_mut()
-        .send(IoRequest::Exchange { items })
+        .send(IoRequest::Exchange {
+            items,
+            packets_to_send: Vec::new(),
+        })
         .await
         .map_err(|e| format!("chunk exchange: {e}"))?;
     let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();

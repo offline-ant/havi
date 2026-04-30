@@ -382,22 +382,6 @@ impl App {
             .ok();
     }
 
-    fn finish_startup(&mut self, cx: &mut Cx) {
-        if self.start_navigation_done {
-            return;
-        }
-        self.start_navigation_done = true;
-
-        // Hide splash screen first so content_area has its final startup geometry.
-        self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
-        self.sync_content_size_from_host_rect(cx);
-
-        // Startup creates the initial tab directly. Event::AppOpen is reserved
-        // for external open requests delivered after the shell is ready.
-        let start_url = self.start_url.clone();
-        self.open_tab(cx, &start_url);
-    }
-
     pub(super) fn apply_menu_dock(&self, cx: &mut Cx) {
         let tab_uid = self.ui.view(cx, ids!(tab_bar_wrap)).widget_uid();
         let toolbar_uid = self.ui.view(cx, ids!(toolbar)).widget_uid();
@@ -476,17 +460,11 @@ impl MatchEvent for App {
             if self.overflow_menu_open {
                 self.hide_overflow_menu(cx);
             }
-            if self.pylon_menu_open {
-                self.hide_pylon_menu(cx);
-            }
             nav_action = Some(NavCommand::Back);
         }
         if self.ui.button(cx, ids!(forward_btn)).clicked(actions) {
             if self.overflow_menu_open {
                 self.hide_overflow_menu(cx);
-            }
-            if self.pylon_menu_open {
-                self.hide_pylon_menu(cx);
             }
             nav_action = Some(NavCommand::Forward);
         }
@@ -497,15 +475,9 @@ impl MatchEvent for App {
             if self.overflow_menu_open {
                 self.hide_overflow_menu(cx);
             }
-            if self.pylon_menu_open {
-                self.hide_pylon_menu(cx);
-            }
             nav_action = Some(NavCommand::Reload);
         }
         if self.ui.button(cx, ids!(overflow_btn)).clicked(actions) {
-            if self.pylon_menu_open {
-                self.hide_pylon_menu(cx);
-            }
             if self.overflow_menu_open {
                 self.hide_overflow_menu(cx);
             } else {
@@ -578,7 +550,7 @@ impl MatchEvent for App {
                 .get(self.active_tab_idx)
                 .map(|tab| tab.url.as_str())
                 .unwrap_or(input_url.as_str());
-            let share_url = shareable_url(effective_url, self.shared_public_via.as_deref());
+            let share_url = shareable_url(effective_url, None);
             cx.copy_to_clipboard(&share_url);
         }
         if self.ui.button(cx, ids!(home_btn)).clicked(actions) {
@@ -650,26 +622,6 @@ impl MatchEvent for App {
 
         // --- Context menu ---
         self.handle_context_menu_actions(cx, actions);
-
-        // --- Pylon dot click ---
-        if self
-            .ui
-            .view(cx, ids!(pylon_dot))
-            .finger_down(actions)
-            .is_some()
-        {
-            if self.overflow_menu_open {
-                self.hide_overflow_menu(cx);
-            }
-            if self.pylon_menu_open {
-                self.hide_pylon_menu(cx);
-            } else {
-                self.refresh_pylon_status(cx);
-                self.show_pylon_menu(cx);
-            }
-        }
-
-        // --- Pylon menu buttons ---
 
         // --- Tab bar events ---
         if self
@@ -1117,90 +1069,6 @@ impl AppMain for App {
             }
         }
 
-        // Poll pylon background init result.
-        if let Some(ref rx) = self.pylon_init_rx {
-            let poll_result = match rx.try_recv() {
-                Ok(result) => Some(result),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    // pylon-init thread dropped sender without sending a result
-                    // (panic, abort, or logic error).
-                    eprintln!(
-                        "[havi] pylon-init thread exited without sending a result (likely panicked)"
-                    );
-                    Some(PylonInitResult::Failed {
-                        reason: "pylon: off (init thread crashed)".to_string(),
-                    })
-                },
-                Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            };
-            if let Some(result) = poll_result {
-                self.pylon_init_rx = None;
-                match result {
-                    PylonInitResult::Ready {
-                        hpprd_port,
-                        pylon_port,
-                        pylon_events,
-                    } => {
-                        self.startup_state = StartupState::Ready;
-                        log!(
-                            "[havishell] pylon ready: pylon_port={} hpprd_port={}",
-                            pylon_port,
-                            hpprd_port
-                        );
-                        self.watch_fallback_endpoint = format!("127.0.0.1:{}", hpprd_port);
-                        if let Some(pool) = &mut self.watch_pool {
-                            pool.set_endpoint(self.watch_fallback_endpoint.clone());
-                        }
-                        self.pylon_events = Some(pylon_events);
-                        // Create command client for interactive pylon commands.
-                        if let Ok(cmd_client) =
-                            libhavi::hppr::pylon::PylonClient::connect(pylon_port)
-                        {
-                            self.pylon_command_client = Some(cmd_client);
-                        }
-                        self.refresh_pylon_status(cx);
-                        self.finish_startup(cx);
-
-                        let pylon_bind = format!("127.0.0.1:{}", pylon_port);
-                        println!("PYLON_BIND={}", pylon_bind);
-                        let mut state = crate::app::runtime::included_state_entries();
-                        state.push(("PYLON_BIND".to_string(), pylon_bind));
-                        if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                            state.push(("HAVI_DEVTOOLS".to_string(), bind));
-                        }
-                        crate::app::runtime::write_state_file(&state);
-                    },
-                    PylonInitResult::Failed { reason } => {
-                        self.startup_state = StartupState::Failed;
-                        log!("[havishell] pylon failed: {}", reason);
-                        self.pylon_status.health = pylon_menu::PylonHealth::Red;
-                        self.update_pylon_dot(cx);
-                        self.finish_startup(cx);
-
-                        let mut state = crate::app::runtime::included_state_entries();
-                        if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                            state.push(("HAVI_DEVTOOLS".to_string(), bind));
-                        }
-                        crate::app::runtime::write_state_file(&state);
-                    },
-                }
-                self.request_spin_redraw(cx);
-            }
-        }
-
-        // Handle splash screen timeout (3s max).
-        if self.splash_timeout.is_event(event).is_some() {
-            self.splash_timeout = Timer::empty();
-            if !self.start_navigation_done {
-                if self.startup_state == StartupState::Booting {
-                    self.startup_state = StartupState::Failed;
-                    eprintln!("[havi] splash timeout: pylon did not finish in 3s, proceeding");
-                }
-                self.finish_startup(cx);
-                self.request_spin_redraw(cx);
-            }
-        }
-
         if self.screenshot_poll.is_event(event).is_some() {
             self.screenshot_poll = Timer::empty();
             self.update_screenshot_mode(cx);
@@ -1223,40 +1091,6 @@ impl AppMain for App {
                     }
                 }
             }
-            // Drain pylon events and update status dot
-            {
-                let mut status_changed = false;
-                if let Some(ref rx) = self.pylon_events {
-                    while let Ok(ev) = rx.try_recv() {
-                        match (ev.event.as_str(), ev.service.as_deref()) {
-                            ("service_started", Some(svc)) => {
-                                self.pylon_status
-                                    .apply_event(svc, "running", ev.pid, ev.port);
-                                status_changed = true;
-                            },
-                            ("service_stopped", Some(svc)) => {
-                                self.pylon_status.apply_event(svc, "stopped", None, None);
-                                status_changed = true;
-                            },
-                            _ => {},
-                        }
-
-                        if ev.event == "listener" && ev.service.as_deref() == Some("hpprd") {
-                            if let Some(via) = ev.public_via.as_ref() {
-                                self.shared_public_via = Some(via.clone());
-                            } else if ev.present == Some(false)
-                                || ev.source.as_deref() == Some("nat")
-                            {
-                                self.shared_public_via = None;
-                            }
-                        }
-                    }
-                }
-                if status_changed {
-                    self.update_pylon_dot(cx);
-                }
-            }
-
             // Poll HPPR watch events for active tab
             let watch_action = if let Some(pool) = &mut self.watch_pool {
                 if let Some(tab) = self.tabs.get_mut(self.active_tab_idx) {

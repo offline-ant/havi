@@ -39,7 +39,7 @@ rm -f "$SCREENSHOT"
 set +e
 (
     cd "$HAVI_ROOT"
-    HAVI_URL="file://$html" "$havi_bin" --no-pylon --screenshot "$SCREENSHOT"
+    HAVI_URL="file://$html" "$havi_bin" --screenshot "$SCREENSHOT"
 ) >"$run_log" 2>&1
 status=$?
 set -e

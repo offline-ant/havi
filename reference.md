@@ -95,9 +95,9 @@ When `HAVI_HOME` is unset, default HAVI browsing uses the browser-owned packet
 store at `<config_dir>/havi-packets.sqlite`. Browser-local non-repo state stays
 in `<config_dir>/havi.sqlite`.
 
-The old compatibility repo path under `<config_dir>/repo` is now explicit
-operator/runtime compatibility state only. Default browsing does not start
-pylon or `hpprd` just to back ordinary `window.source.client` access.
+Default browsing does not start `hpprd` just to back ordinary
+`window.source.client` access. Browser-local packets are stored in
+`<config_dir>/havi-packets.sqlite`.
 
 ### Public network routing
 
@@ -119,26 +119,6 @@ Current HAVI behavior:
 - routed `UNAUTHORIZED not a member` failures now stay explicit error pages
 - missing Ring2 setup on the target repo is shown as a route setup error
 
-## Pylon integration
-
-Pylon is an explicit operator/service path.
-
-Default browsing does not require pylon. The shell pylon indicator remains as a
-status-first operator control when pylon is running explicitly. It opens a
-compact status panel for current state only. Service-management helper pages are
-deleted in this cut.
-
-### Pylon indicator
-
-The toolbar indicator uses current HAVI shell glyphs:
-
-- Booting: orange diamond
-- hpprd running or external: green circle
-- hpprd starting: orange triangle
-- hpprd stopped or failed: red square
-
-These visuals are shell UI details, not protocol semantics.
-
 ## Shell behavior
 
 Current HAVI shell behavior:
@@ -149,8 +129,8 @@ Current HAVI shell behavior:
   `Home-App` is configured, HAVI uses `home`
 - desktop HAVI disables the stock Makepad caption bar and uses empty tab-strip
   space as the draggable caption region
-- the main toolbar shows browser-first controls only: pylon status, back,
-  forward, URL input, an info button, reload, and an overflow button
+- the main toolbar shows browser-first controls only: back, forward, URL input,
+  an info button, reload, and an overflow button
 - the info button opens a right-side current-tab inspector panel
 - the inspector panel shows committed page source fields, packet info, and the
   current HPPR lookup trace when available

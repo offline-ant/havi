@@ -1441,20 +1441,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crab_nat"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "918b84814ac527ca76ae58c2d9748bcd77390841bf4c42eba14999d1de4ffe7f"
-dependencies = [
- "bytes",
- "displaydoc",
- "num_enum",
- "rand 0.9.2",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,7 +3010,6 @@ dependencies = [
  "log",
  "makepad-media",
  "makepad-widgets",
- "pylon",
  "rustc-hash 2.1.1",
  "serde_json",
  "stylo",
@@ -3155,59 +3140,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hppr-fuse"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "env_logger",
- "hppr-client",
- "hppr-packet",
- "hppr-segment",
- "hpprd",
- "libc",
- "log",
- "nix 0.28.0",
- "tokio",
-]
-
-[[package]]
-name = "hppr-lokid"
-version = "0.1.0"
-dependencies = [
- "hppr-client",
- "hppr-packet",
- "hsb3",
- "httparse",
- "tokio",
-]
-
-[[package]]
-name = "hppr-nat"
-version = "0.1.0"
-dependencies = [
- "crab_nat",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "hppr-nfs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "env_logger",
- "hppr-client",
- "hppr-packet",
- "hppr-segment",
- "hpprd",
- "log",
- "tokio",
-]
-
-[[package]]
 name = "hppr-packet"
 version = "0.1.0"
 dependencies = [
@@ -3241,15 +3173,6 @@ dependencies = [
  "hppr-packet",
  "log",
  "serde",
- "tokio",
-]
-
-[[package]]
-name = "hppr-unlokid"
-version = "0.1.0"
-dependencies = [
- "hppr-client",
- "httparse",
  "tokio",
 ]
 
@@ -5299,15 +5222,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
 name = "metal"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5741,7 +5655,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases 0.1.1",
  "libc",
- "memoffset",
 ]
 
 [[package]]
@@ -6999,24 +6912,6 @@ name = "pxfm"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5a041e753da8b807c9255f28de81879c78c876392ff2469cde94799b2896b9d"
-
-[[package]]
-name = "pylon"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "hppr-fuse",
- "hppr-lokid",
- "hppr-nat",
- "hppr-nfs",
- "hppr-unlokid",
- "hpprd",
- "libc",
- "log",
- "serde",
- "serde_json",
- "tokio",
-]
 
 [[package]]
 name = "quick-error"
@@ -9059,7 +8954,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.2",

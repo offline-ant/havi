@@ -62,7 +62,7 @@ that JSON summary via `havi-devtools-cli`.
 It:
 
 - builds HAVI with `./mach-havi build`
-- renders the test page with `havi --no-pylon --screenshot <png>`
+- renders the test page with `havi --screenshot <png>`
 - renders the reference page the same way
 - compares PNG output by exact RGBA equality
 - saves failure artifacts:

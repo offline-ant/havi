@@ -108,7 +108,6 @@ impl App {
         }
 
         let home = std::env::var("HAVI_HOME").ok().filter(|v| !v.is_empty());
-        let compat_repo_path = libhavi::hppr::config::compat_repo_dir();
         if home.is_none() {
             let _ = libhavi::hppr::local_runtime::global_local_runtime();
         }
@@ -124,7 +123,6 @@ impl App {
         // Fallback target for explicit remote home-repo mode. Default local
         // browsing uses the browser-owned packet-store runtime instead.
 
-        let pylon_mode = pylon_mode_from_env();
         self.start_url = std::env::var("HAVI_URL").unwrap_or_else(|_| "havi:///".to_string());
         self.screenshot_mode = std::env::var("HAVI_SCREENSHOT")
             .ok()
@@ -135,116 +133,7 @@ impl App {
                     + std::time::Duration::from_millis(super::screenshot::SCREENSHOT_MAX_LOAD_WAIT_MS),
             });
         self.screenshot_poll = Timer::empty();
-        self.start_navigation_done = pylon_mode == PylonMode::None;
-
-        // Startup state machine: Booting -> Ready/Failed.
-        self.startup_state = if pylon_mode == PylonMode::None {
-            StartupState::Ready
-        } else {
-            StartupState::Booting
-        };
-
-        // Spawn pylon + hpprd + credential bootstrap on a background thread.
-        if pylon_mode != PylonMode::None {
-            let home_clone = home.clone();
-            let compat_repo_path_clone = compat_repo_path.clone();
-            let (pylon_tx, pylon_rx) = std::sync::mpsc::channel();
-            self.pylon_init_rx = Some(pylon_rx);
-            std::thread::Builder::new()
-                .name("pylon-init".to_string())
-                .spawn(move || {
-                    let msg = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let host_mode = match pylon_mode {
-                            PylonMode::External => crate::pylon_host::PylonHostMode::External,
-                            PylonMode::Embedded => crate::pylon_host::PylonHostMode::Embedded,
-                            PylonMode::None => unreachable!(),
-                        };
-
-                        eprintln!(
-                            "[havi] pylon-init: mode={:?}, compat_repo={}",
-                            host_mode,
-                            compat_repo_path_clone.display()
-                        );
-
-                        let mut pylon_client = crate::pylon_host::ensure_pylon(
-                            &compat_repo_path_clone,
-                            home_clone.as_deref(),
-                            host_mode,
-                        ).map_err(|e| {
-                            eprintln!("[havi] pylon unavailable: {:#}", e);
-                            format!("pylon: off ({})", e)
-                        })?;
-
-                        eprintln!("[havi] pylon-init: connected to pylon on port {}", pylon_client.port);
-
-                        let hpprd_runtime = match pylon_mode {
-                            PylonMode::Embedded => Some("inline"),
-                            PylonMode::External | PylonMode::None => None,
-                        };
-
-                        let hpprd_port = start_hpprd_with_runtime(&mut pylon_client, hpprd_runtime)
-                            .map_err(|e| {
-                                eprintln!("[havi] hpprd start failed: {:#}", e);
-                                "pylon: off (hpprd start failed)".to_string()
-                            })?;
-
-                        eprintln!("[havi] pylon-init: hpprd on port {}", hpprd_port);
-
-                        let pylon_port = pylon_client.port;
-                        let events = pylon_client.subscribe();
-
-                        // Bootstrap credentials now that hpprd is reachable.
-                        let target = hppr_client::ViaSpec::Net {
-                            host: "127.0.0.1".to_string(),
-                            port: hpprd_port,
-                            scheme: Some(hppr_client::TransportScheme::Tcp),
-                        };
-                        let credential_store = global_credential_store();
-                        let endpoint = hppr_client::repo_endpoint_from(&target);
-                        match hppr_client::connect_tcp(&endpoint, hppr_client::Signer::anyone()) {
-                            Ok(mut client) => {
-                                if let Ok(greeting) = client.hello() {
-                                    let key = greeting.verifying_key();
-                                    if credential_store.load_admin_for_key(key).is_err() {
-                                        credential_store.bootstrap_admin();
-                                        let _ = credential_store.persist_admin_for_key(key);
-                                    }
-                                } else {
-                                    eprintln!("[havi] pylon-init: hpprd hello failed, bootstrapping admin");
-                                    credential_store.bootstrap_admin();
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("[havi] pylon-init: hpprd connect failed ({}), bootstrapping admin", e);
-                                credential_store.bootstrap_admin();
-                            },
-                        }
-
-                        Ok::<_, String>((hpprd_port, pylon_port, events))
-                    })) {
-                        Ok(Ok((hpprd_port, pylon_port, pylon_events))) => {
-                            PylonInitResult::Ready { hpprd_port, pylon_port, pylon_events }
-                        }
-                        Ok(Err(reason)) => {
-                            PylonInitResult::Failed { reason }
-                        }
-                        Err(panic_payload) => {
-                            let panic_msg = panic_payload
-                                .downcast_ref::<String>()
-                                .map(|s| s.as_str())
-                                .or_else(|| panic_payload.downcast_ref::<&str>().copied())
-                                .unwrap_or("unknown panic");
-                            eprintln!("[havi] pylon-init thread panicked: {}", panic_msg);
-                            PylonInitResult::Failed {
-                                reason: format!("pylon: off (panic: {})", panic_msg),
-                            }
-                        }
-                    };
-                    let _ = pylon_tx.send(msg);
-                    SignalToUI::set_ui_signal();
-                })
-                .expect("failed to spawn pylon-init thread");
-        }
+        self.start_navigation_done = true;
 
         // Watch runtime/pool are created lazily on first watch usage.
         self.watch_fallback_endpoint = hppr_client::repo_endpoint_from(&fallback_target);
@@ -320,29 +209,17 @@ impl App {
         self.servo = Some(servo);
 
         // Step 5: startup navigation.
-        if pylon_mode == PylonMode::None {
-            self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
+        self.ui.view(cx, ids!(splash_screen)).set_visible(cx, false);
 
-            let mut state = included_state_entries();
-            if let Some(bind) = crate::app::delegate::get_devtools_bind() {
-                state.push(("HAVI_DEVTOOLS".to_string(), bind));
-            }
-            write_state_file(&state);
-
-            self.sync_content_size_from_host_rect(cx);
-            let start_url = self.start_url.clone();
-            self.open_tab(cx, &start_url);
-        } else {
-            // Pylon booting — show splash screen, start 3s timeout.
-            self.ui.view(cx, ids!(splash_screen)).set_visible(cx, true);
-            self.splash_timeout = cx.start_timeout(3.0);
+        let mut state = included_state_entries();
+        if let Some(bind) = crate::app::delegate::get_devtools_bind() {
+            state.push(("HAVI_DEVTOOLS".to_string(), bind));
         }
+        write_state_file(&state);
 
-        // Set initial pylon dot state.
-        if pylon_mode == PylonMode::None {
-            self.pylon_status.health = pylon_menu::PylonHealth::Red;
-        }
-        self.update_pylon_dot(cx);
+        self.sync_content_size_from_host_rect(cx);
+        let start_url = self.start_url.clone();
+        self.open_tab(cx, &start_url);
 
         // Sync tab bar UI
         self.sync_tab_bar(cx);
@@ -367,12 +244,11 @@ impl App {
         self.idle_frames = 0;
 
         // Print eval-compatible environment summary.
-        // PYLON= is printed later when PylonReady arrives.
         {
             println!("HAVI_URL={}", self.start_url);
             eprintln!(
-                "# [havi] startup: state={:?}, start_navigation_done={}",
-                self.startup_state, self.start_navigation_done
+                "# [havi] startup: start_navigation_done={}",
+                self.start_navigation_done
             );
         }
 

@@ -5,8 +5,7 @@
 //! Browser-owned local packet-store runtime.
 //!
 //! This is HAVI's default repo-backed runtime when `HAVI_HOME` is unset.
-//! It uses the shared packet-store implementation directly in-process and does
-//! not go through compatibility hpprd or pylon.
+//! It uses the shared packet-store implementation directly in-process.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};

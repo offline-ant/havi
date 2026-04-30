@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/havi-build.bash"
 log() { echo "[$TEST_NAME] $*" >&2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-pkill -f "$HAVI_BIN --foreground --no-pylon" 2>/dev/null || true
+pkill -f "$HAVI_BIN --foreground" 2>/dev/null || true
 
 ensure_havi_built
 
@@ -102,7 +102,7 @@ havi_bin = havi_root / "target" / "debug" / "havi"
 
 def stop_existing_havi() -> None:
     subprocess.run(
-        ["pkill", "-f", f"{havi_bin} --foreground --no-pylon"],
+        ["pkill", "-f", f"{havi_bin} --foreground"],
         stderr=subprocess.DEVNULL,
         check=False,
     )
@@ -144,7 +144,7 @@ import os, pathlib, sys
 havi_root = pathlib.Path.cwd()
 sys.path.insert(0, str(havi_root / 'ports' / 'havishell'))
 from mach_havi_studio import run_desktop_makepad_socket
-cmd = [str(havi_root / 'target' / 'debug' / 'havi'), '--foreground', '--no-pylon']
+cmd = [str(havi_root / 'target' / 'debug' / 'havi'), '--foreground']
 raise SystemExit(run_desktop_makepad_socket(cmd, os.environ.copy(), havi_root))
 INNER"""
     with log.open("w") as fh:

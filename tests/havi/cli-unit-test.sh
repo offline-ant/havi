@@ -525,7 +525,7 @@ try:
 except SystemExit as e:
     print(str(e))
 ")
-check "havi-cli publish-dir fails loudly with replacement workflow" 'error: publish-dir is retired; use pylon mount --root <coordinate> --rw --seal-with ring0 and copy files into the mount' "$PUBLISH_DIR_RETIRED"
+check "havi-cli publish-dir fails loudly with replacement workflow" 'error: publish-dir is retired; use hppr-fuse or hppr-nfs directly with --root <coordinate> --rw --seal-with ring0' "$PUBLISH_DIR_RETIRED"
 
 # ============================================================================
 # Summary

@@ -24,11 +24,11 @@ and havi-devtools-cli, and provides built-in workflow commands.
 - `publish <coordinate> <file>`
   - Store a signed file and navigate.
 - `publish-dir <coordinate> <dir>`
-  - Retired command. Exits with an error that points to the mount+copy workflow.
+  - Retired command. Exits with an error that points to direct `hppr-fuse` or `hppr-nfs` workflows.
 - `//<group>/<app>[/location] [--shadow] [--mount PATH]`
   - Open a routed app directly. `--shadow` enters local shadow mode through the
-    shell. `--mount` mounts the shadow root with the persistent shadow signing
-    key.
+    shell. `--mount` prints explicit `hppr-fuse` and `hppr-nfs` commands for the
+    shadow root instead of mounting automatically.
 
 ## Environment
 
@@ -45,6 +45,6 @@ havi-cli makepad click 300 400
 havi-cli devtools eval 'document.title'
 havi-cli deploy u web //u/web V.EXAMPLE.H3
 havi-cli publish //u/web/index.html page.html
-pylon mount /mnt/hppr --root //u/site --rw --seal-with ring0
+hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" --root //u/site --mount /mnt/hppr --rw --seal-with ring0
 havi-cli //dev/hppr.forge/presentation/index.html --shadow --mount /mnt/presentation
 ```

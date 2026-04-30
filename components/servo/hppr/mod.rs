@@ -8,7 +8,6 @@ pub mod credentials;
 pub mod local_ip;
 pub mod local_route;
 pub mod local_runtime;
-pub mod pylon;
 pub mod repo_target;
 pub mod resolve;
 pub mod state_db;

@@ -81,17 +81,12 @@ def run_desktop_makepad_socket(
 
     # HAVI-specific state collected during startup.
     devtools_addr: list[str] = []
-    pylon_bind: list[str] = []
     ready_event = threading.Event()
 
     def on_nonjson_line(line: str) -> None:
         stripped = line.strip()
         if stripped.startswith("HAVI_DEVTOOLS=") and not devtools_addr:
             devtools_addr.append(stripped.split("=", 1)[1])
-            print(stripped)
-            sys.stdout.flush()
-        elif stripped.startswith("PYLON_BIND=") and not pylon_bind:
-            pylon_bind.append(stripped.split("=", 1)[1])
             print(stripped)
             sys.stdout.flush()
         else:

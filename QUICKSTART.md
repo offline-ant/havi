@@ -117,7 +117,7 @@ Default desktop HAVI browsing now uses the browser-owned packet store at
 `~/.config/HAVI/havi-packets.sqlite` when `HAVI_HOME` is unset. Browser-local
 non-packet state stays in `~/.config/HAVI/havi.sqlite`.
 
-Explicit `hpprd` / pylon workflows remain valid for authoring, publishing, and
+Explicit `hpprd` workflows remain valid for authoring, publishing, and
 operator tasks, but they are not required for ordinary browsing.
 
 Open in HAVI address bar:
@@ -138,12 +138,13 @@ HAVI_HOME=tcp+127.0.0.1:4777 ./bin/havi
 CLI prerequisites for this section:
 
 ```bash
-export HPPR_HOME=unix+$HOME/.config/HAVI/repo/hppr.sock
+./bin/hpprd --path ./repo --bind 127.0.0.1:4777 --daemon
+export HPPR_HOME=tcp+127.0.0.1:4777
 export HPPR_SIGNER='ring1:ring0|init'
 ```
 
-The local compatibility `hpprd` must be running.
-If you use an external `hpprd`, set `HPPR_HOME` to that endpoint instead.
+This CLI workflow targets the `hpprd` named by `HPPR_HOME`; it does not write
+into HAVI's browser-local `havi-packets.sqlite` store.
 
 Create content with CLI:
 
@@ -175,9 +176,10 @@ cat > /tmp/index.html <<'HTML'
 })();
 </script>
 HTML
-pylon mount /mnt/hppr --root //u/demo/site --rw --seal-with ring0
+hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
+  --root //u/demo/site --mount /mnt/hppr --rw --seal-with ring0 &
 cp -a /tmp/. /mnt/hppr/
-pylon unmount /mnt/hppr
+fusermount3 -u /mnt/hppr
 ```
 
 Open:

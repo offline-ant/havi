@@ -157,7 +157,7 @@ def render_page(
     env["HAVI_URL"] = page.resolve().as_uri()
     try:
         result = subprocess.run(
-            [str(havi_bin), "--no-pylon", "--screenshot", str(output)],
+            [str(havi_bin), "--screenshot", str(output)],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
