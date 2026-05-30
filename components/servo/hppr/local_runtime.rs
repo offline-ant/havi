@@ -658,7 +658,7 @@ fn build_local_greeting(
     backend: &str,
 ) -> Result<Greeting, String> {
     let packet = format!(
-        "🖧: 0.H3\nSession-ID: {}\nRepo-Name: {}\nSeal-By: {}\nFormat: H3\nStatus: {}\nHpprd-Backend: {}\nCommand: 🖧HELLO 1\nCommand: 🖧GET 1\nCommand: 🖧HEADERS 1\nCommand: 🖧LIST 1\nCommand: 🖧STORE 1\nCommand: 🖧TIPS 1\nData-Length: 0\n\n",
+        "🖧: 0.H3\nEndpoint-Kind: session\nSession-ID: {}\nRepo-Name: {}\nSeal-By: {}\nFormat: H3\nSession-Commands: 🖧HELLO 1 | 🖧GET 1 | 🖧HEADERS 1 | 🖧LIST 1 | 🖧STORE 1 | 🖧TIPS 1\nAllow-Null-Command: 0\nStatus: {}\nHpprd-Backend: {}\nData-Length: 0\n\n",
         DEFAULT_LOCAL_SESSION_ID,
         repo_name,
         verifying_key,
