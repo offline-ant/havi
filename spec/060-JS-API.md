@@ -269,7 +269,7 @@ current page. It exposes:
 
 Exact explicit routing syntax remains in JSONqa.
 For `hppr://...{via:...}`, use `address.qa['via']`.
-`via` still follows HPPR via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+`via` still follows HPPR via syntax from `../../hppr/spec/wire/031-VIA-SYNTAX.md`.
 Browser-defined shorthands such as `repo` remain HAVI address-layer values,
 not HPPR core via syntax.
 
@@ -466,11 +466,11 @@ interface EnvelopeHpprClient {
 
 `EnvelopeHpprClient.connect(endpoint, identity?)` creates a remote transport
 client.
-`endpoint` uses HPPR via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+`endpoint` uses HPPR via syntax from `../../hppr/spec/wire/031-VIA-SYNTAX.md`.
 Examples include `host`, `quib+host:4776`, `ws+host`, and
 `unix+/absolute/path`.
 
-`identity` follows the HPPRD identity text grammar:
+`identity` follows the HPPR Repository Service identity text grammar:
 
 - omitted, `""`, or `"anyone"`: anyone
 - `ring1:<name>|<password>`: Ring1 password-derived key

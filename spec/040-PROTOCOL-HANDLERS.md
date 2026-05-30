@@ -20,7 +20,7 @@ Relative links on HPPR documents resolve inside the current Key. `./x`, `x`, and
 
 When `via` is present, the browser connects directly to that endpoint.
 
-`via` uses HPPR core via syntax from `../../hppr/spec/031-VIA-SYNTAX.md`.
+`via` uses HPPR core via syntax from `../../hppr/spec/wire/031-VIA-SYNTAX.md`.
 Common forms include `host`, `host:port`, `tcp+host`, `quib+host:4776`,
 `ws+host`, and `unix+/absolute/path`.
 
@@ -43,7 +43,7 @@ Primary browsing scheme.
 ### Routed resolution
 
 For routed non-repo pages (`hppr://<group>/<api>//...`), the browser applies the
-HPPR route scheme effective resolver from `../../hppr/spec/100-SCHEMES.md`.
+HPPR route scheme effective resolver from `../../hppr/spec/schemes/100-SCHEMES.md`.
 
 That resolver combines:
 

@@ -24,7 +24,7 @@ Supported input forms:
 `via` selects an explicit upstream endpoint when present.
 Endpoint syntax follows HPPR via syntax.
 Without `via`, HAVI applies the HPPR route scheme effective resolver from
-`../../hppr/spec/100-SCHEMES.md`.
+`../../hppr/spec/schemes/100-SCHEMES.md`.
 
 That resolver combines local exact-API records, local exact-group anchors,
 canonical public route discovery, and local route auth attachment.
