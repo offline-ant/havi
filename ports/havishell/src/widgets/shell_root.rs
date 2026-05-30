@@ -308,7 +308,6 @@ script_mod! {
 
     mod.widgets.HaviOverflowMenu = View {
         visible: false
-        abs_pos: vec2(-1000.0, -1000.0)
         width: 220 height: Fit
         flow: Down
         padding: Inset{left: 6 right: 6 top: 4 bottom: 4}
