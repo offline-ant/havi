@@ -658,7 +658,7 @@ fn build_local_greeting(
     backend: &str,
 ) -> Result<Greeting, String> {
     let packet = format!(
-        "🖧: 0.H3\nCommand-Flow: session\nSession-ID: {}\nRepo-Name: {}\nSeal-By: {}\nFormat: H3\nCommands: 🖧HELLO 1 | 🖧GET 1 | 🖧HEADERS 1 | 🖧LIST 1 | 🖧STORE 1 | 🖧TIPS 1\nAllow-Null-Command: 0\nStatus: {}\nHpprd-Backend: {}\nData-Length: 0\n\n",
+        "🖧: 0.H3\nCommand-Flow: session\nSession-ID: {}\nRepo-Name: {}\nSeal-By: {}\nFormat: H3\nSession-Commands: 🖧HELLO 1 | 🖧GET 1 | 🖧HEADERS 1 | 🖧LIST 1 | 🖧STORE 1 | 🖧TIPS 1\nAllow-Null-Command: 0\nStatus: {}\nHpprd-Backend: {}\nData-Length: 0\n\n",
         DEFAULT_LOCAL_SESSION_ID,
         repo_name,
         verifying_key,
@@ -815,6 +815,17 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("havi-local-runtime-{}-{}", name, stamp));
         (root.join("packets.sqlite"), root.join("state.sqlite"))
+    }
+
+    #[test]
+    fn local_greeting_uses_session_command_capabilities() {
+        let greeting =
+            build_local_greeting("havi-local", "V.test.H3", "inline-packet-store").unwrap();
+        let raw = std::str::from_utf8(greeting.raw_bytes()).unwrap();
+
+        assert!(raw.contains("\nCommand-Flow: session\n"));
+        assert!(raw.contains("\nSession-Commands: 🖧HELLO 1 | 🖧GET 1"));
+        assert!(!raw.contains("\nCommands:"));
     }
 
     #[test]
