@@ -55,8 +55,8 @@ start_servo "hppr://$TEST_GROUP/$TEST_APP//video-chat.html"
       assert(window.__videoChat && typeof window.__videoChat.start === 'function', '__videoChat.start exists');
 
       const group = document.packet.group;
-      const app = document.packet.app;
-      const prefix = `//${group}/${app}/chat-contract-${Date.now()}`;
+      const api = document.packet.api;
+      const prefix = `//${group}/${api}//chat-contract-${Date.now()}`;
       window.__videoChat.setPrefixes(prefix, prefix);
 
       window.__videoChat.start();

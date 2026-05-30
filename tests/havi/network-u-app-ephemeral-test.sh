@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# network-u-app-ephemeral-test.sh - Public network lookup for group u must not persist a local route
+# network-u-app-ephemeral-test.sh - Public network lookup for group u API must not persist a local route
 # shellcheck disable=SC1091,SC2034
 
 source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
@@ -24,8 +24,8 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/$TEST_A
     -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
-<title>Network U App Ephemeral</title>
-<h1>Network U App Ephemeral</h1>
+<title>Network U API Ephemeral</title>
+<h1>Network U API Ephemeral</h1>
 EOF
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/admin/deploy//$TEST_API" \
     -H 'Seal-By: ring0' \
@@ -37,12 +37,11 @@ ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
 ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
 ROUTE_ROOT_VK=$("$HPPR" key pubkey "$ROUTE_ROOT_KEY")
 
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//u/$TEST_API" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//u/$TEST_API//" \
     --upstream "$REMOTE_HOME" \
-    --upstream-vkey "$REMOTE_REPO_VKEY" \
+    --upstream-verifier "$REMOTE_REPO_VKEY" \
     --content-authority "$REMOTE_REPO_VKEY" \
-    --signing-key "$ROUTE_ROOT_SK" \
-    --signer 'ring1:ring0|init' >/dev/null
+    --signing-secret "$ROUTE_ROOT_SK" >/dev/null
 
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/route/"
 
@@ -55,16 +54,16 @@ debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 for _ in {1..80}; do
     title=$($debugtool --timeout 5 eval 'document.title' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
-    [[ "$title" == "Network U App Ephemeral" ]] && break
+    [[ "$title" == "Network U API Ephemeral" ]] && break
     sleep 0.1
 done
-[[ "$title" == "Network U App Ephemeral" ]] || fail "expected public-root app page, got title: ${title:-<none>}"
+[[ "$title" == "Network U API Ephemeral" ]] || fail "expected public-root API page, got title: ${title:-<none>}"
 
 set +e
 route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" headers "//repo/route/api//u/$TEST_API/|/seal/$HOME_REPO_VKEY" 2>&1)
 route_status=$?
 set -e
-[[ "$route_status" -ne 0 ]] || fail "public root app navigation should not persist local route: $route_headers"
+[[ "$route_status" -ne 0 ]] || fail "public root API navigation should not persist local route: $route_headers"
 [[ "$route_headers" == *"NOT_FOUND"* ]] || fail "expected missing local route after public root app navigation, got: $route_headers"
 
 log "PASS"

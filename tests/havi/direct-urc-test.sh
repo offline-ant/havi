@@ -32,8 +32,8 @@ urc_method=$($debugtool --text eval 'window.address.urc.method' 2>/dev/null || t
 group_is_null=$($debugtool --text eval 'window.address.group === null' 2>/dev/null || true)
 [[ "${group_is_null,,}" == "true" ]] || fail "expected null direct group"
 
-app_is_null=$($debugtool --text eval 'window.address.app === null' 2>/dev/null || true)
-[[ "${app_is_null,,}" == "true" ]] || fail "expected null direct app"
+api_is_null=$($debugtool --text eval 'window.address.api === null' 2>/dev/null || true)
+[[ "${api_is_null,,}" == "true" ]] || fail "expected null direct API"
 
 doc_url=$($debugtool --text eval 'document.URL' 2>/dev/null || true)
 [[ "$doc_url" == "hppr://$TEST_GROUP/$TEST_APP//direct.html" ]] || fail "unexpected projected document.URL: $doc_url"
@@ -42,7 +42,7 @@ doc_uri=$($debugtool --text eval 'document.documentURI' 2>/dev/null || true)
 [[ "$doc_uri" == "$doc_url" ]] || fail "document.documentURI should mirror document.URL"
 
 doc_urc=$($debugtool --text eval 'document.URC' 2>/dev/null || true)
-packet_urc=$($debugtool --text eval '"//'"$TEST_GROUP"'/'"$TEST_APP"'/direct.html/|/seal/" + document.packet.sealBy + "/" + document.packet.tai + "/" + document.packet.hash' 2>/dev/null || true)
+packet_urc=$($debugtool --text eval '"//'"$TEST_GROUP"'/'"$TEST_APP"'//direct.html/|/seal/" + document.packet.sealBy + "/" + document.packet.tai + "/" + document.packet.hash' 2>/dev/null || true)
 [[ "$doc_urc" == "$packet_urc" ]] || fail "document.URC mismatch: $doc_urc != $packet_urc"
 
 same_object=$($debugtool --text eval 'window.address.urc === window.address.urc' 2>/dev/null || true)

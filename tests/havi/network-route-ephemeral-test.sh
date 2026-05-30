@@ -40,19 +40,17 @@ ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
 ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
 ROUTE_ROOT_VK=$("$HPPR" key pubkey "$ROUTE_ROOT_KEY")
 
-# Group record: //u/route/group/<group>
+# Group record: //u/route/group//<group>
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route group put "//$TEST_GROUP" \
     --upstream "$REMOTE_HOME" \
-    --route-authority-key "$ROUTE_ROOT_VK" \
-    --upstream-vkey "$REMOTE_REPO_VKEY" \
-    --signing-key "$ROUTE_ROOT_SK" \
-    --signer 'ring1:ring0|init' >/dev/null
+    --route-authority "$ROUTE_ROOT_VK" \
+    --upstream-verifier "$REMOTE_REPO_VKEY" \
+    --signing-secret "$ROUTE_ROOT_SK" >/dev/null
 
 # API record: //<group>/route/api//<api>
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//$TEST_GROUP/$TEST_API" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//$TEST_GROUP/$TEST_API//" \
     --content-authority "$REMOTE_REPO_VKEY" \
-    --signing-key "$ROUTE_ROOT_SK" \
-    --signer 'ring1:ring0|init' >/dev/null
+    --signing-secret "$ROUTE_ROOT_SK" >/dev/null
 
 # Allow anyone to read network records
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/route/"

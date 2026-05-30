@@ -12,10 +12,10 @@ content-authority-aware policy selection, watch reloads, and packet access.
 ## Basic usage
 
 ```html
-<x src="//chess/game/board.html" width="800" height="600"></x>
-<x src="//app/widgets/sidebar.html" policy="isolated"></x>
+<x src="//chess/game//board.html" width="800" height="600"></x>
+<x src="//app/widgets//sidebar.html" policy="isolated"></x>
 <x src="components/header.html"></x>
-<x src="hppr-sandbox://preview?url=//app/demo/test.html"></x>
+<x src="hppr-sandbox://preview?url=//app/demo//test.html"></x>
 ```
 
 ## Attributes
@@ -175,8 +175,8 @@ Current same-origin rules apply.
 element's coordinate.
 
 ```html
-<x src="//chess/game/board.html" watch></x>
-<x src="//app/widgets/sidebar.html" watch="//app/widgets/"></x>
+<x src="//chess/game//board.html" watch></x>
+<x src="//app/widgets//sidebar.html" watch="//app/widgets//"></x>
 ```
 
 Default (`watch` with no value): watches at `//group/api//` level derived from

@@ -43,7 +43,7 @@ and havi-devtools-cli, and provides built-in workflow commands.
 havi-cli makepad screenshot /tmp/out.png
 havi-cli makepad click 300 400
 havi-cli devtools eval 'document.title'
-havi-cli deploy u web //u/web V.EXAMPLE.H3
+havi-cli deploy u web //u/web// V.EXAMPLE.H3
 havi-cli publish //u/web//index.html page.html
 hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" --root //u/site// --mount /mnt/hppr --rw --seal-with ring0
 havi-cli //dev/hppr.forge//presentation/index.html --shadow --mount /mnt/presentation
