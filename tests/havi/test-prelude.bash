@@ -196,30 +196,30 @@ start_remote_server() {
 # Generate a key pair, store in SECRET_KEY and SIGNING_KEY
 create_key() {
     local keyname="testkey-$$"
-    $HPPR key generate "$keyname" >/dev/null
-    SECRET_KEY=$($HPPR key show "$keyname")
-    SIGNING_KEY=$($HPPR key pubkey "$keyname")
+    $HPPR secret generate "$keyname" >/dev/null
+    SECRET_KEY=$($HPPR secret show "$keyname")
+    SIGNING_KEY=$($HPPR secret verifier "$keyname")
 }
 
 # Generate a remote key pair, store in REMOTE_SECRET_KEY and REMOTE_SIGNING_KEY
 create_remote_key() {
     local keyname="remotekey-$$"
-    $HPPR key generate "$keyname" >/dev/null
-    REMOTE_SECRET_KEY=$($HPPR key show "$keyname")
-    REMOTE_SIGNING_KEY=$($HPPR key pubkey "$keyname")
+    $HPPR secret generate "$keyname" >/dev/null
+    REMOTE_SECRET_KEY=$($HPPR secret show "$keyname")
+    REMOTE_SIGNING_KEY=$($HPPR secret verifier "$keyname")
 }
 
 # Set up ACL for group/API (allows anyone access)
 # Uses ring1 anyone ACL rules for unauthenticated access
 setup_acl() {
     local group="$1" api="$2" perms="${3:-rwl}"
-    HPPR_SIGNER='ring1:ring0|init' $HPPR ring1 acl anyone add "$perms" "//$group/$api//"
+    HPPR_IDENTITY='ring1:ring0|init' $HPPR ring1 acl anyone add "$perms" "//$group/$api//"
 }
 
 # Set up ACL on remote repo
 setup_remote_acl() {
     local group="$1" api="$2" perms="${3:-r.l}"
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring1 acl anyone add "$perms" "//$group/$api//"
 }
 
@@ -237,7 +237,7 @@ fs_mount() {
         FS_BACKEND="fuse"
 
         local -a fuse_args=(
-            --home "$home" --signer "$signer"
+            --home "$home" --identity "$signer"
             --root "$root" --mount "$FS_MNT"
         )
         if [[ $# -gt 0 && "$1" == "--seal-with" ]]; then
@@ -265,7 +265,7 @@ fs_mount() {
     FS_PORT=$(_pick_port)
 
     local -a nfs_args=(
-        --home "$home" --signer "$signer"
+        --home "$home" --identity "$signer"
         --root "$root" --bind "127.0.0.1:$FS_PORT"
     )
     if [[ $# -gt 0 && "$1" == "--seal-with" ]]; then
@@ -367,10 +367,9 @@ import_remote_content() {
 setup_route() {
     local group="$1" api="$2"
 
-    HPPR_SIGNER='ring1:ring0|init' $HPPR route local api set \
+    HPPR_IDENTITY='ring1:ring0|init' $HPPR route local api set \
         --verify \
-        --signer 'ring1:ring0|init' \
-        "//$group/$api" \
+        "//$group/$api//" \
         "tcp+127.0.0.1:$REMOTE_PORT" >/dev/null
 }
 
@@ -382,9 +381,9 @@ setup_remote_deploy() {
     local group="$1" api="$2"
     [[ -n "${REMOTE_SIGNING_KEY:-}" ]] || fail "remote deploy setup requires create_remote_key first"
 
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring1 acl anyone add r.l "//$group/admin/deploy//" >/dev/null
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR add "//$group/admin/deploy//$api" \
         -H "Seal-By: ring0" \
         -H "Content-Root: //$group/$api//" \
@@ -396,21 +395,21 @@ setup_remote_ring2() {
     local group="$1" api="$2"
 
     local route_keyname="route-$$"
-    $HPPR key generate "$route_keyname" >/dev/null
+    $HPPR secret generate "$route_keyname" >/dev/null
     local route_sk route_vk
-    route_sk=$($HPPR key show "$route_keyname")
-    route_vk=$($HPPR key pubkey "$route_keyname")
+    route_sk=$($HPPR secret show "$route_keyname")
+    route_vk=$($HPPR secret verifier "$route_keyname")
 
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" --init >/dev/null
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" acl add r.l "//$group/$api//" >/dev/null
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" acl add r.l "//$group/admin/deploy//" >/dev/null
-    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
+    HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_IDENTITY='ring1:ring0|init' \
         $HPPR ring2 members "//$group" add "$route_vk" >/dev/null
 
-    HPPR_SIGNER='ring1:ring0|init' $HPPR add \
+    HPPR_IDENTITY='ring1:ring0|init' $HPPR add \
         "//repo/route/auth//$group" \
         -H "Seal-By: ring0" \
         -H "Auth: ring2:$group|$route_sk" <<< ""
