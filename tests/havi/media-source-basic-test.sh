@@ -14,5 +14,5 @@ create_key
 import_content_paths "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP" \
     media-source-basic.html \
     test-utils.js
-start_servo "hppr://$TEST_GROUP/$TEST_APP/media-source-basic.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//media-source-basic.html"
 run_js_tests

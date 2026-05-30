@@ -3142,6 +3142,7 @@ dependencies = [
  "hppr-quib",
  "hppr-segment",
  "hsb3",
+ "js-sys",
  "log",
  "quinn",
  "quinn-proto",
@@ -3150,6 +3151,8 @@ dependencies = [
  "sha1_smol",
  "thiserror 2.0.18",
  "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

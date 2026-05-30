@@ -13,8 +13,8 @@ setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
-seal_tip=$($HPPR tips "//$TEST_GROUP/$TEST_APP/direct.html" | head -n1)
-[[ -n "$seal_tip" ]] || fail "No tip for //$TEST_GROUP/$TEST_APP/direct.html"
+seal_tip=$($HPPR tips "//$TEST_GROUP/$TEST_APP//direct.html" | head -n1)
+[[ -n "$seal_tip" ]] || fail "No tip for //$TEST_GROUP/$TEST_APP//direct.html"
 seal_hash=${seal_tip##*/}
 [[ "$seal_hash" == S.*.H3 ]] || fail "Unexpected direct seal hash: $seal_hash"
 
@@ -36,7 +36,7 @@ app_is_null=$($debugtool --text eval 'window.address.app === null' 2>/dev/null |
 [[ "${app_is_null,,}" == "true" ]] || fail "expected null direct app"
 
 doc_url=$($debugtool --text eval 'document.URL' 2>/dev/null || true)
-[[ "$doc_url" == "hppr://$TEST_GROUP/$TEST_APP/direct.html" ]] || fail "unexpected projected document.URL: $doc_url"
+[[ "$doc_url" == "hppr://$TEST_GROUP/$TEST_APP//direct.html" ]] || fail "unexpected projected document.URL: $doc_url"
 
 doc_uri=$($debugtool --text eval 'document.documentURI' 2>/dev/null || true)
 [[ "$doc_uri" == "$doc_url" ]] || fail "document.documentURI should mirror document.URL"

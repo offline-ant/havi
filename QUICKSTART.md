@@ -12,7 +12,7 @@ package) and the full specs in `docs/spec/hppr/` and `docs/spec/havi/`.
 HPPR stores content as signed packets.
 
 - **Blob (`B.`)**: raw bytes (`Data-Length` + data)
-- **Plex (`P.`)**: metadata wrapper around a Blob (`Group`, `App`, `Location`,
+- **Plex (`P.`)**: metadata wrapper around a Blob (`Group`, `API`, `Key`,
   `TAI`)
 - **Seal (`S.`)**: signature wrapper around a Plex (`Seal-By`, `Seal-Sig`)
 
@@ -29,7 +29,7 @@ Hash and signature checks are content integrity and authorship proofs:
 
 Address forms:
 
-- coordinate (latest by default): `//<group>/<app>/<location>`
+- coordinate (latest by default): `//<group>/<api>//<key>`
 - immutable by hash: `////<T.hash.H3>`
 - version-pinned coordinate: `.../|/plex/<tai>/<hash>` or `.../|/seal/...`
 
@@ -49,23 +49,23 @@ Ordinary pages do not get `window.home` or `window.route`.
 Extra repo power uses browser-mediated named clients instead of a second ambient
 repo handle.
 
-Route and app content pointer config are separate. Route packet structure,
+Route and API content pointer config are separate. Route packet structure,
 local route auth storage, and identity text are general HPPR route-scheme
 behavior.
 
-Route and app content pointer config are separate:
+Route and API content pointer config are separate:
 
 - route decides **which upstream repo** is used
-- app content pointer decides **which content root and signer** back `//<group>/<app>/`
+- API content pointer decides **which content root and signer** back `//<group>/<api>//`
 
-Origin boundary is HPPR-native: `//<group>/<app>/`.
+Origin boundary is HPPR-native: `//<group>/<api>/`.
 
 ## URL schemes and handlers
 
 General form:
 
 ```text
-scheme://group/app/location{via:endpoint}
+scheme://group/api//key{via:endpoint}
 ```
 
 Supported schemes:
@@ -84,8 +84,8 @@ Trailing slash means LIST view; no trailing slash means GET and render content.
 
 ## Content authority and execution rules
 
-For routed origins, HAVI resolves content through a group app content pointer
-(`//<group>/admin/deploy/<app>/|`) that declares `Content-Root` and
+For routed origins, HAVI resolves content through a group API content pointer
+(`//<group>/admin/deploy//<api>/|`) that declares `Content-Root` and
 `Content-Authority`.
 
 ACL enforcement still happens server-side in `hpprd` for every command.
@@ -123,7 +123,7 @@ operator tasks, but they are not required for ordinary browsing.
 Open in HAVI address bar:
 
 ```text
-hppr://u/showcase/index.html
+hppr://u/showcase//index.html
 ```
 
 You can also run against external repo:
@@ -149,7 +149,7 @@ into HAVI's browser-local `havi-packets.sqlite` store.
 Create content with CLI:
 
 ```bash
-echo 'Hello from HPPR' | ./bin/hppr add //u/demo/data/msg.txt
+echo 'Hello from HPPR' | ./bin/hppr add //u/demo//data/msg.txt
 cat > /tmp/index.html <<'HTML'
 <!doctype html>
 <meta charset="utf-8">
@@ -159,7 +159,7 @@ cat > /tmp/index.html <<'HTML'
 (async () => {
   try {
     if (!window.source) throw new Error('No repo-backed source');
-    const p = await window.source.client.get('//u/demo/data/msg.txt');
+    const p = await window.source.client.get('//u/demo//data/msg.txt');
     const text = await p.text();
     const lines = [];
     lines.push(`Current address: ${window.address.href}`);
@@ -177,7 +177,7 @@ cat > /tmp/index.html <<'HTML'
 </script>
 HTML
 hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
-  --root //u/demo/site --mount /mnt/hppr --rw --seal-with ring0 &
+  --root //u/demo/site// --mount /mnt/hppr --rw --seal-with ring0 &
 cp -a /tmp/. /mnt/hppr/
 fusermount3 -u /mnt/hppr
 ```
@@ -185,7 +185,7 @@ fusermount3 -u /mnt/hppr
 Open:
 
 ```text
-hppr://u/demo/site/index.html
+hppr://u/demo/site//index.html
 ```
 
 ## Browser JS API map (what you use most)
@@ -223,7 +223,7 @@ Embedding primitive:
 
 JSONqa for client-side view state on coordinates:
 
-- example: `//docs/app/page{page:5,#:results}`
+- example: `//docs/app//page{page:5,#:results}`
 - accessible via `URC.qa` and `URC.fragment`
 
 ## Debugger CLI
@@ -231,7 +231,7 @@ JSONqa for client-side view state on coordinates:
 Start HAVI with DevTools port:
 
 ```bash
-./bin/havi --devtools 6000 hppr://u/showcase/index.html
+./bin/havi --devtools 6000 hppr://u/showcase//index.html
 ```
 
 Evaluate JS from terminal:

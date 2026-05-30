@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use hppr_client::ViaSpec;
 use hppr_client::ExchangeItem;
-use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer};
+use hppr_client::{HpprExchangeRequest, ResponseKind, Signer};
 use hppr_packet::chunk::ChunkManifest;
 use hppr_packet::chunk_loader::{ChunkLoader, LoaderConfig};
 use crate::hppr_pool::HpprAsyncState;
@@ -64,7 +64,7 @@ pub async fn fetch_chunk_blobs(
         .map_err(|e| format!("chunk exchange connect: {e}"))?;
     let resp = pooled
         .connection_mut()
-        .send(IoRequest::Exchange {
+        .exchange(HpprExchangeRequest {
             items,
             packets_to_send: Vec::new(),
         })

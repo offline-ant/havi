@@ -530,7 +530,7 @@ impl ResourceChannelManager {
                 callback,
             } => {
                 let hppr_state = self.resource_manager.hppr_state.clone();
-                let is_get = matches!(request, hppr_client::HpprRequest::Get { .. });
+                let is_get = matches!(request, hppr_client::HpprMessageRequest::Get { .. });
                 spawn_task(async move {
                     match hppr_state.get_pooled(&endpoint, signer).await {
                         Ok(mut pooled_conn) => {
@@ -845,8 +845,8 @@ fn build_reassembled_packet(
 
     let u = original.as_pkt_ref().unpack();
     let group = u.group.unwrap_or("");
-    let app = u.app.unwrap_or("");
-    let location = u.location.unwrap_or("");
+    let api = u.api.unwrap_or("");
+    let key = u.key.unwrap_or("");
     let tai = u.tai.map(|t| t.as_str()).unwrap_or("0000000100:000000000");
 
     let mut extra: Vec<(&str, &str)> = Vec::new();
@@ -856,7 +856,7 @@ fn build_reassembled_packet(
         extra.push(("Content-Type", &ct_owned));
     }
 
-    let mut writer = PacketWriter::plex_with_headers(group, app, location, tai, &extra)
+    let mut writer = PacketWriter::plex_with_headers(group, api, key, tai, &extra)
         .map_err(|e| e.to_string())?;
     writer.write_data(data).map_err(|e| e.to_string())?;
     let (bytes, _hash) = writer.finish().map_err(|e| e.to_string())?;

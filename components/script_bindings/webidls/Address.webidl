@@ -16,8 +16,8 @@ interface Address {
     [SameObject] readonly attribute URC urc;
 
     [Throws] attribute DOMString? group;
-    [Throws] attribute DOMString? app;
-    [Throws] attribute DOMString? location;
+    [Throws] attribute DOMString? api;
+    [Throws] attribute DOMString? key;
     readonly attribute boolean isListing;
 
     [Throws] attribute object? qa;

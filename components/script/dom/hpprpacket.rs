@@ -78,26 +78,26 @@ impl HpprPacket {
 
     pub(crate) fn projected_document_url(&self) -> Option<String> {
         let group = self.plex_field(|u| u.group)?;
-        let app = self.plex_field(|u| u.app)?;
-        let location = self.plex_field(|u| u.location)?;
-        Some(format!("hppr://{group}/{app}/{location}"))
+        let api = self.plex_field(|u| u.api)?;
+        let key = self.plex_field(|u| u.key)?;
+        Some(format!("hppr://{group}/{api}//{key}"))
     }
 
     pub(crate) fn versioned_coordinate(&self) -> Option<String> {
         let group = self.plex_field(|u| u.group)?;
-        let app = self.plex_field(|u| u.app)?;
-        let location = self.plex_field(|u| u.location)?;
+        let api = self.plex_field(|u| u.api)?;
+        let key = self.plex_field(|u| u.key)?;
         let tai = self.plex_field(|u| u.tai.map(|v| v.to_string()))?;
         let hash = self.packet().pkt_hash().to_string();
         match self.packet().packet_type() {
             hppr_packet::PacketType::Seal => {
                 let seal_by = self.packet().unpack().seal_by?;
                 Some(format!(
-                    "//{group}/{app}/{location}/|/seal/{seal_by}/{tai}/{hash}"
+                    "//{group}/{api}//{key}/|/seal/{seal_by}/{tai}/{hash}"
                 ))
             },
             hppr_packet::PacketType::Plex => {
-                Some(format!("//{group}/{app}/{location}/|/plex/{tai}/{hash}"))
+                Some(format!("//{group}/{api}//{key}/|/plex/{tai}/{hash}"))
             },
             hppr_packet::PacketType::Blob | hppr_packet::PacketType::Null => None,
         }
@@ -195,7 +195,7 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
             .collect()
     }
 
-    /// Get custom plex headers only (excludes Group, App, Location, Tai, Blob markline, Data-Length).
+    /// Get custom plex headers only (excludes Group, API, Key, TAI, Blob markline, Data-Length).
     fn CustomHeaders(&self) -> Vec<DOMString> {
         self.packet()
             .unpack()
@@ -209,14 +209,14 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
         self.plex_field(|u| u.group).map(DOMString::from)
     }
 
-    /// Returns the App header (Plex/Seal only).
-    fn GetApp(&self) -> Option<DOMString> {
-        self.plex_field(|u| u.app).map(DOMString::from)
+    /// Returns the API header (Plex/Seal only).
+    fn GetApi(&self) -> Option<DOMString> {
+        self.plex_field(|u| u.api).map(DOMString::from)
     }
 
-    /// Returns the Location header (Plex/Seal only).
-    fn GetLocation(&self) -> Option<DOMString> {
-        self.plex_field(|u| u.location).map(DOMString::from)
+    /// Returns the Key header (Plex/Seal only).
+    fn GetKey(&self) -> Option<DOMString> {
+        self.plex_field(|u| u.key).map(DOMString::from)
     }
 
     /// Returns the TAI timestamp (Plex/Seal only).
@@ -242,12 +242,12 @@ impl HpprPacketMethods<crate::DomTypeHolder> for HpprPacket {
         }
     }
 
-    /// Returns the full coordinate (//<group>/<app>/<location>).
+    /// Returns the full coordinate (//<group>/<api>//<key>).
     fn GetCoordinate(&self) -> Option<DOMString> {
         let group = self.plex_field(|u| u.group)?;
-        let app = self.plex_field(|u| u.app)?;
-        let loc = self.plex_field(|u| u.location)?;
-        Some(DOMString::from(format!("//{}/{}/{}", group, app, loc)))
+        let api = self.plex_field(|u| u.api)?;
+        let key = self.plex_field(|u| u.key)?;
+        Some(DOMString::from(format!("//{}/{api}//{}", group, key)))
     }
 
     /// Returns the Seal-By header (Seal only).

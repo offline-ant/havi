@@ -28,7 +28,7 @@ use super::local_runtime::{default_repo_backed_runtime_is_local, global_local_ru
 use super::state_db::global_state_db;
 use super::url::HAVIAddress;
 use super::util::{
-    RouteEndpointSource, append_location, resolve_route_endpoint_with_trace, shadow_root,
+    RouteEndpointSource, append_key, resolve_route_endpoint_with_trace, shadow_root,
 };
 
 #[derive(Clone, Debug)]
@@ -139,18 +139,18 @@ impl std::error::Error for HpprResolveError {}
 
 pub async fn route_configured_for_direct_endpoint(
     group: &str,
-    app: &str,
+    api: &str,
     repo_client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) -> bool {
-    if group.is_empty() || app.is_empty() {
+    if group.is_empty() || api.is_empty() {
         return false;
     }
     let handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
     let Some(repo_vkey) = handle.admin_identity().await else {
         return false;
     };
-    handle.local_route_app(group, app, &repo_vkey).await.is_ok()
+    handle.local_route_api(group, api, &repo_vkey).await.is_ok()
         || handle.local_route_group(group, &repo_vkey).await.is_ok()
 }
 
@@ -390,7 +390,7 @@ pub async fn resolve_document_source(
         return Ok(RouteResolvedDocumentSource {
             snapshot: HpprDocumentSourceSnapshot {
                 group: String::new(),
-                app: String::new(),
+                api: String::new(),
                 source: HpprDocumentSource::Repo,
             },
             source: RouteEndpointSource::HomeFallback,
@@ -400,12 +400,12 @@ pub async fn resolve_document_source(
 
     let parts = address.parts();
     let mut lookup_trace = embedder_traits::HpprLookupTrace::new(
-        format!("hppr://{}/{}/{}", parts.group, parts.app, address.location_with_slash()),
+        format!("hppr:{}", HAVIAddress::build_urc_string(&parts.group, &parts.api, &address.key_with_slash())),
         if address.is_listing() { "listing" } else { "document" },
     );
     lookup_trace.push_step(
         "request",
-        Some(HAVIAddress::build_urc_string(&parts.group, &parts.app, &address.location_with_slash())),
+        Some(HAVIAddress::build_urc_string(&parts.group, &parts.api, &address.key_with_slash())),
         None,
         "start",
         None,
@@ -414,11 +414,11 @@ pub async fn resolve_document_source(
     if let Some(snapshot) = reuse
         && !address.has_direct_endpoint()
         && snapshot.group == parts.group
-        && snapshot.app == parts.app
+        && snapshot.api == parts.api
     {
         lookup_trace.push_step(
             "reuse-source",
-            Some(format!("//{}/{}", snapshot.group, snapshot.app)),
+            Some(format!("//{}/{}", snapshot.group, snapshot.api)),
             None,
             "hit",
             Some("reused committed page source".to_string()),
@@ -435,12 +435,12 @@ pub async fn resolve_document_source(
 
     if !parts.group.starts_with('~')
         && global_state_db()
-            .shadow_override_enabled(&parts.group, &parts.app)
+            .shadow_override_enabled(&parts.group, &parts.api)
             .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?
     {
         lookup_trace.push_step(
             "shadow-override",
-            Some(format!("//{}/{}/", parts.group, parts.app)),
+            Some(format!("//{}/{}//", parts.group, parts.api)),
             None,
             "hit",
             Some("shadow override enabled".to_string()),
@@ -448,7 +448,7 @@ pub async fn resolve_document_source(
         return Ok(RouteResolvedDocumentSource {
             snapshot: HpprDocumentSourceSnapshot {
                 group: parts.group,
-                app: parts.app,
+                api: parts.api,
                 source: HpprDocumentSource::Repo,
             },
             source: RouteEndpointSource::HomeFallback,
@@ -468,7 +468,7 @@ pub async fn resolve_document_source(
             return Ok(RouteResolvedDocumentSource {
                 snapshot: HpprDocumentSourceSnapshot {
                     group: parts.group,
-                    app: parts.app,
+                    api: parts.api,
                     source: HpprDocumentSource::Repo,
                 },
                 source: RouteEndpointSource::HomeFallback,
@@ -488,20 +488,20 @@ pub async fn resolve_document_source(
         let route_handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
         let (_, upstream_key, content_authority_pin, _) = resolve_route_endpoint_with_trace(
             &parts.group,
-            &parts.app,
+            &parts.api,
             &route_handle,
             &mut lookup_trace,
         )
         .await
         .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
-        let signer = build_route_signer(&parts.group, &parts.app, &route_handle, &mut lookup_trace)
+        let signer = build_route_signer(&parts.group, &parts.api, &route_handle, &mut lookup_trace)
             .await
             .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
         let client = Arc::new(HpprdClientAsync::new_with_signer(via.clone(), signer.clone()));
         let content_pointer = resolve_content_pointer(
             &client,
             &parts.group,
-            &parts.app,
+            &parts.api,
             upstream_key.as_deref(),
             content_authority_pin.as_deref(),
             &mut lookup_trace,
@@ -511,7 +511,7 @@ pub async fn resolve_document_source(
         return Ok(RouteResolvedDocumentSource {
             snapshot: HpprDocumentSourceSnapshot {
                 group: parts.group,
-                app: parts.app,
+                api: parts.api,
                 source: HpprDocumentSource::Remote {
                     endpoint: via,
                     signer,
@@ -527,7 +527,7 @@ pub async fn resolve_document_source(
     let route_handle = BrowserRouteHandle::new(repo_client.clone(), credential_store.clone());
     let (endpoint, upstream_key, content_authority_pin, source) = resolve_route_endpoint_with_trace(
         &parts.group,
-        &parts.app,
+        &parts.api,
         &route_handle,
         &mut lookup_trace,
     )
@@ -536,7 +536,7 @@ pub async fn resolve_document_source(
     if matches!(source, RouteEndpointSource::HomeFallback) {
         lookup_trace.push_step(
             "source-selection",
-            Some(format!("//{}/{}/", parts.group, parts.app)),
+            Some(format!("//{}/{}//", parts.group, parts.api)),
             Some(route_handle.target_display()),
             "repo",
             None,
@@ -544,7 +544,7 @@ pub async fn resolve_document_source(
         return Ok(RouteResolvedDocumentSource {
             snapshot: HpprDocumentSourceSnapshot {
                 group: parts.group,
-                app: parts.app,
+                api: parts.api,
                 source: HpprDocumentSource::Repo,
             },
             source,
@@ -552,14 +552,14 @@ pub async fn resolve_document_source(
         });
     }
 
-    let signer = build_route_signer(&parts.group, &parts.app, &route_handle, &mut lookup_trace)
+    let signer = build_route_signer(&parts.group, &parts.api, &route_handle, &mut lookup_trace)
         .await
         .map_err(|error| HpprResolveError::new(error, lookup_trace.clone()))?;
     let client = Arc::new(HpprdClientAsync::new_with_signer(endpoint.clone(), signer.clone()));
     let content_pointer = resolve_content_pointer(
         &client,
         &parts.group,
-        &parts.app,
+        &parts.api,
         upstream_key.as_deref(),
         content_authority_pin.as_deref(),
         &mut lookup_trace,
@@ -570,7 +570,7 @@ pub async fn resolve_document_source(
     Ok(RouteResolvedDocumentSource {
         snapshot: HpprDocumentSourceSnapshot {
             group: parts.group,
-            app: parts.app,
+            api: parts.api,
             source: HpprDocumentSource::Remote {
                 endpoint,
                 signer,
@@ -626,21 +626,25 @@ fn resolve_access(
     }
 
     let parts = address.parts();
-    let requested_location = address.location_with_slash();
+    let requested_key = address.key_with_slash();
 
     match &snapshot.source {
         HpprDocumentSource::Repo => {
             let urc = if !parts.group.starts_with('~')
-                && global_state_db().shadow_override_enabled(&parts.group, &parts.app)?
+                && global_state_db().shadow_override_enabled(&parts.group, &parts.api)?
             {
-                let target = append_location(&shadow_root(&parts.group, &parts.app), &requested_location);
+                let target = append_key(&shadow_root(&parts.group, &parts.api), &requested_key);
                 if is_listing {
-                    format!("{}/", target.trim_end_matches('/'))
+                    if target.ends_with("//") {
+                        target
+                    } else {
+                        format!("{}/", target.trim_end_matches('/'))
+                    }
                 } else {
                     target
                 }
             } else {
-                HAVIAddress::build_urc_string(&parts.group, &parts.app, &requested_location)
+                HAVIAddress::build_urc_string(&parts.group, &parts.api, &requested_key)
             };
             let client = if default_repo_backed_runtime_is_local() {
                 ResolvedClient::Local(global_local_runtime())
@@ -670,9 +674,13 @@ fn resolve_access(
                 endpoint.clone(),
                 signer.clone(),
             ));
-            let target = append_location(content_root, &requested_location);
+            let target = append_key(content_root, &requested_key);
             let urc = if is_listing {
-                format!("{}/", target.trim_end_matches('/'))
+                if target.ends_with("//") {
+                    target
+                } else {
+                    format!("{}/", target.trim_end_matches('/'))
+                }
             } else {
                 format!("{}/|/seal/{}", target, content_authority)
             };
@@ -691,7 +699,7 @@ fn resolve_access(
 async fn resolve_content_pointer(
     route_client: &Arc<HpprdClientAsync>,
     group: &str,
-    app: &str,
+    api: &str,
     upstream_key: Option<&str>,
     network_content_authority_pin: Option<&str>,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
@@ -701,8 +709,8 @@ async fn resolve_content_pointer(
         None => route_client.get_admin_identity().await?,
     };
 
-    let deploy_urc = format!("//{group}/admin/deploy/{app}/|/seal/{repo_vkey}");
-    let content_pointer = match route_client.get_content_pointer(group, app, &repo_vkey).await {
+    let deploy_urc = format!("//{group}/admin/deploy//{api}/|/seal/{repo_vkey}");
+    let content_pointer = match route_client.get_content_pointer(group, api, &repo_vkey).await {
         Ok(content_pointer) => content_pointer,
         Err(error) => {
             lookup_trace.push_step(
@@ -756,7 +764,7 @@ async fn resolve_content_pointer(
 
 async fn build_route_signer(
     group: &str,
-    app: &str,
+    api: &str,
     handle: &BrowserRouteHandle,
     lookup_trace: &mut embedder_traits::HpprLookupTrace,
 ) -> Result<Signer, String> {
@@ -765,7 +773,7 @@ async fn build_route_signer(
         None => {
             lookup_trace.push_step(
                 "route-auth",
-                Some("//repo/admin/identity/|".to_string()),
+                Some("//repo/admin/identity//root/|".to_string()),
                 Some(handle.target_display()),
                 "fallback",
                 Some("missing admin identity; using anyone".to_string()),
@@ -773,12 +781,12 @@ async fn build_route_signer(
             return Ok(Signer::anyone());
         },
     };
-    let route_auth = match handle.route_auth(group, Some(app), &repo_vkey).await {
+    let route_auth = match handle.route_auth(group, Some(api), &repo_vkey).await {
         Ok(info) => info,
         Err(_) => {
             lookup_trace.push_step(
                 "route-auth",
-                Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
+                Some(format!("//repo/route/auth//{}/{}/|/seal/{}", group, api, repo_vkey)),
                 Some(handle.target_display()),
                 "fallback",
                 Some("route auth missing; using anyone".to_string()),
@@ -788,7 +796,7 @@ async fn build_route_signer(
     };
     lookup_trace.push_step(
         "route-auth",
-        Some(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey)),
+        Some(format!("//repo/route/auth//{}/{}/|/seal/{}", group, api, repo_vkey)),
         Some(handle.target_display()),
         "hit",
         Some(route_auth.auth.clone()),

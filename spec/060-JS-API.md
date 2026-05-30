@@ -190,7 +190,7 @@ Result fields:
 - `kind`: resolved source kind (`"repo"` or `"remote"`)
 - `contentAuthority`: resolved content-authority signer for the document, or `null`
 
-For app-content URLs, `contentAuthority` comes from the app content pointer's
+For API-content URLs, `contentAuthority` comes from the API content pointer's
 `Content-Authority`.
 For direct sealed content, `contentAuthority` comes from packet `Seal-By`.
 For unsigned content, it is `null`.
@@ -223,7 +223,7 @@ pages, and Blob-only pages return `null`.
 `document.URL` is a native legacy projected document URL.
 For HPPR-backed documents it strips `/|/...` exact selectors and JSONqa state.
 For direct-hash HPPR documents that loaded a Plex or Seal packet, it projects to
-`hppr://<group>/<app>/<location>` from the loaded packet.
+`hppr://<group>/<api>//<key>` from the loaded packet.
 For file documents it returns the stripped file URL without JSONqa view state.
 For helper documents such as `havi:///diagnostics`, it returns the helper
 document URL unchanged. On HPPR and file documents it warns on first access.
@@ -233,7 +233,7 @@ never warns.
 
 Loaded HPPR documents also carry browser metadata for the resolved content
 signer.
-For app-content URLs this metadata comes from `Content-Authority`.
+For API-content URLs this metadata comes from `Content-Authority`.
 For direct sealed content it comes from `Seal-By`.
 This content-authority metadata is distinct from any browser-local access
 signer or routed request signer used to access the repo.
@@ -243,7 +243,7 @@ signer or routed request signer used to access the repo.
 Packet fields include:
 
 - identity: `hash`, `type`, `dataLength`
-- coordinate: `group`, `app`, `location`, `tai`, `coordinate`
+- coordinate: `group`, `api`, `key`, `tai`, `coordinate`
 - signature: `sealBy`
 - header APIs: `getHeader`, `getHeaders`, `headers`, `customHeaders`
 - data APIs: `arrayBuffer`, `blob`, `text`, `json`, `raw`
@@ -261,8 +261,8 @@ current page. It exposes:
 - `coordinate`
 - `urc`
 - `group`
-- `app`
-- `location`
+- `api`
+- `key`
 - `qa`
 - `fragment`
 - `isListing`
@@ -292,8 +292,8 @@ HPPR live subtype fields:
 - `coordinate`
 - `urc`
 - `group`
-- `app`
-- `location`
+- `api`
+- `key`
 
 File live subtype field:
 
@@ -312,7 +312,7 @@ state. It derives compatibility state from `window.address`, not from
 
 - `hash` maps to JSONqa fragment (`{#:...}`)
 - `search` maps to projected top-level JSONqa key/value pairs
-- `pathname` maps to `/<app>/<location>`
+- `pathname` maps to `/<api>//<key>`
 - `origin` projects as `scheme://<group>` on `hppr://`
 
 Compatibility input is strict.

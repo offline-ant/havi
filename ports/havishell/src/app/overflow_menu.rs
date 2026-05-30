@@ -13,7 +13,7 @@ impl App {
             return false;
         };
         let parts = addr.parts();
-        !parts.group.is_empty() && !parts.app.is_empty() && !parts.group.starts_with('~')
+        !parts.group.is_empty() && !parts.api.is_empty() && !parts.group.starts_with('~')
     }
 
     pub(super) fn show_overflow_menu(&mut self, cx: &mut Cx) {
@@ -41,7 +41,7 @@ impl App {
         let menu = self.ui.view(cx, ids!(overflow_menu));
         menu.set_visible(cx, true);
         if let Some(mut v) = menu.borrow_mut() {
-            v.walk.abs_pos = Some(dvec2(menu_x, menu_y));
+            v.walk.pos = WalkPos::Pass(dvec2(menu_x, menu_y));
         }
         cx.redraw_all();
     }

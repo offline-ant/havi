@@ -5,7 +5,7 @@
 //! HPPR Browse page handler.
 //!
 //! Handles hppr-browse:// URLs for read-only directory browsing.
-//! URL format: hppr-browse://group/app/path/
+//! URL format: hppr-browse://group/api//key/
 //!
 //! Always uses LIST mode. Shows directory entries with:
 //! - Click on entry name -> stays in browse mode (hppr-browse://)
@@ -39,9 +39,9 @@ pub async fn handle_request(
     };
 
     let parts = address.parts();
-    let mut location = parts.location.clone();
-    if !location.ends_with('/') {
-        location.push('/');
+    let mut key = parts.key.clone();
+    if !key.ends_with('/') {
+        key.push('/');
     }
 
     match resolve_listing(url, client, credential_store).await {
@@ -55,8 +55,8 @@ pub async fn handle_request(
             };
             let html = render_browse_html(
                 &parts.group,
-                &parts.app,
-                &location,
+                &parts.api,
+                &key,
                 &listing.children,
                 endpoint_str.as_deref(),
             );
@@ -73,7 +73,7 @@ pub async fn handle_request(
 }
 
 /// Build breadcrumb navigation.
-fn render_breadcrumb(group: &str, app: &str, location: &str, endpoint: Option<&str>) -> String {
+fn render_breadcrumb(group: &str, api: &str, key: &str, endpoint: Option<&str>) -> String {
     let mut crumbs = Vec::new();
 
     let browse_url = |coord: &str| match endpoint {
@@ -90,16 +90,16 @@ fn render_breadcrumb(group: &str, app: &str, location: &str, endpoint: Option<&s
         ));
     }
 
-    if !app.is_empty() {
-        let url = browse_url(&format!("hppr-browse://{}/{}/", group, app));
+    if !api.is_empty() {
+        let url = browse_url(&format!("hppr-browse://{}/{}//", group, api));
         crumbs.push(format!(
             r#"<a href="{}">{}</a>"#,
             html_escape(&url),
-            html_escape(app)
+            html_escape(api)
         ));
     }
 
-    let loc_parts: Vec<&str> = location
+    let loc_parts: Vec<&str> = key
         .trim_end_matches('/')
         .split('/')
         .filter(|s| !s.is_empty())
@@ -116,7 +116,7 @@ fn render_breadcrumb(group: &str, app: &str, location: &str, endpoint: Option<&s
         if is_last {
             crumbs.push(html_escape(part));
         } else {
-            let url = browse_url(&format!("hppr-browse://{}/{}/{}/", group, app, path_so_far));
+            let url = browse_url(&format!("hppr-browse://{}/{}//{}/", group, api, path_so_far));
             crumbs.push(format!(
                 r#"<a href="{}">{}</a>"#,
                 html_escape(&url),
@@ -131,24 +131,24 @@ fn render_breadcrumb(group: &str, app: &str, location: &str, endpoint: Option<&s
 /// Render directory listing as HTML with browse and open links.
 fn render_browse_html(
     group: &str,
-    app: &str,
-    location: &str,
+    api: &str,
+    key: &str,
     children: &[String],
     endpoint: Option<&str>,
 ) -> String {
-    let display_urc = HAVIAddress::build_urc_string(group, app, location);
-    let breadcrumb = render_breadcrumb(group, app, location, endpoint);
+    let display_urc = HAVIAddress::build_urc_string(group, api, key);
+    let breadcrumb = render_breadcrumb(group, api, key, endpoint);
 
     let hppr_url = |coord: &str| match endpoint {
         Some(ep) => via_url(coord, ep),
         None => coord.to_string(),
     };
 
-    let base_path = if location.is_empty() || location == "/" {
-        format!("//{}/{}", group, app)
+    let base_path = if key.is_empty() || key == "/" {
+        format!("//{}/{}//", group, api)
     } else {
-        let loc_trimmed = location.trim_end_matches('/');
-        format!("//{}/{}/{}", group, app, loc_trimmed)
+        let key_trimmed = key.trim_end_matches('/');
+        format!("//{}/{}//{}", group, api, key_trimmed)
     };
 
     let entries: String = children
@@ -161,7 +161,11 @@ fn render_browse_html(
 
             if is_dir {
                 let child_name = child.trim_end_matches('/');
-                let hppr_link = hppr_url(&format!("hppr:{}/{}/", base_path, child_name));
+                let hppr_link = if base_path.ends_with("//") {
+                    hppr_url(&format!("hppr:{}{}/", base_path, child_name))
+                } else {
+                    hppr_url(&format!("hppr:{}/{}/", base_path, child_name))
+                };
                 format!(
                     r#"<li>
             <a class="entry-name" href="./{encoded}">{child_escaped}</a>
@@ -172,7 +176,11 @@ fn render_browse_html(
                     hppr_url = html_escape(&hppr_link),
                 )
             } else {
-                let hppr_link = hppr_url(&format!("hppr:{}/{}", base_path, child));
+                let hppr_link = if base_path.ends_with("//") {
+                    hppr_url(&format!("hppr:{}{}", base_path, child))
+                } else {
+                    hppr_url(&format!("hppr:{}/{}", base_path, child))
+                };
                 format!(
                     r#"<li>
             <a class="entry-name" href="./{encoded}/">{child_escaped}</a>
@@ -236,14 +244,14 @@ mod tests {
 
     #[test]
     fn test_parse_browse_url_via_hppr_url() {
-        let url = HAVIAddress::parse("hppr-browse://mygroup/myapp/some/path").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://mygroup/myapp//some/path").unwrap();
         assert_eq!(url.group(), Some("mygroup".to_string()));
-        assert_eq!(url.app(), Some("myapp".to_string()));
-        assert_eq!(url.location(), Some("some/path".to_string()));
+        assert_eq!(url.api(), Some("myapp".to_string()));
+        assert_eq!(url.key(), Some("some/path".to_string()));
 
-        let url = HAVIAddress::parse("hppr-browse://repo/admin/").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://repo/admin//").unwrap();
         assert_eq!(url.group(), Some("repo".to_string()));
-        assert_eq!(url.app(), Some("admin".to_string()));
+        assert_eq!(url.api(), Some("admin".to_string()));
         assert!(url.is_listing());
     }
 
@@ -251,8 +259,8 @@ mod tests {
     fn test_build_urc() {
         assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
         assert_eq!(HAVIAddress::build_urc_string("g", "", ""), "//g/");
-        assert_eq!(HAVIAddress::build_urc_string("g", "a", "/"), "//g/a/");
-        assert_eq!(HAVIAddress::build_urc_string("g", "a", "path/"), "//g/a/path/");
+        assert_eq!(HAVIAddress::build_urc_string("g", "a", "/"), "//g/a//");
+        assert_eq!(HAVIAddress::build_urc_string("g", "a", "path/"), "//g/a//path/");
     }
 
     #[test]
@@ -275,11 +283,11 @@ mod tests {
 
     #[test]
     fn test_parse_browse_url_with_endpoint() {
-        let url = HAVIAddress::parse("hppr-browse://mygroup/myapp/path/{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://mygroup/myapp//path/{via:192.168.1.5}").unwrap();
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "192.168.1.5");
         assert_eq!(ep.port(), 4777);
         assert_eq!(url.group(), Some("mygroup".to_string()));
-        assert_eq!(url.app(), Some("myapp".to_string()));
+        assert_eq!(url.api(), Some("myapp".to_string()));
     }
 }

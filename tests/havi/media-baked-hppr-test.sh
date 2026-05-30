@@ -15,5 +15,5 @@ import_content_paths "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP" \
     media-baked-hppr.html \
     media-source-h264-frag.mp4 \
     test-utils.js
-start_servo "hppr://$TEST_GROUP/$TEST_APP/media-baked-hppr.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//media-baked-hppr.html"
 run_js_tests

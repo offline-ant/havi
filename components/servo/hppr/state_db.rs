@@ -18,7 +18,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShadowKeyEntry {
     pub group: String,
-    pub app: String,
+    pub api: String,
     pub signing_key: String,
     pub verification_key: String,
 }
@@ -414,30 +414,30 @@ impl StateDb {
         Ok(out)
     }
 
-    pub fn get_shadow_key(&self, group: &str, app: &str) -> Result<Option<ShadowKeyEntry>, String> {
+    pub fn get_shadow_key(&self, group: &str, api: &str) -> Result<Option<ShadowKeyEntry>, String> {
         let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
         conn.query_row(
             "SELECT signing_key, verification_key
              FROM shadow_keys
              WHERE group_name = ?1 AND app_name = ?2",
-            params![group, app],
+            params![group, api],
             |row| {
                 Ok(ShadowKeyEntry {
                     group: group.to_string(),
-                    app: app.to_string(),
+                    api: api.to_string(),
                     signing_key: row.get(0)?,
                     verification_key: row.get(1)?,
                 })
             },
         )
         .optional()
-        .map_err(|e| format!("failed to read shadow key for {}/{}: {}", group, app, e))
+        .map_err(|e| format!("failed to read shadow key for {}/{}: {}", group, api, e))
     }
 
     pub fn set_shadow_key(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
         signing_key: &str,
         verification_key: &str,
     ) -> Result<(), String> {
@@ -448,37 +448,37 @@ impl StateDb {
              ON CONFLICT(group_name, app_name) DO UPDATE
              SET signing_key = excluded.signing_key,
                  verification_key = excluded.verification_key",
-            params![group, app, signing_key, verification_key],
+            params![group, api, signing_key, verification_key],
         )
-        .map_err(|e| format!("failed to write shadow key for {}/{}: {}", group, app, e))?;
+        .map_err(|e| format!("failed to write shadow key for {}/{}: {}", group, api, e))?;
         Ok(())
     }
 
-    pub fn shadow_override_enabled(&self, group: &str, app: &str) -> Result<bool, String> {
+    pub fn shadow_override_enabled(&self, group: &str, api: &str) -> Result<bool, String> {
         let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
         let enabled = conn
             .query_row(
                 "SELECT enabled
                  FROM shadow_overrides
                  WHERE group_name = ?1 AND app_name = ?2",
-                params![group, app],
+                params![group, api],
                 |row| row.get::<_, i64>(0),
             )
             .optional()
-            .map_err(|e| format!("failed to read shadow override for {}/{}: {}", group, app, e))?;
+            .map_err(|e| format!("failed to read shadow override for {}/{}: {}", group, api, e))?;
         Ok(enabled.unwrap_or(0) != 0)
     }
 
-    pub fn set_shadow_override(&self, group: &str, app: &str, enabled: bool) -> Result<(), String> {
+    pub fn set_shadow_override(&self, group: &str, api: &str, enabled: bool) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "db mutex poisoned")?;
         conn.execute(
             "INSERT INTO shadow_overrides(group_name, app_name, enabled)
              VALUES (?1, ?2, ?3)
              ON CONFLICT(group_name, app_name) DO UPDATE
              SET enabled = excluded.enabled",
-            params![group, app, if enabled { 1 } else { 0 }],
+            params![group, api, if enabled { 1 } else { 0 }],
         )
-        .map_err(|e| format!("failed to write shadow override for {}/{}: {}", group, app, e))?;
+        .map_err(|e| format!("failed to write shadow override for {}/{}: {}", group, api, e))?;
         Ok(())
     }
 
@@ -555,11 +555,11 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let db = StateDb::open(db_path.clone()).unwrap();
 
-        db.insert_history("hppr://u/web/index.html", "index.html")
+        db.insert_history("hppr://u/web//index.html", "index.html")
             .unwrap();
         let rows = db.list_history(10).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].url, "hppr://u/web/index.html");
+        assert_eq!(rows[0].url, "hppr://u/web//index.html");
 
         let _ = std::fs::remove_file(db_path);
     }
@@ -574,7 +574,7 @@ mod tests {
             .unwrap();
         let row = db.get_shadow_key("dev", "hppr.forge").unwrap().unwrap();
         assert_eq!(row.group, "dev");
-        assert_eq!(row.app, "hppr.forge");
+        assert_eq!(row.api, "hppr.forge");
         assert_eq!(row.signing_key, "&.shadow.H3");
         assert_eq!(row.verification_key, "V.shadow.H3");
 

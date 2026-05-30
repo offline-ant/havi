@@ -91,8 +91,8 @@ interface HpprPacket {
   headers(): string[];
   customHeaders(): string[];
   readonly group: string | null;
-  readonly app: string | null;
-  readonly location: string | null;
+  readonly api: string | null;
+  readonly key: string | null;
   readonly tai: string | null;
   taiDate(): object | null;
   readonly coordinate: string | null;
@@ -160,8 +160,8 @@ interface URC {
   readonly href: string;
   readonly method: string;
   readonly group: string | null;
-  readonly app: string | null;
-  readonly location: string | null;
+  readonly api: string | null;
+  readonly key: string | null;
   readonly coordinate: string | null;
   readonly isListing: boolean;
   getSelector(): URCSelector | null;
@@ -180,8 +180,8 @@ interface Address {
   readonly coordinate: string | null;
   readonly urc: URC;
   group: string | null;
-  app: string | null;
-  location: string | null;
+  api: string | null;
+  key: string | null;
   readonly isListing: boolean;
   qa: Qa;
   readonly fragment: string | null;
@@ -201,8 +201,8 @@ interface HpprWindowAddress extends WindowAddress {
   readonly coordinate: string | null;
   readonly urc: URC;
   group: string | null;
-  app: string | null;
-  location: string | null;
+  api: string | null;
+  key: string | null;
 }
 interface FileWindowAddress extends WindowAddress {
   pathname: string;

@@ -150,8 +150,8 @@
         return {
             scheme: addr.scheme ? String(addr.scheme) : 'hppr',
             group: addr.group == null ? '' : String(addr.group),
-            app: addr.app == null ? '' : String(addr.app),
-            location: addr.location == null ? '' : String(addr.location),
+            api: addr.api == null ? '' : String(addr.api),
+            key: addr.key == null ? '' : String(addr.key),
             isListing: !!addr.isListing,
             qa: qa
         };
@@ -161,8 +161,8 @@
         return {
             scheme: state.scheme,
             group: state.group,
-            app: state.app,
-            location: state.location,
+            api: state.api,
+            key: state.key,
             isListing: !!state.isListing,
             qa: cloneQaValue(state.qa) || {}
         };
@@ -336,17 +336,17 @@
     }
 
     function buildCoordinate(state) {
-        var location = state.location || '';
+        var key = state.key || '';
         if (!state.group) {
             return '//';
         }
-        if (!state.app) {
+        if (!state.api) {
             return '//' + state.group + '/';
         }
-        if (!location) {
-            return '//' + state.group + '/' + state.app + '/';
+        if (!key) {
+            return '//' + state.group + '/' + state.api + (state.isListing ? '/' : '');
         }
-        return '//' + state.group + '/' + state.app + '/' + location + (state.isListing ? '/' : '');
+        return '//' + state.group + '/' + state.api + '//' + key + (state.isListing ? '/' : '');
     }
 
     function buildCanonicalHpprHref(state) {
@@ -355,16 +355,16 @@
 
     function buildCompatPath(state) {
         var path = '/';
-        if (state.app) {
-            path += state.app;
+        if (state.api) {
+            path += state.api;
         }
-        if (state.location) {
+        if (state.key) {
             if (path.charAt(path.length - 1) !== '/') {
                 path += '/';
             }
-            path += state.location;
+            path += state.key;
         }
-        if (state.isListing || !state.location) {
+        if (state.isListing || !state.key) {
             if (path.charAt(path.length - 1) !== '/') {
                 path += '/';
             }
@@ -379,8 +379,8 @@
     function applyCompatPathToState(state, pathname) {
         var trimmed = String(pathname || '/').replace(/^\/+/, '');
         var parts;
-        state.app = '';
-        state.location = '';
+        state.api = '';
+        state.key = '';
         state.isListing = true;
         if (trimmed === '') {
             return;
@@ -393,8 +393,8 @@
             return;
         }
         parts = trimmed.split('/');
-        state.app = parts.shift() || '';
-        state.location = parts.join('/');
+        state.api = parts.shift() || '';
+        state.key = parts.join('/');
     }
 
     function resolveCompatHpprTarget(input) {
@@ -449,8 +449,8 @@
             compatHref: buildCompatHpprHref(target),
             sameDocument: current.scheme === target.scheme &&
                 current.group === target.group &&
-                current.app === target.app &&
-                current.location === target.location &&
+                current.api === target.api &&
+                current.key === target.key &&
                 !!current.isListing === !!target.isListing,
             hashChanged: projectedHash(current.qa) !== projectedHash(target.qa),
             external: false

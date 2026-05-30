@@ -209,18 +209,18 @@ create_remote_key() {
     REMOTE_SIGNING_KEY=$($HPPR key pubkey "$keyname")
 }
 
-# Set up ACL for group/app (allows anyone access)
+# Set up ACL for group/API (allows anyone access)
 # Uses ring1 anyone ACL rules for unauthenticated access
 setup_acl() {
-    local group="$1" app="$2" perms="${3:-rwl}"
-    HPPR_SIGNER='ring1:ring0|init' $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
+    local group="$1" api="$2" perms="${3:-rwl}"
+    HPPR_SIGNER='ring1:ring0|init' $HPPR ring1 acl anyone add "$perms" "//$group/$api//"
 }
 
 # Set up ACL on remote repo
 setup_remote_acl() {
-    local group="$1" app="$2" perms="${3:-r.l}"
+    local group="$1" api="$2" perms="${3:-r.l}"
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring1 acl anyone add "$perms" "//$group/$app/"
+        $HPPR ring1 acl anyone add "$perms" "//$group/$api//"
 }
 
 # Start filesystem mount and export FS_MNT / FS_PID / FS_PORT / FS_BACKEND.
@@ -337,17 +337,17 @@ copy_into_mount() {
 
 # Import content directory as sealed packets via filesystem mount + cp.
 import_content() {
-    local content_dir="$1" group="$2" app="$3"
-    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with ring0
+    local content_dir="$1" group="$2" api="$3"
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$api//" --seal-with ring0
     copy_into_mount "$content_dir"
     fs_unmount
 }
 
 # Import selected content paths as sealed packets via filesystem mount + cp.
 import_content_paths() {
-    local content_dir="$1" group="$2" app="$3"
+    local content_dir="$1" group="$2" api="$3"
     shift 3
-    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$app" --seal-with ring0
+    fs_mount "$HPPR_HOME" "ring1:ring0|init" "//$group/$api//" --seal-with ring0
     copy_into_mount "$content_dir" "$@"
     fs_unmount
 }
@@ -356,44 +356,44 @@ import_content_paths() {
 # Remote deployed content is authored under the explicit remote content key so
 # deploy-pointer authority and later remote writes share one content signer.
 import_remote_content() {
-    local content_dir="$1" group="$2" app="$3"
+    local content_dir="$1" group="$2" api="$3"
     [[ -n "${REMOTE_SECRET_KEY:-}" ]] || fail "remote content import requires create_remote_key first"
-    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0|init" "//$group/$app" --seal-with "$REMOTE_SECRET_KEY"
+    fs_mount "tcp+127.0.0.1:$REMOTE_PORT" "ring1:ring0|init" "//$group/$api//" --seal-with "$REMOTE_SECRET_KEY"
     copy_into_mount "$content_dir"
     fs_unmount
 }
 
-# Set up local exact-app route record pointing to remote repo.
+# Set up local exact-API route record pointing to remote repo.
 setup_route() {
-    local group="$1" app="$2"
+    local group="$1" api="$2"
 
-    HPPR_SIGNER='ring1:ring0|init' $HPPR route local app set \
+    HPPR_SIGNER='ring1:ring0|init' $HPPR route local api set \
         --verify \
         --signer 'ring1:ring0|init' \
-        "//$group/$app" \
+        "//$group/$api" \
         "tcp+127.0.0.1:$REMOTE_PORT" >/dev/null
 }
 
-# Set up app content pointer on remote repo.
-# Resolver reads //<group>/admin/deploy/<app>/|/seal/<remote-repo-vkey>.
+# Set up API content pointer on remote repo.
+# Resolver reads //<group>/admin/deploy//<api>/|/seal/<remote-repo-vkey>.
 # Remote deployed content is authored under REMOTE_SIGNING_KEY, so the content
 # authority published here must match that signer.
 setup_remote_deploy() {
-    local group="$1" app="$2"
+    local group="$1" api="$2"
     [[ -n "${REMOTE_SIGNING_KEY:-}" ]] || fail "remote deploy setup requires create_remote_key first"
 
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring1 acl anyone add r.l "//$group/admin/deploy/" >/dev/null
+        $HPPR ring1 acl anyone add r.l "//$group/admin/deploy//" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR add "//$group/admin/deploy/$app" \
+        $HPPR add "//$group/admin/deploy//$api" \
         -H "Seal-By: ring0" \
-        -H "Content-Root: //$group/$app" \
+        -H "Content-Root: //$group/$api//" \
         -H "Content-Authority: $REMOTE_SIGNING_KEY" <<< ""
 }
 
 # Set up remote Ring2 and local route auth for routed access.
 setup_remote_ring2() {
-    local group="$1" app="$2"
+    local group="$1" api="$2"
 
     local route_keyname="route-$$"
     $HPPR key generate "$route_keyname" >/dev/null
@@ -404,14 +404,14 @@ setup_remote_ring2() {
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 setup "//$group" --init >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 setup "//$group" acl add r.l "//$group/$app/" >/dev/null
+        $HPPR ring2 setup "//$group" acl add r.l "//$group/$api//" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-        $HPPR ring2 setup "//$group" acl add r.l "//$group/admin/deploy/" >/dev/null
+        $HPPR ring2 setup "//$group" acl add r.l "//$group/admin/deploy//" >/dev/null
     HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
         $HPPR ring2 members "//$group" add "$route_vk" >/dev/null
 
     HPPR_SIGNER='ring1:ring0|init' $HPPR add \
-        "//repo/route/auth/$group" \
+        "//repo/route/auth//$group" \
         -H "Seal-By: ring0" \
         -H "Auth: ring2:$group|$route_sk" <<< ""
 }

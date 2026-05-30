@@ -8,6 +8,6 @@ interface HpprWindowAddress : WindowAddress {
     [SameObject] readonly attribute URC urc;
 
     [Throws] attribute DOMString? group;
-    [Throws] attribute DOMString? app;
-    [Throws] attribute DOMString? location;
+    [Throws] attribute DOMString? api;
+    [Throws] attribute DOMString? key;
 };

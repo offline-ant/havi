@@ -5,7 +5,7 @@
 //! HPPR watch primitives for live-reload support.
 //!
 //! Two layers:
-//! - `WatchPool` — shared connection pool keyed by `//group/app/`
+//! - `WatchPool` — shared connection pool keyed by `//group/api//`
 //! - `WatchHandle` — per-tab watch state with mode and event filtering
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use super::client::get_admin_credentials;
 use super::state_db::global_state_db;
 use super::url::HAVIAddress;
-use super::util::{append_location, shadow_root};
+use super::util::{append_key, shadow_root};
 
 const WATCH_RELOAD_DEBOUNCE: Duration = Duration::from_millis(500);
 
@@ -141,10 +141,10 @@ pub enum WatchAction {
 }
 
 // ---------------------------------------------------------------------------
-// WatchConn — shared per //group/app/
+// WatchConn — shared per //group/api//
 // ---------------------------------------------------------------------------
 
-/// Shared watch connection for a `//group/app/` prefix.
+/// Shared watch connection for a `//group/api//` prefix.
 ///
 /// Owns a tokio task that streams WATCH events and distributes them to
 /// subscribers via `std::sync::mpsc` channels.
@@ -198,7 +198,7 @@ fn resolve_watch_addr(endpoint: &str) -> Result<SocketAddr, String> {
 }
 
 impl WatchConn {
-    /// Spawn a new watch connection for the given `//group/app/` prefix.
+    /// Spawn a new watch connection for the given `//group/api//` prefix.
     fn spawn(
         group_app: &str,
         endpoint: &str,
@@ -208,7 +208,7 @@ impl WatchConn {
         let subscribers: Arc<Mutex<Vec<std::sync::mpsc::Sender<String>>>> =
             Arc::new(Mutex::new(Vec::new()));
         let subs = subscribers.clone();
-        let urc = format!("{}/", group_app); // trailing slash for prefix watch
+        let urc = group_app.to_string();
         let endpoint = endpoint.to_string();
         let runtime = runtime.clone();
         let stream_runtime = runtime.clone();
@@ -263,10 +263,10 @@ impl Drop for WatchConn {
 }
 
 // ---------------------------------------------------------------------------
-// WatchPool — one per process, lives on App
+// WatchPool — one per process
 // ---------------------------------------------------------------------------
 
-/// Pool of shared watch connections keyed by `//group/app/`.
+/// Pool of shared watch connections keyed by `//group/api//`.
 pub struct WatchPool {
     runtime: tokio::runtime::Handle,
     endpoint: String,
@@ -290,7 +290,7 @@ impl WatchPool {
         self.endpoint = endpoint;
     }
 
-    /// Get or create a shared connection for the given `//group/app/` prefix.
+    /// Get or create a shared connection for the given `//group/api//` prefix.
     pub fn get_or_create(&mut self, group_app: &str) -> Arc<WatchConn> {
         // Try to upgrade existing weak ref
         if let Some(weak) = self.conns.get(group_app) {
@@ -396,7 +396,7 @@ impl WatchHandle {
             return;
         }
 
-        // Parse URL to extract group/app
+        // Parse URL to extract group/api
         let (group_app, urc) = match extract_group_app_and_urc(url) {
             Some(v) => v,
             None => {
@@ -405,7 +405,7 @@ impl WatchHandle {
             },
         };
 
-        // If already watching the right group/app, just update the URC
+        // If already watching the right group/api, just update the URC
         if self.active_group_app.as_deref() == Some(&group_app) {
             self.active_urc = Some(urc);
             return;
@@ -488,25 +488,25 @@ impl WatchHandle {
     }
 }
 
-/// Extract backing `//group/app` prefix and backing URC from a URL string.
+/// Extract backing `//group/api` prefix and backing URC from a URL string.
 fn extract_group_app_and_urc(url: &str) -> Option<(String, String)> {
     let addr = HAVIAddress::parse(url).ok()?;
     let parts = addr.parts();
-    if parts.group.is_empty() || parts.app.is_empty() {
+    if parts.group.is_empty() || parts.api.is_empty() {
         return None;
     }
 
     if !parts.group.starts_with('~')
         && global_state_db()
-            .shadow_override_enabled(&parts.group, &parts.app)
+            .shadow_override_enabled(&parts.group, &parts.api)
             .ok()?
     {
-        let root = shadow_root(&parts.group, &parts.app);
-        let urc = append_location(&root, &addr.location_with_slash());
+        let root = shadow_root(&parts.group, &parts.api);
+        let urc = append_key(&root, &addr.key_with_slash());
         return Some((root, urc));
     }
 
-    let group_app = format!("//{}/{}", parts.group, parts.app);
+    let group_app = format!("//{}/{}//", parts.group, parts.api);
     let urc = addr.urc_string();
     Some((group_app, urc))
 }
@@ -534,13 +534,13 @@ mod tests {
             settings: WatchSettings { scope: WatchScope::Page, navigate: false },
             conn: None,
             rx: Some(rx),
-            active_group_app: Some("//g/a".to_string()),
-            active_urc: Some("//g/a/doc".to_string()),
+            active_group_app: Some("//g/a//".to_string()),
+            active_urc: Some("//g/a//doc".to_string()),
             change_detected: false,
             pending_reload_deadline: None,
         };
 
-        tx.send("+ //g/a/doc/|/plex/1735689600:000000000/P.X.H3".to_string())
+        tx.send("+ //g/a//doc/|/plex/1735689600:000000000/P.X.H3".to_string())
             .unwrap();
         let action = handle.poll();
         assert_eq!(action, WatchAction::ChangeDetected);
@@ -557,7 +557,7 @@ mod tests {
         let mut pool = WatchPool::new(handle, "tcp+127.0.0.1:4777".to_string(), || {});
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let conn = pool.get_or_create("//group/app");
+            let conn = pool.get_or_create("//group/api");
             let _rx = conn.subscribe();
         }));
 

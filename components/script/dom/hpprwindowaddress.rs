@@ -94,33 +94,33 @@ impl HpprWindowAddressMethods<crate::DomTypeHolder> for HpprWindowAddress {
         let group = value.map(|v| v.to_string()).unwrap_or_default();
         let (current, qa) = self.current_urc_state();
         let parts = current.parts();
-        let coord = build_coordinate(&group, &parts.app, &parts.location, current.is_listing());
+        let coord = build_coordinate(&group, &parts.api, &parts.key, current.is_listing());
         let next = HpprURC::parse(coord).map_err(|e| Error::Syntax(Some(e.to_string())))?;
         self.set_live_urc(&next, qa.as_ref())
     }
 
-    fn GetApp(&self) -> Fallible<Option<DOMString>> {
-        Ok(self.Urc().GetApp())
+    fn GetApi(&self) -> Fallible<Option<DOMString>> {
+        Ok(self.Urc().GetApi())
     }
 
-    fn SetApp(&self, value: Option<DOMString>) -> ErrorResult {
-        let app = value.map(|v| v.to_string()).unwrap_or_default();
+    fn SetApi(&self, value: Option<DOMString>) -> ErrorResult {
+        let api = value.map(|v| v.to_string()).unwrap_or_default();
         let (current, qa) = self.current_urc_state();
         let parts = current.parts();
-        let coord = build_coordinate(&parts.group, &app, &parts.location, current.is_listing());
+        let coord = build_coordinate(&parts.group, &api, &parts.key, current.is_listing());
         let next = HpprURC::parse(coord).map_err(|e| Error::Syntax(Some(e.to_string())))?;
         self.set_live_urc(&next, qa.as_ref())
     }
 
-    fn GetLocation(&self) -> Fallible<Option<DOMString>> {
-        Ok(self.Urc().GetLocation())
+    fn GetKey(&self) -> Fallible<Option<DOMString>> {
+        Ok(self.Urc().GetKey())
     }
 
-    fn SetLocation(&self, value: Option<DOMString>) -> ErrorResult {
-        let location = value.map(|v| v.to_string()).unwrap_or_default();
+    fn SetKey(&self, value: Option<DOMString>) -> ErrorResult {
+        let key = value.map(|v| v.to_string()).unwrap_or_default();
         let (current, qa) = self.current_urc_state();
         let parts = current.parts();
-        let coord = build_coordinate(&parts.group, &parts.app, &location, current.is_listing());
+        let coord = build_coordinate(&parts.group, &parts.api, &key, current.is_listing());
         let next = HpprURC::parse(coord).map_err(|e| Error::Syntax(Some(e.to_string())))?;
         self.set_live_urc(&next, qa.as_ref())
     }

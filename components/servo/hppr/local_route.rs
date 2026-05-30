@@ -13,7 +13,7 @@ use std::sync::Arc;
 use hppr_client::ViaSpec;
 use tokio::sync::OnceCell;
 
-use super::client::{HpprdClientAsync, LocalRouteAppInfo, LocalRouteGroupInfo, RouteAuthInfo};
+use super::client::{HpprdClientAsync, LocalRouteApiInfo, LocalRouteGroupInfo, RouteAuthInfo};
 use super::credentials::CredentialStoreHandle;
 use super::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
 use super::repo_target;
@@ -106,18 +106,18 @@ impl BrowserRouteHandle {
         }
     }
 
-    pub async fn local_route_app(
+    pub async fn local_route_api(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
         repo_vkey: &str,
-    ) -> Result<LocalRouteAppInfo, String> {
+    ) -> Result<LocalRouteApiInfo, String> {
         match &self.backend {
             BrowserRouteBackend::Local => {
-                global_local_runtime().get_local_route_app(group, app, repo_vkey)
+                global_local_runtime().get_local_route_api(group, api, repo_vkey)
             }
             BrowserRouteBackend::Remote { client, .. } => {
-                client.get_local_route_app(group, app, repo_vkey).await
+                client.get_local_route_api(group, api, repo_vkey).await
             }
         }
     }
@@ -125,13 +125,13 @@ impl BrowserRouteHandle {
     pub async fn route_auth(
         &self,
         group: &str,
-        app: Option<&str>,
+        api: Option<&str>,
         repo_vkey: &str,
     ) -> Result<RouteAuthInfo, String> {
         match &self.backend {
-            BrowserRouteBackend::Local => global_local_runtime().get_route_auth(group, app, repo_vkey),
+            BrowserRouteBackend::Local => global_local_runtime().get_route_auth(group, api, repo_vkey),
             BrowserRouteBackend::Remote { client, .. } => {
-                client.get_route_auth(group, app, repo_vkey).await
+                client.get_route_auth(group, api, repo_vkey).await
             }
         }
     }

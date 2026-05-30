@@ -14,7 +14,7 @@ const TAB_MAX_WIDTH: f64 = 220.0;
 const TAB_SCROLL_STEP: f64 = 180.0;
 
 /// Default start page URL.
-pub(super) const HOME_URL: &str = "hppr://u/web/index.html";
+pub(super) const HOME_URL: &str = "hppr://u/web//index.html";
 
 /// Derive a tab title from a URL. Uses the last path segment.
 pub(super) fn title_from_url(url: &str) -> String {
@@ -55,11 +55,11 @@ impl App {
             return false;
         };
         let parts = addr.parts();
-        if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+        if parts.group.is_empty() || parts.api.is_empty() || parts.group.starts_with('~') {
             return false;
         }
         libhavi::hppr::state_db::global_state_db()
-            .shadow_override_enabled(&parts.group, &parts.app)
+            .shadow_override_enabled(&parts.group, &parts.api)
             .unwrap_or(false)
     }
 

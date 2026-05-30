@@ -36,19 +36,19 @@ pub use hppr_packet::CoordinateParts;
 
 /// Compute the origin for a HAVIAddress.
 ///
-/// HPPR origins are isolated by group#app, not by host. This means:
-/// - `//alice/photos` and `//alice/blog` are cross-origin (different apps)
-/// - Two different servers hosting `//alice/photos` are same-origin (same group+app)
+/// HPPR origins are isolated by group#API, not by host. This means:
+/// - `//alice/photos` and `//alice/blog` are cross-origin (different APIs)
+/// - Two different servers hosting `//alice/photos` are same-origin (same group+API)
 ///
-/// This prevents a malicious server from accessing another app's data within
+/// This prevents a malicious server from accessing another API's data within
 /// the same group. Changing this logic weakens the browser's security boundary.
 fn hppr_origin_for_address(address: &HAVIAddress) -> Option<ImmutableOrigin> {
     let urc = address.urc();
     let mut target_parts = urc.target_parts();
     let group = target_parts.next()?;
-    let app = target_parts.next()?;
-    // works because '#' is invalid in group and app
-    let identity = format!("{group}#{app}");
+    let api = target_parts.next()?;
+    // works because '#' is invalid in group and API
+    let identity = format!("{group}#{api}");
 
     let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes());
     let host = Host::Domain(format!("hppr-{}", uuid.simple()));
@@ -79,7 +79,7 @@ pub enum UrlError {
 /// No percent-encoding is applied — `{`, `}`, `#` survive as-is.
 #[derive(Clone, Debug)]
 pub struct HpprUrlData {
-    /// Full URL string: `"hppr://group/app/location{jsonqa}"`
+    /// Full URL string: `"hppr://group/api//key{jsonqa}"`
     raw: String,
     /// Parsed scheme + endpoint + URC.
     address: HAVIAddress,
@@ -577,7 +577,7 @@ impl BrowserUrl {
                 .map(|d| BrowserUrl::Hppr(Arc::new(d)));
         }
 
-        // Absolute coordinate (//group/app/loc)
+        // Absolute coordinate (//group/api//key)
         if coord_input.starts_with("//") {
             let url_str = format!(
                 "{}{}",
@@ -590,12 +590,21 @@ impl BrowserUrl {
 
         // Relative resolution using URC::join
         let urc_string = address.urc_string();
+        let parts = address.parts();
         let base_coord = if urc_string.ends_with('/') {
             urc_string
+        } else if parts.group.is_empty() || parts.api.is_empty() {
+            urc_string
         } else {
-            match urc_string.rfind('/') {
-                Some(pos) => format!("{}/", &urc_string[..pos]),
-                None => urc_string,
+            let parent_key = parts
+                .key
+                .rsplit_once('/')
+                .map(|(parent, _)| parent)
+                .unwrap_or("");
+            if parent_key.is_empty() {
+                format!("//{}/{}//", parts.group, parts.api)
+            } else {
+                format!("//{}/{}//{}/", parts.group, parts.api, parent_key)
             }
         };
 
@@ -1055,37 +1064,37 @@ mod tests {
 
     #[test]
     fn hppr_routed_join_relative() {
-        let base = BrowserUrl::parse("hppr://chess/game/board.html").unwrap();
+        let base = BrowserUrl::parse("hppr://chess/game//board.html").unwrap();
         assert_eq!(
             base.join("style.css").unwrap().as_str(),
-            "hppr://chess/game/style.css"
+            "hppr://chess/game//style.css"
         );
     }
 
     #[test]
     fn hppr_via_join_relative() {
-        let base = BrowserUrl::parse("hppr://chess/game/board.html{via:192.168.1.10:4777}").unwrap();
+        let base = BrowserUrl::parse("hppr://chess/game//board.html{via:192.168.1.10:4777}").unwrap();
         assert_eq!(
             base.join("style.css").unwrap().as_str(),
-            "hppr://chess/game/style.css"
+            "hppr://chess/game//style.css"
         );
     }
 
     #[test]
     fn hppr_join_parent() {
-        let base = BrowserUrl::parse("hppr://g/a/sub/file.html{via:10.0.0.1:4777}").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a//sub/file.html{via:10.0.0.1:4777}").unwrap();
         assert_eq!(
             base.join("../other.html").unwrap().as_str(),
-            "hppr://g/a/other.html"
+            "hppr://g/a//other.html"
         );
     }
 
     #[test]
     fn hppr_join_absolute_coord() {
-        let base = BrowserUrl::parse("hppr://g/a/file.html{via:10.0.0.1:4777}").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a//file.html{via:10.0.0.1:4777}").unwrap();
         assert_eq!(
-            base.join("//other/app/index.html").unwrap().as_str(),
-            "hppr://other/app/index.html"
+            base.join("//other/app//index.html").unwrap().as_str(),
+            "hppr://other/app//index.html"
         );
     }
 
@@ -1094,16 +1103,16 @@ mod tests {
         // Sandbox URLs carry {via:...} which is preserved as JSONqa by HAVIAddress.
         // Relative joins on sandbox URLs currently drop the endpoint because
         // join reconstructs without via. This is a known limitation.
-        let base = BrowserUrl::parse("hppr-sandbox://g/app/index.html{via:10.0.0.5:4778}").unwrap();
+        let base = BrowserUrl::parse("hppr-sandbox://g/app//index.html{via:10.0.0.5:4778}").unwrap();
         assert!(matches!(base, BrowserUrl::Hppr(_)));
         assert_eq!(base.scheme(), "hppr-sandbox");
     }
 
     #[test]
-    fn hppr_origin_isolated_by_app() {
-        let app1 = BrowserUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
-        let app2 = BrowserUrl::parse("hppr://g1/app2/index.html").unwrap().origin();
-        let app1_other = BrowserUrl::parse("hppr://g1/app1/other.html").unwrap().origin();
+    fn hppr_origin_isolated_by_api() {
+        let app1 = BrowserUrl::parse("hppr://g1/app1//index.html").unwrap().origin();
+        let app2 = BrowserUrl::parse("hppr://g1/app2//index.html").unwrap().origin();
+        let app1_other = BrowserUrl::parse("hppr://g1/app1//other.html").unwrap().origin();
 
         assert_ne!(app1, app2);
         assert_eq!(app1, app1_other);
@@ -1111,8 +1120,8 @@ mod tests {
 
     #[test]
     fn hppr_origin_ignores_endpoint() {
-        let routed = BrowserUrl::parse("hppr://g1/app1/index.html").unwrap().origin();
-        let direct = BrowserUrl::parse("hppr://g1/app1/index.html{via:10.0.0.1:4777}")
+        let routed = BrowserUrl::parse("hppr://g1/app1//index.html").unwrap().origin();
+        let direct = BrowserUrl::parse("hppr://g1/app1//index.html{via:10.0.0.1:4777}")
             .unwrap()
             .origin();
 
@@ -1121,44 +1130,44 @@ mod tests {
 
     #[test]
     fn jsonqa_same_document() {
-        let base = BrowserUrl::parse("hppr://u/web/index.html").unwrap();
+        let base = BrowserUrl::parse("hppr://u/web//index.html").unwrap();
         let result = base.join("{#:text}").unwrap();
-        assert_eq!(result.as_str(), "hppr://u/web/index.html{#:text}");
+        assert_eq!(result.as_str(), "hppr://u/web//index.html{#:text}");
     }
 
     #[test]
     fn jsonqa_with_page() {
-        let base = BrowserUrl::parse("hppr://docs/manual/chapter-3").unwrap();
+        let base = BrowserUrl::parse("hppr://docs/manual//chapter-3").unwrap();
         let result = base.join("{page:5}").unwrap();
-        assert_eq!(result.as_str(), "hppr://docs/manual/chapter-3{page:5}");
+        assert_eq!(result.as_str(), "hppr://docs/manual//chapter-3{page:5}");
     }
 
     #[test]
     fn jsonqa_relative_with_qa() {
-        let base = BrowserUrl::parse("hppr://g/a/dir/page.html").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a//dir/page.html").unwrap();
         let result = base.join("other.html{#:section}").unwrap();
-        assert_eq!(result.as_str(), "hppr://g/a/dir/other.html{#:section}");
+        assert_eq!(result.as_str(), "hppr://g/a//dir/other.html{#:section}");
     }
 
     #[test]
     fn jsonqa_absolute_coord_with_qa() {
-        let base = BrowserUrl::parse("hppr://g/a/page.html").unwrap();
-        let result = base.join("//other/app/index.html{page:1}").unwrap();
-        assert_eq!(result.as_str(), "hppr://other/app/index.html{page:1}");
+        let base = BrowserUrl::parse("hppr://g/a//page.html").unwrap();
+        let result = base.join("//other/app//index.html{page:1}").unwrap();
+        assert_eq!(result.as_str(), "hppr://other/app//index.html{page:1}");
     }
 
     #[test]
     fn jsonqa_hash_not_fragment() {
-        let base = BrowserUrl::parse("hppr://u/web/index.html").unwrap();
+        let base = BrowserUrl::parse("hppr://u/web//index.html").unwrap();
         let result = base.join("{#:results}").unwrap();
-        assert_eq!(result.as_str(), "hppr://u/web/index.html{#:results}");
+        assert_eq!(result.as_str(), "hppr://u/web//index.html{#:results}");
         assert!(result.fragment().is_none());
     }
 
     #[test]
     fn hppr_as_str_no_percent_encoding() {
-        let url = BrowserUrl::parse("hppr://u/web/index.html{#:text}").unwrap();
-        assert_eq!(url.as_str(), "hppr://u/web/index.html{#:text}");
+        let url = BrowserUrl::parse("hppr://u/web//index.html{#:text}").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/web//index.html{#:text}");
         assert!(matches!(url, BrowserUrl::Hppr(_)));
     }
 
@@ -1171,17 +1180,17 @@ mod tests {
 
     #[test]
     fn from_url_detects_hppr() {
-        let raw = Url::parse("hppr://g/a/loc%7Bvia:10.0.0.1%7D").unwrap();
+        let raw = Url::parse("hppr://g/a//loc%7Bvia:10.0.0.1%7D").unwrap();
         let browser = BrowserUrl::from_url(raw);
         assert!(matches!(browser, BrowserUrl::Hppr(_)));
-        assert_eq!(browser.as_str(), "hppr://g/a/loc{via:10.0.0.1}");
+        assert_eq!(browser.as_str(), "hppr://g/a//loc{via:10.0.0.1}");
     }
 
     #[test]
     fn serialize_deserialize_round_trip() {
-        let url = BrowserUrl::parse("hppr://chess/game/board.html{via:10.0.0.1:4777}").unwrap();
+        let url = BrowserUrl::parse("hppr://chess/game//board.html{via:10.0.0.1:4777}").unwrap();
         let json = serde_json::to_string(&url).unwrap();
-        assert_eq!(json, r#""hppr://chess/game/board.html{via:10.0.0.1:4777}""#);
+        assert_eq!(json, r#""hppr://chess/game//board.html{via:10.0.0.1:4777}""#);
         let back: BrowserUrl = serde_json::from_str(&json).unwrap();
         assert_eq!(url, back);
     }
@@ -1190,15 +1199,15 @@ mod tests {
 
     #[test]
     fn parse_hppr_basic() {
-        let url = BrowserUrl::parse("hppr://g/a/loc").unwrap();
+        let url = BrowserUrl::parse("hppr://g/a//loc").unwrap();
         assert!(matches!(url, BrowserUrl::Hppr(_)));
-        assert_eq!(url.as_str(), "hppr://g/a/loc");
+        assert_eq!(url.as_str(), "hppr://g/a//loc");
     }
 
     #[test]
     fn parse_hppr_with_jsonqa_braces() {
-        let url = BrowserUrl::parse("hppr://u/web/page{key:value}").unwrap();
-        assert_eq!(url.as_str(), "hppr://u/web/page{key:value}");
+        let url = BrowserUrl::parse("hppr://u/web//page{key:value}").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/web//page{key:value}");
         // Braces preserved, not percent-encoded
         assert!(!url.as_str().contains("%7B"));
         assert!(!url.as_str().contains("%7D"));
@@ -1206,14 +1215,14 @@ mod tests {
 
     #[test]
     fn parse_hppr_with_nested_jsonqa() {
-        let url = BrowserUrl::parse("hppr://u/web/search{q:hello{lang:en}}").unwrap();
-        assert_eq!(url.as_str(), "hppr://u/web/search{q:hello{lang:en}}");
+        let url = BrowserUrl::parse("hppr://u/web//search{q:hello{lang:en}}").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/web//search{q:hello{lang:en}}");
     }
 
     #[test]
     fn parse_hppr_hash_in_jsonqa() {
-        let url = BrowserUrl::parse("hppr://u/web/page{#:section-2}").unwrap();
-        assert_eq!(url.as_str(), "hppr://u/web/page{#:section-2}");
+        let url = BrowserUrl::parse("hppr://u/web//page{#:section-2}").unwrap();
+        assert_eq!(url.as_str(), "hppr://u/web//page{#:section-2}");
         // # in JSONqa is not a fragment
         assert!(url.fragment().is_none());
     }
@@ -1246,7 +1255,7 @@ mod tests {
 
     #[test]
     fn as_str_round_trip_hppr() {
-        let input = "hppr://group/app/loc/sub{via:10.0.0.1:4777}";
+        let input = "hppr://group/app//loc/sub{via:10.0.0.1:4777}";
         let url = BrowserUrl::parse(input).unwrap();
         assert_eq!(url.as_str(), input);
     }
@@ -1268,13 +1277,13 @@ mod tests {
 
     #[test]
     fn scheme_hppr() {
-        assert_eq!(BrowserUrl::parse("hppr://g/a/l").unwrap().scheme(), "hppr");
+        assert_eq!(BrowserUrl::parse("hppr://g/a//l").unwrap().scheme(), "hppr");
     }
 
     #[test]
     fn scheme_hppr_sandbox() {
         // hppr-sandbox requires endpoint; without via it should error
-        assert!(BrowserUrl::parse("hppr-sandbox://g/a/l").is_err());
+        assert!(BrowserUrl::parse("hppr-sandbox://g/a//l").is_err());
     }
 
     #[test]
@@ -1290,23 +1299,23 @@ mod tests {
     // ── origin() ──
 
     #[test]
-    fn origin_hppr_same_group_app() {
-        let a = BrowserUrl::parse("hppr://g/app/page1").unwrap();
-        let b = BrowserUrl::parse("hppr://g/app/page2").unwrap();
+    fn origin_hppr_same_group_api() {
+        let a = BrowserUrl::parse("hppr://g/app//page1").unwrap();
+        let b = BrowserUrl::parse("hppr://g/app//page2").unwrap();
         assert_eq!(a.origin(), b.origin());
     }
 
     #[test]
-    fn origin_hppr_different_app_cross_origin() {
-        let a = BrowserUrl::parse("hppr://g/app1/x").unwrap();
-        let b = BrowserUrl::parse("hppr://g/app2/x").unwrap();
+    fn origin_hppr_different_api_cross_origin() {
+        let a = BrowserUrl::parse("hppr://g/app1//x").unwrap();
+        let b = BrowserUrl::parse("hppr://g/app2//x").unwrap();
         assert_ne!(a.origin(), b.origin());
     }
 
     #[test]
     fn origin_hppr_different_group_cross_origin() {
-        let a = BrowserUrl::parse("hppr://g1/app/x").unwrap();
-        let b = BrowserUrl::parse("hppr://g2/app/x").unwrap();
+        let a = BrowserUrl::parse("hppr://g1/app//x").unwrap();
+        let b = BrowserUrl::parse("hppr://g2/app//x").unwrap();
         assert_ne!(a.origin(), b.origin());
     }
 
@@ -1332,19 +1341,19 @@ mod tests {
 
     #[test]
     fn join_hppr_sibling() {
-        let base = BrowserUrl::parse("hppr://g/a/dir/page.html").unwrap();
-        assert_eq!(base.join("other.html").unwrap().as_str(), "hppr://g/a/dir/other.html");
+        let base = BrowserUrl::parse("hppr://g/a//dir/page.html").unwrap();
+        assert_eq!(base.join("other.html").unwrap().as_str(), "hppr://g/a//dir/other.html");
     }
 
     #[test]
     fn join_hppr_parent_dir() {
-        let base = BrowserUrl::parse("hppr://g/a/sub/deep/page.html").unwrap();
-        assert_eq!(base.join("../../top.html").unwrap().as_str(), "hppr://g/a/top.html");
+        let base = BrowserUrl::parse("hppr://g/a//sub/deep/page.html").unwrap();
+        assert_eq!(base.join("../../top.html").unwrap().as_str(), "hppr://g/a//top.html");
     }
 
     #[test]
     fn join_hppr_cross_scheme() {
-        let base = BrowserUrl::parse("hppr://g/a/page.html").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a//page.html").unwrap();
         let result = base.join("https://example.com").unwrap();
         assert!(matches!(result, BrowserUrl::Web(_)));
         assert_eq!(result.scheme(), "https");
@@ -1359,9 +1368,9 @@ mod tests {
     #[test]
     fn join_http_to_hppr() {
         let base = BrowserUrl::parse("https://example.com/page").unwrap();
-        let result = base.join("hppr://g/a/loc").unwrap();
+        let result = base.join("hppr://g/a//loc").unwrap();
         assert!(matches!(result, BrowserUrl::Hppr(_)));
-        assert_eq!(result.as_str(), "hppr://g/a/loc");
+        assert_eq!(result.as_str(), "hppr://g/a//loc");
     }
 
     // ── Edge cases ──
@@ -1386,7 +1395,7 @@ mod tests {
 
     #[test]
     fn hppr_host_is_none() {
-        let url = BrowserUrl::parse("hppr://g/a/loc").unwrap();
+        let url = BrowserUrl::parse("hppr://g/a//loc").unwrap();
         assert!(url.host().is_none());
         assert!(url.host_str().is_none());
         assert!(url.port().is_none());
@@ -1394,20 +1403,20 @@ mod tests {
 
     #[test]
     fn hppr_cannot_be_a_base_is_false() {
-        let url = BrowserUrl::parse("hppr://g/a/loc").unwrap();
+        let url = BrowserUrl::parse("hppr://g/a//loc").unwrap();
         assert!(!url.cannot_be_a_base());
     }
 
     #[test]
     fn hppr_no_username_password() {
-        let url = BrowserUrl::parse("hppr://g/a/loc").unwrap();
+        let url = BrowserUrl::parse("hppr://g/a//loc").unwrap();
         assert_eq!(url.username(), "");
         assert!(url.password().is_none());
     }
 
     #[test]
     fn hppr_is_not_secure_scheme() {
-        assert!(!BrowserUrl::parse("hppr://g/a/l").unwrap().is_secure_scheme());
+        assert!(!BrowserUrl::parse("hppr://g/a//l").unwrap().is_secure_scheme());
     }
 
     #[test]
@@ -1417,11 +1426,11 @@ mod tests {
 
     #[test]
     fn hppr_is_equal_excluding_fragments() {
-        let a = BrowserUrl::parse("hppr://g/a/loc{#:x}").unwrap();
-        let b = BrowserUrl::parse("hppr://g/a/loc{#:x}").unwrap();
+        let a = BrowserUrl::parse("hppr://g/a//loc{#:x}").unwrap();
+        let b = BrowserUrl::parse("hppr://g/a//loc{#:x}").unwrap();
         assert!(a.is_equal_excluding_fragments(&b));
 
-        let c = BrowserUrl::parse("hppr://g/a/loc{#:y}").unwrap();
+        let c = BrowserUrl::parse("hppr://g/a//loc{#:y}").unwrap();
         assert!(!a.is_equal_excluding_fragments(&c));
     }
 
@@ -1460,9 +1469,9 @@ mod tests {
     fn parse_with_base_hppr() {
         // parse_with_base only works for absolute inputs or web bases;
         // for HPPR relative resolution, use join()
-        let base = BrowserUrl::parse("hppr://g/a/dir/page.html").unwrap();
+        let base = BrowserUrl::parse("hppr://g/a//dir/page.html").unwrap();
         let result = base.join("style.css").unwrap();
-        assert_eq!(result.as_str(), "hppr://g/a/dir/style.css");
+        assert_eq!(result.as_str(), "hppr://g/a//dir/style.css");
     }
 
     #[test]

@@ -3,16 +3,16 @@
 (function() {
     const outputEl = document.getElementById('diagOutput');
     const groupEl = document.getElementById('diagGroup');
-    const appEl = document.getElementById('diagApp');
-    const locationEl = document.getElementById('diagLocation');
+    const apiEl = document.getElementById('diagApi');
+    const keyEl = document.getElementById('diagKey');
     const messageEl = document.getElementById('message');
 
-    if (!outputEl || !groupEl || !appEl || !locationEl || !messageEl) return;
+    if (!outputEl || !groupEl || !apiEl || !keyEl || !messageEl) return;
 
     const output = /** @type {HTMLElement} */ (outputEl);
     const groupInput = /** @type {HTMLInputElement} */ (groupEl);
-    const appInput = /** @type {HTMLInputElement} */ (appEl);
-    const locationInput = /** @type {HTMLInputElement} */ (locationEl);
+    const apiInput = /** @type {HTMLInputElement} */ (apiEl);
+    const keyInput = /** @type {HTMLInputElement} */ (keyEl);
     const message = /** @type {HTMLElement} */ (messageEl);
 
     /** @param {string} text @param {'error'|'success'} type */
@@ -39,18 +39,18 @@
 
     async function runDiagnostics() {
         const group = groupInput.value.trim();
-        const app = appInput.value.trim();
-        const location = locationInput.value.trim();
+        const api = apiInput.value.trim();
+        const key = keyInput.value.trim();
 
-        if (!group || !app) {
-            showMessage('group and app are required', 'error');
+        if (!group || !api) {
+            showMessage('group and api are required', 'error');
             return;
         }
 
         output.textContent = 'Inspecting...';
 
         try {
-            const data = await diagnosticsRequest('inspect', { group, app, location });
+            const data = await diagnosticsRequest('inspect', { group, api, key });
             output.textContent = JSON.stringify(data, null, 2);
         } catch (e) {
             output.textContent = '';

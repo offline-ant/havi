@@ -39,22 +39,22 @@
         assert(document.packet.coordinate !== null, 'document.packet.coordinate exists');
         assert(document.packet.sealBy !== null, 'document.packet.sealBy exists');
         assert(document.packet.group !== null, 'document.packet.group exists');
-        assert(document.packet.app !== null, 'document.packet.app exists');
-        assert(document.packet.location !== null, 'document.packet.location exists');
+        assert(document.packet.api !== null, 'document.packet.api exists');
+        assert(document.packet.key !== null, 'document.packet.key exists');
         assert(typeof document.packet.dataLength === 'number', 'document.packet.dataLength is number');
 
         const group = document.packet.group;
-        const app = document.packet.app;
+        const api = document.packet.api;
         const coordinate = document.packet.coordinate;
 
         log('--- packet.json() tests ---');
         const testObj = { test: 'value', number: 42, nested: { a: 1 } };
         await client.add({
-            headers: ['Location: user/json-test.json', 'Content-Type: application/json'],
+            headers: ['Key: user/json-test.json', 'Content-Type: application/json'],
             data: JSON.stringify(testObj),
         });
 
-        const jsonPacket = await client.get('//' + group + '/' + app + '/user/json-test.json');
+        const jsonPacket = await client.get('//' + group + '/' + api + '//user/json-test.json');
         assert(jsonPacket !== null, 'json test packet exists');
         const parsed = await jsonPacket.json();
         assertEqual(typeof parsed, 'object', 'json() returns object type');
@@ -62,16 +62,16 @@
         assertEqual(parsed.number, 42, 'json() parsed number field');
         assertEqual(parsed.nested.a, 1, 'json() parsed nested field');
 
-        await client.add({ headers: ['Location: user/invalid-json.txt'], data: 'not valid json {' });
-        const badPacket = await client.get('//' + group + '/' + app + '/user/invalid-json.txt');
+        await client.add({ headers: ['Key: user/invalid-json.txt'], data: 'not valid json {' });
+        const badPacket = await client.get('//' + group + '/' + api + '//user/invalid-json.txt');
         let jsonError = null;
         try { await badPacket.json(); } catch (e) { jsonError = e; }
         assert(jsonError !== null, 'json() rejects invalid JSON');
 
         log('--- packet.raw() tests ---');
         const rawTestData = 'raw test data';
-        await client.add({ headers: ['Location: user/raw-test'], data: rawTestData });
-        const rawPacket = await client.get('//' + group + '/' + app + '/user/raw-test');
+        await client.add({ headers: ['Key: user/raw-test'], data: rawTestData });
+        const rawPacket = await client.get('//' + group + '/' + api + '//user/raw-test');
         assert(rawPacket !== null, 'raw test packet exists');
         const raw = rawPacket.raw();
         assert(raw instanceof ArrayBuffer, 'raw() returns ArrayBuffer');
@@ -84,11 +84,11 @@
 
         log('--- add() and get() tests ---');
         const testData = 'test data ' + Date.now();
-        const hashes = await client.add({ headers: ['Location: user/test-item'], data: testData });
+        const hashes = await client.add({ headers: ['Key: user/test-item'], data: testData });
         assert(Array.isArray(hashes), 'add() returns array of hashes');
         assert(hashes.length > 0, 'add() returns at least one hash');
         assert(hashes[0].match(/^[SBP]\./), 'add() hash starts with type prefix');
-        const packet = await client.get('//' + group + '/' + app + '/user/test-item');
+        const packet = await client.get('//' + group + '/' + api + '//user/test-item');
         assert(packet !== null, 'get() returns packet');
         const body = (await packet.text()).trim();
         assertEqual(body, testData, 'get() returns correct data');
@@ -97,10 +97,10 @@
         const env = client.envelope();
         assertEqual(typeof client.endpoint, 'undefined', 'HpprClient.endpoint is removed from the ordinary surface');
         assertEqual(env.endpoint, null, 'EnvelopeHpprClient.endpoint is null for repo-backed committed sources');
-        const envGet = await env.get('//' + group + '/' + app + '/user/test-item');
+        const envGet = await env.get('//' + group + '/' + api + '//user/test-item');
         assert(envGet.value !== null, 'env.get() returns HpprResult with value');
         assert(envGet.requestEnvelope !== null, 'env.get() has requestEnvelope');
-        const envList = await env.list('//' + group + '/' + app + '/user/');
+        const envList = await env.list('//' + group + '/' + api + '//user/');
         assert(Array.isArray(envList.value), 'env.list() value is array');
 
         log('--- store() tests ---');
@@ -112,8 +112,8 @@
         assert(storeHashes[0].match(/^[SBP]\./), 'store() hash starts with type prefix');
 
         log('--- list() tests ---');
-        await client.add({ headers: ['Location: user/list-test'], data: 'for listing' });
-        const entries = await client.list('//' + group + '/' + app + '/user/');
+        await client.add({ headers: ['Key: user/list-test'], data: 'for listing' });
+        const entries = await client.list('//' + group + '/' + api + '//user/');
         assert(Array.isArray(entries), 'list() returns array');
         assert(entries.length > 0, 'list() returns entries');
 

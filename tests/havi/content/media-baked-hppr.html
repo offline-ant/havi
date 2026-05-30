@@ -47,8 +47,8 @@
       video.preload = 'auto';
       document.body.appendChild(video);
 
-      const mediaUrl = 'hppr://' + document.packet.group + '/' + document.packet.app +
-        '/media-source-h264-frag.mp4';
+      const mediaUrl = 'hppr://' + document.packet.group + '/' + document.packet.api +
+        '//media-source-h264-frag.mp4';
       const loadedMetadata = waitEvent(video, 'loadedmetadata');
       const loadedData = waitEvent(video, 'loadeddata');
       const canPlay = waitEvent(video, 'canplay');

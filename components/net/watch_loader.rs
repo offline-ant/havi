@@ -191,7 +191,7 @@ async fn watch_stream_with_notify(
 
     // HELLO - all auth modes require greeting for session-id.
     // HELLO uses a Null packet, not a sealed request.
-    let hello_packet = match create_null_with_headers(&[("App", "🖧HELLO")], b"") {
+    let hello_packet = match create_null_with_headers(&[("API", "🖧HELLO")], b"") {
         Ok(p) => p,
         Err(e) => {
             let _ = conn_tx.send(Err(format!("Failed to build HELLO: {}", e)));

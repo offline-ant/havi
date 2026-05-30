@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use embedder_traits::HpprProtocolError;
-use hppr_client::{Greeting, HpprRequest, HpprResponse};
+use hppr_client::{Greeting, HpprMessageRequest as HpprRequest, HpprResponse};
 use hppr_packet::Packet;
 use hppr_packet::chunk::{ChunkKind, ChunkManifest, is_chunk_manifest, parse_chunk_manifest};
 use hppr_packet::packet::PacketType;
@@ -211,7 +211,14 @@ impl BrowserLocalRuntime {
                     .map(lines_response)
                     .map_err(protocol_error)
             }
-            HpprRequest::Add { headers, data } => {
+            HpprRequest::Ingest { packet } => {
+                let packet = read_packet(packet)
+                    .map_err(|error| protocol_error(format!("invalid INGEST packet: {}", error)))?;
+                self.store_packet(packet.as_pkt_ref())
+                    .map(lines_response)
+                    .map_err(protocol_error)
+            }
+            HpprRequest::Add { headers, data, .. } => {
                 let packet = self
                     .packet_from_add_args(&headers, data.as_deref().unwrap_or(&[]), page_url)
                     .map_err(protocol_error)?;
@@ -226,9 +233,6 @@ impl BrowserLocalRuntime {
             HpprRequest::Members { .. } => Err(protocol_error(
                 "browser-local runtime does not expose MEMBERS",
             )),
-            HpprRequest::Exchange { .. } => Err(protocol_error(
-                "browser-local runtime does not expose EXCHANGE",
-            )),
             HpprRequest::Generic { cmd, .. } => Err(protocol_error(format!(
                 "browser-local runtime does not expose generic command {}",
                 cmd
@@ -239,16 +243,16 @@ impl BrowserLocalRuntime {
     pub fn store_text_page(
         &self,
         group: &str,
-        app: &str,
-        location: &str,
+        api: &str,
+        key: &str,
         content_type: &str,
         body: &[u8],
     ) -> Result<Vec<String>, String> {
         let packet = create_seal(
             self.signing_key(),
             group,
-            app,
-            location,
+            api,
+            key,
             &Tai::now(),
             &[("Content-Type", content_type)],
             body,
@@ -257,14 +261,14 @@ impl BrowserLocalRuntime {
         self.store_packet(packet.as_pkt_ref())
     }
 
-    pub fn get_local_route_app(
+    pub fn get_local_route_api(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
         repo_vkey: &str,
-    ) -> Result<super::client::LocalRouteAppInfo, String> {
-        let packet = self.get_packet(&format!("//repo/route/app/{}/{}/|/seal/{}", group, app, repo_vkey))?;
-        parse_local_route_app_packet(&packet)
+    ) -> Result<super::client::LocalRouteApiInfo, String> {
+        let packet = self.get_packet(&format!("//repo/route/api//{}/{}/|/seal/{}", group, api, repo_vkey))?;
+        parse_local_route_api_packet(&packet)
     }
 
     pub fn get_local_route_group(
@@ -272,21 +276,21 @@ impl BrowserLocalRuntime {
         group: &str,
         repo_vkey: &str,
     ) -> Result<super::client::LocalRouteGroupInfo, String> {
-        let packet = self.get_packet(&format!("//repo/route/group/{}/|/seal/{}", group, repo_vkey))?;
+        let packet = self.get_packet(&format!("//repo/route/group//{}/|/seal/{}", group, repo_vkey))?;
         parse_local_route_group_packet(&packet)
     }
 
     pub fn get_route_auth(
         &self,
         group: &str,
-        app: Option<&str>,
+        api: Option<&str>,
         repo_vkey: &str,
     ) -> Result<super::client::RouteAuthInfo, String> {
         let mut urcs = Vec::with_capacity(2);
-        if let Some(app) = app {
-            urcs.push(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey));
+        if let Some(api) = api {
+            urcs.push(format!("//repo/route/auth//{}/{}/|/seal/{}", group, api, repo_vkey));
         }
-        urcs.push(format!("//repo/route/auth/{}/|/seal/{}", group, repo_vkey));
+        urcs.push(format!("//repo/route/auth//{}/|/seal/{}", group, repo_vkey));
 
         for urc_text in urcs {
             let packet = match self.get_packet(&urc_text) {
@@ -311,8 +315,8 @@ impl BrowserLocalRuntime {
     ) -> Result<Packet, String> {
         let mut seal_by = None;
         let mut group = None;
-        let mut app = None;
-        let mut location = None;
+        let mut api = None;
+        let mut key = None;
         let mut tai: Option<Tai> = None;
         let mut pre_plex_ref_headers: Vec<(&str, &str)> = Vec::new();
         let mut post_plex_ref_headers: Vec<(&str, &str)> = Vec::new();
@@ -330,11 +334,11 @@ impl BrowserLocalRuntime {
             if line.is_empty() {
                 continue;
             }
-            let (key, value) = line
+            let (header_name, value) = line
                 .split_once(": ")
                 .ok_or_else(|| "INVALID headers: missing ': '".to_string())?;
 
-            if key == "Data-Length" {
+            if header_name == "Data-Length" {
                 if data_length.is_some() {
                     return Err("INVALID headers: duplicate Data-Length".to_string());
                 }
@@ -348,7 +352,7 @@ impl BrowserLocalRuntime {
                 continue;
             }
 
-            match key {
+            match header_name {
                 "Seal-By" => {
                     if seal_by.is_some() {
                         return Err("INVALID headers: duplicate Seal-By".to_string());
@@ -363,21 +367,21 @@ impl BrowserLocalRuntime {
                     }
                     group = Some(value);
                 }
-                "App" => {
+                "API" => {
                     if saw_plex_markline {
                         return Err(
-                            "INVALID headers: App must be listed before 🖧: P.".to_string(),
+                            "INVALID headers: API must be listed before 🖧: P.".to_string(),
                         );
                     }
-                    app = Some(value);
+                    api = Some(value);
                 }
-                "Location" => {
+                "Key" => {
                     if saw_plex_markline {
                         return Err(
-                            "INVALID headers: Location must be listed before 🖧: P.".to_string(),
+                            "INVALID headers: Key must be listed before 🖧: P.".to_string(),
                         );
                     }
-                    location = Some(value);
+                    key = Some(value);
                 }
                 "TAI" => {
                     if saw_plex_markline {
@@ -419,9 +423,9 @@ impl BrowserLocalRuntime {
                 }
                 _ => {
                     if plex_reference.is_none() {
-                        pre_plex_ref_headers.push((key, value));
+                        pre_plex_ref_headers.push((header_name, value));
                     } else {
-                        post_plex_ref_headers.push((key, value));
+                        post_plex_ref_headers.push((header_name, value));
                     }
                 }
             }
@@ -429,8 +433,8 @@ impl BrowserLocalRuntime {
 
         let has_custom_headers = !pre_plex_ref_headers.is_empty() || !post_plex_ref_headers.is_empty();
         let has_plex_headers = group.is_some()
-            || app.is_some()
-            || location.is_some()
+            || api.is_some()
+            || key.is_some()
             || tai.is_some()
             || blob_reference.is_some()
             || has_custom_headers;
@@ -487,7 +491,7 @@ impl BrowserLocalRuntime {
         };
 
         let referenced_headers = referenced_plex.as_ref().map(|packet| packet.unpack());
-        let (default_group, default_app, default_location) =
+        let (default_group, default_api, default_key) =
             default_page_context(page_url).unwrap_or_else(|| {
                 (
                     "u".to_string(),
@@ -498,12 +502,12 @@ impl BrowserLocalRuntime {
         let group_value = group
             .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.group))
             .unwrap_or(default_group.as_str());
-        let app_value = app
-            .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.app))
-            .unwrap_or(default_app.as_str());
-        let location_value = location
-            .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.location))
-            .unwrap_or(default_location.as_str());
+        let api_value = api
+            .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.api))
+            .unwrap_or(default_api.as_str());
+        let key_value = key
+            .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.key))
+            .unwrap_or(default_key.as_str());
         let tai = tai
             .or_else(|| referenced_headers.as_ref().and_then(|packet| packet.tai.map(|value| value.owned())))
             .unwrap_or_else(Tai::now);
@@ -536,8 +540,8 @@ impl BrowserLocalRuntime {
             Some(signing_key) => create_seal(
                 &signing_key,
                 group_value,
-                app_value,
-                location_value,
+                api_value,
+                key_value,
                 &tai,
                 &merged_headers,
                 blob_bytes.as_ref(),
@@ -545,8 +549,8 @@ impl BrowserLocalRuntime {
             .map_err(|error| error.to_string()),
             None => create_plex(
                 group_value,
-                app_value,
-                location_value,
+                api_value,
+                key_value,
                 &tai,
                 &merged_headers,
                 blob_bytes.as_ref(),
@@ -717,25 +721,25 @@ fn default_page_context(page_url: Option<&str>) -> Option<(String, String, Strin
         return None;
     }
     let parts = address.parts();
-    if parts.group.is_empty() || parts.app.is_empty() {
+    if parts.group.is_empty() || parts.api.is_empty() {
         return None;
     }
-    let requested_location = address.location_with_slash();
-    let location = if requested_location.is_empty() || requested_location == "/" {
+    let requested_key = address.key_with_slash();
+    let key = if requested_key.is_empty() || requested_key == "/" {
         "index.html".to_string()
     } else {
-        requested_location.trim_matches('/').to_string()
+        requested_key.trim_matches('/').to_string()
     };
-    Some((parts.group, parts.app, location))
+    Some((parts.group, parts.api, key))
 }
 
-fn parse_local_route_app_packet(packet: &Packet) -> Result<super::client::LocalRouteAppInfo, String> {
+fn parse_local_route_api_packet(packet: &Packet) -> Result<super::client::LocalRouteApiInfo, String> {
     let packet_type = hppr_packet::Packet::parse(packet.as_bytes().to_vec().into_boxed_slice())
         .map(|packet| packet.packet_type())
         .unwrap_or(PacketType::Null);
     if packet_type != PacketType::Seal {
         return Err(format!(
-            "Local route app packet is not sealed (got type: {:?})",
+            "Local route API packet is not sealed (got type: {:?})",
             packet_type
         ));
     }
@@ -746,10 +750,10 @@ fn parse_local_route_app_packet(packet: &Packet) -> Result<super::client::LocalR
         ),
         None => None,
     };
-    Ok(super::client::LocalRouteAppInfo {
+    Ok(super::client::LocalRouteApiInfo {
         upstream,
-        upstream_verification_key: packet
-            .header("Upstream-Verification-Key")
+        upstream_verifier: packet
+            .header("Upstream-Verifier")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
         content_authority: packet
@@ -772,12 +776,12 @@ fn parse_local_route_group_packet(packet: &Packet) -> Result<super::client::Loca
     Ok(super::client::LocalRouteGroupInfo {
         upstream,
         route_authority_key,
-        upstream_verification_key: packet
-            .header("Upstream-Verification-Key")
+        upstream_verifier: packet
+            .header("Upstream-Verifier")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
-        home_app: packet
-            .header("Home-App")
+        home_api: packet
+            .header("Home-API")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
     })
@@ -829,11 +833,11 @@ mod tests {
             )
             .unwrap();
 
-        let packet = runtime.get_packet("//~localruntime/app/index.html").unwrap();
+        let packet = runtime.get_packet("//~localruntime/app//index.html").unwrap();
         assert_eq!(packet.header("Content-Type"), Some("text/html; charset=utf-8"));
         assert_eq!(packet.data(), b"<h1>hello</h1>");
 
-        let list = runtime.list_entries("//~localruntime/app/index.html/").unwrap();
+        let list = runtime.list_entries("//~localruntime/app//index.html/").unwrap();
         assert!(list.contains(&"|/".to_string()));
 
         let _ = std::fs::remove_file(packet_path);
@@ -849,15 +853,16 @@ mod tests {
         let response = runtime
             .process_request(
                 HpprRequest::Add {
-                    headers: b"Location: user/test.txt\nContent-Type: text/plain\n".to_vec(),
+                    headers: b"Key: user/test.txt\nContent-Type: text/plain\n".to_vec(),
                     data: Some(b"hello local add".to_vec()),
+                    seal_with: None,
                 },
-                Some("hppr://~localruntime/app/index.html"),
+                Some("hppr://~localruntime/app//index.html"),
             )
             .unwrap();
         assert!(matches!(response.kind, ResponseKind::Lines(_)));
 
-        let packet = runtime.get_packet("//~localruntime/app/user/test.txt").unwrap();
+        let packet = runtime.get_packet("//~localruntime/app//user/test.txt").unwrap();
         assert_eq!(packet.data(), b"hello local add");
 
         let _ = std::fs::remove_file(packet_path);

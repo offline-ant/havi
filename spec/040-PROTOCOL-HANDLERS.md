@@ -4,11 +4,17 @@ Protocol handlers map browser URLs to HPPR operations.
 
 ## URL form
 
-General form:
+Canonical coordinate URL form:
 
-`scheme://group/app/location{via:endpoint}`
+`scheme://<group>/<api>//<key>{via:endpoint}`
 
-`{via:endpoint}` is optional.
+`{via:endpoint}` is optional. The empty path segment between API and Key is the API/Key delimiter and must be preserved before generic URL path normalization. Direct hash URLs use `hppr:////<hash>` and are parsed as immutable hash addresses, not coordinates.
+
+The address bar, `document.URL`, `document.documentURI`, and `window.address.href` preserve the `//<api>//<key>` delimiter for HPPR document URLs.
+
+Group landing shorthand `hppr://<group>` resolves through the group's `Home-API` when a route answer supplies one, otherwise through the implementation fallback `home`. The resulting document fetch targets `//<group>/<home-api>//index.html`.
+
+Relative links on HPPR documents resolve inside the current Key. `./x`, `x`, and `../x` change only Key segments. `../` cannot ascend above the Key root. A leading `/x` targets Key `/x` in the current group and API. Absolute `//<group>/<api>//<key>` coordinates may cross the API/Key boundary. Encoded slash bytes remain data inside the segment where they appear and do not create API or Key separators.
 
 ### Endpoint transport
 
@@ -36,40 +42,40 @@ Primary browsing scheme.
 
 ### Routed resolution
 
-For routed non-repo pages (`hppr://<group>/<app>/...`), the browser applies the
+For routed non-repo pages (`hppr://<group>/<api>//...`), the browser applies the
 HPPR route scheme effective resolver from `../../hppr/spec/100-SCHEMES.md`.
 
 That resolver combines:
 
-1. browser-local exact-app route records
+1. browser-local exact-API route records
 2. browser-local exact-group route anchors
 3. canonical public route discovery for public names
-4. browser-local route auth attachment with exact-app override and group fallback
-5. remote app content pointer resolution
+4. browser-local route auth attachment with exact-API override and group fallback
+5. remote API content pointer resolution
 
 The packet structure and merge rules for route records are defined by the HPPR
 route scheme. This spec only states browser behavior on top of that scheme.
 
 Public-network rules:
 
-- for group `u`, `//u/route/app/<app>` supplies endpoint, optional repo pin,
+- for group `u`, `//u/route/api//<api>` supplies endpoint, optional repo pin,
   and optional `Content-Authority`
-- for non-`u` groups, app `Upstream` inherits from the group record when
+- for non-`u` groups, API `Upstream` inherits from the group record when
   omitted
-- for non-`u` groups, `Content-Authority` falls back to `//u/route/app/<app>`
-  when the group app record omits it; only `Content-Authority` is inherited
-  from public app defaults, never `Upstream`
-- missing `//<group>/route/app/<app>` is a canonical public discovery failure
-- effective resolution MAY still succeed when a terminal local exact-app record
-  provides the exact route answer for `//<group>/<app>`
+- for non-`u` groups, `Content-Authority` falls back to `//u/route/api//<api>`
+  when the group API record omits it; only `Content-Authority` is inherited
+  from public API defaults, never `Upstream`
+- missing `//<group>/route/api//<api>` is a canonical public discovery failure
+- effective resolution MAY still succeed when a terminal local exact-API record
+  provides the exact route answer for `//<group>/<api>`
 - when public-network resolution produces an effective `Content-Authority`, the
   browser MUST require exact equality with the deploy pointer
   `Content-Authority`
 - if canonical public lookup fails for a public name and no local exact-group
-  or terminal local exact-app record provides the effective route answer, the
+  or terminal local exact-API record provides the effective route answer, the
   browser MUST fail navigation instead of silently falling back to a
   browser-local repo source
-- an effective local route answer, including a terminal local exact-app
+- an effective local route answer, including a terminal local exact-API
   bootstrap, is still a route-backed result; it does not convert navigation
   into a generic browser-local document fetch
 - when effective resolution selects a browser-local repo source instead of a
@@ -82,9 +88,9 @@ Fetch behavior:
 - LIST uses unsealed target: `<target>/`
 
 This is a hard cutover fetch path. When `Content-Authority` changes, older signer
-content is no longer reachable through the app URL.
+content is no longer reachable through the API URL.
 
-Origin remains `//<group>/<app>/`.
+Origin remains `//<group>/<api>/`.
 
 How a browser persists routes, asks for user approval, or offers join/setup
 flows is implementation-defined.

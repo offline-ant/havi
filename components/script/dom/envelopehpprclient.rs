@@ -227,7 +227,7 @@ impl EnvelopeHpprClient {
         false
     }
 
-    /// Extract page context (group/app/location) from current URL.
+    /// Extract page context (group/API/Key) from current URL.
     pub(crate) fn get_page_context(&self) -> (String, String, String) {
         let url = self.global().get_url();
         let url_str = url.as_str();
@@ -235,13 +235,13 @@ impl EnvelopeHpprClient {
         let coord_start = url_str.find("//").unwrap_or(url_str.len());
         let coord = &url_str[coord_start..];
         match hppr_packet::urc::URC::parse(coord.to_string()) {
-            Ok(urc) => match urc.group_app_loc() {
+            Ok(urc) => match urc.group_api_key() {
                 Some((group, rest)) => {
-                    let (app, loc) = match rest {
-                        Some((a, l)) => (a.to_string(), l.unwrap_or_default().to_string()),
+                    let (api, key) = match rest {
+                        Some((api, key)) => (api.to_string(), key.unwrap_or_default().to_string()),
                         None => (String::new(), String::new()),
                     };
-                    (group.to_string(), app, loc)
+                    (group.to_string(), api, key)
                 }
                 None => (String::new(), String::new(), String::new()),
             },
@@ -438,14 +438,14 @@ impl EnvelopeHpprClient {
         };
 
         // Detect existing coordinate headers (case-sensitive per spec)
-        let (has_group, has_app, has_loc) =
+        let (has_group, has_api, has_key) =
             custom_headers
                 .iter()
-                .fold((false, false, false), |(g, a, l), h| {
+                .fold((false, false, false), |(g, a, k), h| {
                     (
                         g || h.starts_with("Group:"),
-                        a || h.starts_with("App:"),
-                        l || h.starts_with("Location:"),
+                        a || h.starts_with("API:"),
+                        k || h.starts_with("Key:"),
                     )
                 });
 
@@ -464,16 +464,16 @@ impl EnvelopeHpprClient {
 
         // Build headers (fill in coordinates from page context if missing)
         let headers_str = custom_headers.join("\n");
-        let headers = if has_group && has_app && has_loc {
+        let headers = if has_group && has_api && has_key {
             headers_str.into_bytes()
         } else {
-            let (page_group, page_app, page_location) = self.get_page_context();
-            if page_group.is_empty() || page_app.is_empty() || page_location.is_empty() {
+            let (page_group, page_api, page_key) = self.get_page_context();
+            if page_group.is_empty() || page_api.is_empty() || page_key.is_empty() {
                 return Err(Error::Type(
-                    c"Missing Group/App/Location headers on non-HPPR page".to_owned(),
+                    c"Missing Group/API/Key headers on non-HPPR page".to_owned(),
                 ));
             }
-            let current_coord = format!("//{}/{}/{}", page_group, page_app, page_location);
+            let current_coord = format!("//{}/{page_api}//{}", page_group, page_key);
             add_coords_to_pac_headers(&headers_str, &current_coord)
                 .map_err(|e| Error::Type(cformat!("Invalid coordinates: {}", e)))?
                 .into_bytes()
@@ -484,6 +484,7 @@ impl EnvelopeHpprClient {
         let request = HpprRequest::Add {
             headers,
             data: data_opt,
+            seal_with: None,
         };
         self.send_protocol_request(request, callback);
         Ok(())

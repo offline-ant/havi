@@ -140,7 +140,7 @@ function renderNamedClients(data) {
                     <div class="section-title">Grants</div>
                     ${grantsHtml}
                     <div class="inline-row">
-                        <input type="text" id="${grantInputId(client.name)}" placeholder="Origin or page URL, e.g. hppr://group/app/index.html or https://app.example/page">
+                        <input type="text" id="${grantInputId(client.name)}" placeholder="Origin or page URL, e.g. hppr://group/api//index.html or https://app.example/page">
                         <button onclick="grantNamedClient(${JSON.stringify(client.name)})">Grant Origin</button>
                     </div>
                 </div>

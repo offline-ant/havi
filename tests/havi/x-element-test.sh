@@ -18,7 +18,7 @@ import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$CROSS_APP"
 
 # Run basic element test
 log "Running basic element test..."
-start_servo "hppr://$TEST_GROUP/$TEST_APP/x-element-basic.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//x-element-basic.html"
 run_js_tests
 
 # Cleanup servo for next test
@@ -27,7 +27,7 @@ SERVO_PID=""
 
 # Run content access test
 log "Running content access test..."
-start_servo "hppr://$TEST_GROUP/$TEST_APP/x-element-content.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//x-element-content.html"
 run_js_tests
 
 stop_pid "$SERVO_PID"
@@ -35,7 +35,7 @@ SERVO_PID=""
 
 # Run packet property test
 log "Running packet property test..."
-start_servo "hppr://$TEST_GROUP/$TEST_APP/x-element-packet.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//x-element-packet.html"
 run_js_tests
 
 stop_pid "$SERVO_PID"
@@ -43,7 +43,7 @@ SERVO_PID=""
 
 # Run cross-origin restriction test
 log "Running cross-origin restriction test..."
-start_servo "hppr://$TEST_GROUP/$TEST_APP/x-element-cross-origin.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//x-element-cross-origin.html"
 run_js_tests
 
 log "All x-element tests passed"

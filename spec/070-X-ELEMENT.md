@@ -48,12 +48,12 @@ equality.
 
 Comparison source:
 
-- app-content URLs use `Content-Authority`
+- API-content URLs use `Content-Authority`
 - direct explicit Seal URLs use resolved `Seal-By`
 - unsealed direct content has no content authority
 - `hppr-sandbox://` has no content authority
 
-Matching `//<group>/<app>` is not enough.
+Matching `//<group>/<api>` is not enough.
 Matching route or repo endpoint is not enough.
 
 ## Embed modes
@@ -75,10 +75,10 @@ Conditions:
 Behavior:
 
 - scripts enabled
-- ordinary app-origin behavior
+- ordinary API-origin behavior
 - ordinary same-origin DOM access rules
 - `contentDocument` available only when ordinary same-origin rules allow it
-- same-publisher composition behaves like a normal nested app document
+- same-publisher composition behaves like a normal nested API document
 
 ### isolated
 
@@ -179,8 +179,8 @@ element's coordinate.
 <x src="//app/widgets/sidebar.html" watch="//app/widgets/"></x>
 ```
 
-Default (`watch` with no value): watches at `//group/app/` level derived from
-`src`. Multiple elements sharing the same app share one WatchSocket connection.
+Default (`watch` with no value): watches at `//group/api//` level derived from
+`src`. Multiple elements sharing the same API share one WatchSocket connection.
 
 Explicit (`watch="<prefix>"`): watches at the specified prefix.
 

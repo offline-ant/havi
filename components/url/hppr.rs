@@ -9,7 +9,7 @@
 //! - `havi://` - Admin page URLs with simple path format
 //!
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
-//! Example: `hppr://chess/game/board.html{via:192.168.1.5:4777}`
+//! Example: `hppr://chess/game//board.html{via:192.168.1.5:4777}`
 
 use hppr_packet::urc::URC;
 use hppr_packet::CoordinateParts;
@@ -189,7 +189,7 @@ impl std::error::Error for HpprUrlParseError {}
 
 /// Build a URL with `{via:...}` suffix.
 ///
-/// `coord` is a full coordinate like `hppr://group/app/loc`.
+/// `coord` is a full coordinate like `hppr://group/api//key`.
 /// `via` is the endpoint like `192.168.1.5:4777`.
 pub fn via_url(coord: &str, via: &str) -> String {
     format!("{}{{via:{}}}", coord, via)
@@ -235,7 +235,7 @@ fn extract_via(jsonqa: &str) -> (Option<String>, String) {
 
 /// Parsed HAVIAddress combining scheme, optional endpoint, and URC.
 ///
-/// Format: `scheme://group/app/location{via:host:port}`
+/// Format: `scheme://group/api//key{via:host:port}`
 /// Endpoint is extracted from `{via:...}` JSONqa key, not from a prefix.
 #[derive(Debug, Clone)]
 pub struct HAVIAddress {
@@ -350,48 +350,48 @@ impl HAVIAddress {
         self.urc.is_listing()
     }
 
-    /// Extract coordinate parts (group, app, location) with empty string defaults.
+    /// Extract coordinate parts (group, api, key) with empty string defaults.
     ///
     /// Simplifies the common pattern of extracting fields without `unwrap_or_default()`.
-    /// Location does NOT include trailing slash.
+    /// Key does NOT include trailing slash.
     pub fn parts(&self) -> CoordinateParts {
         self.urc.parts()
     }
 
     /// Get group from URC.
     pub fn group(&self) -> Option<String> {
-        self.urc.group_app_loc().map(|(g, _)| g)
+        self.urc.group_api_key().map(|(g, _)| g)
     }
 
-    /// Get app from URC.
-    pub fn app(&self) -> Option<String> {
+    /// Get API from URC.
+    pub fn api(&self) -> Option<String> {
         self.urc
-            .group_app_loc()
+            .group_api_key()
             .and_then(|(_, rest)| rest.map(|(a, _)| a))
     }
 
-    /// Get location from URC (without trailing slash).
-    pub fn location(&self) -> Option<String> {
+    /// Get Key from URC (without trailing slash).
+    pub fn key(&self) -> Option<String> {
         self.urc
-            .group_app_loc()
-            .and_then(|(_, rest)| rest.and_then(|(_, loc)| loc))
+            .group_api_key()
+            .and_then(|(_, rest)| rest.and_then(|(_, key)| key))
     }
 
-    /// Get location preserving trailing slash for LIST mode.
+    /// Get Key preserving trailing slash for LIST mode.
     ///
-    /// Returns "/" if URL ends with / but has no explicit location (e.g., //group/app/).
-    /// Returns "loc/" if URL ends with / (e.g., //group/app/loc/).
+    /// Returns "/" if URL ends with / but has no explicit location (e.g., //group/api/).
+    /// Returns "loc/" if URL ends with / (e.g., //group/api//key/).
     /// Returns location as-is if no trailing slash.
-    pub fn location_with_slash(&self) -> String {
-        let loc = self.location().unwrap_or_default();
-        if self.is_listing() && !loc.ends_with('/') {
-            if loc.is_empty() {
+    pub fn key_with_slash(&self) -> String {
+        let key = self.key().unwrap_or_default();
+        if self.is_listing() && !key.ends_with('/') {
+            if key.is_empty() {
                 "/".to_string()
             } else {
-                format!("{}/", loc)
+                format!("{}/", key)
             }
         } else {
-            loc
+            key
         }
     }
 
@@ -401,16 +401,17 @@ impl HAVIAddress {
             matches!(self.endpoint, EndpointKind::Direct(_))
     }
 
-    /// Build a URC string from group, app, location.
+    /// Build a URC string from group, API, and Key.
     ///
-    /// Handles trailing slash for LIST mode.
-    pub fn build_urc_string(group: &str, app: &str, location: &str) -> String {
-        match (group.is_empty(), app.is_empty(), location.is_empty()) {
+    /// Empty Key means API-tree listing (`//group/api`). Key `/` means exact API Key-root
+    /// listing (`//group/api//`).
+    pub fn build_urc_string(group: &str, api: &str, key: &str) -> String {
+        match (group.is_empty(), api.is_empty(), key.is_empty()) {
             (true, _, _) => "//".to_string(),
             (false, true, _) => format!("//{}/", group),
-            (false, false, true) => format!("//{}/{}", group, app),
-            (false, false, false) if location == "/" => format!("//{}/{}/", group, app),
-            (false, false, false) => format!("//{}/{}/{}", group, app, location),
+            (false, false, true) => format!("//{}/{}", group, api),
+            (false, false, false) if key == "/" => format!("//{}/{}//", group, api),
+            (false, false, false) => format!("//{}/{}//{}", group, api, key),
         }
     }
 
@@ -512,37 +513,37 @@ mod tests {
 
     #[test]
     fn test_hppr_routed() {
-        let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html").unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         assert!(url.endpoint().is_none());
         assert_eq!(url.group(), Some("chess".to_string()));
-        assert_eq!(url.app(), Some("game".to_string()));
-        assert_eq!(url.location(), Some("board.html".to_string()));
+        assert_eq!(url.api(), Some("game".to_string()));
+        assert_eq!(url.key(), Some("board.html".to_string()));
         assert!(!url.is_listing());
     }
 
     #[test]
     fn test_hppr_with_jsonqa_suffix() {
         // JSONqa suffix must be stripped before URC parsing
-        let url = HAVIAddress::parse("hppr://u/showcase/video/index.html{src://u/showcase/video/demo.mp4}").unwrap();
+        let url = HAVIAddress::parse("hppr://u/showcase//video/index.html{src://u/showcase//video/demo.mp4}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         assert_eq!(url.group(), Some("u".to_string()));
-        assert_eq!(url.app(), Some("showcase".to_string()));
-        assert_eq!(url.location(), Some("video/index.html".to_string()));
+        assert_eq!(url.api(), Some("showcase".to_string()));
+        assert_eq!(url.key(), Some("video/index.html".to_string()));
     }
 
     #[test]
     fn test_hppr_with_percent_encoded_jsonqa() {
         // The url crate percent-encodes { -> %7B, } -> %7D
-        let url = HAVIAddress::parse("hppr://u/showcase/video/index.html%7Bsrc://u/showcase/video/demo.mp4%7D").unwrap();
+        let url = HAVIAddress::parse("hppr://u/showcase//video/index.html%7Bsrc://u/showcase//video/demo.mp4%7D").unwrap();
         assert_eq!(url.group(), Some("u".to_string()));
-        assert_eq!(url.app(), Some("showcase".to_string()));
-        assert_eq!(url.location(), Some("video/index.html".to_string()));
+        assert_eq!(url.api(), Some("showcase".to_string()));
+        assert_eq!(url.key(), Some("video/index.html".to_string()));
     }
 
     #[test]
     fn test_hppr_with_via() {
-        let url = HAVIAddress::parse("hppr://chess/game/board.html{via:192.168.1.5:4777}").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html{via:192.168.1.5:4777}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         assert!(url.has_direct_endpoint());
         let ep = url.endpoint().unwrap();
@@ -553,7 +554,7 @@ mod tests {
 
     #[test]
     fn test_hppr_via_default_port() {
-        let url = HAVIAddress::parse("hppr://chess/game/{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//{via:192.168.1.5}").unwrap();
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "192.168.1.5");
         assert_eq!(ep.port(), 4777); // Default port
@@ -566,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_hppr_sandbox() {
-        let url = HAVIAddress::parse("hppr-sandbox://group/app/index.html{via:10.0.0.5:4778}").unwrap();
+        let url = HAVIAddress::parse("hppr-sandbox://group/api//index.html{via:10.0.0.5:4778}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::HpprSandbox);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "10.0.0.5");
@@ -575,7 +576,7 @@ mod tests {
 
     #[test]
     fn test_hppr_browse() {
-        let url = HAVIAddress::parse("hppr-browse://chess/game/assets/").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://chess/game//assets/").unwrap();
         assert_eq!(url.scheme(), HpprScheme::HpprBrowse);
         assert!(url.endpoint().is_none());
         assert!(url.is_listing());
@@ -583,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_hppr_browse_with_via() {
-        let url = HAVIAddress::parse("hppr-browse://chess/game/assets/{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://chess/game//assets/{via:192.168.1.5}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::HpprBrowse);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "192.168.1.5");
@@ -608,12 +609,12 @@ mod tests {
     fn test_build_urc_string() {
         assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
         assert_eq!(HAVIAddress::build_urc_string("u", "", ""), "//u/");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", ""), "//u/app");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "loc"), "//u/app/loc");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "/"), "//u/app/");
+        assert_eq!(HAVIAddress::build_urc_string("u", "api", ""), "//u/api");
+        assert_eq!(HAVIAddress::build_urc_string("u", "api", "key"), "//u/api//key");
+        assert_eq!(HAVIAddress::build_urc_string("u", "api", "/"), "//u/api//");
         assert_eq!(
-            HAVIAddress::build_urc_string("u", "app", "loc/"),
-            "//u/app/loc/"
+            HAVIAddress::build_urc_string("u", "api", "key/"),
+            "//u/api//key/"
         );
     }
 
@@ -622,39 +623,39 @@ mod tests {
         let url = HAVIAddress::parse("hppr://chess/game/").unwrap();
         assert!(url.is_listing());
 
-        let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html").unwrap();
         assert!(!url.is_listing());
     }
 
     #[test]
     fn test_reconstruct() {
         // Reconstruct does NOT include {via:...}
-        let url = HAVIAddress::parse("hppr://chess/game/board.html{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html{via:192.168.1.5}").unwrap();
         assert_eq!(
-            url.reconstruct("//other/app/index.html"),
-            "hppr://other/app/index.html"
+            url.reconstruct("//other/app//index.html"),
+            "hppr://other/app//index.html"
         );
 
-        let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html").unwrap();
         assert_eq!(
-            url.reconstruct("//other/app/index.html"),
-            "hppr://other/app/index.html"
+            url.reconstruct("//other/app//index.html"),
+            "hppr://other/app//index.html"
         );
     }
 
     #[test]
     fn test_parts() {
-        let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html").unwrap();
         let parts = url.parts();
         assert_eq!(parts.group, "chess");
-        assert_eq!(parts.app, "game");
-        assert_eq!(parts.location, "board.html");
+        assert_eq!(parts.api, "game");
+        assert_eq!(parts.key, "board.html");
 
     }
 
     #[test]
     fn test_hppr_routed_mode() {
-        let url = HAVIAddress::parse("hppr://chess/game/board.html").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html").unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         assert!(url.is_routed());
         assert!(!url.is_direct());
@@ -663,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_hppr_direct_mode() {
-        let url = HAVIAddress::parse("hppr://chess/game/board.html{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/game//board.html{via:192.168.1.5}").unwrap();
         assert!(url.is_direct());
         assert!(!url.is_routed());
     }
@@ -680,15 +681,15 @@ mod tests {
     #[test]
     fn test_via_url() {
         assert_eq!(
-            via_url("hppr://chess/game/board.html", "192.168.1.5:4777"),
-            "hppr://chess/game/board.html{via:192.168.1.5:4777}"
+            via_url("hppr://chess/game//board.html", "192.168.1.5:4777"),
+            "hppr://chess/game//board.html{via:192.168.1.5:4777}"
         );
     }
 
     #[test]
     fn test_via_with_other_qa() {
         // {via:...} alongside other JSONqa keys
-        let url = HAVIAddress::parse("hppr://u/app/index.html{via:10.0.0.1:4777,src://u/app/data}").unwrap();
+        let url = HAVIAddress::parse("hppr://u/app//index.html{via:10.0.0.1:4777,src://u/app//data}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::Hppr);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "10.0.0.1");
@@ -717,13 +718,13 @@ mod tests {
 
     #[test]
     fn test_hppr_browse_with_via_has_direct_endpoint() {
-        let url = HAVIAddress::parse("hppr-browse://chess/game/assets/{via:192.168.1.5}").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://chess/game//assets/{via:192.168.1.5}").unwrap();
         assert!(url.has_direct_endpoint());
     }
 
     #[test]
     fn test_hppr_browse_listing_with_via() {
-        let url = HAVIAddress::parse("hppr-browse://u/web/{via:10.0.0.1}").unwrap();
+        let url = HAVIAddress::parse("hppr-browse://u/web//{via:10.0.0.1}").unwrap();
         assert_eq!(url.scheme(), HpprScheme::HpprBrowse);
         let ep = url.endpoint().unwrap();
         assert_eq!(ep.host(), "10.0.0.1");

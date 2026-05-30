@@ -131,39 +131,39 @@ impl AddressMethods<crate::DomTypeHolder> for Address {
         let current = urc.current_inner();
         let qa = urc.current_qa();
         let parts = current.parts();
-        let next = HpprURC::parse(build_coordinate(&group, &parts.app, &parts.location, current.is_listing()))
+        let next = HpprURC::parse(build_coordinate(&group, &parts.api, &parts.key, current.is_listing()))
             .map_err(|e| Error::Syntax(Some(e.to_string())))?;
         urc.set_detached_state(next, qa);
         Ok(())
     }
 
-    fn GetApp(&self) -> Fallible<Option<DOMString>> {
-        Ok(self.current_urc().GetApp())
+    fn GetApi(&self) -> Fallible<Option<DOMString>> {
+        Ok(self.current_urc().GetApi())
     }
 
-    fn SetApp(&self, value: Option<DOMString>) -> ErrorResult {
-        let app = value.map(|v| v.to_string()).unwrap_or_default();
+    fn SetApi(&self, value: Option<DOMString>) -> ErrorResult {
+        let api = value.map(|v| v.to_string()).unwrap_or_default();
         let urc = self.current_urc();
         let current = urc.current_inner();
         let qa = urc.current_qa();
         let parts = current.parts();
-        let next = HpprURC::parse(build_coordinate(&parts.group, &app, &parts.location, current.is_listing()))
+        let next = HpprURC::parse(build_coordinate(&parts.group, &api, &parts.key, current.is_listing()))
             .map_err(|e| Error::Syntax(Some(e.to_string())))?;
         urc.set_detached_state(next, qa);
         Ok(())
     }
 
-    fn GetLocation(&self) -> Fallible<Option<DOMString>> {
-        Ok(self.current_urc().GetLocation())
+    fn GetKey(&self) -> Fallible<Option<DOMString>> {
+        Ok(self.current_urc().GetKey())
     }
 
-    fn SetLocation(&self, value: Option<DOMString>) -> ErrorResult {
-        let location = value.map(|v| v.to_string()).unwrap_or_default();
+    fn SetKey(&self, value: Option<DOMString>) -> ErrorResult {
+        let key = value.map(|v| v.to_string()).unwrap_or_default();
         let urc = self.current_urc();
         let current = urc.current_inner();
         let qa = urc.current_qa();
         let parts = current.parts();
-        let next = HpprURC::parse(build_coordinate(&parts.group, &parts.app, &location, current.is_listing()))
+        let next = HpprURC::parse(build_coordinate(&parts.group, &parts.api, &key, current.is_listing()))
             .map_err(|e| Error::Syntax(Some(e.to_string())))?;
         urc.set_detached_state(next, qa);
         Ok(())

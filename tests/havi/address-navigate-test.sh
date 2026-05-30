@@ -21,7 +21,7 @@ import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
 
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
-start_servo "hppr://$TEST_GROUP/$TEST_APP/nav-start.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//nav-start.html"
 
 # ============================================================================
 # Test 1: navigate command (href setter)
@@ -31,7 +31,7 @@ log "Test 1: navigate command..."
 initial=$("$debugtool" --text eval 'window.address.location')
 [[ "$initial" == "nav-start.html" ]] || fail "Not on nav-start.html: $initial"
 
-"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_APP/nav-dest.html" >/dev/null
+"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_APP//nav-dest.html" >/dev/null
 loc=$("$debugtool" --text eval 'window.address.location')
 [[ "$loc" == "nav-dest.html" ]] || fail "navigate did not reach nav-dest.html: $loc"
 log "  navigate OK"
@@ -52,7 +52,7 @@ log "  location setter OK"
 # ============================================================================
 
 log "Test 3: window.address = url (PutForwards)..."
-"$debugtool" eval "window.address = 'hppr://$TEST_GROUP/$TEST_APP/nav-dest.html'" >/dev/null
+"$debugtool" eval "window.address = 'hppr://$TEST_GROUP/$TEST_APP//nav-dest.html'" >/dev/null
 "$debugtool" --text wait-for "window.address.location === 'nav-dest.html'" >/dev/null
 loc=$("$debugtool" --text eval 'window.address.location')
 [[ "$loc" == "nav-dest.html" ]] || fail "PutForwards did not navigate: $loc"

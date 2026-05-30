@@ -15,15 +15,15 @@ interface HpprPacket {
     DOMString? getHeader(DOMString name);        // Get single header value
     sequence<DOMString> getHeaders(DOMString name);  // Get all values for header
     sequence<DOMString> headers();               // All headers as "Name: value" strings
-    sequence<DOMString> customHeaders();           // Custom plex headers only (excludes Group, App, Location, Tai, Blob markline, and Data-Length)
+    sequence<DOMString> customHeaders();           // Custom plex headers only (excludes Group, API, Key, Tai, Blob markline, and Data-Length)
 
     // Coordinate (plex/seal only)
     readonly attribute DOMString? group;
-    readonly attribute DOMString? app;
-    readonly attribute DOMString? location;
+    readonly attribute DOMString? api;
+    readonly attribute DOMString? key;
     readonly attribute DOMString? tai;           // TAI timestamp (ssssssssss:ffffffff)
     object? taiDate();                           // TAI as JavaScript Date object
-    readonly attribute DOMString? coordinate;    // Full //<group>/<app>/<location>
+    readonly attribute DOMString? coordinate;    // Full //<group>/<api>//<key>
 
     // Seal info (seal only)
     readonly attribute DOMString? sealBy;        // V.xxx.H3 verification key

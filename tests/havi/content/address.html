@@ -19,56 +19,56 @@
   <script>
     async function suite_address() {
         log('--- detached Address constructor ---');
-        const addr1 = new Address('hppr://chess/game/board.html');
+        const addr1 = new Address('hppr://chess/game//board.html');
         assert(addr1 !== null, 'constructor works');
-        assertEqual(addr1.href, 'hppr://chess/game/board.html', 'href matches input');
+        assertEqual(addr1.href, 'hppr://chess/game//board.html', 'href matches input');
         assertEqual(addr1.scheme, 'hppr', 'scheme is hppr');
         assertEqual(addr1.group, 'chess', 'group accessor');
-        assertEqual(addr1.app, 'game', 'app accessor');
-        assertEqual(addr1.location, 'board.html', 'location accessor');
+        assertEqual(addr1.api, 'game', 'api accessor');
+        assertEqual(addr1.key, 'board.html', 'key accessor');
         assertEqual(addr1.isListing, false, 'isListing false for file');
         assertEqual(addr1.qa, null, 'qa null when absent');
         assertEqual(addr1.fragment, null, 'fragment null when absent');
 
         log('--- exact via stays in qa ---');
-        const direct = new Address('hppr://g/a/p{via:10.0.0.1}');
+        const direct = new Address('hppr://g/a//p{via:10.0.0.1}');
         assertEqual(direct.qa.via, '10.0.0.1', 'exact via text stays in qa.via');
         assertContains(direct.href, 'via:10.0.0.1', 'href keeps exact via syntax in qa');
 
-        const withPort = new Address('hppr://g/a/p{via:10.0.0.1:9000}');
+        const withPort = new Address('hppr://g/a//p{via:10.0.0.1:9000}');
         assertEqual(withPort.qa.via, '10.0.0.1:9000', 'explicit port preserved in qa.via');
 
         log('--- coordinate and urc ---');
-        assertContains(addr1.coordinate, '//chess/game/board.html', 'coordinate contains path');
+        assertContains(addr1.coordinate, '//chess/game//board.html', 'coordinate contains path');
         const u1 = addr1.urc;
         const u2 = addr1.urc;
         assert(u1 === u2, 'urc returns same object');
         assertEqual(u1.group, 'chess', 'urc.group matches');
 
         log('--- detached mutation keeps same urc object ---');
-        const addr2 = new Address('hppr://g/a/p');
+        const addr2 = new Address('hppr://g/a//p');
         const addr2Urc = addr2.urc;
         addr2.qa = { test: 'value', '#': 'frag' };
         assert(addr2.urc === addr2Urc, 'detached urc identity stays stable after qa mutation');
         assertEqual(addr2.qa.test, 'value', 'qa getter reflects new value');
         assertContains(addr2.href, 'test', 'href reflects new qa key after setter');
         assertContains(addr2.urc.href, '#:frag', 'urc href reflects updated fragment');
-        addr2.location = 'next.html';
-        assert(addr2.urc === addr2Urc, 'detached urc identity stays stable after location mutation');
-        assertEqual(addr2.location, 'next.html', 'location setter mutates detached address');
-        assertContains(addr2.href, 'next.html', 'href reflects detached location mutation');
+        addr2.key = 'next.html';
+        assert(addr2.urc === addr2Urc, 'detached urc identity stays stable after key mutation');
+        assertEqual(addr2.key, 'next.html', 'key setter mutates detached address');
+        assertContains(addr2.href, 'next.html', 'href reflects detached key mutation');
 
         log('--- qa clearing ---');
-        const addr3 = new Address('hppr://g/a/p{k:v}');
+        const addr3 = new Address('hppr://g/a//p{k:v}');
         addr3.qa = null;
         assertEqual(addr3.qa, null, 'qa is null after clearing');
-        assertEqual(addr3.href, 'hppr://g/a/p', 'href has no qa after clearing');
+        assertEqual(addr3.href, 'hppr://g/a//p', 'href has no qa after clearing');
 
         log('--- scheme variants ---');
-        const sandbox = new Address('hppr-sandbox://g/a/{via:host}');
+        const sandbox = new Address('hppr-sandbox://g/a//{via:host}');
         assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme');
 
-        const browse = new Address('hppr-browse://g/a/');
+        const browse = new Address('hppr-browse://g/a//');
         assertEqual(browse.scheme, 'hppr-browse', 'hppr-browse scheme');
 
 
@@ -79,15 +79,15 @@
         assertEqual(err.name, 'SyntaxError', 'SyntaxError for unknown scheme');
 
         err = null;
-        try { new Address('hppr-setup://g/a/'); } catch (e) { err = e; }
+        try { new Address('hppr-setup://g/a//'); } catch (e) { err = e; }
         assert(err !== null, 'removed hppr-setup scheme rejects parsing');
 
         err = null;
-        try { new Address('hppr-editor://g/a/'); } catch (e) { err = e; }
+        try { new Address('hppr-editor://g/a//'); } catch (e) { err = e; }
         assert(err !== null, 'removed hppr-editor scheme rejects parsing');
 
         err = null;
-        try { new Address('hppr-join://g/a/'); } catch (e) { err = e; }
+        try { new Address('hppr-join://g/a//'); } catch (e) { err = e; }
         assert(err !== null, 'removed hppr-join scheme rejects parsing');
 
         log('--- setter availability ---');
@@ -97,10 +97,10 @@
         assert(schemeDesc.set === undefined, 'scheme has no setter');
         const groupDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'group');
         assert(typeof groupDesc.set === 'function', 'group has setter');
-        const appDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'app');
-        assert(typeof appDesc.set === 'function', 'app has setter');
-        const locDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'location');
-        assert(typeof locDesc.set === 'function', 'location has setter');
+        const apiDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'api');
+        assert(typeof apiDesc.set === 'function', 'api has setter');
+        const keyDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'key');
+        assert(typeof keyDesc.set === 'function', 'key has setter');
         const coordDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'coordinate');
         assert(coordDesc.set === undefined, 'coordinate has no setter');
         const listDesc = Object.getOwnPropertyDescriptor(Address.prototype, 'isListing');
@@ -115,8 +115,8 @@
         assert(window.address !== undefined, 'window.address is defined');
         assertEqual(window.address.scheme, 'hppr', 'window.address.scheme');
         assertEqual(window.address.group, '~addrtest', 'window.address.group');
-        assertEqual(window.address.app, 'testapp', 'window.address.app');
-        assertEqual(window.address.location, 'address.html', 'window.address.location');
+        assertEqual(window.address.api, 'testapp', 'window.address.api');
+        assertEqual(window.address.key, 'address.html', 'window.address.key');
         assertContains(window.address.href, 'hppr://', 'window.address.href has scheme');
         assert(window.address.urc === window.address.urc, 'window.address.urc is SameObject');
     }

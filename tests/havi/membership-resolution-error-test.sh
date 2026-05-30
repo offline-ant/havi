@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="membership-resolution-error"
 TEST_GROUP="memberfail"
-TEST_APP="site"
+TEST_API="site"
 
 start_server
 start_remote_server
@@ -18,28 +18,28 @@ REMOTE_REPO_VKEY=$(HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPP
 # but the membership entrypoint contains invalid Member-Delegate data so routed
 # Ring2 auth fails with MEMBERS resolution failed.
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring2 setup "//$TEST_GROUP" --init >/dev/null
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/members" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/members//root" \
     -H 'Seal-By: ring0' \
     -H 'Member-Delegate: bad-delegate' <<< '' >/dev/null
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_API//index.html" \
     -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Membership Failure</title>
 <h1>Membership Failure</h1>
 EOF
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy//$TEST_API" \
     -H 'Seal-By: ring0' \
-    -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
+    -H "Content-Root: //$TEST_GROUP/$TEST_API//" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 # Home repo route points directly at the remote target repo.
-HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//repo/route/app/$TEST_GROUP/$TEST_APP" \
+HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//repo/route/api//$TEST_GROUP/$TEST_API" \
     -H 'Seal-By: ring0' \
     -H "Upstream: $REMOTE_HOME" \
-    -H "Upstream-Verification-Key: $REMOTE_REPO_VKEY" <<< '' >/dev/null
+    -H "Upstream-Verifier: $REMOTE_REPO_VKEY" <<< '' >/dev/null
 
-start_servo "hppr://$TEST_GROUP/$TEST_APP/index.html"
+start_servo "hppr://$TEST_GROUP/$TEST_API//index.html"
 
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
@@ -55,7 +55,7 @@ body=$($debugtool --timeout 5 eval 'document.querySelector(".error")?.textConten
 [[ "$body" == *"Member-Delegate"* ]] || fail "error page missing membership detail: $body"
 
 current=$($debugtool --timeout 5 tabs 2>/dev/null | jq -r 'select(.ok == true) | .value[0].url' | tail -1)
-[[ "$current" == "hppr://$TEST_GROUP/$TEST_APP/index.html" ]] || fail "expected to stay on hppr:// page, got: $current"
+[[ "$current" == "hppr://$TEST_GROUP/$TEST_API//index.html" ]] || fail "expected to stay on hppr:// page, got: $current"
 
 set +e
 join_title=$($debugtool --timeout 5 eval 'document.title === "Join group - HAVI"' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)

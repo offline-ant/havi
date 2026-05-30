@@ -16,7 +16,7 @@
   <pre id="results"></pre>
 
   <h2>Test Element</h2>
-  <x id="test-x" src="//test/app/embed.html" width="400" height="200"></x>
+  <x id="test-x" src="//test/app//embed.html" width="400" height="200"></x>
 
   <h2>Packet Data</h2>
   <pre id="packet-data">Loading...</pre>
@@ -69,7 +69,7 @@
 
         log('--- Packet coordinate test ---');
         assert(typeof packet.coordinate === 'string', 'packet.coordinate exists');
-        assertEqual(packet.coordinate, '//test/app/embed.html', 'packet.coordinate correct');
+        assertEqual(packet.coordinate, '//test/app//embed.html', 'packet.coordinate correct');
 
         log('--- Packet size test ---');
         if (typeof packet.size === 'number') {

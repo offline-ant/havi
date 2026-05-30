@@ -71,7 +71,7 @@ impl ProtocolHandler for HpprHandler {
                                     pipeline_id,
                                     HpprDocumentSourceSnapshot {
                                         group: parts.group,
-                                        app: parts.app,
+                                        api: parts.api,
                                         source,
                                     },
                                 );

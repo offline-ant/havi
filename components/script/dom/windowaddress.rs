@@ -36,13 +36,14 @@ pub(crate) fn format_optional_qa(qa: Option<&Qa>) -> String {
     qa.map(ToString::to_string).unwrap_or_default()
 }
 
-pub(crate) fn build_coordinate(group: &str, app: &str, location: &str, is_listing: bool) -> String {
-    match (group.is_empty(), app.is_empty(), location.is_empty()) {
+pub(crate) fn build_coordinate(group: &str, api: &str, key: &str, is_listing: bool) -> String {
+    match (group.is_empty(), api.is_empty(), key.is_empty()) {
         (true, _, _) => "//".to_string(),
         (false, true, _) => format!("//{group}/"),
-        (false, false, true) => format!("//{group}/{app}/"),
-        (false, false, false) if is_listing => format!("//{group}/{app}/{location}/"),
-        (false, false, false) => format!("//{group}/{app}/{location}"),
+        (false, false, true) if is_listing => format!("//{group}/{api}//"),
+        (false, false, true) => format!("//{group}/{api}/"),
+        (false, false, false) if is_listing => format!("//{group}/{api}//{key}/"),
+        (false, false, false) => format!("//{group}/{api}//{key}"),
     }
 }
 

@@ -101,7 +101,7 @@ Default browsing does not start `hpprd` just to back ordinary
 
 ### Public network routing
 
-For `hppr://<group>/<app>/...` without a local route, HAVI may resolve the
+For `hppr://<group>/<api>//...` without a local route, HAVI may resolve the
 public network for an upstream endpoint.
 
 Current HAVI behavior:
@@ -113,7 +113,7 @@ Current HAVI behavior:
 - routed resolution decisions are printed to stderr with the selected source,
   endpoint, and public-network details
 - failed canonical public lookup for a public name is a navigation failure
-  unless local exact-group or terminal local exact-app records supply the
+  unless local exact-group or terminal local exact-API records supply the
   effective route answer
 - HAVI does not silently fall back to generic browser-local repo content for that case
 - routed `UNAUTHORIZED not a member` failures now stay explicit error pages
@@ -125,8 +125,8 @@ Current HAVI shell behavior:
 
 - the address bar is single-line and strips `\r`, `\n`, and `\t`
 - a bare public group name like `eu` or `lab.eu` resolves to that group's
-  landing page as `hppr://<group>/<home-app>/index.html`; when no effective
-  `Home-App` is configured, HAVI uses `home`
+  landing page as `hppr://<group>/<home-api>//index.html`; when no effective
+  `Home-API` is configured, HAVI uses `home`
 - desktop HAVI disables the stock Makepad caption bar and uses empty tab-strip
   space as the draggable caption region
 - the main toolbar shows browser-first controls only: back, forward, URL input,
@@ -151,7 +151,7 @@ Two settings control behavior:
 
 - `None` — no watching
 - `Page` — watch the current page coordinate only
-- `App` — watch the entire app
+- `App` — watch the entire API
 
 **Navigate**:
 
@@ -170,10 +170,10 @@ Wire protocol values:
 
 Shadow mode is a HAVI local-authoring feature.
 
-When enabled for `//<group>/<app>/`, HAVI resolves routed page loads against a
+When enabled for `//<group>/<api>//`, HAVI resolves routed page loads against a
 local shadow root:
 
-`//~<group>/<app>/...`
+`//~<group>/<api>//...`
 
 Current HAVI behavior:
 
@@ -226,7 +226,7 @@ ambient `window.home` credentials.
 
 Current browser-owned auth writes are limited to local route auth records under
 `//repo/route/auth/` as part of HPPR route-scheme behavior.
-Exact-app auth overrides group-default auth.
+Exact-API auth overrides group-default auth.
 When no local route auth record exists, routed access falls back to `anyone`.
 Join/setup pages are HAVI UI on top of that general HPPR mechanism.
 

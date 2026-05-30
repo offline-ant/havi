@@ -33,7 +33,7 @@ log "Test data size: $(wc -c < "$CHUNK_DIR/data.txt") bytes"
 HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' $HPPR chunk "$CHUNK_DIR/data.txt" \
     --chunk-size 1024 \
     --seal-by "$REMOTE_SECRET_KEY" \
-    "//$TEST_GROUP/$TEST_APP/chunked/data.txt"
+    "//$TEST_GROUP/$TEST_APP//chunked/data.txt"
 log "Chunked data stored"
 
 # --- Store a small multi-chunk manifest through the surviving chunk writer ---
@@ -43,7 +43,7 @@ printf 'AAAAAAAAAABBBBBBBBBBCCCCCCCCCC' > "$CHUNK_DIR/nested.bin"
 HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' $HPPR chunk "$CHUNK_DIR/nested.bin" \
     --chunk-size 10 \
     --seal-by "$REMOTE_SECRET_KEY" \
-    "//$TEST_GROUP/$TEST_APP/chunked/nested.bin"
+    "//$TEST_GROUP/$TEST_APP//chunked/nested.bin"
 log "Multi-chunk manifest stored (30 bytes via chunk writer)"
 
 rm -rf "$CHUNK_DIR"
@@ -53,5 +53,5 @@ setup_route "$TEST_GROUP" "$TEST_APP"
 
 # === JS tests: Range requests on chunked content ===
 log "=== Phase 1: Chunk seek JS tests ==="
-start_servo "hppr://$TEST_GROUP/$TEST_APP/chunk-seek-test.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//chunk-seek-test.html"
 run_js_tests 30

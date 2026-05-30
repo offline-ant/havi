@@ -46,8 +46,8 @@ seed_result=$($debugtool --timeout 10 eval --await '
     const q = new URLSearchParams({
         cmd: "local_add",
         group: "~localruntime",
-        app: "app",
-        location: "index.html",
+        api: "app",
+        key: "index.html",
         content_type: "text/html; charset=utf-8",
         data: "<!doctype html><title>Local Runtime Test</title><h1>Local Runtime Test</h1>"
     });
@@ -57,7 +57,7 @@ seed_result=$($debugtool --timeout 10 eval --await '
 })()' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$seed_result" == "ok" ]] || fail "local runtime seed failed: $seed_result"
 
-"$debugtool" --text navigate 'hppr://~localruntime/app/index.html' >/dev/null
+"$debugtool" --text navigate 'hppr://~localruntime/app//index.html' >/dev/null
 "$debugtool" --text wait-for 'document.title === "Local Runtime Test"' >/dev/null
 
 client_result=$($debugtool --timeout 10 eval --await '
@@ -66,11 +66,11 @@ client_result=$($debugtool --timeout 10 eval --await '
     if (!source) return "missing-source";
     if (source.kind !== "repo") return "bad-kind:" + source.kind;
     const hashes = await source.client.add({
-        headers: ["Location: user/from-client.txt", "Content-Type: text/plain"],
+        headers: ["Key: user/from-client.txt", "Content-Type: text/plain"],
         data: "browser local ok"
     });
     if (!Array.isArray(hashes) || hashes.length < 1) return "bad-add";
-    const packet = await source.client.get("//~localruntime/app/user/from-client.txt");
+    const packet = await source.client.get("//~localruntime/app//user/from-client.txt");
     const text = await packet.text();
     return text.trim() === "browser local ok" ? "ok" : "bad-readback";
 })()' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)

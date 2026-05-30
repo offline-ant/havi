@@ -131,12 +131,12 @@ Interpretation:
    source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
    TEST_NAME="foo"
    TEST_GROUP="footest"
-   TEST_APP="testapp"
+   TEST_API="testapp"
    start_server
-   setup_acl "$TEST_GROUP" "$TEST_APP"
+   setup_acl "$TEST_GROUP" "$TEST_API"
    create_key
-   import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
-   start_servo "hppr://$TEST_GROUP/$TEST_APP/foo.html"
+   import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_API"
+   start_servo "hppr://$TEST_GROUP/$TEST_API//foo.html"
    run_js_tests
    ```
 3. `chmod +x foo-test.sh`

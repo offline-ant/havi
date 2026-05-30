@@ -6,11 +6,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="named-client"
 TEST_GROUP="~namedclienttest"
-TEST_APP="testapp"
+TEST_API="testapp"
 
 start_server
-HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.. "//$TEST_GROUP/$TEST_APP/"
-HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
+HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.. "//$TEST_GROUP/$TEST_API//"
+HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_API//index.html" \
     -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
@@ -18,7 +18,7 @@ HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" 
 <h1>Named Client Test</h1>
 EOF
 
-start_servo "hppr://$TEST_GROUP/$TEST_APP/index.html"
+start_servo "hppr://$TEST_GROUP/$TEST_API//index.html"
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
 page_scope=$($debugtool --text eval 'window.address.href' 2>/dev/null || true)
@@ -76,18 +76,18 @@ list_result=$($debugtool --timeout 10 eval --await '
 })()' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$list_result" == "ok" ]] || fail "Named client list did not show saved client + grant: $list_result"
 
-"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_APP/index.html" >/dev/null
+"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_API//index.html" >/dev/null
 "$debugtool" --text wait-for 'document.title === "Named Client Test"' >/dev/null
 
 use_result=$($debugtool --timeout 10 eval --await '
 (async () => {
     const client = await HpprClient.named("writer");
     const hashes = await client.add({
-        headers: ["Location: user/named-client.txt"],
+        headers: ["Key: user/named-client.txt"],
         data: "named client ok"
     });
     if (!Array.isArray(hashes) || hashes.length < 1) return "bad-add";
-    const packet = await window.source.client.get("//~namedclienttest/testapp/user/named-client.txt");
+    const packet = await window.source.client.get("//~namedclienttest/testapp//user/named-client.txt");
     return (await packet.text()).trim() === "named client ok" ? "ok" : "bad-readback";
 })()' 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$use_result" == "ok" ]] || fail "Named client use failed: $use_result"
@@ -108,7 +108,7 @@ revoke_result=$($debugtool --timeout 10 eval --await "
 })()" 2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$revoke_result" == "ok" ]] || fail "Failed to revoke named client: $revoke_result"
 
-"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_APP/index.html" >/dev/null
+"$debugtool" --text navigate "hppr://$TEST_GROUP/$TEST_API//index.html" >/dev/null
 "$debugtool" --text wait-for 'document.title === "Named Client Test"' >/dev/null
 
 denied_after_revoke=$($debugtool --timeout 10 eval --await '

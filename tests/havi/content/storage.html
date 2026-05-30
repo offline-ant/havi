@@ -80,11 +80,11 @@
 
         // --- origin isolation test ---
         log('--- origin isolation tests ---');
-        // Verify storage is scoped to the HPPR origin (group+app).
+        // Verify storage is scoped to the HPPR origin (group+API).
         // We store a value and confirm it persists within this page context.
-        localStorage.setItem('origin-marker', document.packet.group + '/' + document.packet.app);
+        localStorage.setItem('origin-marker', document.packet.group + '/' + document.packet.api);
         assertEqual(localStorage.getItem('origin-marker'),
-                     document.packet.group + '/' + document.packet.app,
+                     document.packet.group + '/' + document.packet.api,
                      'localStorage scoped to hppr origin');
 
         localStorage.clear();

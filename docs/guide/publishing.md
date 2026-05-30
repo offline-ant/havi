@@ -9,16 +9,16 @@ This guide covers current publishing workflows for HAVI and HPPR.
 Use `havi-cli publish` when HAVI is already running with DevTools enabled.
 
 ```bash
-HAVI_DEVTOOLS=6000 ./havi/havi-cli publish //u/site/index.html ./index.html
+HAVI_DEVTOOLS=6000 ./havi/havi-cli publish //u/site//index.html ./index.html
 ```
 
 What it does:
 
 1. `hppr add --seal-by ring0` with inferred `Content-Type`
-2. navigates HAVI to `hppr://u/site/index.html`
+2. navigates HAVI to `hppr://u/site//index.html`
 
 `havi-cli deploy` uses the same `hppr add --seal-by ring0` path for the
-`//<group>/admin/deploy/<app>/|` content-pointer packet.
+`//<group>/admin/deploy//<api>/|` content-pointer packet.
 
 Use this for quick iteration on one file.
 
@@ -33,30 +33,30 @@ export HPPR_SIGNER='ring1:ring0|init'
 # publish content
 hppr add --seal-by ring0 \
   -H 'Content-Type: text/html; charset=utf-8' \
-  //u/site/index.html < ./index.html
+  //u/site//index.html < ./index.html
 ```
 
 Use this for CI scripts and repeatable deploy steps.
 
-### 3) Route app content pointer (routed apps)
+### 3) Route API content pointer (routed APIs)
 
-For routed origins (`hppr://<group>/<app>/...`), set app content pointer
+For routed origins (`hppr://<group>/<api>//...`), set API content pointer
 metadata on the upstream repo:
 
 ```bash
-./havi/havi-cli deploy <group> <app> //<content-root> <content-authority>
+./havi/havi-cli deploy <group> <api> //<content-root> <content-authority>
 ```
 
 This writes:
 
-`//<group>/admin/deploy/<app>/|`
+`//<group>/admin/deploy//<api>/|`
 
 Headers:
 
 - `Content-Root: //<...>`
 - `Content-Authority: V.<...>.H3`
 
-At runtime HAVI resolves routed GET/LIST through this app content pointer.
+At runtime HAVI resolves routed GET/LIST through this API content pointer.
 
 ### 4) Exact-bytes path: `mkpac` + `store`
 
@@ -64,7 +64,7 @@ Use this when you must control packet bytes exactly (offline build pipelines,
 reproducible artifacts, prebuilt packet bundles).
 
 ```bash
-hppr mkpac seal -k "$SIGNING_KEY" //u/site/index.html < ./index.html | hppr store
+hppr mkpac seal -k "$SIGNING_KEY" //u/site//index.html < ./index.html | hppr store
 ```
 
 - `mkpac` builds the packet locally.
@@ -75,7 +75,7 @@ hppr mkpac seal -k "$SIGNING_KEY" //u/site/index.html < ./index.html | hppr stor
 For content above blob limits, use chunk manifests.
 
 ```bash
-hppr chunk ./video.mp4 //u/media/video.mp4 --seal-by "$SIGNING_KEY"
+hppr chunk ./video.mp4 //u/media//video.mp4 --seal-by "$SIGNING_KEY"
 ```
 
 Clients that support chunk manifests read it transparently.
@@ -95,7 +95,7 @@ For whole-site import/export, use filesystem mount + copy.
 
 ```bash
 hppr-fuse --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
-  --root //u/site --mount /mnt/hppr --rw --seal-with ring0 &
+  --root //u/site// --mount /mnt/hppr --rw --seal-with ring0 &
 cp -a ./site/. /mnt/hppr/
 fusermount3 -u /mnt/hppr
 ```
@@ -104,7 +104,7 @@ fusermount3 -u /mnt/hppr
 
 ```bash
 hppr-nfs --home "$HPPR_HOME" --signer "$HPPR_SIGNER" \
-  --root //u/site --rw --seal-with ring0 --bind 127.0.0.1:3049
+  --root //u/site// --rw --seal-with ring0 --bind 127.0.0.1:3049
 ```
 
 Then mount and copy using your OS NFS client:
@@ -138,15 +138,15 @@ hppr key pubkey site-admin
 ## Verify after publish
 
 ```bash
-hppr headers //u/site/index.html
-hppr data //u/site/index.html > /tmp/index.out
-hppr tips //u/site/index.html
+hppr headers //u/site//index.html
+hppr data //u/site//index.html > /tmp/index.out
+hppr tips //u/site//index.html
 ```
 
 For live updates:
 
 ```bash
-hppr watch //u/site/
+hppr watch //u/site//
 ```
 
 ## Next

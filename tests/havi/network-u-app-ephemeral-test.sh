@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="network-u-app-ephemeral"
 TEST_GROUP="u"
-TEST_APP="netuapp"
+TEST_API="netuapp"
 
 start_server
 start_remote_server
@@ -18,18 +18,18 @@ REMOTE_REPO_VKEY=$(awk -F': ' '/^Seal-By:/{print $2; exit}' <<<"$REMOTE_HELLO")
 REMOTE_UDP_PORT=$(awk -F'udp:' '/^Transport: udp:/{print $2; exit}' <<<"$REMOTE_HELLO")
 
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring2 setup "//u" --init
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/$TEST_APP/"
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/admin/deploy/"
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/$TEST_APP/index.html" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/$TEST_API//"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//u/admin/deploy//"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/$TEST_API//index.html" \
     -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Network U App Ephemeral</title>
 <h1>Network U App Ephemeral</h1>
 EOF
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/admin/deploy/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//u/admin/deploy//$TEST_API" \
     -H 'Seal-By: ring0' \
-    -H "Content-Root: //u/$TEST_APP" \
+    -H "Content-Root: //u/$TEST_API//" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
 ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
@@ -37,7 +37,7 @@ ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
 ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
 ROUTE_ROOT_VK=$("$HPPR" key pubkey "$ROUTE_ROOT_KEY")
 
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route app put "//u/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//u/$TEST_API" \
     --upstream "$REMOTE_HOME" \
     --upstream-vkey "$REMOTE_REPO_VKEY" \
     --content-authority "$REMOTE_REPO_VKEY" \
@@ -49,7 +49,7 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone
 export _HPPR_ROUTE_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
 export _HPPR_ROUTE_ROOT_PUBKEY="$ROUTE_ROOT_VK"
 
-start_servo "hppr://u/$TEST_APP/index.html"
+start_servo "hppr://u/$TEST_API//index.html"
 
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
@@ -61,7 +61,7 @@ done
 [[ "$title" == "Network U App Ephemeral" ]] || fail "expected public-root app page, got title: ${title:-<none>}"
 
 set +e
-route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" headers "//repo/route/app/u/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
+route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" headers "//repo/route/api//u/$TEST_API/|/seal/$HOME_REPO_VKEY" 2>&1)
 route_status=$?
 set -e
 [[ "$route_status" -ne 0 ]] || fail "public root app navigation should not persist local route: $route_headers"

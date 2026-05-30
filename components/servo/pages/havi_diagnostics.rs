@@ -7,17 +7,17 @@ use std::sync::Arc;
 use crate::hppr::client::HpprdClientAsync;
 use crate::hppr::credentials::CredentialStoreHandle;
 use crate::hppr::local_runtime::{default_repo_backed_runtime_is_local, global_local_runtime};
-use crate::hppr::util::{append_location, signing_to_verifying_key};
+use crate::hppr::util::{append_key, signing_to_verifying_key};
 
 async fn inspect_route_content_pointer_auth(
     group: &str,
-    app: &str,
-    location: &str,
+    api: &str,
+    key: &str,
     client: &Arc<HpprdClientAsync>,
     _credential_store: &CredentialStoreHandle,
 ) -> serde_json::Value {
-    if group.trim().is_empty() || app.trim().is_empty() {
-        return serde_json::json!({"error": "missing group/app"});
+    if group.trim().is_empty() || api.trim().is_empty() {
+        return serde_json::json!({"error": "missing group/api"});
     }
 
     let mut route_endpoint = client.target();
@@ -35,12 +35,12 @@ async fn inspect_route_content_pointer_auth(
         let runtime = global_local_runtime();
         let repo_vkey = runtime.verifying_key().to_string();
         local_repo_vkey = Some(repo_vkey.clone());
-        match runtime.get_local_route_app(group, app, &repo_vkey) {
+        match runtime.get_local_route_api(group, api, &repo_vkey) {
             Ok(route) => {
                 if let Some(upstream) = route.upstream.clone() {
                     route_endpoint = upstream;
                 }
-                route_upstream_key = route.upstream_verification_key.clone();
+                route_upstream_key = route.upstream_verifier.clone();
                 route_json = serde_json::json!({
                     "configured": true,
                     "endpoint": route_endpoint.to_string(),
@@ -61,12 +61,12 @@ async fn inspect_route_content_pointer_auth(
         match client.get_admin_identity().await {
             Ok(repo_vkey) => {
                 local_repo_vkey = Some(repo_vkey.clone());
-                match client.get_local_route_app(group, app, &repo_vkey).await {
+                match client.get_local_route_api(group, api, &repo_vkey).await {
                     Ok(route) => {
                         if let Some(upstream) = route.upstream.clone() {
                             route_endpoint = upstream;
                         }
-                        route_upstream_key = route.upstream_verification_key.clone();
+                        route_upstream_key = route.upstream_verifier.clone();
                         route_json = serde_json::json!({
                             "configured": true,
                             "endpoint": route_endpoint.to_string(),
@@ -90,13 +90,13 @@ async fn inspect_route_content_pointer_auth(
         }
     }
 
-    let public_network_json = match hppr_client::lookup_route_if_public_async(group, app).await {
+    let public_network_json = match hppr_client::lookup_route_if_public_async(group, api).await {
         Ok(Some(lookup)) => serde_json::json!({
             "available": true,
             "endpoint": lookup.endpoint.to_string(),
-            "upstreamVerificationKey": lookup.upstream_verification_key,
+            "upstreamVerificationKey": lookup.upstream_verifier,
             "contentAuthority": lookup.content_authority,
-            "rootSigner": lookup.root_signer,
+            "rootVerifier": lookup.root_verifier,
             "groupRouteAuthorityKey": lookup.group_record.as_ref().map(|r| r.route_authority_key.clone()),
             "groupChain": lookup.group_chain.iter().map(|r| serde_json::json!({
                 "parentGroup": r.parent_group.clone(),
@@ -104,8 +104,8 @@ async fn inspect_route_content_pointer_auth(
                 "resolvedGroup": r.resolved_group.clone(),
                 "routeAuthorityKey": r.route_authority_key.clone(),
                 "upstream": r.upstream.to_string(),
-                "upstreamVerificationKey": r.upstream_verification_key.clone(),
-                "homeApp": r.home_app.clone(),
+                "upstreamVerificationKey": r.upstream_verifier.clone(),
+                "homeApi": r.home_api.clone(),
             })).collect::<Vec<_>>(),
             "error": serde_json::Value::Null,
         }),
@@ -114,7 +114,7 @@ async fn inspect_route_content_pointer_auth(
             "endpoint": serde_json::Value::Null,
             "upstreamVerificationKey": serde_json::Value::Null,
             "contentAuthority": serde_json::Value::Null,
-            "rootSigner": serde_json::Value::Null,
+            "rootVerifier": serde_json::Value::Null,
             "groupRouteAuthorityKey": serde_json::Value::Null,
             "groupChain": serde_json::Value::Null,
             "error": "not public name",
@@ -124,7 +124,7 @@ async fn inspect_route_content_pointer_auth(
             "endpoint": serde_json::Value::Null,
             "upstreamVerificationKey": serde_json::Value::Null,
             "contentAuthority": serde_json::Value::Null,
-            "rootSigner": serde_json::Value::Null,
+            "rootVerifier": serde_json::Value::Null,
             "groupRouteAuthorityKey": serde_json::Value::Null,
             "groupChain": serde_json::Value::Null,
             "error": e.to_string(),
@@ -138,9 +138,9 @@ async fn inspect_route_content_pointer_auth(
 
     if let Some(repo_vkey) = local_repo_vkey.clone() {
         let route_auth_result = if default_repo_backed_runtime_is_local() {
-            global_local_runtime().get_route_auth(group, Some(app), &repo_vkey)
+            global_local_runtime().get_route_auth(group, Some(api), &repo_vkey)
         } else {
-            client.get_route_auth(group, Some(app), &repo_vkey).await
+            client.get_route_auth(group, Some(api), &repo_vkey).await
         };
         match route_auth_result {
             Ok(route_key) => {
@@ -201,9 +201,9 @@ async fn inspect_route_content_pointer_auth(
             .as_ref()
             .map(Arc::clone)
             .unwrap_or_else(|| Arc::clone(&route_anyone));
-        match content_pointer_client.get_content_pointer(group, app, &repo_vkey).await {
+        match content_pointer_client.get_content_pointer(group, api, &repo_vkey).await {
             Ok(content_pointer) => {
-                let target = append_location(&content_pointer.root, location);
+                let target = append_key(&content_pointer.root, key);
                 let target_urc = format!("{}/|/seal/{}", target, content_pointer.authority);
                 content_root = Some(content_pointer.root.clone());
                 content_authority = Some(content_pointer.authority.clone());
@@ -233,7 +233,7 @@ async fn inspect_route_content_pointer_auth(
         content_authority.as_ref(),
         route_auth_client.as_ref(),
     ) {
-        let target = append_location(root, location);
+        let target = append_key(root, key);
         let target_urc = format!("{}/|/seal/{}", target, content_authority_value);
         match route_auth.get_packet_authenticated(&target_urc).await {
             Ok(_) => auth_probe = "authorized".to_string(),
@@ -281,11 +281,11 @@ pub async fn handle_diagnostics_api(
             let Some(group) = params.get("group") else {
                 return serde_json::json!({"ok": false, "error": "missing group"}).to_string();
             };
-            let Some(app) = params.get("app") else {
-                return serde_json::json!({"ok": false, "error": "missing app"}).to_string();
+            let Some(api) = params.get("api") else {
+                return serde_json::json!({"ok": false, "error": "missing api"}).to_string();
             };
-            let location = params.get("location").map(String::as_str).unwrap_or("");
-            let data = inspect_route_content_pointer_auth(group, app, location, client, credential_store).await;
+            let key = params.get("key").map(String::as_str).unwrap_or("");
+            let data = inspect_route_content_pointer_auth(group, api, key, client, credential_store).await;
             serde_json::json!({"ok": true, "data": data}).to_string()
         }
         _ => serde_json::json!({"ok": false, "error": format!("unknown command: {}", cmd)})

@@ -6,7 +6,7 @@
 //!
 //! Represents an HPPR URC in the DOM for coordinate parsing and manipulation.
 //! Uses hppr_packet::urc::URC for proper validation and parsing.
-//! Supports JSONqa metadata suffix: `//group/app/loc{key:value,#:fragment}`
+//! Supports JSONqa metadata suffix: `//group/api//key{key:value,#:fragment}`
 
 use std::cell::RefCell;
 use std::ffi::CString;
@@ -497,32 +497,32 @@ impl URCMethods<crate::DomTypeHolder> for URC {
     /// Returns the group component (index URCs only).
     fn GetGroup(&self) -> Option<DOMString> {
         self.current_inner()
-            .group_app_loc()
+            .group_api_key()
             .map(|(g, _)| DOMString::from(g))
     }
 
-    /// Returns the app component (index URCs only).
-    fn GetApp(&self) -> Option<DOMString> {
+    /// Returns the API component (index URCs only).
+    fn GetApi(&self) -> Option<DOMString> {
         self.current_inner()
-            .group_app_loc()
-            .and_then(|(_, rest)| rest.map(|(a, _)| DOMString::from(a)))
+            .group_api_key()
+            .and_then(|(_, rest)| rest.map(|(api, _)| DOMString::from(api)))
     }
 
-    /// Returns the location component (index URCs only).
-    fn GetLocation(&self) -> Option<DOMString> {
+    /// Returns the Key component (index URCs only).
+    fn GetKey(&self) -> Option<DOMString> {
         self.current_inner()
-            .group_app_loc()
-            .and_then(|(_, rest)| rest.and_then(|(_, loc)| loc.map(DOMString::from)))
+            .group_api_key()
+            .and_then(|(_, rest)| rest.and_then(|(_, key)| key.map(DOMString::from)))
     }
 
-    /// Returns the full coordinate (//<group>/<app>/<location>).
+    /// Returns the full coordinate (//<group>/<api>//<key>).
     fn GetCoordinate(&self) -> Option<DOMString> {
-        match self.current_inner().group_app_loc() {
-            Some((group, Some((app, Some(loc))))) => {
-                Some(DOMString::from(format!("//{}/{}/{}", group, app, loc)))
+        match self.current_inner().group_api_key() {
+            Some((group, Some((api, Some(key))))) => {
+                Some(DOMString::from(format!("//{}/{api}//{}", group, key)))
             }
-            Some((group, Some((app, None)))) => {
-                Some(DOMString::from(format!("//{}/{}/", group, app)))
+            Some((group, Some((api, None)))) => {
+                Some(DOMString::from(format!("//{}/{api}//", group)))
             }
             Some((group, None)) => Some(DOMString::from(format!("//{}/", group))),
             None => None,

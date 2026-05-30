@@ -1005,8 +1005,8 @@ impl Document {
                         data.address().scheme().prefix().trim_end_matches(':'),
                         build_coordinate(
                             &parts.group,
-                            &parts.app,
-                            &parts.location,
+                            &parts.api,
+                            &parts.key,
                             data.address().is_listing(),
                         ),
                     );

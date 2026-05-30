@@ -6,8 +6,8 @@ HAVI is a web browser for HPPR content.
 
 HAVI can:
 
-- Open repos with `hppr://group/app/path{via:endpoint}`.
-- Open `hppr://group/app/path` using the HPPR route scheme effective resolver.
+- Open repos with `hppr://group/api//key{via:endpoint}`.
+- Open `hppr://group/api//key` using the HPPR route scheme effective resolver.
 - Store browser-owned local route, trust, history, and capability state in its
   private runtime.
 - Apply CSS transforms structurally to rendered subtrees so descendant text,
@@ -18,24 +18,24 @@ HAVI can:
 
 Supported input forms:
 
-- `hppr://group/app/path{via:endpoint}`
-- `hppr://group/app/path`
+- `hppr://group/api//key{via:endpoint}`
+- `hppr://group/api//key`
 
 `via` selects an explicit upstream endpoint when present.
 Endpoint syntax follows HPPR via syntax.
 Without `via`, HAVI applies the HPPR route scheme effective resolver from
 `../../hppr/spec/100-SCHEMES.md`.
 
-That resolver combines local exact-app records, local exact-group anchors,
+That resolver combines local exact-API records, local exact-group anchors,
 canonical public route discovery, and local route auth attachment.
 Route packet structure and resolver semantics are defined by the HPPR route
 scheme, not by HAVI-specific packet rules.
 
-For non-`u` groups, `Content-Authority` may fall back from the group app record
-to `//u/route/app/<app>`.
+For non-`u` groups, `Content-Authority` may fall back from the group API record
+to `//u/route/api//<api>`.
 That fallback applies only to `Content-Authority`, never to `Upstream`.
 If canonical public lookup fails for a public name and no local exact-group or
-terminal local exact-app record supplies the effective route answer,
+terminal local exact-API record supplies the effective route answer,
 navigation fails.
 HAVI does not silently fall back to a generic browser-local repo fetch for that
 case. For non-public or otherwise browser-local sources, the browser may still

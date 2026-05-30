@@ -29,10 +29,10 @@
             assertContains(firstHref, 'hppr://~loccompat/', 'compat href uses hppr scheme and group host');
             assert(!firstHref.includes('{'), 'compat href does not expose jsonqa');
             assertEqual(window.location.origin, 'hppr://~loccompat', 'origin projects scheme and group');
-            assertEqual(window.location.pathname, '/testapp/location-compat.html', 'pathname projects app and location');
+            assertEqual(window.location.pathname, '/testapp//location-compat.html', 'pathname projects API and key');
             assertEqual(window.location.search, '', 'initial search empty');
             assertEqual(window.location.hash, '', 'initial hash empty');
-            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL is projected legacy document URL');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp//location-compat.html', 'document.URL is projected legacy document URL');
             assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
 
             log('--- live window.address objects survive same-document updates ---');
@@ -48,7 +48,7 @@
             assertEqual(window.location.hash, '#/2', 'hash getter reflects compat fragment');
             assertContains(window.address.href, '#:/2', 'hash setter stores fragment in exact address jsonqa');
             assertContains(liveUrc.href, '#:/2', 'stored urc reflects updated same-document fragment');
-            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL stays projected and stripped');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp//location-compat.html', 'document.URL stays projected and stripped');
 
             log('--- search setter maps to jsonqa ---');
             window.location.search = '?receiver=1&tag=a&tag=b';
@@ -59,7 +59,7 @@
             assertContains(window.address.href, 'receiver:1', 'search setter stores scalar key in exact address jsonqa');
             assertContains(window.address.href, 'tag:[a,b]', 'search setter stores repeated keys as array in exact address jsonqa');
             assertContains(liveUrc.href, 'receiver:1', 'stored urc reflects updated search state');
-            assertEqual(document.URL, 'hppr://~loccompat/testapp/location-compat.html', 'document.URL remains stripped after search changes');
+            assertEqual(document.URL, 'hppr://~loccompat/testapp//location-compat.html', 'document.URL remains stripped after search changes');
 
             log('--- history.replaceState rewrite ---');
             history.replaceState(null, '', '#/3');
@@ -77,7 +77,7 @@
 
             log('--- strict jsonqa rejection ---');
             let err = null;
-            try { window.location.assign('hppr://~loccompat/testapp/location-compat.html{#:bad}'); }
+            try { window.location.assign('hppr://~loccompat/testapp//location-compat.html{#:bad}'); }
             catch (e) { err = e; }
             assert(err instanceof TypeError, 'jsonqa input through location throws TypeError');
             assertContains(err.message, 'window.address', 'jsonqa rejection mentions window.address');

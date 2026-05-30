@@ -17,7 +17,7 @@ DEVTOOLS_PORT=$(get_port)
 log "Starting Servo (devtools: $DEVTOOLS_PORT)..."
 cd "$HAVI_ROOT"
 HAVI_HOME="tcp+127.0.0.1:$HPPR_PORT" \
-  ./mach run -- "hppr://$TEST_GROUP/$TEST_APP/" --devtools "$DEVTOOLS_PORT" \
+  ./mach run -- "hppr://$TEST_GROUP/$TEST_APP//" --devtools "$DEVTOOLS_PORT" \
   >"$SERVO_LOG" 2>&1 &
 SERVO_PID=$!
 export HAVI_DEVTOOLS="127.0.0.1:$DEVTOOLS_PORT"

@@ -9,7 +9,7 @@
 //! - `havi://` - Admin page URLs with simple path format
 //!
 //! Endpoint is specified via `{via:host:port}` JSONqa suffix, not as a prefix.
-//! Example: `hppr://chess/game/board.html{via:192.168.1.5:4777}`
+//! Example: `hppr://chess/game//board.html{via:192.168.1.5:4777}`
 
 use hppr_packet::CoordinateParts;
 use hppr_packet::urc::URC;
@@ -291,31 +291,31 @@ impl HAVIAddress {
     }
 
     pub fn group(&self) -> Option<String> {
-        self.urc.group_app_loc().map(|(g, _)| g)
+        self.urc.group_api_key().map(|(g, _)| g)
     }
 
-    pub fn app(&self) -> Option<String> {
+    pub fn api(&self) -> Option<String> {
         self.urc
-            .group_app_loc()
-            .and_then(|(_, rest)| rest.map(|(a, _)| a))
+            .group_api_key()
+            .and_then(|(_, rest)| rest.map(|(api, _)| api))
     }
 
-    pub fn location(&self) -> Option<String> {
+    pub fn key(&self) -> Option<String> {
         self.urc
-            .group_app_loc()
-            .and_then(|(_, rest)| rest.and_then(|(_, loc)| loc))
+            .group_api_key()
+            .and_then(|(_, rest)| rest.and_then(|(_, key)| key))
     }
 
-    pub fn location_with_slash(&self) -> String {
-        let loc = self.location().unwrap_or_default();
-        if self.is_listing() && !loc.ends_with('/') {
-            if loc.is_empty() {
+    pub fn key_with_slash(&self) -> String {
+        let key = self.key().unwrap_or_default();
+        if self.is_listing() && !key.ends_with('/') {
+            if key.is_empty() {
                 "/".to_string()
             } else {
-                format!("{}/", loc)
+                format!("{}/", key)
             }
         } else {
-            loc
+            key
         }
     }
 
@@ -324,13 +324,13 @@ impl HAVIAddress {
             matches!(self.endpoint, EndpointKind::Direct(_))
     }
 
-    pub fn build_urc_string(group: &str, app: &str, location: &str) -> String {
-        match (group.is_empty(), app.is_empty(), location.is_empty()) {
+    pub fn build_urc_string(group: &str, api: &str, key: &str) -> String {
+        match (group.is_empty(), api.is_empty(), key.is_empty()) {
             (true, _, _) => "//".to_string(),
             (false, true, _) => format!("//{}/", group),
-            (false, false, true) => format!("//{}/{}", group, app),
-            (false, false, false) if location == "/" => format!("//{}/{}/", group, app),
-            (false, false, false) => format!("//{}/{}/{}", group, app, location),
+            (false, false, true) => format!("//{}/{}", group, api),
+            (false, false, false) if key == "/" => format!("//{}/{}//", group, api),
+            (false, false, false) => format!("//{}/{}//{}", group, api, key),
         }
     }
 

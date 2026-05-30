@@ -5,7 +5,7 @@
 //! HPPR Sandbox page handler.
 //!
 //! Handles hppr-sandbox: URLs for previewing remote content with strict CSP.
-//! URL format: hppr-sandbox://group/app/path{via:endpoint}
+//! URL format: hppr-sandbox://group/api//key{via:endpoint}
 //!
 //! Connects as anyone to the remote repo (no credentials) and fetches
 //! content with a strict Content-Security-Policy that disables scripts,
@@ -15,7 +15,7 @@
 use hppr_client::parse_via;
 use std::net::ToSocketAddrs;
 
-use hppr_client::{HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, spawn_connection};
+use hppr_client::{HpprMessageRequest as IoRequest, ResponseKind, Signer, ViaSpec, spawn_connection};
 
 use crate::PageResponse;
 use crate::hppr::url::HAVIAddress;
@@ -98,9 +98,9 @@ async fn fetch_content(
     match resp.kind {
         ResponseKind::Packet(packet) => {
             let content_type = packet.header("Content-Type").unwrap_or("").to_string();
-            let location = packet.header("Location").unwrap_or("").to_string();
+            let key = packet.header("Key").unwrap_or("").to_string();
             let body = packet.data().to_vec();
-            Ok((content_type, location, body))
+            Ok((content_type, key, body))
         },
         _ => Err("Unexpected response type".to_string()),
     }
@@ -111,7 +111,7 @@ fn render_error(message: &str) -> PageResponse {
     PageResponse::error(
         "Preview Error",
         message,
-        Some("Expected URL format: <code>hppr-sandbox://group/app/path{via:192.168.1.10}</code>"),
+        Some("Expected URL format: <code>hppr-sandbox://group/api//key{via:192.168.1.10}</code>"),
     )
 }
 
@@ -121,19 +121,19 @@ mod tests {
 
     #[test]
     fn test_parse_sandbox_url_via_hppr_url() {
-        let url = HAVIAddress::parse("hppr-sandbox://chess/game/{via:192.168.1.10}").unwrap();
+        let url = HAVIAddress::parse("hppr-sandbox://chess/game//{via:192.168.1.10}").unwrap();
         assert_eq!(url.endpoint_string(), Some("192.168.1.10:4777".to_string()));
-        assert_eq!(url.urc_string(), "//chess/game/");
+        assert_eq!(url.urc_string(), "//chess/game//");
 
         let url =
-            HAVIAddress::parse("hppr-sandbox://mygroup/app/index.html{via:10.0.0.5:4778}").unwrap();
+            HAVIAddress::parse("hppr-sandbox://mygroup/app//index.html{via:10.0.0.5:4778}").unwrap();
         assert_eq!(url.endpoint_string(), Some("10.0.0.5:4778".to_string()));
-        assert_eq!(url.urc_string(), "//mygroup/app/index.html");
+        assert_eq!(url.urc_string(), "//mygroup/app//index.html");
     }
 
     #[test]
     fn test_parse_sandbox_url_errors() {
-        assert!(HAVIAddress::parse("hppr-sandbox://chess/game/").is_err());
+        assert!(HAVIAddress::parse("hppr-sandbox://chess/game//").is_err());
         assert!(HAVIAddress::parse("hppr-sandbox:").is_err());
     }
 }

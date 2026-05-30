@@ -10,7 +10,7 @@ HAVI_DEVTOOLS_ENABLED=0
 start_server
 setup_acl u test
 
-HPPR_SIGNER='ring1:ring0|init' "$HPPR" add //u/test/screenshot-wake.html \
+HPPR_SIGNER='ring1:ring0|init' "$HPPR" add //u/test//screenshot-wake.html \
     -H "Seal-By: ring0" -H "Content-Type: text/html" \
     <<< '<!doctype html><style>html,body{margin:0;background:#ffffff}.box{position:absolute;left:0;top:0;width:120px;height:120px;background:#008000}</style><div class="box"></div><script>setInterval(()=>{window.__tick=(window.__tick||0)+1},50)</script>'
 
@@ -28,7 +28,7 @@ set +e
 (
     cd "$HAVI_ROOT"
     HAVI_HOME="tcp+127.0.0.1:$HPPR_PORT" \
-    HAVI_URL="hppr://u/test/screenshot-wake.html" \
+    HAVI_URL="hppr://u/test//screenshot-wake.html" \
     "$havi_bin" --screenshot "$SCREENSHOT"
 ) >"$run_log" 2>&1
 status=$?

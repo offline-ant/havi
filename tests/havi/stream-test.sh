@@ -21,12 +21,12 @@ create_remote_key
 
 # Store the signing key so the JS test can fetch it through an unpacked client.
 echo -n "$REMOTE_SECRET_KEY" | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/testkey" >/dev/null
+  $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP//testkey" >/dev/null
 
 # Start cooked publisher against the remote repo for the StreamSub receive path.
 { sleep 4; echo -n "hello-havi"; sleep 2; } | \
   HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' \
-  $HPPR stream-pub --key "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/live" &
+  $HPPR stream-pub --key "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP//live" &
 PUB_PID=$!
 log "Publisher started (PID: $PUB_PID)"
 

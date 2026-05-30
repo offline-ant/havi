@@ -38,26 +38,26 @@ pub async fn handle_request(
     let parts = address.parts();
 
     if address.is_listing() {
-        handle_list(url, &parts.group, &parts.app, client, credential_store, reuse_source).await
+        handle_list(url, &parts.group, &parts.api, client, credential_store, reuse_source).await
     } else {
-        handle_get(url, &parts.group, &parts.app, client, credential_store, reuse_source).await
+        handle_get(url, &parts.group, &parts.api, client, credential_store, reuse_source).await
     }
 }
 
 async fn handle_get(
     url: &str,
     group: &str,
-    app: &str,
+    api: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
     reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
 ) -> PageResponse {
-    if (group.is_empty() || app.is_empty())
+    if (group.is_empty() || api.is_empty())
         && !matches!(HAVIAddress::parse(url).ok().map(|address| address.urc().method()), Some(UrcMethod::Hash))
     {
         return PageResponse::error(
             "HPPR Error",
-            "Group and app are required",
+            "Group and API are required",
             Some(&format!("URL: {}", url)),
         );
     }
@@ -66,7 +66,7 @@ async fn handle_get(
         Ok(resolved) => resolved,
         Err(error) => {
             if let Ok(address) = HAVIAddress::parse(url)
-                && let Some(response) = classify_routed_error(url, group, app, &address, &error)
+                && let Some(response) = classify_routed_error(url, group, api, &address, &error)
             {
                 return response;
             }
@@ -95,10 +95,10 @@ async fn handle_get(
     } else {
         group.to_string()
     };
-    let context_app = if app.is_empty() {
-        resolved.packet.header("App").unwrap_or("").to_string()
+    let context_api = if api.is_empty() {
+        resolved.packet.header("API").unwrap_or("").to_string()
     } else {
-        app.to_string()
+        api.to_string()
     };
     let path = url.split("://").nth(1).unwrap_or("");
     let mime = response_mime(&content_type, path);
@@ -120,7 +120,7 @@ async fn handle_get(
         resolved.content_authority.as_deref(),
         Some(&resolved.hppr_source),
         &context_group,
-        &context_app,
+        &context_api,
         client,
         credential_store,
     )
@@ -133,7 +133,7 @@ async fn handle_get(
 async fn handle_list(
     url: &str,
     group: &str,
-    app: &str,
+    api: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
     reuse_source: Option<&net_traits::HpprDocumentSourceSnapshot>,
@@ -154,7 +154,7 @@ async fn handle_list(
                 resolved.content_authority.as_deref(),
                 Some(&resolved.hppr_source),
                 group,
-                app,
+                api,
                 client,
                 credential_store,
             )
@@ -164,7 +164,7 @@ async fn handle_list(
         },
         Err(error) => {
             if let Ok(address) = HAVIAddress::parse(url)
-                && let Some(response) = classify_routed_error(url, group, app, &address, &error)
+                && let Some(response) = classify_routed_error(url, group, api, &address, &error)
             {
                 return response;
             }
@@ -187,11 +187,11 @@ async fn apply_page_context(
     content_authority: Option<&str>,
     hppr_source: Option<&net_traits::HpprDocumentSource>,
     group: &str,
-    app: &str,
+    api: &str,
     client: &Arc<HpprdClientAsync>,
     credential_store: &CredentialStoreHandle,
 ) {
-    let _ = (group, app, client, credential_store);
+    let _ = (group, api, client, credential_store);
 
     // Ordinary hppr:// documents now carry their committed source through
     // hppr_source directly. Site/home credentials are no longer injected into
@@ -204,7 +204,7 @@ async fn apply_page_context(
 fn classify_routed_error(
     url: &str,
     _group: &str,
-    _app: &str,
+    _api: &str,
     address: &HAVIAddress,
     error: &HpprResolveError,
 ) -> Option<PageResponse> {
@@ -284,15 +284,17 @@ fn render_not_found_response(
     let coordinate = match HAVIAddress::parse(url) {
         Ok(addr) => {
             let parts = addr.parts();
-            let location = addr.location_with_slash();
+            let location = addr.key_with_slash();
             let coord = if parts.group.is_empty() {
                 "//".to_string()
-            } else if parts.app.is_empty() {
+            } else if parts.api.is_empty() {
                 format!("//{}/", parts.group)
-            } else if location.is_empty() || location == "/" {
-                format!("//{}/{}/", parts.group, parts.app)
+            } else if location.is_empty() {
+                format!("//{}/{}", parts.group, parts.api)
+            } else if location == "/" {
+                format!("//{}/{}//", parts.group, parts.api)
             } else {
-                format!("//{}/{}/{}", parts.group, parts.app, location)
+                format!("//{}/{}//{}", parts.group, parts.api, location)
             };
             coord
         },
@@ -353,55 +355,52 @@ mod tests {
 
     #[test]
     fn test_parse_hppr_url_routed() {
-        let url = HAVIAddress::parse("hppr://chess/games/123").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/games//123").unwrap();
         assert!(url.is_routed());
         assert_eq!(url.group().unwrap(), "chess");
-        assert_eq!(url.app().unwrap(), "games");
-        assert_eq!(url.location().unwrap(), "123");
+        assert_eq!(url.api().unwrap(), "games");
+        assert_eq!(url.key().unwrap(), "123");
     }
 
     #[test]
     fn test_parse_hppr_url_direct() {
-        let url = HAVIAddress::parse("hppr://chess/games/123{via:192.168.1.5:4777}").unwrap();
+        let url = HAVIAddress::parse("hppr://chess/games//123{via:192.168.1.5:4777}").unwrap();
         assert!(url.is_direct());
         assert_eq!(url.endpoint().unwrap().to_string(), "192.168.1.5:4777");
         assert_eq!(url.group().unwrap(), "chess");
-        assert_eq!(url.app().unwrap(), "games");
-        assert_eq!(url.location().unwrap(), "123");
+        assert_eq!(url.api().unwrap(), "games");
+        assert_eq!(url.key().unwrap(), "123");
     }
 
     #[test]
     fn test_build_urc_string() {
         assert_eq!(HAVIAddress::build_urc_string("", "", ""), "//");
         assert_eq!(HAVIAddress::build_urc_string("u", "", ""), "//u/");
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", ""), "//u/app");
+        assert_eq!(HAVIAddress::build_urc_string("u", "api", ""), "//u/api");
         assert_eq!(
-            HAVIAddress::build_urc_string("u", "app", "loc"),
-            "//u/app/loc"
+            HAVIAddress::build_urc_string("u", "api", "key"),
+            "//u/api//key"
         );
-        assert_eq!(HAVIAddress::build_urc_string("u", "app", "/"), "//u/app/");
+        assert_eq!(HAVIAddress::build_urc_string("u", "api", "/"), "//u/api//");
         assert_eq!(
-            HAVIAddress::build_urc_string("u", "app", "loc/"),
-            "//u/app/loc/"
+            HAVIAddress::build_urc_string("u", "api", "key/"),
+            "//u/api//key/"
         );
     }
 
     #[test]
     fn test_list_vs_get_detection_with_trailing_slash() {
-        let url = HAVIAddress::parse("hppr://group/app/").unwrap();
+        let url = HAVIAddress::parse("hppr://group/api/").unwrap();
         assert!(url.is_listing());
-        let urc = HAVIAddress::build_urc_string(&url.group().unwrap(), &url.app().unwrap(), "/");
-        assert_eq!(urc, "//group/app/");
+        let urc = HAVIAddress::build_urc_string(&url.group().unwrap(), &url.api().unwrap(), "/");
+        assert_eq!(urc, "//group/api//");
 
-        let url = HAVIAddress::parse("hppr://group/app").unwrap();
-        assert!(!url.is_listing());
-        let urc = HAVIAddress::build_urc_string(&url.group().unwrap(), &url.app().unwrap(), "");
-        assert_eq!(urc, "//group/app");
+        assert!(HAVIAddress::parse("hppr://group/api").is_err());
 
-        let url = HAVIAddress::parse("hppr://group/app/path/").unwrap();
+        let url = HAVIAddress::parse("hppr://group/api//path/").unwrap();
         assert!(url.is_listing());
 
-        let url = HAVIAddress::parse("hppr://group/app/path").unwrap();
+        let url = HAVIAddress::parse("hppr://group/api//path").unwrap();
         assert!(!url.is_listing());
     }
 

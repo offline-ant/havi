@@ -24,7 +24,7 @@
         const source = window.source;
         const client = source.client;
         const group = document.packet.group;
-        const app = document.packet.app;
+        const api = document.packet.api;
 
         assert(source !== null, 'window.source exists');
         assertEqual(source.kind, 'repo', 'window.source.kind is repo for local error test');
@@ -55,7 +55,7 @@
 
         let notFoundError = null;
         try {
-            await client.get('//' + group + '/' + app + '/nonexistent/path/that/does/not/exist');
+            await client.get('//' + group + '/' + api + '//nonexistent/path/that/does/not/exist');
         } catch (e) {
             notFoundError = e;
         }

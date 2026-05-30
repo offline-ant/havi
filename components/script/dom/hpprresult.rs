@@ -91,6 +91,9 @@ impl HpprResult {
                 let lines = Self::lines_from_text(&text);
                 lines.safe_to_jsval(cx, rval.handle_mut(), can_gc);
             },
+            ResponseKind::Bytes(bytes) => {
+                bytes.safe_to_jsval(cx, rval.handle_mut(), can_gc);
+            },
 
             ResponseKind::Packet(packet) => {
                 let packet_dom =

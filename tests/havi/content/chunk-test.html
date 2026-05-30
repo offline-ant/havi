@@ -22,7 +22,7 @@
         const source = window.source;
         const client = source.client;
         const group = document.packet.group;
-        const app = document.packet.app;
+        const api = document.packet.api;
 
         assert(source !== null, 'window.source exists');
         assertEqual(source.kind, 'remote', 'window.source.kind is remote for routed chunk test');
@@ -30,7 +30,7 @@
         // --- JS API chunk get ---
         log('--- JS API chunk get ---');
         // The chunked coordinate was stored by the bash setup script
-        const chunkCoord = '//' + group + '/' + app + '/chunked/data.txt';
+        const chunkCoord = '//' + group + '/' + api + '//chunked/data.txt';
         const chunkPacket = await client.get(chunkCoord);
         assert(chunkPacket !== null, 'chunked packet retrieved via JS API');
 
@@ -49,8 +49,8 @@
         // Verify synthetic packet metadata
         assertEqual(chunkPacket.type, 'Plex', 'JS API returns synthetic Plex for chunked content');
         assertEqual(chunkPacket.group, group, 'chunk packet group matches');
-        assertEqual(chunkPacket.app, app, 'chunk packet app matches');
-        assertContains(chunkPacket.location, 'chunked/data.txt', 'chunk packet location matches');
+        assertEqual(chunkPacket.api, api, 'chunk packet API matches');
+        assertContains(chunkPacket.key, 'chunked/data.txt', 'chunk packet key matches');
 
         // Chunk+Link headers should NOT be on the synthetic plex
         const chunkLinks = chunkPacket.getHeaders('Chunk+Link');
@@ -58,7 +58,7 @@
 
         // --- Non-chunked still works ---
         log('--- non-chunked regression ---');
-        const smallCoord = '//' + group + '/' + app + '/small/test.txt';
+        const smallCoord = '//' + group + '/' + api + '//small/test.txt';
         const smallPacket = await client.get(smallCoord);
         assert(smallPacket !== null, 'small non-chunked packet retrieved');
         const smallText = smallPacket.text();

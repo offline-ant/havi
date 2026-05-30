@@ -25,7 +25,7 @@ pub enum HpprDocumentSource {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HpprDocumentSourceSnapshot {
     pub group: String,
-    pub app: String,
+    pub api: String,
     pub source: HpprDocumentSource,
 }
 

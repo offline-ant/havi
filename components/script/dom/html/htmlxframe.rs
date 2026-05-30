@@ -721,7 +721,7 @@ impl HTMLXFrame {
                 return Some(val.to_string());
             }
         }
-        // Default: derive //group/app/ from resolved src URL
+        // Default: derive //group/api/ from resolved src URL
         let url = self.get_url();
         if url.scheme() != "hppr" {
             return None;
@@ -729,10 +729,10 @@ impl HTMLXFrame {
         let path = url.path();
         let urc = hppr_packet::urc::URC::parse(path.to_string()).ok()?;
         let parts = urc.parts();
-        if parts.group.is_empty() || parts.app.is_empty() {
+        if parts.group.is_empty() || parts.api.is_empty() {
             return None;
         }
-        Some(format!("//{}/{}/", parts.group, parts.app))
+        Some(format!("//{}/{}/", parts.group, parts.api))
     }
 
     /// Start or update watching based on current attributes.

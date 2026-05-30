@@ -81,13 +81,13 @@ impl ShadowCredential {
     }
 }
 
-fn shadow_signer_name(group: &str, app: &str) -> String {
-    format!("shadow:{}#{}", group, app)
+fn shadow_signer_name(group: &str, api: &str) -> String {
+    format!("shadow:{}#{}", group, api)
 }
 
 fn shadow_credential_from_row(row: ShadowKeyEntry) -> ShadowCredential {
     ShadowCredential::new(
-        shadow_signer_name(&row.group, &row.app),
+        shadow_signer_name(&row.group, &row.api),
         row.signing_key,
         row.verification_key,
     )
@@ -99,7 +99,7 @@ pub struct CredentialStore {
     admin: RwLock<Option<Credential>>,
     /// Cached generated group-default local route auth signers by group.
     route_credentials: RwLock<HashMap<String, RouteCredential>>,
-    /// Cached persistent shadow credentials with keypairs by (group, app).
+    /// Cached persistent shadow credentials with keypairs by (group, API).
     shadow_credentials: RwLock<HashMap<(String, String), ShadowCredential>>,
     /// Shared state database.
     db: StateDbHandle,
@@ -226,9 +226,9 @@ impl CredentialStore {
     pub fn get_or_create_shadow_credential(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
     ) -> Result<ShadowCredential, String> {
-        let key = (group.to_string(), app.to_string());
+        let key = (group.to_string(), api.to_string());
 
         if let Ok(cache) = self.shadow_credentials.read() {
             if let Some(cred) = cache.get(&key) {
@@ -236,18 +236,18 @@ impl CredentialStore {
             }
         }
 
-        let cred = if let Some(row) = self.db.get_shadow_key(group, app)? {
+        let cred = if let Some(row) = self.db.get_shadow_key(group, api)? {
             shadow_credential_from_row(row)
         } else {
             let (signing_key, verification_key) = hppr_packet::crypto::generate_signing_verifying_pair();
             let cred = ShadowCredential::new(
-                shadow_signer_name(group, app),
+                shadow_signer_name(group, api),
                 signing_key,
                 verification_key,
             );
             self.db.set_shadow_key(
                 group,
-                app,
+                api,
                 cred.signing_key(),
                 &cred.verification_key,
             )?;

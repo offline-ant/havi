@@ -19,60 +19,60 @@
   <script>
     async function suite_urc() {
         log('--- URC constructor tests ---');
-        const urc1 = new URC('//chess/game/board.html');
+        const urc1 = new URC('//chess/game//board.html');
         assert(urc1 !== null, 'URC constructor works');
-        assertEqual(urc1.href, '//chess/game/board.html', 'URC.href returns input');
+        assertEqual(urc1.href, '//chess/game//board.html', 'URC.href returns input');
 
         log('--- URC accessor tests ---');
         assertEqual(urc1.group, 'chess', 'URC.group returns group');
-        assertEqual(urc1.app, 'game', 'URC.app returns app');
-        assertEqual(urc1.location, 'board.html', 'URC.location returns location');
+        assertEqual(urc1.api, 'game', 'URC.api returns API');
+        assertEqual(urc1.key, 'board.html', 'URC.key returns key');
         assertEqual(urc1.method, 'index', 'URC.method is index for coordinate');
         assertEqual(urc1.isListing, false, 'URC.isListing false for file');
 
         log('--- URC listing tests ---');
-        const listing = new URC('//chess/game/');
+        const listing = new URC('//chess/game//');
         assertEqual(listing.isListing, true, 'URC.isListing true for directory');
-        assertEqual(listing.location, null, 'URC.location null for app root');
-        assertEqual(listing.coordinate, '//chess/game/', 'listing coordinate ends with /');
+        assertEqual(listing.key, null, 'URC.key null for API root');
+        assertEqual(listing.coordinate, '//chess/game//', 'listing coordinate ends with /');
 
         log('--- URC join tests ---');
         const joined = urc1.join('../lobby/');
-        assertEqual(joined.href, '//chess/game/lobby/', 'URC.join() resolves ../');
+        assertEqual(joined.href, '//chess/game//lobby/', 'URC.join() resolves ../');
         assertEqual(joined.group, 'chess', 'joined URC preserves group');
-        assertEqual(joined.app, 'game', 'joined URC preserves app');
+        assertEqual(joined.api, 'game', 'joined URC preserves API');
         assertEqual(joined.isListing, true, 'joined URC detects listing');
-        assertEqual(urc1.setListing(true).href, '//chess/game/board.html/', 'setListing(true) adds /');
+        assertEqual(urc1.setListing(true).href, '//chess/game//board.html/', 'setListing(true) adds /');
         assertEqual(listing.setListing(false).isListing, false, 'setListing(false) removes /');
 
         log('--- URC metadata tests ---');
-        const withJsonqa = new URC('//group/app/page{#:section,lang:en}');
+        const withJsonqa = new URC('//group/app//page{#:section,lang:en}');
         assertEqual(withJsonqa.group, 'group', 'JSONqa URC has correct group');
         assertEqual(withJsonqa.fragment, 'section', 'fragment parses from jsonqa');
         assertEqual(withJsonqa.qa.lang, 'en', 'qa parses from jsonqa');
         assertEqual(urc1.getSelector(), null, 'plain URC has no selector');
 
         log('--- Address constructor tests ---');
-        const addr1 = new Address('hppr://chess/game/board.html');
+        const addr1 = new Address('hppr://chess/game//board.html');
         assert(addr1 !== null, 'Address constructor works');
-        assertEqual(addr1.href, 'hppr://chess/game/board.html', 'Address.href returns input');
+        assertEqual(addr1.href, 'hppr://chess/game//board.html', 'Address.href returns input');
         assertEqual(addr1.scheme, 'hppr', 'Address.scheme is hppr');
         assertEqual(addr1.group, 'chess', 'Address.group works');
-        assertEqual(addr1.app, 'game', 'Address.app works');
-        assertEqual(addr1.location, 'board.html', 'Address.location works');
+        assertEqual(addr1.api, 'game', 'Address.api works');
+        assertEqual(addr1.key, 'board.html', 'Address.key works');
         assertEqual(addr1.isListing, false, 'Address.isListing works');
         assert(addr1.urc === addr1.urc, 'Address.urc returns same object');
 
-        const repo = new Address('hppr://chess/game/{via:repo}');
+        const repo = new Address('hppr://chess/game//{via:repo}');
         assertEqual(repo.qa.via, 'repo', 'via=repo is exposed through qa.via');
 
-        const direct = new Address('hppr://chess/game/{via:192.168.1.5}');
+        const direct = new Address('hppr://chess/game//{via:192.168.1.5}');
         assertEqual(direct.qa.via, '192.168.1.5', 'exact via text stays in qa.via');
 
-        const sandbox = new Address('hppr-sandbox://group/app/{via:10.0.0.5:4778}');
+        const sandbox = new Address('hppr-sandbox://group/app//{via:10.0.0.5:4778}');
         assertEqual(sandbox.scheme, 'hppr-sandbox', 'hppr-sandbox scheme detected');
 
-        const browse = new Address('hppr-browse://chess/game/assets/');
+        const browse = new Address('hppr-browse://chess/game//assets/');
         assertEqual(browse.scheme, 'hppr-browse', 'hppr-browse scheme detected');
 
         log('--- Address error handling ---');
@@ -82,40 +82,40 @@
         assertEqual(addrError.name, 'SyntaxError', 'Address throws SyntaxError');
 
         let addrError2 = null;
-        try { new Address('hppr-setup://chess/game/'); } catch (e) { addrError2 = e; }
+        try { new Address('hppr-setup://chess/game//'); } catch (e) { addrError2 = e; }
         assert(addrError2 !== null, 'removed hppr-setup scheme rejects parsing');
 
         let addrError3 = null;
-        try { new Address('hppr-editor://chess/game/'); } catch (e) { addrError3 = e; }
+        try { new Address('hppr-editor://chess/game//'); } catch (e) { addrError3 = e; }
         assert(addrError3 !== null, 'removed hppr-editor scheme rejects parsing');
 
         let addrError4 = null;
-        try { new Address('hppr-join://chess/game/'); } catch (e) { addrError4 = e; }
+        try { new Address('hppr-join://chess/game//'); } catch (e) { addrError4 = e; }
         assert(addrError4 !== null, 'removed hppr-join scheme rejects parsing');
 
         log('--- window.location compatibility shim ---');
         assert(window.location !== null, 'window.location exists');
         assert(window.location !== undefined, 'window.location is defined');
-        assertEqual(window.location.pathname, '/testapp/urc.html', 'window.location.pathname matches compat path');
+        assertEqual(window.location.pathname, '/testapp//urc.html', 'window.location.pathname matches compat path');
 
         log('--- window.address tests ---');
         assert(window.address !== null, 'window.address exists');
         assert(window.address !== undefined, 'window.address is defined');
         assertEqual(window.address.scheme, 'hppr', 'window.address.scheme is hppr');
         assertEqual(window.address.group, '~urctest', 'window.address.group matches test group');
-        assertEqual(window.address.app, 'testapp', 'window.address.app matches test app');
-        assertEqual(window.address.location, 'urc.html', 'window.address.location matches file');
+        assertEqual(window.address.api, 'testapp', 'window.address.api matches test API');
+        assertEqual(window.address.key, 'urc.html', 'window.address.key matches file');
         assertContains(window.address.href, 'hppr://', 'window.address.href contains scheme');
         assertContains(window.address.href, 'urctest', 'window.address.href contains group');
         assert(window.address.urc === window.address.urc, 'window.address.urc is SameObject');
 
         log('--- document identity tests ---');
-        assertEqual(document.URL, 'hppr://~urctest/testapp/urc.html', 'document.URL projects legacy document URL');
+        assertEqual(document.URL, 'hppr://~urctest/testapp//urc.html', 'document.URL projects legacy document URL');
         assertEqual(document.documentURI, document.URL, 'document.documentURI mirrors document.URL');
         assert(document.packet !== null, 'document.packet exists for hppr document');
         assertEqual(
             document.URC,
-            '//~urctest/testapp/urc.html/|/seal/' + document.packet.sealBy + '/' + document.packet.tai + '/' + document.packet.hash,
+            '//~urctest/testapp//urc.html/|/seal/' + document.packet.sealBy + '/' + document.packet.tai + '/' + document.packet.hash,
             'document.URC exposes exact sealed packet identity'
         );
     }

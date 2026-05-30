@@ -33,11 +33,11 @@ log "Test data size: $(wc -c < "$CHUNK_DIR/data.txt") bytes"
 HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' $HPPR chunk "$CHUNK_DIR/data.txt" \
     --chunk-size 1024 \
     --seal-by "$REMOTE_SECRET_KEY" \
-    "//$TEST_GROUP/$TEST_APP/chunked/data.txt"
+    "//$TEST_GROUP/$TEST_APP//chunked/data.txt"
 log "Chunked data stored"
 
 # Store a small non-chunked packet for regression test
-printf 'hello non-chunked world' | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP/small/test.txt"
+printf 'hello non-chunked world' | HPPR_HOME="tcp+127.0.0.1:$REMOTE_PORT" HPPR_SIGNER='ring1:ring0|init' $HPPR add -k "$REMOTE_SECRET_KEY" "//$TEST_GROUP/$TEST_APP//small/test.txt"
 log "Small packet stored"
 
 rm -rf "$CHUNK_DIR"
@@ -45,5 +45,5 @@ rm -rf "$CHUNK_DIR"
 setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
 setup_route "$TEST_GROUP" "$TEST_APP"
 
-start_servo "hppr://$TEST_GROUP/$TEST_APP/chunk-test.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//chunk-test.html"
 run_js_tests

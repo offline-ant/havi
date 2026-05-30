@@ -42,7 +42,7 @@ fn parse_bare_public_group(input: &str) -> Option<String> {
         return None;
     }
 
-    hppr_packet::validation_utils::validate_group_app(input, "Group").ok()?;
+    hppr_packet::validation_utils::validate_group(input).ok()?;
     Some(input.to_string())
 }
 
@@ -54,8 +54,8 @@ pub(super) fn classify_nav_input(input: &str) -> Option<NavInput> {
     parse_navigation_url(input).map(NavInput::Direct)
 }
 
-pub(super) fn group_landing_url(group: &str, app: &str) -> String {
-    format!("hppr://{}/{}/index.html", group, app)
+pub(super) fn group_landing_url(group: &str, api: &str) -> String {
+    format!("hppr://{}/{}//index.html", group, api)
 }
 
 impl App {
@@ -90,14 +90,14 @@ mod tests {
 
     #[test]
     fn rewrites_bare_coordinate_to_hppr() {
-        let url = parse_navigation_url("sol/chat/").unwrap();
-        assert_eq!(url.as_str(), "hppr://sol/chat/");
+        let url = parse_navigation_url("sol/chat//").unwrap();
+        assert_eq!(url.as_str(), "hppr://sol/chat//");
     }
 
     #[test]
     fn rewrites_slash_prefixed_coordinate_to_hppr() {
-        let url = parse_navigation_url("//sol/chat/").unwrap();
-        assert_eq!(url.as_str(), "hppr://sol/chat/");
+        let url = parse_navigation_url("//sol/chat//").unwrap();
+        assert_eq!(url.as_str(), "hppr://sol/chat//");
     }
 
     #[test]

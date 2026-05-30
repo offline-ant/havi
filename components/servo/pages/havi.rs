@@ -211,7 +211,7 @@ fn render_home_page() -> String {
     <input
         type="text"
         id="urlInput"
-        placeholder="hppr://... or //group/app/path"
+        placeholder="hppr://... or //group/api//key"
         autofocus
     >
 
@@ -283,7 +283,7 @@ fn target_port(target: &ViaSpec) -> Option<u16> {
 }
 
 async fn remote_runtime_status(client: &Arc<HpprdClientAsync>) -> Result<serde_json::Value, String> {
-    let identity = client.get_packet_authenticated("//repo/admin/identity/|").await?;
+    let identity = client.get_packet_authenticated("//repo/admin/identity//root/|").await?;
     let repo_name = identity.header("Repo-Name").unwrap_or("localhost").to_string();
     let verifying_key = identity
         .header("Seal-By")
@@ -315,8 +315,8 @@ async fn set_remote_repo_name(
     let header_lines = [
         "Seal-By: ring0".to_string(),
         "Group: repo".to_string(),
-        "App: admin".to_string(),
-        "Location: identity".to_string(),
+        "API: admin/identity".to_string(),
+        "Key: root".to_string(),
         format!("Repo-Name: {}", normalized),
     ];
     let mut add_payload = header_lines.join("\n");
@@ -382,11 +382,11 @@ async fn handle_home_repo_api(path: &str, client: &Arc<HpprdClientAsync>) -> Str
             let Some(group) = params.get("group") else {
                 return serde_json::json!({"ok": false, "error": "missing group"}).to_string();
             };
-            let Some(app) = params.get("app") else {
-                return serde_json::json!({"ok": false, "error": "missing app"}).to_string();
+            let Some(api) = params.get("api") else {
+                return serde_json::json!({"ok": false, "error": "missing api"}).to_string();
             };
-            let Some(location) = params.get("location") else {
-                return serde_json::json!({"ok": false, "error": "missing location"}).to_string();
+            let Some(key) = params.get("key") else {
+                return serde_json::json!({"ok": false, "error": "missing key"}).to_string();
             };
             if !default_repo_backed_runtime_is_local() {
                 return serde_json::json!({"ok": false, "error": "local_add is only available in browser-local mode"}).to_string();
@@ -397,7 +397,7 @@ async fn handle_home_repo_api(path: &str, client: &Arc<HpprdClientAsync>) -> Str
                 .unwrap_or("text/html; charset=utf-8");
             let body = params.get("data").cloned().unwrap_or_default();
             let runtime = global_local_runtime();
-            match runtime.store_text_page(group.trim(), app.trim(), location.trim(), content_type, body.as_bytes()) {
+            match runtime.store_text_page(group.trim(), api.trim(), key.trim(), content_type, body.as_bytes()) {
                 Ok(hashes) => serde_json::json!({"ok": true, "data": {"hashes": hashes}}),
                 Err(error) => serde_json::json!({"ok": false, "error": error}),
             }
@@ -615,8 +615,8 @@ fn render_diagnostics_page() -> String {
         <h2>Inspect Route/Deploy/Auth</h2>
         <div class="inline-row">
             <input type="text" id="diagGroup" placeholder="group" value="u">
-            <input type="text" id="diagApp" placeholder="app" value="web">
-            <input type="text" id="diagLocation" placeholder="location (optional)">
+            <input type="text" id="diagApi" placeholder="api" value="web">
+            <input type="text" id="diagKey" placeholder="key (optional)">
             <button onclick="runDiagnostics()">Inspect</button>
         </div>
         <p class="muted">Reads local route, remote deploy pointer, and auth probe state.</p>

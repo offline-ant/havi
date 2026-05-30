@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use hppr_client::{ViaSpec, TransportScheme, parse_via};
 use hppr_client::{
-    AnyConnection, HpprError, HpprRequest as IoRequest, ResponseKind, Result, Signer,
+    AnyConnection, HpprError, HpprMessageRequest as IoRequest, ResponseKind, Result, Signer,
     connect_quib_async, spawn_connection,
 };
 use parking_lot::Mutex;
@@ -126,9 +126,13 @@ impl HpprAsyncPool {
                     }
                     Some(TransportScheme::Udp) => {
                         Ok(AnyConnection::Udp(
-                            hppr_client::connect_udp_stateless(addr).await?,
+                            hppr_client::connect_udp_message(addr).await?,
                         ))
                     }
+                    Some(TransportScheme::Http) => Err(HpprError::Connection(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "HTTP POST is query-only and does not support pooled session commands",
+                    ))),
                     None => {
                         // Auto-negotiate: try idle first, then connect TCP and
                         // check HELLO Transport headers for QUIB upgrade.

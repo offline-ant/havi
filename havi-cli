@@ -12,11 +12,11 @@ Subcommand groups:
 Built-in commands:
     publish     Store signed file and navigate
     publish-dir Retired. Use hppr-fuse or hppr-nfs directly
-    deploy      Write app content pointer for group/app
+    deploy      Write API content pointer for group/api
     navigate    Navigate HAVI to a URL
 
 Direct open:
-    //<group>/<app>[/location] [--shadow] [--mount PATH]
+    //<group>/<api>//<key> [--shadow] [--mount PATH]
 
 The makepad and devtools groups delegate to havi-makepad-cli and
 havi-devtools-cli respectively. Those tools can also be used directly.
@@ -25,8 +25,8 @@ Examples:
     havi-cli makepad screenshot /tmp/out.png
     havi-cli makepad click 300 400
     havi-cli devtools eval 'document.title'
-    havi-cli deploy u web //u/web V.EXAMPLE.H3
-    havi-cli publish //u/web/index.html page.html
+    havi-cli deploy u web //u/web// V.EXAMPLE.H3
+    havi-cli publish //u/web//index.html page.html
 """
 
 import mimetypes, os, shlex, sqlite3, subprocess, sys
@@ -42,18 +42,22 @@ def _run(cmd, **kwargs):
 
 
 def _parse_coordinate(coord):
-    """Parse //group/app/location into (group, app, location)."""
+    """Parse //group/api//key into (group, api, key)."""
     if not coord.startswith("//"):
         sys.exit(f"error: coordinate must start with //: {coord}")
-    parts = coord[2:].split("/", 2)
-    if len(parts) < 2:
-        sys.exit(f"error: coordinate must have at least group and app: {coord}")
-    return parts[0], parts[1], parts[2] if len(parts) > 2 else ""
+    try:
+        group_api, key = coord[2:].split("//", 1)
+        group, api = group_api.split("/", 1)
+    except ValueError:
+        sys.exit(f"error: coordinate must be //group/api//key: {coord}")
+    if not group or not api or not key:
+        sys.exit(f"error: coordinate must have group, api, and key: {coord}")
+    return group, api, key
 
 
 def _shadow_root(coord):
-    group, app, _ = _parse_coordinate(coord)
-    return f"//~{group}/{app}"
+    group, api, _ = _parse_coordinate(coord)
+    return f"//~{group}/{api}//"
 
 
 def _config_dir():
@@ -67,21 +71,21 @@ def _state_db_path():
 def _shadow_signing_key(coord):
     import time
 
-    group, app, _ = _parse_coordinate(coord)
+    group, api, _ = _parse_coordinate(coord)
     deadline = time.time() + 5.0
     while True:
         conn = sqlite3.connect(_state_db_path())
         try:
             row = conn.execute(
                 "SELECT signing_key FROM shadow_keys WHERE group_name = ? AND app_name = ?",
-                (group, app),
+                (group, api),
             ).fetchone()
         finally:
             conn.close()
         if row:
             return row[0]
         if time.time() >= deadline:
-            sys.exit(f"error: no shadow key stored for //{group}/{app}")
+            sys.exit(f"error: no shadow key stored for //{group}/{api}")
         time.sleep(0.1)
 
 
@@ -123,7 +127,7 @@ def cmd_navigate(args):
 
 def cmd_open_target(args):
     if not args:
-        sys.exit("usage: havi-cli //<group>/<app>[/location] [--shadow] [--mount PATH]")
+        sys.exit("usage: havi-cli //<group>/<api>//<key> [--shadow] [--mount PATH]")
 
     coord = args[0]
     shadow = False
@@ -142,12 +146,8 @@ def cmd_open_target(args):
             sys.exit(f"error: unknown argument: {arg}")
         i += 1
 
-    group, app, location = _parse_coordinate(coord)
-    url = f"hppr://{group}/{app}"
-    if location:
-        url += f"/{location}"
-    elif not url.endswith("/"):
-        url += "/"
+    group, api, key = _parse_coordinate(coord)
+    url = f"hppr://{group}/{api}//{key}"
 
     cmd_navigate([url])
 
@@ -218,15 +218,15 @@ def cmd_open_target(args):
 
 def cmd_deploy(args):
     if len(args) < 4:
-        sys.exit("usage: havi-cli deploy <group> <app> <content-root> <content-authority>")
-    group, app, content_root, content_authority = args[0], args[1], args[2], args[3]
+        sys.exit("usage: havi-cli deploy <group> <api> <content-root> <content-authority>")
+    group, api, content_root, content_authority = args[0], args[1], args[2], args[3]
     if not content_root.startswith("//"):
         sys.exit("error: content-root must start with //")
     if not (content_authority.startswith("V.") and content_authority.endswith(".H3")):
         sys.exit("error: content-authority must be V.<...>.H3")
 
     _hppr_add(
-        f"//{group}/admin/deploy/{app}",
+        f"//{group}/admin/deploy//{api}",
         [
             f"Content-Root: {content_root}",
             f"Content-Authority: {content_authority}",
@@ -262,7 +262,7 @@ BUILTIN = {
 
 USAGE = """\
 usage: havi-cli <command> [args...]
-       havi-cli //<group>/<app>[/location] [--shadow] [--mount PATH]
+       havi-cli //<group>/<api>//<key> [--shadow] [--mount PATH]
 
 Subcommand groups (delegate to standalone tools):
     makepad <cmd> ...    Makepad UI control (havi-makepad-cli)
@@ -270,20 +270,20 @@ Subcommand groups (delegate to standalone tools):
 
 Built-in commands:
     navigate <url>                                         Navigate HAVI to a URL
-    deploy <group> <app> <content-root> <content-authority>  Write app content pointer
+    deploy <group> <api> <content-root> <content-authority>  Write API content pointer
     publish <coordinate> <file>                            Store signed file, navigate
     publish-dir <coordinate> <dir>                         Retired. Use hppr-fuse or hppr-nfs directly
 
 Direct open:
-    //<group>/<app>[/location] [--shadow] [--mount PATH]   Open routed app, optionally enter shadow mode
+    //<group>/<api>//<key> [--shadow] [--mount PATH]   Open routed API document, optionally enter shadow mode
 
 Examples:
     havi-cli makepad screenshot /tmp/out.png
     havi-cli makepad click 300 400
     havi-cli devtools eval 'document.title'
-    havi-cli deploy u web //u/web V.EXAMPLE.H3
-    havi-cli publish //u/web/index.html page.html
-    havi-cli //dev/hppr.forge/presentation/index.html --shadow --mount /mnt/presentation
+    havi-cli deploy u web //u/web// V.EXAMPLE.H3
+    havi-cli publish //u/web//index.html page.html
+    havi-cli //dev/hppr.forge//presentation/index.html --shadow --mount /mnt/presentation
 """
 
 

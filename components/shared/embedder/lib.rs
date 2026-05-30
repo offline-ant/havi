@@ -413,7 +413,7 @@ impl From<ConsoleLogLevel> for log::Level {
 }
 
 // Re-export HPPR client types for use in protocol operations.
-pub use hppr_client::{HpprRequest, HpprResponse};
+pub use hppr_client::{HpprMessageRequest as HpprRequest, HpprResponse};
 pub use hppr_client::Signer as HpprSigner;
 pub use hppr_client::ViaSpec as HpprViaSpec;
 pub use hppr_client::HpprError as HpprClientError;

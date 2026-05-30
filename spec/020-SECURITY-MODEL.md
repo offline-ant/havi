@@ -2,28 +2,28 @@
 
 HAVI security has three distinct dimensions:
 
-1. app origin
+1. API origin
 2. content authority
 3. repo capability
 
 They are separate. Matching one dimension does not imply matching the others.
 
-## App origin
+## API origin
 
-App origin is the browser composition boundary.
+API origin is the browser composition boundary.
 
 Origin format:
 
-`//<group>/<app>/`
+`//<group>/<api>/`
 
-App origin controls ordinary browser relationships:
+API origin controls ordinary browser relationships:
 
 - same-origin DOM access under ordinary rules
 - storage and window relationships
-- app-space identity
+- API-space identity
 
-For routed app URLs, origin remains `//<group>/<app>/` even when content is
-fetched from a different coordinate under an app content pointer.
+For routed API URLs, origin remains `//<group>/<api>/` even when content is
+fetched from a different coordinate under an API content pointer.
 
 ## Content authority
 
@@ -32,34 +32,34 @@ content.
 
 Current concrete representation:
 
-- app-content URLs use exact `Content-Authority` equality
+- API-content URLs use exact `Content-Authority` equality
 - direct explicit Seal URLs use `Seal-By`
 - unsealed direct content has no content authority
 - `hppr-sandbox://` has no content authority
 
-For app-content URLs, HAVI resolves the app content pointer at:
+For API-content URLs, HAVI resolves the API content pointer at:
 
-`//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
+`//<group>/admin/deploy//<api>/|/seal/<repo-vkey>`
 
 Required headers:
 
 - `Content-Root`
 - `Content-Authority`
 
-The browser appends the requested location to `Content-Root` and fetches the
+The browser appends the requested key to `Content-Root` and fetches the
 final document from:
 
 `<target>/|/seal/<Content-Authority>`
 
 That fetch path is a hard cutover. If `Content-Authority` changes, old signer
-content is no longer reachable through the app URL.
+content is no longer reachable through the API URL.
 
 ### `<x>` authority comparison
 
 `<x>` compares parent and child content authority by exact verification-key
 equality.
 
-`//<group>/<app>` equality is not enough.
+`//<group>/<api>` equality is not enough.
 Route equality is not enough.
 Repo endpoint equality is not enough.
 
@@ -85,7 +85,7 @@ It controls:
 - ACL-bound read, write, and list access on the backing repo
 
 Repo capability is independent from app origin and content authority.
-A page may share app origin with another page while having different content
+A page may share API origin with another page while having different content
 authority, different repo capability, or both.
 
 ## Capability tiers
@@ -114,9 +114,9 @@ ACL checks run in `hpprd`, not in page JavaScript.
 - HPPR origins are secure contexts.
 - XSS still applies when apps render untrusted content unsafely.
 - Local route auth compromise affects routed repo capability for the affected
-  group or app scope.
-- App content pointer compromise affects which content root and signer back an
-  app URL.
+  group or API scope.
+- API content pointer compromise affects which content root and signer back an
+  API URL.
 - Content-signer mismatch causes `<x policy="auto">` to isolate the child.
 - `file://` pages use a browser-defined local origin. `window.source === null`
   there by default.

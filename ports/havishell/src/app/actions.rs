@@ -153,16 +153,16 @@ fn resolve_group_landing_destination(endpoint: &str, group: &str) -> String {
 
     let creds = global_credential_store();
     let client = Arc::new(client);
-    let app = runtime
+    let api = runtime
         .block_on(async {
-            libhavi::hppr::util::resolve_group_home_app(group, &client, &creds)
+            libhavi::hppr::util::resolve_group_home_api(group, &client, &creds)
                 .await
                 .ok()
                 .flatten()
         })
         .unwrap_or_else(|| "home".to_string());
 
-    group_landing_url(group, &app)
+    group_landing_url(group, &api)
 }
 
 fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
@@ -171,20 +171,20 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
         return Ok(());
     }
     let parts = address.parts();
-    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+    if parts.group.is_empty() || parts.api.is_empty() || parts.group.starts_with('~') {
         return Ok(());
     }
-    let location = parts.location.clone();
-    if location.is_empty() {
+    let key = parts.key.clone();
+    if key.is_empty() {
         return Ok(());
     }
 
     let target = hppr_client::parse_via(endpoint).map_err(|e| e.to_string())?;
     let client = std::sync::Arc::new(libhavi::hppr::client::HpprdClientAsync::new(target)?);
     let creds = global_credential_store();
-    let shadow = creds.get_or_create_shadow_credential(&parts.group, &parts.app)?;
+    let shadow = creds.get_or_create_shadow_credential(&parts.group, &parts.api)?;
     let shadow_group = format!("~{}", parts.group);
-    let seed_dir = location.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("").to_string();
+    let seed_dir = key.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("").to_string();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -193,9 +193,9 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
 
     let copy_file = |runtime: &tokio::runtime::Runtime, path: &str| -> Result<(), String> {
         let file_url = if path.is_empty() {
-            format!("hppr://{}/{}/", parts.group, parts.app)
+            format!("hppr://{}/{}//", parts.group, parts.api)
         } else {
-            format!("hppr://{}/{}/{}", parts.group, parts.app, path)
+            format!("hppr://{}/{}//{}", parts.group, parts.api, path)
         };
         let resolved = runtime
             .block_on(async { resolve::resolve_document(&file_url, &client, &creds).await })
@@ -206,11 +206,11 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
             .map(|s| s.to_string())
             .unwrap_or_else(|| mime_from_path(path).to_string());
         let headers = format!(
-            "Seal-By: {} {}\nGroup: {}\nApp: {}\nLocation: {}\nContent-Type: {}\n",
+            "Seal-By: {} {}\nGroup: {}\nAPI: {}\nKey: {}\nContent-Type: {}\n",
             shadow.verification_key,
             shadow.signing_key(),
             shadow_group,
-            parts.app,
+            parts.api,
             path,
             content_type,
         );
@@ -223,16 +223,16 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
     let mut dirs = vec![seed_dir.clone()];
     while let Some(dir) = dirs.pop() {
         let list_url = if dir.is_empty() {
-            format!("hppr://{}/{}/", parts.group, parts.app)
+            format!("hppr://{}/{}//", parts.group, parts.api)
         } else {
-            format!("hppr://{}/{}/{}/", parts.group, parts.app, dir)
+            format!("hppr://{}/{}//{}/", parts.group, parts.api, dir)
         };
         let listing = match runtime
             .block_on(async { resolve::resolve_listing(&list_url, &client, &creds).await })
         {
             Ok(listing) => listing,
             Err(_) if dir == seed_dir => {
-                copy_file(&runtime, &location)?;
+                copy_file(&runtime, &key)?;
                 copied_any = true;
                 break;
             }
@@ -263,7 +263,7 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
     }
 
     if !copied_any {
-        copy_file(&runtime, &location)?;
+        copy_file(&runtime, &key)?;
     }
     Ok(())
 }
@@ -271,22 +271,22 @@ fn seed_shadow_copy(endpoint: &str, url: &str) -> Result<(), String> {
 fn enable_shadow_mode(endpoint: &str, url: &str) -> Result<(), String> {
     let address = libhavi::hppr::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     let parts = address.parts();
-    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
-        return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
+    if parts.group.is_empty() || parts.api.is_empty() || parts.group.starts_with('~') {
+        return Err("shadow mode requires hppr://<group>/<api>//<key>".to_string());
     }
     let _ = seed_shadow_copy(endpoint, url);
     libhavi::hppr::state_db::global_state_db()
-        .set_shadow_override(&parts.group, &parts.app, true)
+        .set_shadow_override(&parts.group, &parts.api, true)
 }
 
 fn disable_shadow_mode(url: &str) -> Result<(), String> {
     let address = libhavi::hppr::url::HAVIAddress::parse(url).map_err(|e| e.to_string())?;
     let parts = address.parts();
-    if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
-        return Err("shadow mode requires hppr://<group>/<app>/...".to_string());
+    if parts.group.is_empty() || parts.api.is_empty() || parts.group.starts_with('~') {
+        return Err("shadow mode requires hppr://<group>/<api>//<key>".to_string());
     }
     libhavi::hppr::state_db::global_state_db()
-        .set_shadow_override(&parts.group, &parts.app, false)
+        .set_shadow_override(&parts.group, &parts.api, false)
 }
 
 impl App {
@@ -352,12 +352,12 @@ impl App {
             return;
         };
         let parts = addr.parts();
-        if parts.group.is_empty() || parts.app.is_empty() || parts.group.starts_with('~') {
+        if parts.group.is_empty() || parts.api.is_empty() || parts.group.starts_with('~') {
             return;
         }
 
         let enable = !libhavi::hppr::state_db::global_state_db()
-            .shadow_override_enabled(&parts.group, &parts.app)
+            .shadow_override_enabled(&parts.group, &parts.api)
             .unwrap_or(false);
         let url = tab.url.clone();
         let webview_id = tab.webview_id;

@@ -11,7 +11,7 @@
 
 use hppr_client::Packet;
 use hppr_client::{
-    AnyConnection, HpprRequest as IoRequest, ResponseKind, Signer, ViaSpec, parse_via,
+    AnyConnection, HpprMessageRequest as IoRequest, ResponseKind, Signer, ViaSpec, parse_via,
     spawn_connection,
 };
 use hppr_packet::PacketType;
@@ -19,11 +19,11 @@ use tokio::sync::Mutex;
 
 use super::credentials::{DEFAULT_RING0_NAME, DEFAULT_ROOT_TOKEN, global_credential_store};
 
-/// Local exact-app route record information.
+/// Local exact-API route record information.
 #[derive(Debug, Clone)]
-pub struct LocalRouteAppInfo {
+pub struct LocalRouteApiInfo {
     pub upstream: Option<ViaSpec>,
-    pub upstream_verification_key: Option<String>,
+    pub upstream_verifier: Option<String>,
     pub content_authority: Option<String>,
 }
 
@@ -32,8 +32,8 @@ pub struct LocalRouteAppInfo {
 pub struct LocalRouteGroupInfo {
     pub upstream: ViaSpec,
     pub route_authority_key: String,
-    pub upstream_verification_key: Option<String>,
-    pub home_app: Option<String>,
+    pub upstream_verifier: Option<String>,
+    pub home_api: Option<String>,
 }
 
 /// Local route auth record loaded from `//repo/route/auth/...`.
@@ -42,7 +42,7 @@ pub struct RouteAuthInfo {
     pub auth: String,
 }
 
-/// App content pointer information for routed app content.
+/// API content pointer information for routed api content.
 #[derive(Debug, Clone)]
 pub struct ContentPointerInfo {
     pub root: String,
@@ -147,11 +147,14 @@ impl HpprdClientAsync {
                         })
                     },
                     Some(hppr_client::TransportScheme::Udp) => {
-                        let conn = hppr_client::connect_udp_stateless(addr)
+                        let conn = hppr_client::connect_udp_message(addr)
                             .await
                             .map_err(|e| e.to_string())?;
                         Ok(AnyConnection::Udp(conn))
                     },
+                    Some(hppr_client::TransportScheme::Http) => Err(
+                        "HTTP POST is query-only and does not support session commands".to_string(),
+                    ),
                     None => {
                         // Auto-negotiate: connect TCP, check Transport headers
                         let mut conn = spawn_connection(addr, self.signer.clone())
@@ -324,6 +327,7 @@ impl HpprdClientAsync {
         self.request_lines(IoRequest::Add {
             headers: add_args.to_vec(),
             data: None,
+            seal_with: None,
         })
         .await
     }
@@ -332,13 +336,13 @@ impl HpprdClientAsync {
     // Local Route Record Methods
     // ========================================================================
 
-    pub async fn get_local_route_app(
+    pub async fn get_local_route_api(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
         repo_vkey: &str,
-    ) -> Result<LocalRouteAppInfo, String> {
-        let urc = format!("//repo/route/app/{}/{}/|/seal/{}", group, app, repo_vkey);
+    ) -> Result<LocalRouteApiInfo, String> {
+        let urc = format!("//repo/route/api//{}/{}/|/seal/{}", group, api, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
         let packet_type = hppr_packet::Packet::parse(packet.as_bytes().to_vec().into_boxed_slice())
@@ -346,7 +350,7 @@ impl HpprdClientAsync {
             .unwrap_or(PacketType::Null);
         if packet_type != PacketType::Seal {
             return Err(format!(
-                "Local route app packet is not sealed (got type: {:?})",
+                "Local route API packet is not sealed (got type: {:?})",
                 packet_type
             ));
         }
@@ -357,8 +361,8 @@ impl HpprdClientAsync {
             ),
             None => None,
         };
-        let upstream_verification_key = packet
-            .header("Upstream-Verification-Key")
+        let upstream_verifier = packet
+            .header("Upstream-Verifier")
             .map(|s| s.trim().to_string())
             .filter(|v| !v.is_empty());
         let content_authority = packet
@@ -366,9 +370,9 @@ impl HpprdClientAsync {
             .map(|s| s.trim().to_string())
             .filter(|v| !v.is_empty());
 
-        Ok(LocalRouteAppInfo {
+        Ok(LocalRouteApiInfo {
             upstream,
-            upstream_verification_key,
+            upstream_verifier,
             content_authority,
         })
     }
@@ -378,7 +382,7 @@ impl HpprdClientAsync {
         group: &str,
         repo_vkey: &str,
     ) -> Result<LocalRouteGroupInfo, String> {
-        let urc = format!("//repo/route/group/{}/|/seal/{}", group, repo_vkey);
+        let urc = format!("//repo/route/group//{}/|/seal/{}", group, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
         let upstream_raw = packet
@@ -390,34 +394,34 @@ impl HpprdClientAsync {
             .header("Route-Authority-Key")
             .ok_or("Local route group packet missing Route-Authority-Key header")?
             .to_string();
-        let upstream_verification_key = packet
-            .header("Upstream-Verification-Key")
+        let upstream_verifier = packet
+            .header("Upstream-Verifier")
             .map(|s| s.trim().to_string())
             .filter(|v| !v.is_empty());
-        let home_app = packet
-            .header("Home-App")
+        let home_api = packet
+            .header("Home-API")
             .map(|s| s.trim().to_string())
             .filter(|v| !v.is_empty());
 
         Ok(LocalRouteGroupInfo {
             upstream,
             route_authority_key,
-            upstream_verification_key,
-            home_app,
+            upstream_verifier,
+            home_api,
         })
     }
 
     pub async fn get_route_auth(
         &self,
         group: &str,
-        app: Option<&str>,
+        api: Option<&str>,
         repo_vkey: &str,
     ) -> Result<RouteAuthInfo, String> {
         let mut urcs = Vec::with_capacity(2);
-        if let Some(app) = app {
-            urcs.push(format!("//repo/route/auth/{}/{}/|/seal/{}", group, app, repo_vkey));
+        if let Some(api) = api {
+            urcs.push(format!("//repo/route/auth//{}/{}/|/seal/{}", group, api, repo_vkey));
         }
-        urcs.push(format!("//repo/route/auth/{}/|/seal/{}", group, repo_vkey));
+        urcs.push(format!("//repo/route/auth//{}/|/seal/{}", group, repo_vkey));
 
         for urc in urcs {
             let packet = match self.get_packet(&urc).await {
@@ -458,8 +462,8 @@ impl HpprdClientAsync {
         let add_args = format!(
             "Seal-By: ring0\n\
              Group: repo\n\
-             App: route\n\
-             Location: auth/{}\n\
+             API: route/auth\n\
+             Key: {}\n\
              Auth: ring2:{}|{}\n",
             group, group, signing_key
         );
@@ -470,9 +474,9 @@ impl HpprdClientAsync {
 
     /// Get admin identity (verification key) from host.
     ///
-    /// Used for local route lookups and app-content pointer resolution.
+    /// Used for local route lookups and api-content pointer resolution.
     pub async fn get_admin_identity(&self) -> Result<String, String> {
-        let urc = "//repo/admin/identity/|";
+        let urc = "//repo/admin/identity//root/|";
         let packet = self.get_packet(urc).await?;
 
         packet
@@ -482,20 +486,20 @@ impl HpprdClientAsync {
     }
 
     // ========================================================================
-    // App Content Pointer Methods
+    // API Content Pointer Methods
     // ========================================================================
 
-    /// Get app content pointer for a group/app from target repo.
+    /// Get API content pointer for a group/api from target repo.
     ///
     /// Coordinate:
-    /// `//<group>/admin/deploy/<app>/|/seal/<repo-vkey>`
+    /// `//<group>/admin/deploy//<api>/|/seal/<repo-vkey>`
     pub async fn get_content_pointer(
         &self,
         group: &str,
-        app: &str,
+        api: &str,
         repo_vkey: &str,
     ) -> Result<ContentPointerInfo, String> {
-        let urc = format!("//{}/admin/deploy/{}/|/seal/{}", group, app, repo_vkey);
+        let urc = format!("//{}/admin/deploy//{}/|/seal/{}", group, api, repo_vkey);
         let packet = self.get_packet(&urc).await?;
 
         let root = packet

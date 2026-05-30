@@ -12,7 +12,7 @@ start_server
 setup_acl "$TEST_GROUP" "$TEST_APP"
 create_key
 import_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
-start_servo "hppr://$TEST_GROUP/$TEST_APP/link-start.html"
+start_servo "hppr://$TEST_GROUP/$TEST_APP//link-start.html"
 
 log "Testing link navigation..."
 debugtool="$HAVI_ROOT/havi-devtools-cli"

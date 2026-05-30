@@ -46,8 +46,8 @@
       assert(document.packet, 'document.packet exists for current page');
 
       const group = document.packet.group;
-      const app = document.packet.app;
-      const packet = await window.source.client.get('//' + group + '/' + app + '/media-source-h264-frag.mp4');
+      const api = document.packet.api;
+      const packet = await window.source.client.get('//' + group + '/' + api + '//media-source-h264-frag.mp4');
       const mp4Bytes = new Uint8Array(packet.arrayBuffer());
       assert(mp4Bytes.length > 0, 'fixture bytes loaded from HPPR');
 

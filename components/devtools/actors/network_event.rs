@@ -584,11 +584,11 @@ impl NetworkEventActor {
         let remote_address = if let Some(data) = url.as_hppr() {
             let addr = data.address();
             let group = addr.group().unwrap_or_default();
-            let app = addr.app().unwrap_or_default();
-            if app.is_empty() {
+            let api = addr.api().unwrap_or_default();
+            if api.is_empty() {
                 Some(group)
             } else {
-                Some(format!("{}/{}", group, app))
+                Some(format!("{}/{}", group, api))
             }
         } else {
             url.host_str().map(|a| a.into())

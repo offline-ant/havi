@@ -6,19 +6,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="diagnostics"
 TEST_GROUP="diagtest"
-TEST_APP="testapp"
+TEST_API="testapp"
 
 start_server
-setup_acl "$TEST_GROUP" "$TEST_APP"
+setup_acl "$TEST_GROUP" "$TEST_API"
 create_key
 
 start_remote_server
-setup_remote_acl "$TEST_GROUP" "$TEST_APP"
+setup_remote_acl "$TEST_GROUP" "$TEST_API"
 create_remote_key
-import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_APP"
-setup_remote_ring2 "$TEST_GROUP" "$TEST_APP"
-setup_remote_deploy "$TEST_GROUP" "$TEST_APP"
-setup_route "$TEST_GROUP" "$TEST_APP"
+import_remote_content "$SCRIPT_DIR/content" "$TEST_GROUP" "$TEST_API"
+setup_remote_ring2 "$TEST_GROUP" "$TEST_API"
+setup_remote_deploy "$TEST_GROUP" "$TEST_API"
+setup_route "$TEST_GROUP" "$TEST_API"
 
 start_servo "havi:///diagnostics"
 
@@ -40,7 +40,7 @@ results=$(echo "$output" | jq -r 'select(.event == "evalResult") | .value')
 [[ "$(echo "$results" | sed -n '3p')" == "true" ]] || fail "diagOutput missing"
 
 inspect_ok=$("$debugtool" --timeout 20 eval --await \
-    'fetch("havi:///diagnostics/api?cmd=inspect&group='"$TEST_GROUP"'&app='"$TEST_APP"'&location=index.html").then(r => r.json()).then(j => j.ok === true && !!j.data && !!j.data.route && !!j.data.deploy && !!j.data.auth && j.data.route.configured === true)' \
+    'fetch("havi:///diagnostics/api?cmd=inspect&group='"$TEST_GROUP"'&api='"$TEST_API"'&key=index.html").then(r => r.json()).then(j => j.ok === true && !!j.data && !!j.data.route && !!j.data.deploy && !!j.data.auth && j.data.route.configured === true)' \
     2>/dev/null | jq -r 'select(.ok == true) | .value' | tail -1)
 [[ "$inspect_ok" == "true" ]] || fail "diagnostics inspect API failed"
 

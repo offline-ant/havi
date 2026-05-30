@@ -13,8 +13,8 @@ interface URC {
     readonly attribute DOMString method;  // "hash" or "index"
 
     readonly attribute DOMString? group;
-    readonly attribute DOMString? app;
-    readonly attribute DOMString? location;
+    readonly attribute DOMString? api;
+    readonly attribute DOMString? key;
     readonly attribute DOMString? coordinate;
 
     readonly attribute boolean isListing;

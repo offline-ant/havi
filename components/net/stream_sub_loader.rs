@@ -148,7 +148,7 @@ pub async fn start_stream_sub(
     let mut reader = tokio::io::BufReader::new(reader);
 
     // HELLO
-    let hello_packet = match hppr_client::hppr_packet::create_null_with_headers(&[("App", "🖧HELLO")], b"") {
+    let hello_packet = match hppr_client::hppr_packet::create_null_with_headers(&[("API", "🖧HELLO")], b"") {
         Ok(p) => p,
         Err(e) => {
             let _ = event_sender.send(StreamSubNetworkEvent::Fail(parse_error_string(

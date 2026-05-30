@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-prelude.bash"
 
 TEST_NAME="network-route-ephemeral"
 TEST_GROUP="netephem"
-TEST_APP="site"
+TEST_API="site"
 
 start_server
 start_remote_server
@@ -20,21 +20,21 @@ REMOTE_UDP_PORT=$(awk -F'udp:' '/^Transport: udp:/{print $2; exit}' <<<"$REMOTE_
 # Remote target repo: public content via anyone ACL, with Ring2 setup present so
 # routed requests classify non-members as guest and fall back to anyone ACL.
 HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring2 setup "//$TEST_GROUP" --init
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/$TEST_APP/"
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/admin/deploy/"
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_APP/index.html" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/$TEST_API//"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone add r.l "//$TEST_GROUP/admin/deploy//"
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/$TEST_API//index.html" \
     -H 'Seal-By: ring0' \
     -H 'Content-Type: text/html; charset=utf-8' <<'EOF'
 <!doctype html>
 <title>Network Ephemeral</title>
 <h1>Network Ephemeral</h1>
 EOF
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy/$TEST_APP" \
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" add "//$TEST_GROUP/admin/deploy//$TEST_API" \
     -H 'Seal-By: ring0' \
-    -H "Content-Root: //$TEST_GROUP/$TEST_APP" \
+    -H "Content-Root: //$TEST_GROUP/$TEST_API//" \
     -H "Content-Authority: $REMOTE_REPO_VKEY" <<< ''
 
-# Publish route records: group record + app record signed by a test route root key.
+# Publish route records: group record + API record signed by a test route root key.
 ROUTE_ROOT_KEY="route-root-$TEST_NAME-$$"
 "$HPPR" key generate "$ROUTE_ROOT_KEY" >/dev/null
 ROUTE_ROOT_SK=$("$HPPR" key show "$ROUTE_ROOT_KEY")
@@ -48,8 +48,8 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route group put 
     --signing-key "$ROUTE_ROOT_SK" \
     --signer 'ring1:ring0|init' >/dev/null
 
-# App record: //<group>/route/app/<app>
-HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route app put "//$TEST_GROUP/$TEST_APP" \
+# API record: //<group>/route/api//<api>
+HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" route api put "//$TEST_GROUP/$TEST_API" \
     --content-authority "$REMOTE_REPO_VKEY" \
     --signing-key "$ROUTE_ROOT_SK" \
     --signer 'ring1:ring0|init' >/dev/null
@@ -61,7 +61,7 @@ HPPR_HOME="$REMOTE_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" ring1 acl anyone
 export _HPPR_ROUTE_ROOT_SERVER="udp+127.0.0.1:$REMOTE_UDP_PORT"
 export _HPPR_ROUTE_ROOT_PUBKEY="$ROUTE_ROOT_VK"
 
-start_servo "hppr://$TEST_GROUP/$TEST_APP/index.html"
+start_servo "hppr://$TEST_GROUP/$TEST_API//index.html"
 
 debugtool="$HAVI_ROOT/havi-devtools-cli"
 
@@ -73,7 +73,7 @@ done
 [[ "$title" == "Network Ephemeral" ]] || fail "expected network-resolved page, got title: ${title:-<none>}"
 
 set +e
-route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" headers "//repo/route/app/$TEST_GROUP/$TEST_APP/|/seal/$HOME_REPO_VKEY" 2>&1)
+route_headers=$(HPPR_HOME="$HPPR_HOME" HPPR_SIGNER='ring1:ring0|init' "$HPPR" headers "//repo/route/api//$TEST_GROUP/$TEST_API/|/seal/$HOME_REPO_VKEY" 2>&1)
 route_status=$?
 set -e
 [[ "$route_status" -ne 0 ]] || fail "network navigation should not persist local route: $route_headers"
