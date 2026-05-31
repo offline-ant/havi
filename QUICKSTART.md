@@ -244,7 +244,7 @@ Evaluate JS from terminal:
 ## What to read next
 
 - HPPR protocol quickstart: `QUICKSTART-HPPR.md`
-- Full HPPR specs: `docs/spec/hppr/packet/010-PACKETS.md`,
-  `docs/spec/hppr/wire/030-MESSAGES.md`, and `docs/spec/hppr/repo/080-REPLICATION.md`
+- Full HPPR specs: `docs/spec/hppr/010-PACKETS.md`,
+  `docs/spec/hppr/030-COMMAND-MESSAGES.md`, and `docs/spec/hppr/080-REPLICATION-AND-STREAMS.md`
 - Full browser spec: `docs/spec/havi/010-OVERVIEW.md` through
   `docs/spec/havi/080-PUBLISHING.md`
