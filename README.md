@@ -1,6 +1,11 @@
 # HAVI
 
-HAVI is an HPPR-native browser distribution with bundled HPPR tools.
+> Unmaintained: this repository is published for reference and archival use.
+> It is not maintained as an active upstream project.
+
+HAVI is an HPPR-native browser distribution with bundled HPPR tools. It is a
+Servo fork running on Makepad, with a platform layer intended to run on iOS,
+Android, macOS, Windows, and Linux.
 
 Default HAVI browsing now uses a browser-owned local packet store. On desktop,
 when `HAVI_HOME` is unset, packet-native browser-local state lives in
